@@ -18,8 +18,8 @@ coverage.out
 .env.local
 .env.*.local
 tmp/
+.local/
 
 # Project data
 /data/
 /var/
-
