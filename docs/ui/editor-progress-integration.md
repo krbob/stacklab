@@ -31,7 +31,7 @@ Important facts:
 - `GET /api/jobs/{jobId}` returns the current job snapshot only. It does not return `job_events`.
 - WebSocket `jobs.subscribe` replays retained events for that job, then switches to live events.
 - `PUT /definition` can return an HTTP error after a job was already created and marked failed. In that failure path the response body does not include the `job.id`.
-- `PUT /definition` with `validate_after_save=true` can still return `200` with a succeeded job even when the saved config does not resolve cleanly. In that case the backend emits a later `job_warning` event.
+- `PUT /definition` with `validate_after_save=true` can still return `200` with a succeeded job even when the saved config does not resolve cleanly. In that case the backend emits a `job_warning` before the terminal `job_finished` event.
 
 ## Editor Flow
 
@@ -107,8 +107,8 @@ Typical sequence:
 2. WS replay/live events include:
    - `job_started`
    - `job_progress`
-   - `job_finished`
    - `job_warning`
+   - `job_finished`
 
 Implication:
 
@@ -206,7 +206,7 @@ Interpretation guidelines:
 - `job_progress`: human-readable activity text
 - `job_step_started`: workflow step entered
 - `job_step_finished`: workflow step completed
-- `job_warning`: non-fatal warning; the job may still be `succeeded`
+- `job_warning`: non-fatal warning; for `save_definition` it can appear just before the final `job_finished`
 - `job_error`: fatal error detail
 - `job_finished`: terminal event for both success and failure
 
@@ -290,6 +290,6 @@ These are known gaps in the current implementation, not UI bugs:
 - `GET /api/stacks/{stackId}/resolved-config?source=last_valid` is not implemented
 - `PUT /definition` failure responses do not include `job.id`
 - there is no REST endpoint that returns `job_events`
-- a save can be `succeeded` and still emit `job_warning` afterward
+- a save can be `succeeded` and still have emitted `job_warning` during the same job stream
 
 If any of these behaviors change, this document should be updated together with the endpoint or job-stream behavior.

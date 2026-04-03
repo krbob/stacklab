@@ -470,16 +470,16 @@ func (h *Handler) handlePutDefinition(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if request.ValidateAfterSave && !preview.Valid {
+		h.logger.Warn("saved invalid stack definition", slog.String("stack_id", r.PathValue("stackId")), slog.String("message", preview.Error.Message))
+		_ = h.jobs.PublishEvent(r.Context(), job, "job_warning", preview.Error.Message, "", nil)
+	}
+
 	job, err = h.jobs.FinishSucceeded(r.Context(), job)
 	if err != nil {
 		h.logger.Error("finish save_definition job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
 		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to finalize job.", nil)
 		return
-	}
-
-	if request.ValidateAfterSave && !preview.Valid {
-		h.logger.Warn("saved invalid stack definition", slog.String("stack_id", r.PathValue("stackId")), slog.String("message", preview.Error.Message))
-		_ = h.jobs.PublishEvent(r.Context(), job, "job_warning", preview.Error.Message, "", nil)
 	}
 
 	if err := h.audit.RecordStackJob(r.Context(), job); err != nil {

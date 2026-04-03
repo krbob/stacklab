@@ -361,6 +361,128 @@ func TestWebSocketReplaysJobEvents(t *testing.T) {
 	}
 }
 
+func TestSaveDefinitionWarningPrecedesJobFinished(t *testing.T) {
+	t.Parallel()
+
+	handler, cfg := newTestHandler(t)
+	cookies := loginTestUser(t, handler, "secret")
+
+	createResponse := performJSONRequest(t, handler, http.MethodPost, "/api/stacks", map[string]any{
+		"stack_id":            "demo",
+		"compose_yaml":        "services:\n  app:\n    image: nginx:alpine\n",
+		"env":                 "",
+		"create_config_dir":   false,
+		"create_data_dir":     false,
+		"deploy_after_create": false,
+	}, cookies)
+	if createResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/stacks status = %d, want %d", createResponse.Code, http.StatusOK)
+	}
+
+	updateResponse := performJSONRequest(t, handler, http.MethodPut, "/api/stacks/demo/definition", map[string]any{
+		"compose_yaml":        "services:\n  app:\n    image: nginx:alpine\n    environment:\n      REQUIRED: ${MISSING?required}\n",
+		"env":                 "",
+		"validate_after_save": true,
+	}, cookies)
+	if updateResponse.Code != http.StatusOK {
+		t.Fatalf("PUT /api/stacks/demo/definition status = %d, want %d", updateResponse.Code, http.StatusOK)
+	}
+
+	var updatePayload struct {
+		Job struct {
+			ID    string `json:"id"`
+			State string `json:"state"`
+		} `json:"job"`
+	}
+	decodeResponse(t, updateResponse, &updatePayload)
+	if updatePayload.Job.ID == "" || updatePayload.Job.State != "succeeded" {
+		t.Fatalf("unexpected update job payload: %#v", updatePayload.Job)
+	}
+
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	wsURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("url.Parse(server.URL) error = %v", err)
+	}
+	wsURL.Scheme = strings.Replace(wsURL.Scheme, "http", "ws", 1)
+	wsURL.Path = "/api/ws"
+
+	header := http.Header{}
+	header.Set("Origin", server.URL)
+	for _, cookie := range cookies {
+		header.Add("Cookie", cookie.Name+"="+cookie.Value)
+	}
+
+	wsConn, wsResponse, err := websocket.DefaultDialer.Dial(wsURL.String(), header)
+	if err != nil {
+		if wsResponse != nil {
+			body, _ := io.ReadAll(wsResponse.Body)
+			_ = wsResponse.Body.Close()
+			t.Fatalf("websocket dial error = %v (status=%d body=%q)", err, wsResponse.StatusCode, string(body))
+		}
+		t.Fatalf("websocket dial error = %v", err)
+	}
+	defer wsConn.Close()
+	_ = wsConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+
+	var helloFrame map[string]any
+	if err := wsConn.ReadJSON(&helloFrame); err != nil {
+		t.Fatalf("ReadJSON(hello) error = %v", err)
+	}
+
+	if err := wsConn.WriteJSON(map[string]any{
+		"type":       "jobs.subscribe",
+		"request_id": "req_save_1",
+		"stream_id":  "job_save_demo",
+		"payload": map[string]any{
+			"job_id": updatePayload.Job.ID,
+		},
+	}); err != nil {
+		t.Fatalf("WriteJSON(subscribe) error = %v", err)
+	}
+
+	var ackFrame map[string]any
+	if err := wsConn.ReadJSON(&ackFrame); err != nil {
+		t.Fatalf("ReadJSON(ack) error = %v", err)
+	}
+
+	eventNames := make([]string, 0, 8)
+	for {
+		var eventFrame struct {
+			Type    string `json:"type"`
+			Payload struct {
+				Event string `json:"event"`
+			} `json:"payload"`
+		}
+		if err := wsConn.ReadJSON(&eventFrame); err != nil {
+			t.Fatalf("ReadJSON(job event) error = %v", err)
+		}
+		if eventFrame.Type != "jobs.event" {
+			continue
+		}
+		eventNames = append(eventNames, eventFrame.Payload.Event)
+		if eventFrame.Payload.Event == "job_finished" {
+			break
+		}
+	}
+
+	warningIndex := indexOfString(eventNames, "job_warning")
+	finishedIndex := indexOfString(eventNames, "job_finished")
+	if warningIndex == -1 {
+		t.Fatalf("expected replay to include job_warning, got %#v", eventNames)
+	}
+	if finishedIndex == -1 {
+		t.Fatalf("expected replay to include job_finished, got %#v", eventNames)
+	}
+	if warningIndex > finishedIndex {
+		t.Fatalf("expected job_warning before job_finished, got %#v", eventNames)
+	}
+
+	assertPathExists(t, filepath.Join(cfg.RootDir, "stacks", "demo", "compose.yaml"))
+}
+
 func TestWebSocketTerminalAttachMissingSession(t *testing.T) {
 	t.Parallel()
 
@@ -555,6 +677,15 @@ func assertPathMissing(t *testing.T, path string) {
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("expected path %q to be missing, got err = %v", path, err)
 	}
+}
+
+func indexOfString(values []string, target string) int {
+	for index, value := range values {
+		if value == target {
+			return index
+		}
+	}
+	return -1
 }
 
 func containsString(values []string, candidate string) bool {
