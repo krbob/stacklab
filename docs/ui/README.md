@@ -7,6 +7,7 @@ This section contains information architecture, screens, and UI-facing contracts
 - [information-architecture.md](information-architecture.md) — navigation model, screen inventory, URL structure, responsive breakpoints
 - [screen-specs.md](screen-specs.md) — per-screen specifications with wireframes
 - [states-and-empty-cases.md](states-and-empty-cases.md) — stack/service/operation state model, badges, empty states, loading, errors, confirmation dialogs
+- [editor-progress-integration.md](editor-progress-integration.md) — backend-backed integration notes for the editor, mutating actions, and progress panel
 
 ## Frontend Stack
 
@@ -26,7 +27,7 @@ Confirmed:
 
 ## Dependencies on Backend Contracts
 
-UI implementation of the following screens is blocked until backend contracts are available:
+UI implementation of the following screens depends on backend contracts and runtime behavior:
 
 - Terminal, Logs, Stats → `docs/api/websocket-protocol.md`
 - All data views → `docs/api/rest-endpoints.md`
