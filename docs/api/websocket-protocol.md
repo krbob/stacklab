@@ -404,6 +404,40 @@ Rules:
   - `timed_out`
 - `step` is `null` for non-workflow jobs
 
+### Job Log Event Semantics
+
+When `event = job_log`, the payload may include both:
+
+- `message`: optional human-readable summary
+- `data`: optional raw process output chunk
+
+Example:
+
+```json
+{
+  "type": "jobs.event",
+  "stream_id": "job_01hr_progress",
+  "payload": {
+    "job_id": "job_01hr...",
+    "stack_id": "nextcloud",
+    "action": "pull",
+    "state": "running",
+    "event": "job_log",
+    "message": "Pulling service app",
+    "data": "29-apache: Downloading [=====>    ] 67%\r",
+    "step": null,
+    "timestamp": "2026-04-03T18:42:04Z"
+  }
+}
+```
+
+Rules:
+
+- `message` is intended for human-readable summaries when available
+- `data` is intended for raw stdout/stderr chunks and may contain carriage returns or ANSI sequences
+- UI may prefer rendering `data` for progress panels that mimic CLI output
+- either field may be omitted when not relevant
+
 ## Terminal
 
 Terminal transport uses JSON frames carrying UTF-8 strings.
@@ -444,6 +478,25 @@ Server:
     "session_id": "term_01hr...",
     "container_id": "2f4b...",
     "shell": "/bin/sh"
+  }
+}
+```
+
+Open failure behavior:
+
+- if the backend cannot establish the exec/PTTY session, it responds with a standard `error` frame correlated by `request_id`
+- no terminal session is considered open in that case
+
+Example:
+
+```json
+{
+  "type": "error",
+  "request_id": "req_term_open_01",
+  "stream_id": "term_nextcloud_app_1",
+  "error": {
+    "code": "invalid_state",
+    "message": "Container is not running."
   }
 }
 ```
@@ -569,6 +622,12 @@ Possible `reason` values:
 - `server_cleanup`
 - `connection_replaced`
 
+Rules:
+
+- `terminal.exited` is only sent for a session that was successfully opened or attached
+- failures before a session is established use the generic `error` frame, not `terminal.exited`
+- if the client later sends `terminal.input` or `terminal.resize` for a dead session, the server may respond with `error` using `terminal_session_not_found`
+
 ## Multiplexing Rules
 
 The same connection may carry multiple concurrent streams, for example:
@@ -636,4 +695,3 @@ Suggested WebSocket error codes:
 - keep terminal `session_id` in memory per terminal tab
 - treat job events as streaming progress, then reconcile final truth through REST
 - never assume PTY resume unless `terminal.attach` succeeds
-
