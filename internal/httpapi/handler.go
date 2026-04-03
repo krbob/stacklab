@@ -2,26 +2,30 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"stacklab/internal/config"
+	"stacklab/internal/stacks"
 	"strings"
 	"time"
 )
 
 type Handler struct {
-	cfg    config.Config
-	logger *slog.Logger
-	mux    *http.ServeMux
+	cfg         config.Config
+	logger      *slog.Logger
+	mux         *http.ServeMux
+	stackReader *stacks.ServiceReader
 }
 
 func NewHandler(cfg config.Config, logger *slog.Logger) http.Handler {
 	handler := &Handler{
-		cfg:    cfg,
-		logger: logger,
-		mux:    http.NewServeMux(),
+		cfg:         cfg,
+		logger:      logger,
+		mux:         http.NewServeMux(),
+		stackReader: stacks.NewServiceReader(cfg, logger),
 	}
 
 	handler.registerRoutes()
@@ -31,6 +35,10 @@ func NewHandler(cfg config.Config, logger *slog.Logger) http.Handler {
 
 func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/health", h.handleHealth)
+	h.mux.HandleFunc("GET /api/session", h.handleSession)
+	h.mux.HandleFunc("GET /api/meta", h.handleMeta)
+	h.mux.HandleFunc("GET /api/stacks", h.handleListStacks)
+	h.mux.HandleFunc("GET /api/stacks/{stackId}", h.handleGetStack)
 	h.mux.HandleFunc("/api/", h.handleAPINotImplemented)
 	h.mux.HandleFunc("/", h.handleFrontend)
 }
@@ -38,8 +46,46 @@ func (h *Handler) registerRoutes() {
 func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":  "ok",
-		"version": "0.1.0-dev",
+		"version": stacks.AppVersion,
 	})
+}
+
+func (h *Handler) handleSession(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, h.stackReader.Session())
+}
+
+func (h *Handler) handleMeta(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, h.stackReader.Meta(r.Context()))
+}
+
+func (h *Handler) handleListStacks(w http.ResponseWriter, r *http.Request) {
+	response, err := h.stackReader.List(r.Context(), stacks.ListQuery{
+		Search: strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q"))),
+		Sort:   strings.TrimSpace(r.URL.Query().Get("sort")),
+	})
+	if err != nil {
+		h.logger.Error("list stacks failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load stacks.", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleGetStack(w http.ResponseWriter, r *http.Request) {
+	response, err := h.stackReader.Get(r.Context(), r.PathValue("stackId"))
+	if err != nil {
+		switch {
+		case errors.Is(err, stacks.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Stack was not found.", nil)
+		default:
+			h.logger.Error("get stack failed", slog.String("stack_id", r.PathValue("stackId")), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load stack.", nil)
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (h *Handler) handleAPINotImplemented(w http.ResponseWriter, r *http.Request) {
@@ -100,7 +146,9 @@ func (r *statusRecorder) WriteHeader(status int) {
 func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(payload)
+	encoder := json.NewEncoder(w)
+	encoder.SetEscapeHTML(false)
+	_ = encoder.Encode(payload)
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string, details any) {
