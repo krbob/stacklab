@@ -14,7 +14,7 @@ export const WsContext = createContext<WsContextValue | null>(null as WsContextV
 
 const RECONNECT_DELAYS = [1000, 2000, 5000, 10000, 20000, 30000]
 
-export function WsProvider({ children }: { children: ReactNode }) {
+export function WsProvider({ children, authenticated = false }: { children: ReactNode; authenticated?: boolean }) {
   const [connected, setConnected] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const handlersRef = useRef<Map<string, Set<FrameHandler>>>(new Map())
@@ -85,7 +85,9 @@ export function WsProvider({ children }: { children: ReactNode }) {
           .then((res) => {
             if (res.status === 401 || !res.ok) {
               authFailedRef.current = true
-              window.location.href = '/login'
+              if (window.location.pathname !== '/login') {
+                window.location.href = '/login'
+              }
             } else {
               scheduleReconnect()
             }
@@ -106,6 +108,8 @@ export function WsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     connectRef.current = connect
+    if (!authenticated) return
+    authFailedRef.current = false
     connect()
     return () => {
       authFailedRef.current = true
@@ -115,7 +119,7 @@ export function WsProvider({ children }: { children: ReactNode }) {
       if (hbTimer) clearInterval(hbTimer)
       wsRef.current?.close()
     }
-  }, [connect])
+  }, [connect, authenticated])
 
   const send = useCallback((frame: Record<string, unknown>) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
