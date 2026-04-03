@@ -89,9 +89,10 @@ func TestHandlerCreateAndDeleteStackWithoutRuntime(t *testing.T) {
 
 	handler, cfg := newTestHandler(t)
 	cookies := loginTestUser(t, handler, "secret")
+	stackID := "fixture-create-delete"
 
 	createResponse := performJSONRequest(t, handler, http.MethodPost, "/api/stacks", map[string]any{
-		"stack_id":            "demo",
+		"stack_id":            stackID,
 		"compose_yaml":        "services:\n  app:\n    image: nginx:alpine\n",
 		"env":                 "PORT=8080\n",
 		"create_config_dir":   true,
@@ -115,31 +116,31 @@ func TestHandlerCreateAndDeleteStackWithoutRuntime(t *testing.T) {
 		} `json:"job"`
 	}
 	decodeResponse(t, createResponse, &createPayload)
-	if createPayload.Job.Action != "create_stack" || createPayload.Job.StackID != "demo" || createPayload.Job.State != "succeeded" {
+	if createPayload.Job.Action != "create_stack" || createPayload.Job.StackID != stackID || createPayload.Job.State != "succeeded" {
 		t.Fatalf("unexpected create job payload: %#v", createPayload.Job)
 	}
 	if createPayload.Job.Workflow == nil || len(createPayload.Job.Workflow.Steps) != 1 {
 		t.Fatalf("expected single-step create workflow, got %#v", createPayload.Job.Workflow)
 	}
 
-	assertPathExists(t, filepath.Join(cfg.RootDir, "stacks", "demo", "compose.yaml"))
-	assertPathExists(t, filepath.Join(cfg.RootDir, "stacks", "demo", ".env"))
-	assertPathExists(t, filepath.Join(cfg.RootDir, "config", "demo"))
-	assertPathExists(t, filepath.Join(cfg.RootDir, "data", "demo"))
+	assertPathExists(t, filepath.Join(cfg.RootDir, "stacks", stackID, "compose.yaml"))
+	assertPathExists(t, filepath.Join(cfg.RootDir, "stacks", stackID, ".env"))
+	assertPathExists(t, filepath.Join(cfg.RootDir, "config", stackID))
+	assertPathExists(t, filepath.Join(cfg.RootDir, "data", stackID))
 
-	detailResponse := performJSONRequest(t, handler, http.MethodGet, "/api/stacks/demo", nil, cookies)
+	detailResponse := performJSONRequest(t, handler, http.MethodGet, "/api/stacks/"+stackID, nil, cookies)
 	if detailResponse.Code != http.StatusOK {
-		t.Fatalf("GET /api/stacks/demo status = %d, want %d", detailResponse.Code, http.StatusOK)
+		t.Fatalf("GET /api/stacks/%s status = %d, want %d", stackID, detailResponse.Code, http.StatusOK)
 	}
 
-	deleteResponse := performJSONRequest(t, handler, http.MethodDelete, "/api/stacks/demo", map[string]any{
+	deleteResponse := performJSONRequest(t, handler, http.MethodDelete, "/api/stacks/"+stackID, map[string]any{
 		"remove_runtime":    false,
 		"remove_definition": true,
 		"remove_config":     true,
 		"remove_data":       true,
 	}, cookies)
 	if deleteResponse.Code != http.StatusOK {
-		t.Fatalf("DELETE /api/stacks/demo status = %d, want %d", deleteResponse.Code, http.StatusOK)
+		t.Fatalf("DELETE /api/stacks/%s status = %d, want %d", stackID, deleteResponse.Code, http.StatusOK)
 	}
 	var deletePayload struct {
 		Job struct {
@@ -152,9 +153,9 @@ func TestHandlerCreateAndDeleteStackWithoutRuntime(t *testing.T) {
 		t.Fatalf("unexpected delete job payload: %#v", deletePayload.Job)
 	}
 
-	assertPathMissing(t, filepath.Join(cfg.RootDir, "stacks", "demo"))
-	assertPathMissing(t, filepath.Join(cfg.RootDir, "config", "demo"))
-	assertPathMissing(t, filepath.Join(cfg.RootDir, "data", "demo"))
+	assertPathMissing(t, filepath.Join(cfg.RootDir, "stacks", stackID))
+	assertPathMissing(t, filepath.Join(cfg.RootDir, "config", stackID))
+	assertPathMissing(t, filepath.Join(cfg.RootDir, "data", stackID))
 
 	listResponse := performJSONRequest(t, handler, http.MethodGet, "/api/stacks", nil, cookies)
 	if listResponse.Code != http.StatusOK {
@@ -166,8 +167,10 @@ func TestHandlerCreateAndDeleteStackWithoutRuntime(t *testing.T) {
 		} `json:"items"`
 	}
 	decodeResponse(t, listResponse, &listPayload)
-	if len(listPayload.Items) != 0 {
-		t.Fatalf("expected empty stack list after delete, got %#v", listPayload.Items)
+	for _, item := range listPayload.Items {
+		if item.ID == stackID {
+			t.Fatalf("expected stack %q to be absent after delete, got %#v", stackID, listPayload.Items)
+		}
 	}
 
 	auditResponse := performJSONRequest(t, handler, http.MethodGet, "/api/audit", nil, cookies)
@@ -217,8 +220,9 @@ func TestWebSocketReplaysJobEvents(t *testing.T) {
 	if len(cookies) == 0 {
 		t.Fatalf("expected login to set cookies")
 	}
+	stackID := "fixture-jobs-replay"
 
-	createRequestBody := bytes.NewBufferString(`{"stack_id":"demo","compose_yaml":"services:\n  app:\n    image: nginx:alpine\n","env":"","create_config_dir":false,"create_data_dir":false,"deploy_after_create":false}`)
+	createRequestBody := bytes.NewBufferString(`{"stack_id":"` + stackID + `","compose_yaml":"services:\n  app:\n    image: nginx:alpine\n","env":"","create_config_dir":false,"create_data_dir":false,"deploy_after_create":false}`)
 	createRequest, err := http.NewRequest(http.MethodPost, server.URL+"/api/stacks", createRequestBody)
 	if err != nil {
 		t.Fatalf("http.NewRequest(create) error = %v", err)
@@ -366,9 +370,10 @@ func TestSaveDefinitionWarningPrecedesJobFinished(t *testing.T) {
 
 	handler, cfg := newTestHandler(t)
 	cookies := loginTestUser(t, handler, "secret")
+	stackID := "fixture-save-warning"
 
 	createResponse := performJSONRequest(t, handler, http.MethodPost, "/api/stacks", map[string]any{
-		"stack_id":            "demo",
+		"stack_id":            stackID,
 		"compose_yaml":        "services:\n  app:\n    image: nginx:alpine\n",
 		"env":                 "",
 		"create_config_dir":   false,
@@ -379,13 +384,13 @@ func TestSaveDefinitionWarningPrecedesJobFinished(t *testing.T) {
 		t.Fatalf("POST /api/stacks status = %d, want %d", createResponse.Code, http.StatusOK)
 	}
 
-	updateResponse := performJSONRequest(t, handler, http.MethodPut, "/api/stacks/demo/definition", map[string]any{
+	updateResponse := performJSONRequest(t, handler, http.MethodPut, "/api/stacks/"+stackID+"/definition", map[string]any{
 		"compose_yaml":        "services:\n  app:\n    image: nginx:alpine\n    environment:\n      REQUIRED: ${MISSING?required}\n",
 		"env":                 "",
 		"validate_after_save": true,
 	}, cookies)
 	if updateResponse.Code != http.StatusOK {
-		t.Fatalf("PUT /api/stacks/demo/definition status = %d, want %d", updateResponse.Code, http.StatusOK)
+		t.Fatalf("PUT /api/stacks/%s/definition status = %d, want %d", stackID, updateResponse.Code, http.StatusOK)
 	}
 
 	var updatePayload struct {
@@ -480,7 +485,7 @@ func TestSaveDefinitionWarningPrecedesJobFinished(t *testing.T) {
 		t.Fatalf("expected job_warning before job_finished, got %#v", eventNames)
 	}
 
-	assertPathExists(t, filepath.Join(cfg.RootDir, "stacks", "demo", "compose.yaml"))
+	assertPathExists(t, filepath.Join(cfg.RootDir, "stacks", stackID, "compose.yaml"))
 }
 
 func TestWebSocketTerminalAttachMissingSession(t *testing.T) {

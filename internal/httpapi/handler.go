@@ -446,8 +446,13 @@ func (h *Handler) handlePutDefinition(w http.ResponseWriter, r *http.Request) {
 
 	job, err := h.jobs.Start(r.Context(), r.PathValue("stackId"), "save_definition", "local")
 	if err != nil {
-		h.logger.Error("start save_definition job failed", slog.String("stack_id", r.PathValue("stackId")), slog.String("err", err.Error()))
-		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create job.", nil)
+		switch {
+		case errors.Is(err, jobs.ErrStackLocked):
+			writeError(w, http.StatusConflict, "stack_locked", "Another job is already mutating this stack.", nil)
+		default:
+			h.logger.Error("start save_definition job failed", slog.String("stack_id", r.PathValue("stackId")), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create job.", nil)
+		}
 		return
 	}
 
