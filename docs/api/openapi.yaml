@@ -1,0 +1,1084 @@
+openapi: 3.1.0
+info:
+  title: Stacklab API
+  version: 0.1.0
+  summary: Compose-first homelab control panel API
+servers:
+  - url: /api
+security:
+  - sessionCookie: []
+tags:
+  - name: Health
+  - name: Auth
+  - name: Meta
+  - name: Stacks
+  - name: Audit
+  - name: Jobs
+  - name: Settings
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: Service health status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /session:
+    get:
+      tags: [Auth]
+      operationId: getSession
+      responses:
+        '200':
+          description: Current session status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+  /meta:
+    get:
+      tags: [Meta]
+      operationId: getMeta
+      responses:
+        '200':
+          description: Application metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetaResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+  /auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+  /auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      responses:
+        '200':
+          description: Logout succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogoutResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+  /stacks:
+    get:
+      tags: [Stacks]
+      operationId: listStacks
+      parameters:
+        - in: query
+          name: q
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: sort
+          required: false
+          schema:
+            type: string
+            enum: [name, state, last_action]
+      responses:
+        '200':
+          description: Stack list and summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StackListResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+    post:
+      tags: [Stacks]
+      operationId: createStack
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStackRequest'
+      responses:
+        '200':
+          description: Stack creation job accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobEnvelopeResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+        '422':
+          $ref: '#/components/responses/ErrorValidationFailed'
+  /stacks/{stackId}:
+    parameters:
+      - $ref: '#/components/parameters/StackId'
+    get:
+      tags: [Stacks]
+      operationId: getStack
+      responses:
+        '200':
+          description: Detailed stack view model.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StackDetailResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+    delete:
+      tags: [Stacks]
+      operationId: deleteStack
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteStackRequest'
+      responses:
+        '200':
+          description: Stack deletion job accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobEnvelopeResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+  /stacks/{stackId}/definition:
+    parameters:
+      - $ref: '#/components/parameters/StackId'
+    get:
+      tags: [Stacks]
+      operationId: getStackDefinition
+      responses:
+        '200':
+          description: Editable stack definition files.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StackDefinitionResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorInvalidState'
+    put:
+      tags: [Stacks]
+      operationId: updateStackDefinition
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDefinitionRequest'
+      responses:
+        '200':
+          description: Definition save job accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobEnvelopeResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorInvalidState'
+  /stacks/{stackId}/resolved-config:
+    parameters:
+      - $ref: '#/components/parameters/StackId'
+    get:
+      tags: [Stacks]
+      operationId: getResolvedConfig
+      parameters:
+        - in: query
+          name: source
+          required: false
+          schema:
+            type: string
+            enum: [current, last_valid]
+      responses:
+        '200':
+          description: Resolved config or validation failure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolvedConfigResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+    post:
+      tags: [Stacks]
+      operationId: previewResolvedConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolvedConfigPreviewRequest'
+      responses:
+        '200':
+          description: Draft resolved config preview or validation failure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolvedConfigResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorInvalidState'
+  /stacks/{stackId}/audit:
+    parameters:
+      - $ref: '#/components/parameters/StackId'
+    get:
+      tags: [Audit]
+      operationId: listStackAudit
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Per-stack audit log.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditListResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+  /stacks/{stackId}/actions/{action}:
+    parameters:
+      - $ref: '#/components/parameters/StackId'
+      - $ref: '#/components/parameters/StackAction'
+    post:
+      tags: [Stacks]
+      operationId: runStackAction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmptyObject'
+      responses:
+        '200':
+          description: Stack action job accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobEnvelopeResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          description: Stack locked or invalid state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /audit:
+    get:
+      tags: [Audit]
+      operationId: listAudit
+      parameters:
+        - in: query
+          name: stack_id
+          required: false
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Global audit log.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditListResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+  /settings/password:
+    post:
+      tags: [Settings]
+      operationId: updatePassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePasswordRequest'
+      responses:
+        '200':
+          description: Password updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdatePasswordResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+  /jobs/{jobId}:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    get:
+      tags: [Jobs]
+      operationId: getJob
+      responses:
+        '200':
+          description: Job snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobDetailResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+  /jobs/{jobId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    post:
+      tags: [Jobs]
+      operationId: cancelJob
+      responses:
+        '200':
+          description: Job cancellation requested.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobEnvelopeResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorInvalidState'
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: stacklab_session
+  parameters:
+    StackId:
+      in: path
+      name: stackId
+      required: true
+      schema:
+        type: string
+        pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+    JobId:
+      in: path
+      name: jobId
+      required: true
+      schema:
+        type: string
+    Cursor:
+      in: query
+      name: cursor
+      required: false
+      schema:
+        type: string
+    Limit:
+      in: query
+      name: limit
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+    StackAction:
+      in: path
+      name: action
+      required: true
+      schema:
+        type: string
+        enum: [validate, up, down, stop, restart, pull, build, recreate]
+  responses:
+    ErrorUnauthorized:
+      description: Authentication required or invalid session.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ErrorNotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ErrorConflict:
+      description: Request conflicts with current state.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ErrorInvalidState:
+      description: Operation not allowed in current state.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ErrorValidationFailed:
+      description: Validation failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    EmptyObject:
+      type: object
+      additionalProperties: false
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          const: ok
+        version:
+          type: string
+      required: [status, version]
+    SessionResponse:
+      type: object
+      properties:
+        authenticated:
+          type: boolean
+        user:
+          $ref: '#/components/schemas/SessionUser'
+        features:
+          $ref: '#/components/schemas/FeatureFlags'
+      required: [authenticated, features]
+    SessionUser:
+      type: object
+      properties:
+        id:
+          type: string
+        display_name:
+          type: string
+      required: [id, display_name]
+    FeatureFlags:
+      type: object
+      properties:
+        host_shell:
+          type: boolean
+      required: [host_shell]
+    MetaResponse:
+      type: object
+      properties:
+        app:
+          type: object
+          properties:
+            name:
+              type: string
+            version:
+              type: string
+          required: [name, version]
+        environment:
+          type: object
+          properties:
+            stack_root:
+              type: string
+            platform:
+              type: string
+          required: [stack_root, platform]
+        docker:
+          type: object
+          properties:
+            engine_version:
+              type: string
+            compose_version:
+              type: string
+          required: [engine_version, compose_version]
+        features:
+          $ref: '#/components/schemas/FeatureFlags'
+      required: [app, environment, docker, features]
+    StackListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/StackListItem'
+        summary:
+          $ref: '#/components/schemas/StackListSummary'
+      required: [items, summary]
+    StackListItem:
+      allOf:
+        - $ref: '#/components/schemas/StackHeader'
+        - type: object
+          properties:
+            service_count:
+              type: object
+              properties:
+                defined:
+                  type: integer
+                running:
+                  type: integer
+              required: [defined, running]
+            last_action:
+              $ref: '#/components/schemas/LastAction'
+          required: [service_count]
+    StackListSummary:
+      type: object
+      properties:
+        stack_count:
+          type: integer
+        running_count:
+          type: integer
+        stopped_count:
+          type: integer
+        error_count:
+          type: integer
+        defined_count:
+          type: integer
+        orphaned_count:
+          type: integer
+        container_count:
+          type: object
+          properties:
+            running:
+              type: integer
+            total:
+              type: integer
+          required: [running, total]
+      required:
+        - stack_count
+        - running_count
+        - stopped_count
+        - error_count
+        - defined_count
+        - orphaned_count
+        - container_count
+    StackDetailResponse:
+      type: object
+      properties:
+        stack:
+          $ref: '#/components/schemas/StackDetail'
+      required: [stack]
+    StackDetail:
+      allOf:
+        - $ref: '#/components/schemas/StackHeader'
+        - type: object
+          properties:
+            root_path:
+              type: string
+            compose_file_path:
+              type: string
+            env_file_path:
+              type: string
+            config_path:
+              type: string
+            data_path:
+              type: string
+            capabilities:
+              $ref: '#/components/schemas/StackCapabilities'
+            available_actions:
+              type: array
+              items:
+                type: string
+            services:
+              type: array
+              items:
+                $ref: '#/components/schemas/Service'
+            containers:
+              type: array
+              items:
+                $ref: '#/components/schemas/Container'
+            last_deployed_at:
+              type: string
+              format: date-time
+              nullable: true
+            last_action:
+              $ref: '#/components/schemas/LastAction'
+          required:
+            - root_path
+            - compose_file_path
+            - config_path
+            - data_path
+            - capabilities
+            - available_actions
+            - services
+            - containers
+    StackHeader:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        display_state:
+          $ref: '#/components/schemas/DisplayState'
+        runtime_state:
+          $ref: '#/components/schemas/RuntimeState'
+        config_state:
+          $ref: '#/components/schemas/ConfigState'
+        activity_state:
+          $ref: '#/components/schemas/ActivityState'
+        health_summary:
+          $ref: '#/components/schemas/HealthSummary'
+      required:
+        - id
+        - name
+        - created_at
+        - updated_at
+        - display_state
+        - runtime_state
+        - config_state
+        - activity_state
+        - health_summary
+    HealthSummary:
+      type: object
+      properties:
+        healthy_container_count:
+          type: integer
+        unhealthy_container_count:
+          type: integer
+        unknown_health_container_count:
+          type: integer
+      required:
+        - healthy_container_count
+        - unhealthy_container_count
+        - unknown_health_container_count
+    StackCapabilities:
+      type: object
+      properties:
+        can_edit_definition:
+          type: boolean
+        can_view_logs:
+          type: boolean
+        can_view_stats:
+          type: boolean
+        can_open_terminal:
+          type: boolean
+      required:
+        - can_edit_definition
+        - can_view_logs
+        - can_view_stats
+        - can_open_terminal
+    Service:
+      type: object
+      properties:
+        name:
+          type: string
+        mode:
+          $ref: '#/components/schemas/ServiceMode'
+        image_ref:
+          type: string
+          nullable: true
+        build_context:
+          type: string
+          nullable: true
+        dockerfile_path:
+          type: string
+          nullable: true
+        ports:
+          type: array
+          items:
+            $ref: '#/components/schemas/PortMapping'
+        volumes:
+          type: array
+          items:
+            $ref: '#/components/schemas/VolumeMount'
+        depends_on:
+          type: array
+          items:
+            type: string
+        healthcheck_present:
+          type: boolean
+      required:
+        - name
+        - mode
+        - ports
+        - volumes
+        - depends_on
+        - healthcheck_present
+    Container:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        service_name:
+          type: string
+        status:
+          $ref: '#/components/schemas/ContainerStatus'
+        health_status:
+          type: string
+          nullable: true
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        image_id:
+          type: string
+        image_ref:
+          type: string
+        ports:
+          type: array
+          items:
+            $ref: '#/components/schemas/PortMapping'
+        networks:
+          type: array
+          items:
+            type: string
+      required:
+        - id
+        - name
+        - service_name
+        - status
+        - image_id
+        - image_ref
+        - ports
+        - networks
+    PortMapping:
+      type: object
+      properties:
+        published:
+          type: integer
+        target:
+          type: integer
+        protocol:
+          type: string
+      required: [published, target, protocol]
+    VolumeMount:
+      type: object
+      properties:
+        source:
+          type: string
+        target:
+          type: string
+      required: [source, target]
+    LastAction:
+      type: object
+      properties:
+        action:
+          type: string
+        result:
+          $ref: '#/components/schemas/JobStateTerminal'
+        finished_at:
+          type: string
+          format: date-time
+      required: [action, result, finished_at]
+      nullable: true
+    StackDefinitionResponse:
+      type: object
+      properties:
+        stack_id:
+          type: string
+        files:
+          type: object
+          properties:
+            compose_yaml:
+              type: object
+              properties:
+                path:
+                  type: string
+                content:
+                  type: string
+              required: [path, content]
+            env:
+              type: object
+              properties:
+                path:
+                  type: string
+                content:
+                  type: string
+                exists:
+                  type: boolean
+              required: [path, content, exists]
+          required: [compose_yaml, env]
+        config_state:
+          $ref: '#/components/schemas/ConfigState'
+      required: [stack_id, files, config_state]
+    ResolvedConfigPreviewRequest:
+      type: object
+      properties:
+        compose_yaml:
+          type: string
+        env:
+          type: string
+      required: [compose_yaml, env]
+    ResolvedConfigResponse:
+      oneOf:
+        - type: object
+          properties:
+            stack_id:
+              type: string
+            valid:
+              type: boolean
+              const: true
+            content:
+              type: string
+          required: [stack_id, valid, content]
+        - type: object
+          properties:
+            stack_id:
+              type: string
+            valid:
+              type: boolean
+              const: false
+            error:
+              $ref: '#/components/schemas/ErrorDetail'
+          required: [stack_id, valid, error]
+    AuditListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEntry'
+        next_cursor:
+          type: string
+          nullable: true
+      required: [items]
+    AuditEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        stack_id:
+          type: string
+          nullable: true
+        job_id:
+          type: string
+          nullable: true
+        action:
+          type: string
+        requested_by:
+          type: string
+        result:
+          type: string
+        requested_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+        duration_ms:
+          type: integer
+          nullable: true
+      required:
+        - id
+        - action
+        - requested_by
+        - result
+        - requested_at
+    LoginRequest:
+      type: object
+      properties:
+        password:
+          type: string
+      required: [password]
+    LoginResponse:
+      type: object
+      properties:
+        authenticated:
+          type: boolean
+          const: true
+      required: [authenticated]
+    LogoutResponse:
+      type: object
+      properties:
+        authenticated:
+          type: boolean
+          const: false
+      required: [authenticated]
+    CreateStackRequest:
+      type: object
+      properties:
+        stack_id:
+          type: string
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+        compose_yaml:
+          type: string
+        env:
+          type: string
+        create_config_dir:
+          type: boolean
+        create_data_dir:
+          type: boolean
+        deploy_after_create:
+          type: boolean
+      required:
+        - stack_id
+        - compose_yaml
+        - env
+        - create_config_dir
+        - create_data_dir
+        - deploy_after_create
+    UpdateDefinitionRequest:
+      type: object
+      properties:
+        compose_yaml:
+          type: string
+        env:
+          type: string
+        validate_after_save:
+          type: boolean
+      required: [compose_yaml, env, validate_after_save]
+    DeleteStackRequest:
+      type: object
+      properties:
+        remove_runtime:
+          type: boolean
+        remove_definition:
+          type: boolean
+        remove_config:
+          type: boolean
+        remove_data:
+          type: boolean
+      required:
+        - remove_runtime
+        - remove_definition
+        - remove_config
+        - remove_data
+    UpdatePasswordRequest:
+      type: object
+      properties:
+        current_password:
+          type: string
+        new_password:
+          type: string
+      required: [current_password, new_password]
+    UpdatePasswordResponse:
+      type: object
+      properties:
+        updated:
+          type: boolean
+      required: [updated]
+    JobEnvelopeResponse:
+      type: object
+      properties:
+        job:
+          $ref: '#/components/schemas/Job'
+      required: [job]
+    JobDetailResponse:
+      type: object
+      properties:
+        job:
+          $ref: '#/components/schemas/Job'
+      required: [job]
+    Job:
+      type: object
+      properties:
+        id:
+          type: string
+        stack_id:
+          type: string
+        action:
+          type: string
+        state:
+          $ref: '#/components/schemas/JobState'
+        requested_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+        workflow:
+          type: object
+          properties:
+            steps:
+              type: array
+              items:
+                type: object
+                properties:
+                  action:
+                    type: string
+                  state:
+                    $ref: '#/components/schemas/JobState'
+                required: [action, state]
+          required: [steps]
+          nullable: true
+      required:
+        - id
+        - stack_id
+        - action
+        - state
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorDetail'
+      required: [error]
+    ErrorDetail:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          oneOf:
+            - type: object
+            - type: 'null'
+      required: [code, message]
+    RuntimeState:
+      type: string
+      enum: [defined, running, partial, stopped, error, orphaned]
+    DisplayState:
+      type: string
+      enum: [defined, running, partial, stopped, error, orphaned]
+    ConfigState:
+      type: string
+      enum: [unknown, in_sync, drifted, invalid]
+    ActivityState:
+      type: string
+      enum: [idle, locked]
+    ServiceMode:
+      type: string
+      enum: [image, build, hybrid]
+    ContainerStatus:
+      type: string
+      enum: [created, running, restarting, paused, exited, dead]
+    JobState:
+      type: string
+      enum: [queued, running, succeeded, failed, cancel_requested, cancelled, timed_out]
+    JobStateTerminal:
+      type: string
+      enum: [succeeded, failed, cancelled, timed_out]
