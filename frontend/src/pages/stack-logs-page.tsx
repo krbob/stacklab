@@ -59,14 +59,19 @@ export function StackLogsPage() {
     ? entries.filter((e) => e.line.toLowerCase().includes(filter.toLowerCase()))
     : entries
 
-  const noRunning = !stack.containers.some((c) => c.status === 'running')
+  const activeServices = selectedServices.length > 0 ? selectedServices : serviceNames
+  const noRunning = !stack.containers.some(
+    (c) => c.status === 'running' && activeServices.includes(c.service_name),
+  )
 
   if (noRunning) {
     return (
       <div className="rounded-[20px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-10 text-center">
         <p className="text-[var(--text)]">No logs available</p>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          The selected service has no log output or is not running.
+          {selectedServices.length > 0
+            ? 'The selected service has no running container or no log output.'
+            : 'This stack has no running containers with log output.'}
         </p>
       </div>
     )

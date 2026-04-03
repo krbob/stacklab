@@ -57,7 +57,8 @@ export function useTerminal({ stackId, containerId, shell = '/bin/sh', cols = 12
     const streamId = streamIdRef.current
     const reqId = `req_term_attach_${++requestIdRef.current}`
 
-    setTermState('connecting')
+    setErrorMessage(null)
+    setTermState((current) => (current === 'connected' ? current : 'connecting'))
 
     send({
       type: 'terminal.attach',
@@ -69,7 +70,8 @@ export function useTerminal({ stackId, containerId, shell = '/bin/sh', cols = 12
 
   // Auto-attach after reconnect if we had an active session
   useEffect(() => {
-    if (connected && wasConnectedRef.current && sessionIdRef.current && termState === 'connected') {
+    const wasConnected = wasConnectedRef.current
+    if (connected && !wasConnected && sessionIdRef.current && termState === 'connected') {
       // We just reconnected while a session was active — try to reattach
       attach(sessionIdRef.current)
     }
