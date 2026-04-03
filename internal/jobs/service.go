@@ -6,19 +6,26 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"stacklab/internal/store"
 )
 
 var ErrNotFound = errors.New("job not found")
+var ErrStackLocked = errors.New("stack locked")
 
 type Service struct {
-	store *store.Store
+	store      *store.Store
+	mu         sync.Mutex
+	lockedByID map[string]string
 }
 
 func NewService(jobStore *store.Store) *Service {
-	return &Service{store: jobStore}
+	return &Service{
+		store:      jobStore,
+		lockedByID: map[string]string{},
+	}
 }
 
 func (s *Service) Start(ctx context.Context, stackID, action, requestedBy string) (store.Job, error) {
@@ -32,6 +39,16 @@ func (s *Service) Start(ctx context.Context, stackID, action, requestedBy string
 		RequestedAt: now,
 		StartedAt:   &now,
 	}
+	if stackID != "" {
+		if err := s.lockStack(stackID, job.ID); err != nil {
+			return store.Job{}, err
+		}
+		defer func() {
+			if job.State == "" {
+				s.unlockStack(stackID, job.ID)
+			}
+		}()
+	}
 	if err := s.store.CreateJob(ctx, job); err != nil {
 		return store.Job{}, err
 	}
@@ -39,6 +56,8 @@ func (s *Service) Start(ctx context.Context, stackID, action, requestedBy string
 }
 
 func (s *Service) FinishSucceeded(ctx context.Context, job store.Job) (store.Job, error) {
+	defer s.unlockStack(job.StackID, job.ID)
+
 	now := time.Now().UTC()
 	job.State = "succeeded"
 	job.FinishedAt = &now
@@ -49,6 +68,8 @@ func (s *Service) FinishSucceeded(ctx context.Context, job store.Job) (store.Job
 }
 
 func (s *Service) FinishFailed(ctx context.Context, job store.Job, errorCode, errorMessage string) (store.Job, error) {
+	defer s.unlockStack(job.StackID, job.ID)
+
 	now := time.Now().UTC()
 	job.State = "failed"
 	job.FinishedAt = &now
@@ -77,4 +98,32 @@ func randomToken(length int) string {
 		return fmt.Sprintf("%d", time.Now().UnixNano())
 	}
 	return base64.RawURLEncoding.EncodeToString(bytes)
+}
+
+func (s *Service) lockStack(stackID, jobID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if currentJobID, ok := s.lockedByID[stackID]; ok && currentJobID != "" {
+		return ErrStackLocked
+	}
+
+	s.lockedByID[stackID] = jobID
+	return nil
+}
+
+func (s *Service) unlockStack(stackID, jobID string) {
+	if stackID == "" {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	currentJobID, ok := s.lockedByID[stackID]
+	if !ok || currentJobID != jobID {
+		return
+	}
+
+	delete(s.lockedByID, stackID)
 }

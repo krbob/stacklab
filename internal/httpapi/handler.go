@@ -51,6 +51,7 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("PUT /api/stacks/{stackId}/definition", h.withAuth(h.handlePutDefinition))
 	h.mux.HandleFunc("GET /api/stacks/{stackId}/resolved-config", h.withAuth(h.handleGetResolvedConfig))
 	h.mux.HandleFunc("POST /api/stacks/{stackId}/resolved-config", h.withAuth(h.handlePostResolvedConfig))
+	h.mux.HandleFunc("POST /api/stacks/{stackId}/actions/{action}", h.withAuth(h.handleRunStackAction))
 	h.mux.HandleFunc("GET /api/jobs/{jobId}", h.withAuth(h.handleGetJob))
 	h.mux.HandleFunc("/api/", h.withAuth(h.handleAPINotImplemented))
 	h.mux.HandleFunc("/", h.handleFrontend)
@@ -306,6 +307,65 @@ func (h *Handler) handleGetJob(w http.ResponseWriter, r *http.Request) {
 			h.logger.Error("get job failed", slog.String("job_id", r.PathValue("jobId")), slog.String("err", err.Error()))
 			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load job.", nil)
 		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"job": job})
+}
+
+func (h *Handler) handleRunStackAction(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request struct{}
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	stackID := r.PathValue("stackId")
+	action := r.PathValue("action")
+
+	job, err := h.jobs.Start(r.Context(), stackID, action, "local")
+	if err != nil {
+		switch {
+		case errors.Is(err, jobs.ErrStackLocked):
+			writeError(w, http.StatusConflict, "stack_locked", "Another job is already mutating this stack.", nil)
+		default:
+			h.logger.Error("start stack action job failed", slog.String("stack_id", stackID), slog.String("action", action), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create job.", nil)
+		}
+		return
+	}
+
+	actionErr := h.stackReader.RunAction(r.Context(), stackID, action)
+	if actionErr != nil {
+		job, finishErr := h.jobs.FinishFailed(r.Context(), job, "stack_action_failed", actionErr.Error())
+		if finishErr != nil {
+			h.logger.Error("finish stack action job failed", slog.String("job_id", job.ID), slog.String("err", finishErr.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to finalize job.", nil)
+			return
+		}
+
+		switch {
+		case errors.Is(actionErr, stacks.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Stack was not found.", nil)
+		case errors.Is(actionErr, stacks.ErrInvalidState):
+			writeError(w, http.StatusConflict, "invalid_state", "Action is not allowed for this stack state.", nil)
+		case errors.Is(actionErr, stacks.ErrUnsupportedAction):
+			writeError(w, http.StatusBadRequest, "validation_failed", "Unsupported stack action.", nil)
+		default:
+			writeJSON(w, http.StatusOK, map[string]any{"job": job})
+		}
+		return
+	}
+
+	job, err = h.jobs.FinishSucceeded(r.Context(), job)
+	if err != nil {
+		h.logger.Error("finish stack action job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to finalize job.", nil)
 		return
 	}
 

@@ -22,9 +22,10 @@ import (
 )
 
 var (
-	ErrNotFound     = errors.New("stack not found")
-	ErrInvalidState = errors.New("invalid state")
-	stackIDRegexp   = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+	ErrNotFound          = errors.New("stack not found")
+	ErrInvalidState      = errors.New("invalid state")
+	ErrUnsupportedAction = errors.New("unsupported action")
+	stackIDRegexp        = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 )
 
 const AppVersion = "0.1.0-dev"
@@ -282,6 +283,51 @@ func (s *ServiceReader) SaveDefinition(ctx context.Context, stackID string, requ
 		return ResolvedConfigResponse{}, err
 	}
 	return s.resolveCurrent(ctx, refreshedStack), nil
+}
+
+func (s *ServiceReader) RunAction(ctx context.Context, stackID, action string) error {
+	stack, err := s.findStack(ctx, stackID)
+	if err != nil {
+		return err
+	}
+
+	switch action {
+	case "validate", "up", "down", "stop", "restart", "pull", "build", "recreate":
+	default:
+		return ErrUnsupportedAction
+	}
+
+	if !containsString(stack.availableActions(), action) {
+		return ErrInvalidState
+	}
+
+	switch action {
+	case "validate":
+		resolved := s.resolveCurrent(ctx, stack)
+		if !resolved.Valid {
+			return fmt.Errorf("validate current config: %s", resolved.Error.Message)
+		}
+		return nil
+	case "up":
+		return s.runComposeAction(ctx, stack, "up", "-d")
+	case "down":
+		if stack.RuntimeState == RuntimeStateOrphaned {
+			return s.downOrphaned(ctx, stack)
+		}
+		return s.runComposeAction(ctx, stack, "down")
+	case "stop":
+		return s.runComposeAction(ctx, stack, "stop")
+	case "restart":
+		return s.runComposeAction(ctx, stack, "restart")
+	case "pull":
+		return s.runComposeAction(ctx, stack, "pull")
+	case "build":
+		return s.runComposeAction(ctx, stack, "build")
+	case "recreate":
+		return s.runComposeAction(ctx, stack, "up", "-d", "--force-recreate")
+	default:
+		return ErrUnsupportedAction
+	}
 }
 
 func IsValidStackID(value string) bool {
@@ -1133,9 +1179,60 @@ func runComposeConfig(ctx context.Context, projectDir, composeArg, envPath, stdi
 	return string(output), nil
 }
 
+func (s *ServiceReader) runComposeAction(ctx context.Context, stack discoveredStack, action string, extraArgs ...string) error {
+	args := composeCommandArgs(stack.RootPath, stack.ComposeFilePath, stack.EnvFilePath)
+	args = append(args, action)
+	args = append(args, extraArgs...)
+
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd.Dir = stack.RootPath
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		message := strings.TrimSpace(string(output))
+		if message == "" {
+			message = err.Error()
+		}
+		return errors.New(message)
+	}
+
+	return nil
+}
+
+func (s *ServiceReader) downOrphaned(ctx context.Context, stack discoveredStack) error {
+	containerIDs := make([]string, 0, len(stack.Containers))
+	for _, container := range stack.Containers {
+		containerIDs = append(containerIDs, container.ID)
+	}
+	if len(containerIDs) == 0 {
+		return nil
+	}
+
+	args := append([]string{"rm", "-f"}, containerIDs...)
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		message := strings.TrimSpace(string(output))
+		if message == "" {
+			message = err.Error()
+		}
+		return errors.New(message)
+	}
+
+	return nil
+}
+
+func composeCommandArgs(projectDir, composePath, envPath string) []string {
+	args := []string{"compose", "--project-directory", projectDir, "-f", composePath}
+	if fileExists(envPath) {
+		args = append(args, "--env-file", envPath)
+	}
+	return args
+}
+
 func (s *ServiceReader) resolveCurrent(ctx context.Context, stack discoveredStack) ResolvedConfigResponse {
 	envPath := ""
-	if _, err := os.Stat(stack.EnvFilePath); err == nil {
+	if fileExists(stack.EnvFilePath) {
 		envPath = stack.EnvFilePath
 	}
 
@@ -1157,6 +1254,20 @@ func (s *ServiceReader) resolveCurrent(ctx context.Context, stack discoveredStac
 		Valid:   true,
 		Content: content,
 	}
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+func containsString(values []string, candidate string) bool {
+	for _, value := range values {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func parseExposedPort(value string) (int, string) {
