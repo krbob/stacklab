@@ -92,6 +92,6 @@ export function useLogStream({ stackId, serviceNames = [], tail = 200, enabled =
     paused,
     pause: () => setPaused(true),
     resume,
-    clear: () => { setEntries([]); hasSubscribedRef.current = false },
+    clear: () => { setEntries([]); bufferRef.current = []; hasSubscribedRef.current = false },
   }
 }

@@ -10,7 +10,12 @@ import { CreateStackPage } from '@/pages/create-stack-page'
 import { GlobalAuditPage } from '@/pages/global-audit-page'
 import { SettingsPage } from '@/pages/settings-page'
 import { StackOverviewPage } from '@/pages/stack-overview-page'
+import { lazy, Suspense } from 'react'
 import { StackPlaceholderPage } from '@/pages/stack-placeholder-page'
+
+const StackLogsPage = lazy(() => import('@/pages/stack-logs-page').then((m) => ({ default: m.StackLogsPage })))
+const StackStatsPage = lazy(() => import('@/pages/stack-stats-page').then((m) => ({ default: m.StackStatsPage })))
+const StackTerminalPage = lazy(() => import('@/pages/stack-terminal-page').then((m) => ({ default: m.StackTerminalPage })))
 
 export function AppRoutes() {
   return (
@@ -41,36 +46,9 @@ export function AppRoutes() {
               />
             }
           />
-          <Route
-            path="logs"
-            element={
-              <StackPlaceholderPage
-                title="Logs"
-                summary="Live log stream with service filters and reconnect-safe buffering."
-                contract="WS logs.subscribe"
-              />
-            }
-          />
-          <Route
-            path="stats"
-            element={
-              <StackPlaceholderPage
-                title="Stats"
-                summary="Live container and aggregate stack metrics from snapshot frames."
-                contract="WS stats.subscribe"
-              />
-            }
-          />
-          <Route
-            path="terminal"
-            element={
-              <StackPlaceholderPage
-                title="Terminal"
-                summary="Container exec sessions with optional reattach after reconnect."
-                contract="WS terminal.open / terminal.attach"
-              />
-            }
-          />
+          <Route path="logs" element={<Suspense><StackLogsPage /></Suspense>} />
+          <Route path="stats" element={<Suspense><StackStatsPage /></Suspense>} />
+          <Route path="terminal" element={<Suspense><StackTerminalPage /></Suspense>} />
           <Route
             path="audit"
             element={
