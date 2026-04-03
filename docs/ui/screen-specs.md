@@ -151,6 +151,21 @@ Buttons are contextual to `display_state` (from `runtime_state`). `activity_stat
 | `defined` | Deploy (Up), Edit |
 | `orphaned` | Down, Remove |
 
+### Orphaned stack — tab and navigation behavior
+
+When `display_state = orphaned`, the stack has runtime containers but no canonical `compose.yaml`. Tabs that depend on stack definition are disabled; tabs that work with runtime remain available.
+
+| Tab | State | Reason |
+|---|---|---|
+| Overview | Available | Shows runtime containers, ports, states. Displays a warning banner: "Stack definition missing — runtime containers exist without compose.yaml." |
+| Editor | **Disabled** | Tooltip: "No compose.yaml found for this stack." |
+| Logs | Available | Runtime containers produce logs. |
+| Stats | Available | Runtime containers produce stats. |
+| Terminal | Available | Container exec works on running containers. |
+| History | Available | Audit log exists independently of definition files. |
+
+Disabled tabs remain visible in the tab bar (not hidden) to preserve consistent layout. They are grayed out with a tooltip explaining why they are unavailable.
+
 When `activity_state = locked`: all buttons disabled, spinner shown with current job action name.
 
 "Down" and "Remove" require confirmation dialog (see states-and-empty-cases.md).
