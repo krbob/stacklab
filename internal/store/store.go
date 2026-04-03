@@ -3,11 +3,13 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -51,6 +53,32 @@ type JobWorkflow struct {
 type JobWorkflowStep struct {
 	Action string `json:"action"`
 	State  string `json:"state"`
+}
+
+type AuditEntry struct {
+	ID          string     `json:"id"`
+	StackID     *string    `json:"stack_id"`
+	JobID       *string    `json:"job_id"`
+	Action      string     `json:"action"`
+	RequestedBy string     `json:"requested_by"`
+	Result      string     `json:"result"`
+	RequestedAt time.Time  `json:"requested_at"`
+	FinishedAt  *time.Time `json:"finished_at"`
+	DurationMS  *int       `json:"duration_ms"`
+	TargetType  string     `json:"-"`
+	TargetID    *string    `json:"-"`
+	DetailJSON  *string    `json:"-"`
+}
+
+type AuditQuery struct {
+	StackID string
+	Cursor  string
+	Limit   int
+}
+
+type AuditListResult struct {
+	Items      []AuditEntry `json:"items"`
+	NextCursor *string      `json:"next_cursor"`
 }
 
 func Open(databasePath string) (*Store, error) {
@@ -114,6 +142,23 @@ func (s *Store) migrate(ctx context.Context) error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_jobs_stack_requested_at ON jobs (stack_id, requested_at DESC);`,
 		`CREATE INDEX IF NOT EXISTS idx_jobs_state_requested_at ON jobs (state, requested_at DESC);`,
+		`CREATE TABLE IF NOT EXISTS audit_entries (
+			id TEXT PRIMARY KEY,
+			stack_id TEXT,
+			job_id TEXT,
+			action TEXT NOT NULL,
+			requested_by TEXT NOT NULL,
+			requested_at TEXT NOT NULL,
+			finished_at TEXT,
+			result TEXT NOT NULL,
+			duration_ms INTEGER,
+			target_type TEXT NOT NULL,
+			target_id TEXT,
+			detail_json TEXT
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_audit_entries_stack_requested_at ON audit_entries (stack_id, requested_at DESC);`,
+		`CREATE INDEX IF NOT EXISTS idx_audit_entries_requested_at ON audit_entries (requested_at DESC);`,
+		`CREATE INDEX IF NOT EXISTS idx_audit_entries_action_requested_at ON audit_entries (action, requested_at DESC);`,
 	}
 
 	for _, statement := range statements {
@@ -426,9 +471,245 @@ func (s *Store) JobByID(ctx context.Context, id string) (Job, error) {
 	return job, nil
 }
 
+func (s *Store) CreateAuditEntry(ctx context.Context, entry AuditEntry) error {
+	var finishedAt sql.NullString
+	if entry.FinishedAt != nil {
+		finishedAt = sql.NullString{String: entry.FinishedAt.UTC().Format(time.RFC3339Nano), Valid: true}
+	}
+
+	var durationMS sql.NullInt64
+	if entry.DurationMS != nil {
+		durationMS = sql.NullInt64{Int64: int64(*entry.DurationMS), Valid: true}
+	}
+
+	_, err := s.db.ExecContext(
+		ctx,
+		`INSERT INTO audit_entries (id, stack_id, job_id, action, requested_by, requested_at, finished_at, result, duration_ms, target_type, target_id, detail_json)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		entry.ID,
+		nullIfPtr(entry.StackID),
+		nullIfPtr(entry.JobID),
+		entry.Action,
+		entry.RequestedBy,
+		entry.RequestedAt.UTC().Format(time.RFC3339Nano),
+		finishedAt,
+		entry.Result,
+		durationMS,
+		entry.TargetType,
+		nullIfPtr(entry.TargetID),
+		nullIfPtr(entry.DetailJSON),
+	)
+	if err != nil {
+		return fmt.Errorf("create audit entry: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ListAuditEntries(ctx context.Context, query AuditQuery) (AuditListResult, error) {
+	limit := query.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	var where []string
+	var args []any
+	if query.StackID != "" {
+		where = append(where, "stack_id = ?")
+		args = append(args, query.StackID)
+	}
+	if query.Cursor != "" {
+		cursorTime, cursorID, err := decodeAuditCursor(query.Cursor)
+		if err != nil {
+			return AuditListResult{}, fmt.Errorf("decode audit cursor: %w", err)
+		}
+		where = append(where, "(requested_at < ? OR (requested_at = ? AND id < ?))")
+		args = append(args, cursorTime.UTC().Format(time.RFC3339Nano), cursorTime.UTC().Format(time.RFC3339Nano), cursorID)
+	}
+
+	statement := `SELECT id, stack_id, job_id, action, requested_by, requested_at, finished_at, result, duration_ms, target_type, target_id, detail_json
+		FROM audit_entries`
+	if len(where) > 0 {
+		statement += " WHERE " + strings.Join(where, " AND ")
+	}
+	statement += " ORDER BY requested_at DESC, id DESC LIMIT ?"
+	args = append(args, limit+1)
+
+	rows, err := s.db.QueryContext(ctx, statement, args...)
+	if err != nil {
+		return AuditListResult{}, fmt.Errorf("list audit entries: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]AuditEntry, 0, limit+1)
+	for rows.Next() {
+		entry, err := scanAuditEntry(rows)
+		if err != nil {
+			return AuditListResult{}, err
+		}
+		items = append(items, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return AuditListResult{}, fmt.Errorf("iterate audit entries: %w", err)
+	}
+
+	result := AuditListResult{}
+	if len(items) > limit {
+		last := items[limit-1]
+		cursor := encodeAuditCursor(last.RequestedAt, last.ID)
+		result.NextCursor = &cursor
+		items = items[:limit]
+	}
+	result.Items = items
+
+	return result, nil
+}
+
+func (s *Store) LatestAuditEntriesByStackIDs(ctx context.Context, stackIDs []string) (map[string]AuditEntry, error) {
+	result := make(map[string]AuditEntry, len(stackIDs))
+	if len(stackIDs) == 0 {
+		return result, nil
+	}
+
+	placeholders := make([]string, 0, len(stackIDs))
+	args := make([]any, 0, len(stackIDs))
+	for _, stackID := range stackIDs {
+		placeholders = append(placeholders, "?")
+		args = append(args, stackID)
+	}
+
+	rows, err := s.db.QueryContext(
+		ctx,
+		fmt.Sprintf(
+			`SELECT id, stack_id, job_id, action, requested_by, requested_at, finished_at, result, duration_ms, target_type, target_id, detail_json
+			 FROM audit_entries
+			 WHERE stack_id IN (%s)
+			 ORDER BY requested_at DESC, id DESC`,
+			strings.Join(placeholders, ", "),
+		),
+		args...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list latest audit entries by stack: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		entry, err := scanAuditEntry(rows)
+		if err != nil {
+			return nil, err
+		}
+		if entry.StackID == nil {
+			continue
+		}
+		if _, exists := result[*entry.StackID]; exists {
+			continue
+		}
+		result[*entry.StackID] = entry
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate latest audit entries: %w", err)
+	}
+
+	return result, nil
+}
+
 func nullIfEmpty(value string) sql.NullString {
 	if value == "" {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: value, Valid: true}
+}
+
+func nullIfPtr(value *string) sql.NullString {
+	if value == nil || *value == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: *value, Valid: true}
+}
+
+func scanAuditEntry(scanner interface{ Scan(dest ...any) error }) (AuditEntry, error) {
+	var rawStackID sql.NullString
+	var rawJobID sql.NullString
+	var rawRequestedAt string
+	var rawFinishedAt sql.NullString
+	var rawDurationMS sql.NullInt64
+	var rawTargetID sql.NullString
+	var rawDetailJSON sql.NullString
+
+	entry := AuditEntry{}
+	err := scanner.Scan(
+		&entry.ID,
+		&rawStackID,
+		&rawJobID,
+		&entry.Action,
+		&entry.RequestedBy,
+		&rawRequestedAt,
+		&rawFinishedAt,
+		&entry.Result,
+		&rawDurationMS,
+		&entry.TargetType,
+		&rawTargetID,
+		&rawDetailJSON,
+	)
+	if err != nil {
+		return AuditEntry{}, fmt.Errorf("scan audit entry: %w", err)
+	}
+
+	requestedAt, err := time.Parse(time.RFC3339Nano, rawRequestedAt)
+	if err != nil {
+		return AuditEntry{}, fmt.Errorf("parse audit requested_at: %w", err)
+	}
+	entry.RequestedAt = requestedAt
+
+	if rawFinishedAt.Valid {
+		finishedAt, err := time.Parse(time.RFC3339Nano, rawFinishedAt.String)
+		if err != nil {
+			return AuditEntry{}, fmt.Errorf("parse audit finished_at: %w", err)
+		}
+		entry.FinishedAt = &finishedAt
+	}
+	if rawStackID.Valid {
+		entry.StackID = &rawStackID.String
+	}
+	if rawJobID.Valid {
+		entry.JobID = &rawJobID.String
+	}
+	if rawDurationMS.Valid {
+		durationMS := int(rawDurationMS.Int64)
+		entry.DurationMS = &durationMS
+	}
+	if rawTargetID.Valid {
+		entry.TargetID = &rawTargetID.String
+	}
+	if rawDetailJSON.Valid {
+		entry.DetailJSON = &rawDetailJSON.String
+	}
+
+	return entry, nil
+}
+
+func encodeAuditCursor(requestedAt time.Time, id string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(requestedAt.UTC().Format(time.RFC3339Nano) + "|" + id))
+}
+
+func decodeAuditCursor(value string) (time.Time, string, error) {
+	decoded, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return time.Time{}, "", err
+	}
+
+	parts := strings.SplitN(string(decoded), "|", 2)
+	if len(parts) != 2 {
+		return time.Time{}, "", fmt.Errorf("invalid cursor")
+	}
+
+	requestedAt, err := time.Parse(time.RFC3339Nano, parts[0])
+	if err != nil {
+		return time.Time{}, "", err
+	}
+
+	return requestedAt, parts[1], nil
 }

@@ -1,12 +1,16 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
+	"stacklab/internal/audit"
 	"stacklab/internal/auth"
 	"stacklab/internal/config"
 	"stacklab/internal/jobs"
@@ -20,16 +24,18 @@ type Handler struct {
 	logger      *slog.Logger
 	mux         *http.ServeMux
 	auth        *auth.Service
+	audit       *audit.Service
 	jobs        *jobs.Service
 	stackReader *stacks.ServiceReader
 }
 
-func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Service, jobService *jobs.Service) (http.Handler, error) {
+func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Service, auditService *audit.Service, jobService *jobs.Service) (http.Handler, error) {
 	handler := &Handler{
 		cfg:         cfg,
 		logger:      logger,
 		mux:         http.NewServeMux(),
 		auth:        authService,
+		audit:       auditService,
 		jobs:        jobService,
 		stackReader: stacks.NewServiceReader(cfg, logger),
 	}
@@ -52,6 +58,8 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/stacks/{stackId}/resolved-config", h.withAuth(h.handleGetResolvedConfig))
 	h.mux.HandleFunc("POST /api/stacks/{stackId}/resolved-config", h.withAuth(h.handlePostResolvedConfig))
 	h.mux.HandleFunc("POST /api/stacks/{stackId}/actions/{action}", h.withAuth(h.handleRunStackAction))
+	h.mux.HandleFunc("GET /api/stacks/{stackId}/audit", h.withAuth(h.handleListStackAudit))
+	h.mux.HandleFunc("GET /api/audit", h.withAuth(h.handleListAudit))
 	h.mux.HandleFunc("POST /api/settings/password", h.withAuth(h.handleUpdatePassword))
 	h.mux.HandleFunc("GET /api/jobs/{jobId}", h.withAuth(h.handleGetJob))
 	h.mux.HandleFunc("/api/", h.withAuth(h.handleAPINotImplemented))
@@ -159,6 +167,12 @@ func (h *Handler) handleListStacks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := h.decorateStackListWithAudit(r.Context(), &response, strings.TrimSpace(r.URL.Query().Get("sort"))); err != nil {
+		h.logger.Error("decorate stack list with audit failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load stacks.", nil)
+		return
+	}
+
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -172,6 +186,12 @@ func (h *Handler) handleGetStack(w http.ResponseWriter, r *http.Request) {
 			h.logger.Error("get stack failed", slog.String("stack_id", r.PathValue("stackId")), slog.String("err", err.Error()))
 			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load stack.", nil)
 		}
+		return
+	}
+
+	if err := h.decorateStackDetailWithAudit(r.Context(), &response); err != nil {
+		h.logger.Error("decorate stack detail with audit failed", slog.String("stack_id", r.PathValue("stackId")), slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load stack.", nil)
 		return
 	}
 
@@ -217,7 +237,10 @@ func (h *Handler) handlePutDefinition(w http.ResponseWriter, r *http.Request) {
 
 	preview, saveErr := h.stackReader.SaveDefinition(r.Context(), r.PathValue("stackId"), request)
 	if saveErr != nil {
-		_, _ = h.jobs.FinishFailed(r.Context(), job, "save_definition_failed", saveErr.Error())
+		job, _ = h.jobs.FinishFailed(r.Context(), job, "save_definition_failed", saveErr.Error())
+		if err := h.audit.RecordStackJob(r.Context(), job); err != nil {
+			h.logger.Warn("record failed save_definition audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+		}
 		switch {
 		case errors.Is(saveErr, stacks.ErrNotFound):
 			writeError(w, http.StatusNotFound, "not_found", "Stack was not found.", nil)
@@ -239,6 +262,10 @@ func (h *Handler) handlePutDefinition(w http.ResponseWriter, r *http.Request) {
 
 	if request.ValidateAfterSave && !preview.Valid {
 		h.logger.Warn("saved invalid stack definition", slog.String("stack_id", r.PathValue("stackId")), slog.String("message", preview.Error.Message))
+	}
+
+	if err := h.audit.RecordStackJob(r.Context(), job); err != nil {
+		h.logger.Warn("record save_definition audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"job": job})
@@ -314,6 +341,49 @@ func (h *Handler) handleGetJob(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"job": job})
 }
 
+func (h *Handler) handleListStackAudit(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.stackReader.Get(r.Context(), r.PathValue("stackId")); err != nil {
+		switch {
+		case errors.Is(err, stacks.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Stack was not found.", nil)
+		default:
+			h.logger.Error("stack audit stack lookup failed", slog.String("stack_id", r.PathValue("stackId")), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load audit entries.", nil)
+		}
+		return
+	}
+
+	response, err := h.audit.List(
+		r.Context(),
+		r.PathValue("stackId"),
+		strings.TrimSpace(r.URL.Query().Get("cursor")),
+		parseLimit(r.URL.Query().Get("limit")),
+	)
+	if err != nil {
+		h.logger.Error("list stack audit failed", slog.String("stack_id", r.PathValue("stackId")), slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load audit entries.", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleListAudit(w http.ResponseWriter, r *http.Request) {
+	response, err := h.audit.List(
+		r.Context(),
+		strings.TrimSpace(r.URL.Query().Get("stack_id")),
+		strings.TrimSpace(r.URL.Query().Get("cursor")),
+		parseLimit(r.URL.Query().Get("limit")),
+	)
+	if err != nil {
+		h.logger.Error("list audit failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load audit entries.", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
 func (h *Handler) handleRunStackAction(w http.ResponseWriter, r *http.Request) {
 	if !auth.SameOrigin(r) {
 		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
@@ -350,6 +420,10 @@ func (h *Handler) handleRunStackAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		if err := h.audit.RecordStackJob(r.Context(), job); err != nil {
+			h.logger.Warn("record failed stack action audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+		}
+
 		switch {
 		case errors.Is(actionErr, stacks.ErrNotFound):
 			writeError(w, http.StatusNotFound, "not_found", "Stack was not found.", nil)
@@ -370,6 +444,10 @@ func (h *Handler) handleRunStackAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := h.audit.RecordStackJob(r.Context(), job); err != nil {
+		h.logger.Warn("record stack action audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{"job": job})
 }
 
@@ -388,6 +466,8 @@ func (h *Handler) handleUpdatePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	requestedAt := time.Now().UTC()
+
 	if err := h.auth.UpdatePassword(r.Context(), request.CurrentPassword, request.NewPassword); err != nil {
 		switch {
 		case errors.Is(err, auth.ErrInvalidCredentials):
@@ -399,6 +479,11 @@ func (h *Handler) handleUpdatePassword(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to update password.", nil)
 		}
 		return
+	}
+
+	finishedAt := time.Now().UTC()
+	if err := h.audit.RecordSystemEvent(r.Context(), "update_password", "local", "succeeded", requestedAt, &finishedAt, nil); err != nil {
+		h.logger.Warn("record password update audit failed", slog.String("err", err.Error()))
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -495,4 +580,66 @@ func (h *Handler) withAuth(next http.HandlerFunc) http.HandlerFunc {
 
 		next(w, r)
 	}
+}
+
+func (h *Handler) decorateStackListWithAudit(ctx context.Context, response *stacks.StackListResponse, sortBy string) error {
+	if len(response.Items) == 0 {
+		return nil
+	}
+
+	stackIDs := make([]string, 0, len(response.Items))
+	for _, item := range response.Items {
+		stackIDs = append(stackIDs, item.ID)
+	}
+
+	lastActions, err := h.audit.LastActions(ctx, stackIDs)
+	if err != nil {
+		return err
+	}
+
+	for i := range response.Items {
+		response.Items[i].LastAction = lastActions[response.Items[i].ID]
+	}
+
+	if sortBy == "last_action" {
+		sort.Slice(response.Items, func(i, j int) bool {
+			left := response.Items[i].LastAction
+			right := response.Items[j].LastAction
+			switch {
+			case left == nil && right == nil:
+				return response.Items[i].Name < response.Items[j].Name
+			case left == nil:
+				return false
+			case right == nil:
+				return true
+			case !left.FinishedAt.Equal(right.FinishedAt):
+				return left.FinishedAt.After(right.FinishedAt)
+			default:
+				return response.Items[i].Name < response.Items[j].Name
+			}
+		})
+	}
+
+	return nil
+}
+
+func (h *Handler) decorateStackDetailWithAudit(ctx context.Context, response *stacks.StackDetailResponse) error {
+	lastActions, err := h.audit.LastActions(ctx, []string{response.Stack.ID})
+	if err != nil {
+		return err
+	}
+	response.Stack.LastAction = lastActions[response.Stack.ID]
+	return nil
+}
+
+func parseLimit(value string) int {
+	if strings.TrimSpace(value) == "" {
+		return 50
+	}
+
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 50
+	}
+	return parsed
 }

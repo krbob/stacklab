@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"stacklab/internal/audit"
 	"stacklab/internal/auth"
 	"stacklab/internal/config"
 	"stacklab/internal/httpapi"
@@ -34,6 +35,7 @@ func main() {
 	}()
 
 	authService := auth.NewService(cfg, authStore)
+	auditService := audit.NewService(authStore)
 	jobService := jobs.NewService(authStore)
 	if err := authService.Bootstrap(context.Background()); err != nil {
 		if errors.Is(err, auth.ErrNotConfigured) {
@@ -44,7 +46,7 @@ func main() {
 		}
 	}
 
-	handler, err := httpapi.NewHandler(cfg, logger, authService, jobService)
+	handler, err := httpapi.NewHandler(cfg, logger, authService, auditService, jobService)
 	if err != nil {
 		logger.Error("failed to initialize HTTP handler", slog.String("err", err.Error()))
 		os.Exit(1)
