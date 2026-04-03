@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -48,11 +49,6 @@ type wsConnection struct {
 	writeMu sync.Mutex
 }
 
-type wsJobSubscription struct {
-	stop        chan struct{}
-	unsubscribe func()
-}
-
 func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	if !auth.SameOrigin(r) {
 		http.Error(w, "Cross-origin request rejected.", http.StatusForbidden)
@@ -91,11 +87,10 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
-	subscriptions := map[string]wsJobSubscription{}
+	subscriptions := map[string]*wsSubscription{}
 	defer func() {
 		for _, subscription := range subscriptions {
-			close(subscription.stop)
-			subscription.unsubscribe()
+			subscription.Close()
 		}
 	}()
 
@@ -130,11 +125,51 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		switch frame.Type {
 		case "pong":
 			continue
+		case "logs.subscribe":
+			if err := h.subscribeLogStream(ctx, wsConn, subscriptions, frame); err != nil {
+				return
+			}
+		case "logs.unsubscribe":
+			if existing, ok := subscriptions[frame.StreamID]; ok {
+				existing.Close()
+				delete(subscriptions, frame.StreamID)
+			}
+
+			if err := wsConn.writeJSON(wsServerFrame{
+				Type:      "ack",
+				RequestID: frame.RequestID,
+				StreamID:  frame.StreamID,
+				Payload: map[string]any{
+					"status": "unsubscribed",
+				},
+			}); err != nil {
+				return
+			}
+		case "stats.subscribe":
+			if err := h.subscribeStatsStream(ctx, wsConn, subscriptions, frame); err != nil {
+				return
+			}
+		case "stats.unsubscribe":
+			if existing, ok := subscriptions[frame.StreamID]; ok {
+				existing.Close()
+				delete(subscriptions, frame.StreamID)
+			}
+
+			if err := wsConn.writeJSON(wsServerFrame{
+				Type:      "ack",
+				RequestID: frame.RequestID,
+				StreamID:  frame.StreamID,
+				Payload: map[string]any{
+					"status": "unsubscribed",
+				},
+			}); err != nil {
+				return
+			}
 		case "jobs.subscribe":
 			var payload struct {
 				JobID string `json:"job_id"`
 			}
-			if err := json.Unmarshal(frame.Payload, &payload); err != nil || payload.JobID == "" {
+			if err := json.Unmarshal(frame.Payload, &payload); err != nil || payload.JobID == "" || strings.TrimSpace(frame.StreamID) == "" {
 				_ = wsConn.writeJSON(validationErrorFrame(frame, "Invalid jobs.subscribe payload."))
 				continue
 			}
@@ -151,15 +186,11 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if existing, ok := subscriptions[frame.StreamID]; ok {
-				close(existing.stop)
-				existing.unsubscribe()
+				existing.Close()
 			}
 
 			liveEvents, unsubscribe := h.jobs.Subscribe(payload.JobID)
-			subscription := wsJobSubscription{
-				stop:        make(chan struct{}),
-				unsubscribe: unsubscribe,
-			}
+			subscription := newWSSubscription(unsubscribe)
 			subscriptions[frame.StreamID] = subscription
 
 			if err := wsConn.writeJSON(wsServerFrame{
@@ -187,8 +218,7 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			go h.forwardJobEvents(ctx, wsConn, frame.StreamID, job, liveEvents, subscription.stop)
 		case "jobs.unsubscribe":
 			if existing, ok := subscriptions[frame.StreamID]; ok {
-				close(existing.stop)
-				existing.unsubscribe()
+				existing.Close()
 				delete(subscriptions, frame.StreamID)
 			}
 
@@ -280,6 +310,17 @@ func internalErrorFrame(frame wsClientFrame, message string) wsServerFrame {
 		StreamID:  frame.StreamID,
 		Error: map[string]any{
 			"code":    "internal_error",
+			"message": message,
+		},
+	}
+}
+
+func streamErrorFrame(streamID, code, message string) wsServerFrame {
+	return wsServerFrame{
+		Type:     "error",
+		StreamID: streamID,
+		Error: map[string]any{
+			"code":    code,
 			"message": message,
 		},
 	}
