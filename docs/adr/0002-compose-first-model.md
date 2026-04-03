@@ -17,7 +17,7 @@ There are two competing models:
 
 Stacklab will be modeled as a Compose-first system.
 
-The primary source of truth is the filesystem under `/opt/homelab/stacks`. Runtime state from Docker augments the model but does not replace it.
+The primary source of truth is the filesystem under `/opt/stacklab/stacks`. Runtime state from Docker augments the model but does not replace it.
 
 ## Rationale
 
@@ -46,4 +46,3 @@ The primary source of truth is the filesystem under `/opt/homelab/stacks`. Runti
 - define canonical stack directory layout
 - define stack discovery rules
 - define drift states between filesystem and runtime
-

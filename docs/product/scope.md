@@ -2,7 +2,7 @@
 
 ## Product Statement
 
-Stacklab is a host-native, web-based control panel for managing Docker Compose stacks on a single Linux `amd64` homelab host.
+Stacklab is a host-native, web-based control panel for managing Docker Compose stacks on a single Linux `amd64` host.
 
 The system is intentionally `Compose-first`:
 
@@ -35,10 +35,14 @@ Single operator or a very small trusted household team managing one homelab mach
 
 Primary source of truth:
 
-- `/opt/homelab/stacks/<stack>/compose.yaml`
-- `/opt/homelab/stacks/<stack>/.env`
-- `/opt/homelab/config/<stack>/`
-- `/opt/homelab/data/<stack>/`
+- `/opt/stacklab/stacks/<stack>/compose.yaml`
+- `/opt/stacklab/stacks/<stack>/.env`
+- `/opt/stacklab/config/<stack>/`
+- `/opt/stacklab/data/<stack>/`
+
+Application home:
+
+- `/opt/stacklab/app/`
 
 Secondary application state:
 
@@ -58,4 +62,3 @@ Secondary application state:
 - stack state in UI matches actual Docker runtime state
 - failed operations are explicit and recoverable
 - UI developer can build screens against stable backend contracts
-

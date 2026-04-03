@@ -8,7 +8,7 @@ Deliver a stable first version that covers the full daily loop of managing Compo
 
 ### Stack Discovery And Overview
 
-- scan stacks from `/opt/homelab/stacks`
+- scan stacks from `/opt/stacklab/stacks`
 - detect runtime state from Docker and Compose labels
 - show stack list with state, health summary, service count, and last action
 
@@ -71,4 +71,3 @@ Deliver a stable first version that covers the full daily loop of managing Compo
 - mutating actions are serialized and auditable
 - compose validation blocks invalid deploys
 - UI contracts are stable enough for parallel frontend work
-

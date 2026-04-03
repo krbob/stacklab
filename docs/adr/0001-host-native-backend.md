@@ -9,7 +9,7 @@ Accepted
 Stacklab needs deep access to:
 
 - `/var/run/docker.sock`
-- stack files under `/opt/homelab`
+- stack files under `/opt/stacklab`
 - PTY-backed shell sessions
 - local process execution for `docker compose`
 - local Git state
@@ -50,4 +50,3 @@ The frontend will be served as static assets by the backend or an optional local
 - define systemd unit and service account model
 - define runtime directories and permissions
 - harden terminal and WebSocket paths
-
