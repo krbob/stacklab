@@ -361,6 +361,95 @@ func TestWebSocketReplaysJobEvents(t *testing.T) {
 	}
 }
 
+func TestWebSocketTerminalAttachMissingSession(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := newTestHandler(t)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	client := server.Client()
+	loginRequestBody := bytes.NewBufferString(`{"password":"secret"}`)
+	loginRequest, err := http.NewRequest(http.MethodPost, server.URL+"/api/auth/login", loginRequestBody)
+	if err != nil {
+		t.Fatalf("http.NewRequest(login) error = %v", err)
+	}
+	loginRequest.Header.Set("Origin", server.URL)
+	loginRequest.Header.Set("Content-Type", "application/json")
+
+	loginResponse, err := client.Do(loginRequest)
+	if err != nil {
+		t.Fatalf("client.Do(login) error = %v", err)
+	}
+	defer loginResponse.Body.Close()
+	if loginResponse.StatusCode != http.StatusOK {
+		t.Fatalf("login status = %d, want %d", loginResponse.StatusCode, http.StatusOK)
+	}
+
+	cookies := loginResponse.Cookies()
+	if len(cookies) == 0 {
+		t.Fatalf("expected login to set cookies")
+	}
+
+	wsURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("url.Parse(server.URL) error = %v", err)
+	}
+	wsURL.Scheme = strings.Replace(wsURL.Scheme, "http", "ws", 1)
+	wsURL.Path = "/api/ws"
+
+	header := http.Header{}
+	header.Set("Origin", server.URL)
+	for _, cookie := range cookies {
+		header.Add("Cookie", cookie.Name+"="+cookie.Value)
+	}
+
+	wsConn, wsResponse, err := websocket.DefaultDialer.Dial(wsURL.String(), header)
+	if err != nil {
+		if wsResponse != nil {
+			body, _ := io.ReadAll(wsResponse.Body)
+			_ = wsResponse.Body.Close()
+			t.Fatalf("websocket dial error = %v (status=%d body=%q)", err, wsResponse.StatusCode, string(body))
+		}
+		t.Fatalf("websocket dial error = %v", err)
+	}
+	defer wsConn.Close()
+	_ = wsConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+
+	var helloFrame map[string]any
+	if err := wsConn.ReadJSON(&helloFrame); err != nil {
+		t.Fatalf("ReadJSON(hello) error = %v", err)
+	}
+
+	if err := wsConn.WriteJSON(map[string]any{
+		"type":       "terminal.attach",
+		"request_id": "req_attach_1",
+		"stream_id":  "term_demo",
+		"payload": map[string]any{
+			"session_id": "term_missing",
+			"cols":       120,
+			"rows":       36,
+		},
+	}); err != nil {
+		t.Fatalf("WriteJSON(terminal.attach) error = %v", err)
+	}
+
+	var errorFrame struct {
+		Type      string `json:"type"`
+		RequestID string `json:"request_id"`
+		StreamID  string `json:"stream_id"`
+		Error     struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := wsConn.ReadJSON(&errorFrame); err != nil {
+		t.Fatalf("ReadJSON(error) error = %v", err)
+	}
+	if errorFrame.Type != "error" || errorFrame.RequestID != "req_attach_1" || errorFrame.StreamID != "term_demo" || errorFrame.Error.Code != "terminal_session_not_found" {
+		t.Fatalf("unexpected terminal attach error frame: %#v", errorFrame)
+	}
+}
+
 func newTestHandler(t *testing.T) (http.Handler, config.Config) {
 	t.Helper()
 

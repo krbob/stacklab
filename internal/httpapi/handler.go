@@ -17,6 +17,7 @@ import (
 	"stacklab/internal/jobs"
 	"stacklab/internal/stacks"
 	"stacklab/internal/store"
+	"stacklab/internal/terminal"
 	"strconv"
 	"strings"
 	"time"
@@ -29,17 +30,33 @@ type Handler struct {
 	auth        *auth.Service
 	audit       *audit.Service
 	jobs        *jobs.Service
+	terminals   *terminal.Service
 	stackReader *stacks.ServiceReader
 }
 
 func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Service, auditService *audit.Service, jobService *jobs.Service) (http.Handler, error) {
 	handler := &Handler{
-		cfg:         cfg,
-		logger:      logger,
-		mux:         http.NewServeMux(),
-		auth:        authService,
-		audit:       auditService,
-		jobs:        jobService,
+		cfg:    cfg,
+		logger: logger,
+		mux:    http.NewServeMux(),
+		auth:   authService,
+		audit:  auditService,
+		jobs:   jobService,
+		terminals: terminal.NewService(logger, terminal.Config{
+			MaxSessionsPerOwner: 5,
+			IdleTimeout:         30 * time.Minute,
+			DetachGracePeriod:   time.Minute,
+		}, func(event terminal.LifecycleEvent) {
+			details := map[string]any{
+				"container_id": event.ContainerID,
+			}
+			if event.Reason != "" {
+				details["reason"] = event.Reason
+			}
+			action := "terminal_" + event.Type
+			result := "succeeded"
+			_ = auditService.RecordTerminalEvent(context.Background(), event.StackID, event.SessionID, event.ContainerID, "local", action, result, details)
+		}),
 		stackReader: stacks.NewServiceReader(cfg, logger),
 	}
 

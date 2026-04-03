@@ -55,7 +55,8 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := h.auth.AuthenticateRequest(r.Context(), r); err != nil {
+	session, err := h.auth.AuthenticateRequest(r.Context(), r)
+	if err != nil {
 		http.SetCookie(w, h.auth.ClearSessionCookie())
 		http.Error(w, "Authentication required.", http.StatusUnauthorized)
 		return
@@ -230,6 +231,26 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 					"status": "unsubscribed",
 				},
 			}); err != nil {
+				return
+			}
+		case "terminal.open":
+			if err := h.openTerminalStream(ctx, wsConn, subscriptions, session.ID, connectionID, frame); err != nil {
+				return
+			}
+		case "terminal.attach":
+			if err := h.attachTerminalStream(wsConn, subscriptions, session.ID, connectionID, frame); err != nil {
+				return
+			}
+		case "terminal.input":
+			if err := h.handleTerminalInput(session.ID, wsConn, frame); err != nil {
+				return
+			}
+		case "terminal.resize":
+			if err := h.handleTerminalResize(session.ID, wsConn, frame); err != nil {
+				return
+			}
+		case "terminal.close":
+			if err := h.handleTerminalClose(session.ID, wsConn, frame); err != nil {
 				return
 			}
 		default:

@@ -88,6 +88,30 @@ func (s *Service) RecordSystemEvent(ctx context.Context, action, requestedBy, re
 	})
 }
 
+func (s *Service) RecordTerminalEvent(ctx context.Context, stackID, sessionID, containerID, requestedBy, action, result string, details map[string]any) error {
+	detailJSON, err := marshalDetails(details)
+	if err != nil {
+		return err
+	}
+
+	requestedAt := time.Now().UTC()
+	stackIDValue := stackID
+	targetID := sessionID
+
+	return s.store.CreateAuditEntry(ctx, store.AuditEntry{
+		ID:          "audit_" + randomToken(18),
+		StackID:     &stackIDValue,
+		Action:      action,
+		RequestedBy: fallback(requestedBy, "local"),
+		Result:      result,
+		RequestedAt: requestedAt,
+		FinishedAt:  &requestedAt,
+		TargetType:  "terminal_session",
+		TargetID:    &targetID,
+		DetailJSON:  detailJSON,
+	})
+}
+
 func (s *Service) List(ctx context.Context, stackID, cursor string, limit int) (store.AuditListResult, error) {
 	return s.store.ListAuditEntries(ctx, store.AuditQuery{
 		StackID: stackID,
