@@ -52,6 +52,7 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/stacks/{stackId}/resolved-config", h.withAuth(h.handleGetResolvedConfig))
 	h.mux.HandleFunc("POST /api/stacks/{stackId}/resolved-config", h.withAuth(h.handlePostResolvedConfig))
 	h.mux.HandleFunc("POST /api/stacks/{stackId}/actions/{action}", h.withAuth(h.handleRunStackAction))
+	h.mux.HandleFunc("POST /api/settings/password", h.withAuth(h.handleUpdatePassword))
 	h.mux.HandleFunc("GET /api/jobs/{jobId}", h.withAuth(h.handleGetJob))
 	h.mux.HandleFunc("/api/", h.withAuth(h.handleAPINotImplemented))
 	h.mux.HandleFunc("/", h.handleFrontend)
@@ -370,6 +371,39 @@ func (h *Handler) handleRunStackAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"job": job})
+}
+
+func (h *Handler) handleUpdatePassword(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	if err := h.auth.UpdatePassword(r.Context(), request.CurrentPassword, request.NewPassword); err != nil {
+		switch {
+		case errors.Is(err, auth.ErrInvalidCredentials):
+			writeError(w, http.StatusUnauthorized, "unauthorized", "Current password is invalid.", nil)
+		case errors.Is(err, auth.ErrNotConfigured):
+			writeError(w, http.StatusServiceUnavailable, "auth_not_configured", "Authentication is not configured yet.", nil)
+		default:
+			h.logger.Error("update password failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to update password.", nil)
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"updated": true,
+	})
 }
 
 func (h *Handler) handleAPINotImplemented(w http.ResponseWriter, r *http.Request) {

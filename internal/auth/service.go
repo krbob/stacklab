@@ -117,6 +117,26 @@ func (s *Service) Logout(ctx context.Context, sessionID string) error {
 	return nil
 }
 
+func (s *Service) UpdatePassword(ctx context.Context, currentPassword, newPassword string) error {
+	passwordHash, configured, err := s.store.PasswordHash(ctx)
+	if err != nil {
+		return err
+	}
+	if !configured || passwordHash == "" {
+		return ErrNotConfigured
+	}
+	if err := verifyPassword(passwordHash, currentPassword); err != nil {
+		return ErrInvalidCredentials
+	}
+
+	updatedHash, err := hashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+
+	return s.store.SetPasswordHash(ctx, updatedHash, time.Now().UTC())
+}
+
 func (s *Service) AuthenticateRequest(ctx context.Context, r *http.Request) (Session, error) {
 	cookie, err := r.Cookie(s.cfg.SessionCookieName)
 	if err != nil || cookie.Value == "" {
