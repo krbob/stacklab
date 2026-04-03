@@ -204,6 +204,7 @@ Suggested columns:
 |---|---|---|
 | `id` | `TEXT PRIMARY KEY` | Stable audit ID |
 | `stack_id` | `TEXT` | Nullable for global/system events |
+| `job_id` | `TEXT` | Nullable link to `jobs.id` for stack operation audit entries |
 | `action` | `TEXT NOT NULL` | Domain action or terminal metadata action |
 | `requested_by` | `TEXT NOT NULL` | `local` in v1 |
 | `requested_at` | `TEXT NOT NULL` | ISO 8601 UTC |
@@ -224,6 +225,8 @@ Rules:
 
 - audit entries are durable summaries, not raw logs
 - audit is optimized for read and filtering, not for streaming raw output
+- `job_id` should be populated for stack operation audit entries so UI can jump from history to job details and replayable job events
+- `job_id` may remain null for terminal metadata events and system-level audit entries
 
 Examples:
 
@@ -317,4 +320,3 @@ If SQLite is lost:
 - drift detection falls back to `config_state = unknown` until new successful deploys happen
 
 This is acceptable for v1.
-
