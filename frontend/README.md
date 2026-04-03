@@ -1,6 +1,6 @@
 # Stacklab Frontend
 
-React and Vite scaffold for the Stacklab web UI.
+React + Vite frontend for the Stacklab web UI.
 
 ## Scripts
 
@@ -9,15 +9,18 @@ React and Vite scaffold for the Stacklab web UI.
 - `npm run typecheck` runs the TypeScript project build without emitting files.
 - `npm run lint` runs ESLint.
 - `npm run build` produces the production bundle in `dist/`.
+- `npm test` runs the Vitest suite.
 
 ## Current Scope
 
-- React Router layout aligned with `docs/ui/information-architecture.md`
-- dashboard, stack detail, editor, logs, stats, terminal, history, login, settings, and create-stack placeholder routes
-- Tailwind v4 styling tokens aligned with the current visual direction
+- React Router application aligned with `docs/ui/information-architecture.md`
+- auth flow and route guarding
+- stack list, stack detail, editor, logs, stats, terminal, history, login, settings, and create-stack flows
+- REST client and multiplexed WebSocket client
+- Vitest coverage for selected UI and client modules
 
-## Next Steps
+## Notes
 
-- replace placeholder routes with real data flows from `docs/api/openapi.yaml`
-- add shared API client, auth handling, and WebSocket provider
-- layer in UI primitives for forms, badges, tables, dialogs, and terminal surfaces
+- the frontend is optimized for desktop-first homelab usage, with tablet-tolerant layouts where practical
+- the production bundle is served by the Go backend from `frontend/dist`
+- Vite dev mode proxies `/api` and WebSocket traffic to the backend
