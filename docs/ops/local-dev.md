@@ -61,7 +61,13 @@ export STACKLAB_ROOT="$PWD/.local/stacklab"
 export STACKLAB_DATA_DIR="$PWD/.local/var/lib/stacklab"
 export STACKLAB_HTTP_ADDR="127.0.0.1:8080"
 export STACKLAB_LOG_LEVEL="debug"
+export STACKLAB_BOOTSTRAP_PASSWORD="stacklab-dev"
 ```
+
+Notes:
+
+- `STACKLAB_BOOTSTRAP_PASSWORD` is used only to initialize the first password hash when the auth store is empty
+- once the password row exists, changing the bootstrap variable does not overwrite the stored password
 
 ## Frontend Development
 
@@ -149,4 +155,3 @@ Likely follow-up additions later:
 - seed scripts for local test stacks
 - dev TLS or reverse-proxy profile
 - automated OpenAPI type generation for frontend
-

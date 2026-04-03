@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"stacklab/internal/auth"
 	"stacklab/internal/config"
 	"stacklab/internal/stacks"
 	"strings"
@@ -17,29 +18,33 @@ type Handler struct {
 	cfg         config.Config
 	logger      *slog.Logger
 	mux         *http.ServeMux
+	auth        *auth.Service
 	stackReader *stacks.ServiceReader
 }
 
-func NewHandler(cfg config.Config, logger *slog.Logger) http.Handler {
+func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Service) (http.Handler, error) {
 	handler := &Handler{
 		cfg:         cfg,
 		logger:      logger,
 		mux:         http.NewServeMux(),
+		auth:        authService,
 		stackReader: stacks.NewServiceReader(cfg, logger),
 	}
 
 	handler.registerRoutes()
 
-	return handler.withLogging(handler.mux)
+	return handler.withLogging(handler.mux), nil
 }
 
 func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/health", h.handleHealth)
 	h.mux.HandleFunc("GET /api/session", h.handleSession)
-	h.mux.HandleFunc("GET /api/meta", h.handleMeta)
-	h.mux.HandleFunc("GET /api/stacks", h.handleListStacks)
-	h.mux.HandleFunc("GET /api/stacks/{stackId}", h.handleGetStack)
-	h.mux.HandleFunc("/api/", h.handleAPINotImplemented)
+	h.mux.HandleFunc("POST /api/auth/login", h.handleLogin)
+	h.mux.HandleFunc("POST /api/auth/logout", h.withAuth(h.handleLogout))
+	h.mux.HandleFunc("GET /api/meta", h.withAuth(h.handleMeta))
+	h.mux.HandleFunc("GET /api/stacks", h.withAuth(h.handleListStacks))
+	h.mux.HandleFunc("GET /api/stacks/{stackId}", h.withAuth(h.handleGetStack))
+	h.mux.HandleFunc("/api/", h.withAuth(h.handleAPINotImplemented))
 	h.mux.HandleFunc("/", h.handleFrontend)
 }
 
@@ -51,7 +56,82 @@ func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleSession(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, h.stackReader.Session())
+	session, err := h.auth.AuthenticateRequest(r.Context(), r)
+	if err != nil {
+		http.SetCookie(w, h.auth.ClearSessionCookie())
+		writeError(w, http.StatusUnauthorized, "unauthorized", "Authentication required.", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"authenticated": true,
+		"user": map[string]any{
+			"id":           session.UserID,
+			"display_name": "Local Operator",
+		},
+		"features": map[string]any{
+			"host_shell": false,
+		},
+	})
+}
+
+func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request struct {
+		Password string `json:"password"`
+	}
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	session, err := h.auth.Login(r.Context(), request.Password, r.UserAgent(), auth.ClientIP(r))
+	if err != nil {
+		switch {
+		case errors.Is(err, auth.ErrInvalidCredentials):
+			writeError(w, http.StatusUnauthorized, "unauthorized", "Invalid password.", nil)
+		case errors.Is(err, auth.ErrNotConfigured):
+			writeError(w, http.StatusServiceUnavailable, "auth_not_configured", "Authentication is not configured yet.", nil)
+		default:
+			h.logger.Error("login failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to authenticate.", nil)
+		}
+		return
+	}
+
+	http.SetCookie(w, h.auth.SessionCookie(session))
+	writeJSON(w, http.StatusOK, map[string]any{
+		"authenticated": true,
+	})
+}
+
+func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	cookie, err := r.Cookie(h.cfg.SessionCookieName)
+	if err != nil || cookie.Value == "" {
+		http.SetCookie(w, h.auth.ClearSessionCookie())
+		writeError(w, http.StatusUnauthorized, "unauthorized", "Authentication required.", nil)
+		return
+	}
+
+	if err := h.auth.Logout(r.Context(), cookie.Value); err != nil {
+		http.SetCookie(w, h.auth.ClearSessionCookie())
+		writeError(w, http.StatusUnauthorized, "unauthorized", "Authentication required.", nil)
+		return
+	}
+
+	http.SetCookie(w, h.auth.ClearSessionCookie())
+	writeJSON(w, http.StatusOK, map[string]any{
+		"authenticated": false,
+	})
 }
 
 func (h *Handler) handleMeta(w http.ResponseWriter, r *http.Request) {
@@ -151,6 +231,12 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	_ = encoder.Encode(payload)
 }
 
+func decodeJSON(r *http.Request, destination any) error {
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	return decoder.Decode(destination)
+}
+
 func writeError(w http.ResponseWriter, status int, code, message string, details any) {
 	writeJSON(w, status, map[string]any{
 		"error": map[string]any{
@@ -159,4 +245,16 @@ func writeError(w http.ResponseWriter, status int, code, message string, details
 			"details": details,
 		},
 	})
+}
+
+func (h *Handler) withAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if _, err := h.auth.AuthenticateRequest(r.Context(), r); err != nil {
+			http.SetCookie(w, h.auth.ClearSessionCookie())
+			writeError(w, http.StatusUnauthorized, "unauthorized", "Authentication required.", nil)
+			return
+		}
+
+		next(w, r)
+	}
 }
