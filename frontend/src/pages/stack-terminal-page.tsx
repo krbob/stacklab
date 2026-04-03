@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import type { StackDetailResponse } from '@/lib/api-types'
 import { useTerminal } from '@/hooks/use-terminal'
-import { useWs } from '@/contexts/ws-context'
+import { useWs } from '@/hooks/use-ws'
 import { TerminalView } from '@/components/terminal-view'
 import { cn } from '@/lib/cn'
 

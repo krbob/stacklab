@@ -1,7 +1,7 @@
 import { useOutletContext } from 'react-router-dom'
 import type { StackDetailResponse } from '@/lib/api-types'
 import { useStatsStream } from '@/hooks/use-stats-stream'
-import { useWs } from '@/contexts/ws-context'
+import { useWs } from '@/hooks/use-ws'
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`

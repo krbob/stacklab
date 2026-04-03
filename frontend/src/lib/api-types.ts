@@ -238,6 +238,7 @@ export interface JobDetail {
 export interface AuditEntry {
   id: string
   stack_id: string | null
+  job_id: string | null
   action: string
   requested_by: string
   result: string

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useWs } from '@/contexts/ws-context'
+import { useWs } from '@/hooks/use-ws'
 import type { TerminalExitedPayload, TerminalOpenedPayload, WsServerFrame } from '@/lib/ws-types'
 
 type TerminalState = 'idle' | 'connecting' | 'connected' | 'ended' | 'error'
@@ -17,21 +17,21 @@ export function useTerminal({ stackId, containerId, shell = '/bin/sh', cols = 12
   const [termState, setTermState] = useState<TerminalState>('idle')
   const [exitInfo, setExitInfo] = useState<TerminalExitedPayload | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const sessionIdRef = useRef<string | null>(null)
-  const streamIdRef = useRef(`term_${stackId}_${containerId}_${Date.now()}`)
+  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [streamId] = useState(() => `term_${stackId}_${containerId}_${Math.random().toString(36).slice(2)}`)
   const onDataRef = useRef<((data: string) => void) | null>(null)
   const requestIdRef = useRef(0)
   const wasConnectedRef = useRef(false)
-  const colsRef = useRef(cols)
-  const rowsRef = useRef(rows)
+  // Store latest cols/rows for use in callbacks without triggering re-render
+  const dimsRef = useRef({ cols, rows })
 
-  // Keep refs up to date for reconnect
-  colsRef.current = cols
-  rowsRef.current = rows
+  // Sync dims ref in effect (not during render)
+  useEffect(() => {
+    dimsRef.current = { cols, rows }
+  }, [cols, rows])
 
   const open = useCallback(() => {
     if (!connected) return
-    const streamId = streamIdRef.current
     const reqId = `req_term_open_${++requestIdRef.current}`
 
     setTermState('connecting')
@@ -46,15 +46,14 @@ export function useTerminal({ stackId, containerId, shell = '/bin/sh', cols = 12
         stack_id: stackId,
         container_id: containerId,
         shell,
-        cols: colsRef.current,
-        rows: rowsRef.current,
+        cols: dimsRef.current.cols,
+        rows: dimsRef.current.rows,
       },
     })
-  }, [connected, send, stackId, containerId, shell])
+  }, [connected, send, streamId, stackId, containerId, shell])
 
-  const attach = useCallback((sessionId: string) => {
+  const attach = useCallback((sid: string) => {
     if (!connected) return
-    const streamId = streamIdRef.current
     const reqId = `req_term_attach_${++requestIdRef.current}`
 
     setErrorMessage(null)
@@ -64,60 +63,61 @@ export function useTerminal({ stackId, containerId, shell = '/bin/sh', cols = 12
       type: 'terminal.attach',
       request_id: reqId,
       stream_id: streamId,
-      payload: { session_id: sessionId, cols: colsRef.current, rows: rowsRef.current },
+      payload: { session_id: sid, cols: dimsRef.current.cols, rows: dimsRef.current.rows },
     })
-  }, [connected, send])
+  }, [connected, send, streamId])
 
   // Auto-attach after reconnect if we had an active session
   useEffect(() => {
     const wasConnected = wasConnectedRef.current
-    if (connected && !wasConnected && sessionIdRef.current && termState === 'connected') {
-      // We just reconnected while a session was active — try to reattach
-      attach(sessionIdRef.current)
-    }
     wasConnectedRef.current = connected
-  }, [connected, attach, termState])
+    if (connected && !wasConnected && sessionId && termState === 'connected') {
+      // Defer to avoid synchronous setState within effect body
+      const sid = sessionId
+      queueMicrotask(() => attach(sid))
+    }
+  }, [connected, attach, termState, sessionId])
 
   const write = useCallback((data: string) => {
-    if (!sessionIdRef.current) return
     send({
       type: 'terminal.input',
-      stream_id: streamIdRef.current,
-      payload: { session_id: sessionIdRef.current, data },
+      stream_id: streamId,
+      payload: { session_id: sessionId, data },
     })
-  }, [send])
+  }, [send, streamId, sessionId])
 
   const resize = useCallback((newCols: number, newRows: number) => {
-    colsRef.current = newCols
-    rowsRef.current = newRows
-    if (!sessionIdRef.current) return
+    dimsRef.current = { cols: newCols, rows: newRows }
+    if (!sessionId) return
     send({
       type: 'terminal.resize',
-      stream_id: streamIdRef.current,
-      payload: { session_id: sessionIdRef.current, cols: newCols, rows: newRows },
+      stream_id: streamId,
+      payload: { session_id: sessionId, cols: newCols, rows: newRows },
     })
-  }, [send])
+  }, [send, streamId, sessionId])
 
   const close = useCallback(() => {
-    if (!sessionIdRef.current) return
+    if (!sessionId) return
     send({
       type: 'terminal.close',
       request_id: `req_term_close_${++requestIdRef.current}`,
-      stream_id: streamIdRef.current,
-      payload: { session_id: sessionIdRef.current },
+      stream_id: streamId,
+      payload: { session_id: sessionId },
     })
-    sessionIdRef.current = null
+    setSessionId(null)
     setTermState('ended')
-  }, [send])
+  }, [send, streamId, sessionId])
+
+  const onData = useCallback((cb: (data: string) => void) => {
+    onDataRef.current = cb
+  }, [])
 
   useEffect(() => {
-    const streamId = streamIdRef.current
-
     return subscribe(streamId, (frame: WsServerFrame) => {
       switch (frame.type) {
         case 'terminal.opened': {
           const p = frame.payload as unknown as TerminalOpenedPayload
-          sessionIdRef.current = p.session_id
+          setSessionId(p.session_id)
           setTermState('connected')
           break
         }
@@ -128,15 +128,14 @@ export function useTerminal({ stackId, containerId, shell = '/bin/sh', cols = 12
         }
         case 'terminal.exited': {
           const p = frame.payload as unknown as TerminalExitedPayload
-          sessionIdRef.current = null
+          setSessionId(null)
           setExitInfo(p)
           setTermState('ended')
           break
         }
         case 'error': {
-          // If attach failed after reconnect (PTY gone), show ended state
           if (frame.error?.code === 'terminal_session_not_found') {
-            sessionIdRef.current = null
+            setSessionId(null)
             setTermState('ended')
             setErrorMessage('Session ended. Start a new session?')
           } else {
@@ -147,18 +146,18 @@ export function useTerminal({ stackId, containerId, shell = '/bin/sh', cols = 12
         }
       }
     })
-  }, [subscribe])
+  }, [subscribe, streamId])
 
   return {
     state: termState,
     exitInfo,
     errorMessage,
-    sessionId: sessionIdRef.current,
+    sessionId,
     open,
     attach,
     write,
     resize,
     close,
-    onData: (cb: (data: string) => void) => { onDataRef.current = cb },
+    onData,
   }
 }

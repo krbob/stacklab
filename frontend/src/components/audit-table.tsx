@@ -91,38 +91,19 @@ export function AuditTable({ entries, showStack = false, onLoadMore, hasMore, lo
 }
 
 function AuditJobDetail({ auditEntry }: { auditEntry: AuditEntry }) {
-  const [jobId, setJobId] = useState<string | null>(null)
-  const [loadError, setLoadError] = useState<string | null>(null)
+  const jobId = auditEntry.job_id
 
-  // Try to extract job_id from detail_json or use audit entry id pattern
-  useState(() => {
-    // Attempt to fetch job by audit entry - the audit entry might have job_id in detail_json
-    // For now, we use a heuristic: job_id might be derivable or we show summary
-    const detail = auditEntry as AuditEntry & { job_id?: string }
-    if (detail.job_id) {
-      setJobId(detail.job_id)
-    } else {
-      // Try to look up via the audit entry
-      // The backend may not expose job_id directly on all audit entries
-      setLoadError('Detailed output is no longer retained')
-    }
-  })
-
-  if (loadError) {
+  if (!jobId) {
     return (
       <div className="ml-4 mt-1 rounded-[16px] border border-[var(--panel-border)] bg-[rgba(0,0,0,0.15)] px-4 py-3 text-xs text-[var(--muted)]">
-        {loadError}
+        Detailed output is no longer retained
       </div>
     )
   }
 
-  if (jobId) {
-    return (
-      <div className="ml-4 mt-1">
-        <ProgressPanel jobId={jobId} />
-      </div>
-    )
-  }
-
-  return null
+  return (
+    <div className="ml-4 mt-1">
+      <ProgressPanel jobId={jobId} />
+    </div>
+  )
 }

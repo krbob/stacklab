@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import type { StackDetailResponse } from '@/lib/api-types'
 import { useLogStream } from '@/hooks/use-log-stream'
-import { useWs } from '@/contexts/ws-context'
+import { useWs } from '@/hooks/use-ws'
 import { cn } from '@/lib/cn'
 
 const SERVICE_COLORS = [
@@ -32,14 +32,16 @@ export function StackLogsPage() {
   })
 
   const scrollRef = useRef<HTMLDivElement>(null)
-  const colorMap = useRef<Map<string, string>>(new Map())
 
-  // Assign stable colors to services
-  serviceNames.forEach((name, i) => {
-    if (!colorMap.current.has(name)) {
-      colorMap.current.set(name, SERVICE_COLORS[i % SERVICE_COLORS.length])
-    }
-  })
+  const serviceKey = serviceNames.join(',')
+  const colorMap = useMemo(() => {
+    const map = new Map<string, string>()
+    serviceNames.forEach((name, i) => {
+      map.set(name, SERVICE_COLORS[i % SERVICE_COLORS.length])
+    })
+    return map
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serviceKey])
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -158,7 +160,7 @@ export function StackLogsPage() {
             <span className="shrink-0 text-zinc-600">
               {new Date(entry.timestamp).toLocaleTimeString()}
             </span>
-            <span className={cn('shrink-0 w-24 truncate', colorMap.current.get(entry.service_name))}>
+            <span className={cn('shrink-0 w-24 truncate', colorMap.get(entry.service_name))}>
               {entry.service_name}
             </span>
             <span className="text-[var(--text)] break-all">{entry.line}</span>

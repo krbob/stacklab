@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useWs } from '@/contexts/ws-context'
+import { useWs } from '@/hooks/use-ws'
 import type { LogEntry, WsServerFrame } from '@/lib/ws-types'
 
 interface UseLogStreamOptions {
@@ -43,11 +43,12 @@ export function useLogStream({ stackId, serviceNames = [], tail = 200, enabled =
 
   useEffect(() => {
     sub()
+    const currentReqId = requestIdRef.current
     return () => {
       if (connected) {
         send({
           type: 'logs.unsubscribe',
-          request_id: `req_logs_unsub_${requestIdRef.current}`,
+          request_id: `req_logs_unsub_${currentReqId}`,
           stream_id: streamId,
           payload: {},
         })
@@ -56,9 +57,10 @@ export function useLogStream({ stackId, serviceNames = [], tail = 200, enabled =
   }, [sub, connected, send, streamId])
 
   // Reset first-subscribe flag when stackId or serviceNames change
+  const serviceKey = serviceNames.join(',')
   useEffect(() => {
     hasSubscribedRef.current = false
-  }, [stackId, serviceNames.join(',')])
+  }, [stackId, serviceKey])
 
   useEffect(() => {
     if (!enabled) return

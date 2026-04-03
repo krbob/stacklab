@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import type { StackDetailResponse } from '@/lib/api-types'
-import { getDefinition, getResolvedConfig, resolveConfigDraft, saveDefinition } from '@/lib/api-client'
+import { getDefinition, getResolvedConfig, invokeAction, resolveConfigDraft, saveDefinition } from '@/lib/api-client'
 import { YamlEditor } from '@/components/yaml-editor'
 import { ProgressPanel } from '@/components/progress-panel'
 import { cn } from '@/lib/cn'
@@ -26,7 +26,8 @@ export function StackEditorPage() {
   const [resolvedError, setResolvedError] = useState('')
 
   const [saving, setSaving] = useState(false)
-  const [saveJobId, setSaveJobId] = useState<string | null>(null)
+  const [activeJobId, setActiveJobId] = useState<string | null>(null)
+  const [pendingDeploy, setPendingDeploy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loadingDef, setLoadingDef] = useState(true)
 
@@ -86,11 +87,12 @@ export function StackEditorPage() {
     }
   }, [stack.id, composeYaml, envContent])
 
-  // Save
+  // Save (and optionally deploy after save completes)
   const handleSave = useCallback(async (deploy: boolean) => {
     setSaving(true)
     setError(null)
-    setSaveJobId(null)
+    setActiveJobId(null)
+    setPendingDeploy(deploy)
     try {
       const result = await saveDefinition(stack.id, {
         compose_yaml: composeYaml,
@@ -99,23 +101,10 @@ export function StackEditorPage() {
       })
       setSavedCompose(composeYaml)
       setSavedEnv(envContent)
-      setSaveJobId(result.job.id)
-
-      if (deploy) {
-        // Import here to avoid circular — invokeAction triggers a new job
-        const { invokeAction } = await import('@/lib/api-client')
-        // Wait briefly for save job to finish, then deploy
-        setTimeout(async () => {
-          try {
-            const deployResult = await invokeAction(stack.id, 'up')
-            setSaveJobId(deployResult.job.id)
-          } catch (err) {
-            setError(err instanceof Error ? err.message : 'Deploy failed')
-          }
-        }, 500)
-      }
+      setActiveJobId(result.job.id)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed')
+      setPendingDeploy(false)
     } finally {
       setSaving(false)
     }
@@ -126,7 +115,7 @@ export function StackEditorPage() {
     setEnvContent(savedEnv)
   }, [savedCompose, savedEnv])
 
-  const handleJobDone = useCallback((state: string) => {
+  const handleJobDone = useCallback(async (state: string) => {
     if (state === 'succeeded') {
       refetch()
       // Refresh resolved config
@@ -137,8 +126,22 @@ export function StackEditorPage() {
           setResolvedError('')
         }
       }).catch(() => {})
+
+      // Chain deploy if Save & Deploy was requested
+      if (pendingDeploy) {
+        setPendingDeploy(false)
+        try {
+          const deployResult = await invokeAction(stack.id, 'up')
+          setActiveJobId(deployResult.job.id)
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Deploy failed after save')
+        }
+      }
+    } else {
+      // Save failed — don't chain deploy
+      setPendingDeploy(false)
     }
-  }, [refetch, stack.id])
+  }, [refetch, stack.id, pendingDeploy])
 
   if (loadingDef) {
     return (
@@ -256,8 +259,8 @@ export function StackEditorPage() {
       </div>
 
       {/* Progress panel */}
-      {saveJobId && (
-        <ProgressPanel jobId={saveJobId} onDone={handleJobDone} />
+      {activeJobId && (
+        <ProgressPanel jobId={activeJobId} onDone={handleJobDone} />
       )}
     </div>
   )

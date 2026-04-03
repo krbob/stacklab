@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useWs } from '@/contexts/ws-context'
+import { useWs } from '@/hooks/use-ws'
 import type { StatsFrame, WsServerFrame } from '@/lib/ws-types'
 
 interface UseStatsStreamOptions {
@@ -30,11 +30,12 @@ export function useStatsStream({ stackId, enabled = true }: UseStatsStreamOption
 
   useEffect(() => {
     sub()
+    const currentReqId = requestIdRef.current
     return () => {
       if (connected) {
         send({
           type: 'stats.unsubscribe',
-          request_id: `req_stats_unsub_${requestIdRef.current}`,
+          request_id: `req_stats_unsub_${currentReqId}`,
           stream_id: streamId,
           payload: {},
         })
