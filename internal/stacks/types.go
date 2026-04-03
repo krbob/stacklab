@@ -214,10 +214,26 @@ type ResolvedConfigRequest struct {
 	Env         string `json:"env"`
 }
 
+type CreateStackRequest struct {
+	StackID           string `json:"stack_id"`
+	ComposeYAML       string `json:"compose_yaml"`
+	Env               string `json:"env"`
+	CreateConfigDir   bool   `json:"create_config_dir"`
+	CreateDataDir     bool   `json:"create_data_dir"`
+	DeployAfterCreate bool   `json:"deploy_after_create"`
+}
+
 type UpdateDefinitionRequest struct {
 	ComposeYAML       string `json:"compose_yaml"`
 	Env               string `json:"env"`
 	ValidateAfterSave bool   `json:"validate_after_save"`
+}
+
+type DeleteStackRequest struct {
+	RemoveRuntime    bool `json:"remove_runtime"`
+	RemoveDefinition bool `json:"remove_definition"`
+	RemoveConfig     bool `json:"remove_config"`
+	RemoveData       bool `json:"remove_data"`
 }
 
 type ResolvedConfigResponse struct {

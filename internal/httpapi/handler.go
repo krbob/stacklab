@@ -9,12 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"stacklab/internal/audit"
 	"stacklab/internal/auth"
 	"stacklab/internal/config"
 	"stacklab/internal/jobs"
 	"stacklab/internal/stacks"
+	"stacklab/internal/store"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -52,7 +53,9 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("POST /api/auth/logout", h.withAuth(h.handleLogout))
 	h.mux.HandleFunc("GET /api/meta", h.withAuth(h.handleMeta))
 	h.mux.HandleFunc("GET /api/stacks", h.withAuth(h.handleListStacks))
+	h.mux.HandleFunc("POST /api/stacks", h.withAuth(h.handleCreateStack))
 	h.mux.HandleFunc("GET /api/stacks/{stackId}", h.withAuth(h.handleGetStack))
+	h.mux.HandleFunc("DELETE /api/stacks/{stackId}", h.withAuth(h.handleDeleteStack))
 	h.mux.HandleFunc("GET /api/stacks/{stackId}/definition", h.withAuth(h.handleGetDefinition))
 	h.mux.HandleFunc("PUT /api/stacks/{stackId}/definition", h.withAuth(h.handlePutDefinition))
 	h.mux.HandleFunc("GET /api/stacks/{stackId}/resolved-config", h.withAuth(h.handleGetResolvedConfig))
@@ -198,6 +201,97 @@ func (h *Handler) handleGetStack(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
+func (h *Handler) handleCreateStack(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request stacks.CreateStackRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+	if !stacks.IsValidStackID(request.StackID) {
+		writeError(w, http.StatusUnprocessableEntity, "validation_failed", "Stack ID must use lowercase ASCII letters, digits, and dashes.", nil)
+		return
+	}
+	if err := h.stackReader.EnsureCreateStackAvailable(r.Context(), request.StackID); err != nil {
+		switch {
+		case errors.Is(err, stacks.ErrConflict):
+			writeError(w, http.StatusConflict, "conflict", "Stack ID already exists.", nil)
+		default:
+			h.logger.Error("preflight create stack failed", slog.String("stack_id", request.StackID), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create stack.", nil)
+		}
+		return
+	}
+
+	job, err := h.jobs.Start(r.Context(), request.StackID, "create_stack", "local")
+	if err != nil {
+		switch {
+		case errors.Is(err, jobs.ErrStackLocked):
+			writeError(w, http.StatusConflict, "stack_locked", "Another job is already mutating this stack.", nil)
+		default:
+			h.logger.Error("start create stack job failed", slog.String("stack_id", request.StackID), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create job.", nil)
+		}
+		return
+	}
+
+	workflow := createWorkflowSteps(request.DeployAfterCreate)
+	job, _ = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
+
+	if err := h.stackReader.CreateStack(r.Context(), request); err != nil {
+		workflow = markWorkflowFailed(workflow, 0)
+		job, _ = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
+		job, _ = h.jobs.FinishFailed(r.Context(), job, "create_stack_failed", err.Error())
+		_ = h.audit.RecordStackJob(r.Context(), job)
+
+		switch {
+		case errors.Is(err, stacks.ErrConflict):
+			writeError(w, http.StatusConflict, "conflict", "Stack ID already exists.", nil)
+		default:
+			h.logger.Error("create stack failed", slog.String("stack_id", request.StackID), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create stack.", nil)
+		}
+		return
+	}
+
+	workflow = markWorkflowSucceeded(workflow, 0)
+	if request.DeployAfterCreate {
+		workflow = markWorkflowRunning(workflow, 1)
+	}
+	job, _ = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
+
+	if request.DeployAfterCreate {
+		upErr := h.stackReader.RunAction(r.Context(), request.StackID, "up")
+		if upErr != nil {
+			workflow = markWorkflowFailed(workflow, 1)
+			job, _ = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
+			job, _ = h.jobs.FinishFailed(r.Context(), job, "create_stack_failed", upErr.Error())
+			_ = h.audit.RecordStackJob(r.Context(), job)
+			writeJSON(w, http.StatusOK, map[string]any{"job": job})
+			return
+		}
+		workflow = markWorkflowSucceeded(workflow, 1)
+		job, _ = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
+	}
+
+	job, err = h.jobs.FinishSucceeded(r.Context(), job)
+	if err != nil {
+		h.logger.Error("finish create stack job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to finalize job.", nil)
+		return
+	}
+
+	if err := h.audit.RecordStackJob(r.Context(), job); err != nil {
+		h.logger.Warn("record create stack audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"job": job})
+}
+
 func (h *Handler) handleGetDefinition(w http.ResponseWriter, r *http.Request) {
 	response, err := h.stackReader.Definition(r.Context(), r.PathValue("stackId"))
 	if err != nil {
@@ -214,6 +308,103 @@ func (h *Handler) handleGetDefinition(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleDeleteStack(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request stacks.DeleteStackRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+	if !request.RemoveRuntime && !request.RemoveDefinition && !request.RemoveConfig && !request.RemoveData {
+		writeError(w, http.StatusUnprocessableEntity, "validation_failed", "At least one removal flag must be true.", nil)
+		return
+	}
+	if _, err := h.stackReader.Get(r.Context(), r.PathValue("stackId")); err != nil {
+		switch {
+		case errors.Is(err, stacks.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Stack was not found.", nil)
+		default:
+			h.logger.Error("preflight delete stack failed", slog.String("stack_id", r.PathValue("stackId")), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to remove stack.", nil)
+		}
+		return
+	}
+
+	stackID := r.PathValue("stackId")
+	job, err := h.jobs.Start(r.Context(), stackID, "remove_stack_definition", "local")
+	if err != nil {
+		switch {
+		case errors.Is(err, jobs.ErrStackLocked):
+			writeError(w, http.StatusConflict, "stack_locked", "Another job is already mutating this stack.", nil)
+		default:
+			h.logger.Error("start delete stack job failed", slog.String("stack_id", stackID), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create job.", nil)
+		}
+		return
+	}
+
+	workflow := deleteWorkflowSteps(request)
+	if len(workflow) > 0 {
+		workflow = markWorkflowRunning(workflow, 0)
+		job, _ = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
+	}
+
+	stepIndex := 0
+	if request.RemoveRuntime {
+		if failed := h.runDeleteStep(r.Context(), &job, &workflow, stepIndex, func(ctx context.Context) error {
+			return h.stackReader.RemoveRuntime(ctx, stackID)
+		}); failed {
+			writeJSON(w, http.StatusOK, map[string]any{"job": job})
+			return
+		}
+		stepIndex++
+	}
+	if request.RemoveDefinition {
+		if failed := h.runDeleteStep(r.Context(), &job, &workflow, stepIndex, func(ctx context.Context) error {
+			return h.stackReader.RemoveDefinition(ctx, stackID)
+		}); failed {
+			writeJSON(w, http.StatusOK, map[string]any{"job": job})
+			return
+		}
+		stepIndex++
+	}
+	if request.RemoveConfig {
+		if failed := h.runDeleteStep(r.Context(), &job, &workflow, stepIndex, func(context.Context) error {
+			return h.stackReader.RemoveConfigDir(stackID)
+		}); failed {
+			writeJSON(w, http.StatusOK, map[string]any{"job": job})
+			return
+		}
+		stepIndex++
+	}
+	if request.RemoveData {
+		if failed := h.runDeleteStep(r.Context(), &job, &workflow, stepIndex, func(context.Context) error {
+			return h.stackReader.RemoveDataDir(stackID)
+		}); failed {
+			writeJSON(w, http.StatusOK, map[string]any{"job": job})
+			return
+		}
+		stepIndex++
+	}
+
+	job, err = h.jobs.FinishSucceeded(r.Context(), job)
+	if err != nil {
+		h.logger.Error("finish delete stack job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to finalize job.", nil)
+		return
+	}
+
+	if err := h.audit.RecordStackJob(r.Context(), job); err != nil {
+		h.logger.Warn("record delete stack audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"job": job})
 }
 
 func (h *Handler) handlePutDefinition(w http.ResponseWriter, r *http.Request) {
@@ -642,4 +833,91 @@ func parseLimit(value string) int {
 		return 50
 	}
 	return parsed
+}
+
+func createWorkflowSteps(deployAfterCreate bool) []store.JobWorkflowStep {
+	steps := []store.JobWorkflowStep{{Action: "create_stack", State: "running"}}
+	if deployAfterCreate {
+		steps = append(steps, store.JobWorkflowStep{Action: "up", State: "queued"})
+	}
+	return steps
+}
+
+func deleteWorkflowSteps(request stacks.DeleteStackRequest) []store.JobWorkflowStep {
+	steps := make([]store.JobWorkflowStep, 0, 4)
+	if request.RemoveRuntime {
+		steps = append(steps, store.JobWorkflowStep{Action: "down", State: "queued"})
+	}
+	if request.RemoveDefinition {
+		steps = append(steps, store.JobWorkflowStep{Action: "remove_stack_definition", State: "queued"})
+	}
+	if request.RemoveConfig {
+		steps = append(steps, store.JobWorkflowStep{Action: "remove_config", State: "queued"})
+	}
+	if request.RemoveData {
+		steps = append(steps, store.JobWorkflowStep{Action: "remove_data", State: "queued"})
+	}
+	return steps
+}
+
+func markWorkflowRunning(steps []store.JobWorkflowStep, index int) []store.JobWorkflowStep {
+	if index >= 0 && index < len(steps) {
+		steps[index].State = "running"
+	}
+	return steps
+}
+
+func markWorkflowSucceeded(steps []store.JobWorkflowStep, index int) []store.JobWorkflowStep {
+	if index >= 0 && index < len(steps) {
+		steps[index].State = "succeeded"
+	}
+	return steps
+}
+
+func markWorkflowFailed(steps []store.JobWorkflowStep, index int) []store.JobWorkflowStep {
+	if index >= 0 && index < len(steps) {
+		steps[index].State = "failed"
+	}
+	return steps
+}
+
+func firstNonSucceededWorkflowIndex(steps []store.JobWorkflowStep) int {
+	for i, step := range steps {
+		if step.State != "succeeded" {
+			return i
+		}
+	}
+	if len(steps) == 0 {
+		return -1
+	}
+	return len(steps) - 1
+}
+
+func (h *Handler) runDeleteStep(ctx context.Context, job *store.Job, workflow *[]store.JobWorkflowStep, index int, run func(context.Context) error) bool {
+	if err := run(ctx); err != nil {
+		if len(*workflow) > 0 {
+			*workflow = markWorkflowFailed(*workflow, index)
+			updatedJob, updateErr := h.jobs.UpdateWorkflow(ctx, *job, *workflow)
+			if updateErr == nil {
+				*job = updatedJob
+			}
+		}
+		failedJob, finishErr := h.jobs.FinishFailed(ctx, *job, "remove_stack_failed", err.Error())
+		if finishErr == nil {
+			*job = failedJob
+		}
+		_ = h.audit.RecordStackJob(ctx, *job)
+		return true
+	}
+
+	*workflow = markWorkflowSucceeded(*workflow, index)
+	if index+1 < len(*workflow) {
+		*workflow = markWorkflowRunning(*workflow, index+1)
+	}
+	updatedJob, err := h.jobs.UpdateWorkflow(ctx, *job, *workflow)
+	if err == nil {
+		*job = updatedJob
+	}
+
+	return false
 }

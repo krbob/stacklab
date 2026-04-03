@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"stacklab/internal/config"
@@ -24,6 +25,7 @@ import (
 var (
 	ErrNotFound          = errors.New("stack not found")
 	ErrInvalidState      = errors.New("invalid state")
+	ErrConflict          = errors.New("conflict")
 	ErrUnsupportedAction = errors.New("unsupported action")
 	stackIDRegexp        = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 )
@@ -285,6 +287,124 @@ func (s *ServiceReader) SaveDefinition(ctx context.Context, stackID string, requ
 	return s.resolveCurrent(ctx, refreshedStack), nil
 }
 
+func (s *ServiceReader) EnsureCreateStackAvailable(ctx context.Context, stackID string) error {
+	if !IsValidStackID(stackID) {
+		return ErrInvalidState
+	}
+
+	if _, err := s.findStack(ctx, stackID); err == nil {
+		return ErrConflict
+	} else if !errors.Is(err, ErrNotFound) {
+		return err
+	}
+
+	paths := stackPaths(s.cfg.RootDir, stackID)
+	for _, path := range []string{paths.RootPath, paths.ConfigPath, paths.DataPath} {
+		exists, err := pathExists(path)
+		if err != nil {
+			return err
+		}
+		if exists {
+			return ErrConflict
+		}
+	}
+
+	return nil
+}
+
+func (s *ServiceReader) CreateStack(ctx context.Context, request CreateStackRequest) error {
+	if err := s.EnsureCreateStackAvailable(ctx, request.StackID); err != nil {
+		return err
+	}
+
+	paths := stackPaths(s.cfg.RootDir, request.StackID)
+
+	if err := os.MkdirAll(paths.RootPath, 0o755); err != nil {
+		return fmt.Errorf("create stack root: %w", err)
+	}
+	if request.CreateConfigDir {
+		if err := os.MkdirAll(paths.ConfigPath, 0o755); err != nil {
+			return fmt.Errorf("create config dir: %w", err)
+		}
+	}
+	if request.CreateDataDir {
+		if err := os.MkdirAll(paths.DataPath, 0o755); err != nil {
+			return fmt.Errorf("create data dir: %w", err)
+		}
+	}
+	if err := writeFileAtomic(paths.ComposeFilePath, request.ComposeYAML); err != nil {
+		return fmt.Errorf("write compose file: %w", err)
+	}
+	if err := writeEnvFile(paths.EnvFilePath, request.Env); err != nil {
+		return fmt.Errorf("write env file: %w", err)
+	}
+
+	return nil
+}
+
+func (s *ServiceReader) DeleteStack(ctx context.Context, stackID string, request DeleteStackRequest) error {
+	if request.RemoveRuntime {
+		if err := s.RemoveRuntime(ctx, stackID); err != nil {
+			return err
+		}
+	}
+	if request.RemoveDefinition {
+		if err := s.RemoveDefinition(ctx, stackID); err != nil {
+			return err
+		}
+	}
+	if request.RemoveConfig {
+		if err := s.RemoveConfigDir(stackID); err != nil {
+			return err
+		}
+	}
+	if request.RemoveData {
+		if err := s.RemoveDataDir(stackID); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *ServiceReader) RemoveRuntime(ctx context.Context, stackID string) error {
+	stack, err := s.findStack(ctx, stackID)
+	if err != nil {
+		return err
+	}
+	return s.removeRuntime(ctx, stack)
+}
+
+func (s *ServiceReader) RemoveDefinition(ctx context.Context, stackID string) error {
+	paths := stackPaths(s.cfg.RootDir, stackID)
+	if err := removeFileIfExists(paths.ComposeFilePath); err != nil {
+		return fmt.Errorf("remove compose file: %w", err)
+	}
+	if err := removeFileIfExists(paths.EnvFilePath); err != nil {
+		return fmt.Errorf("remove env file: %w", err)
+	}
+	if err := removeDirIfEmpty(paths.RootPath); err != nil {
+		return fmt.Errorf("remove stack root: %w", err)
+	}
+	return nil
+}
+
+func (s *ServiceReader) RemoveConfigDir(stackID string) error {
+	paths := stackPaths(s.cfg.RootDir, stackID)
+	if err := removeDirIfExists(paths.ConfigPath); err != nil {
+		return fmt.Errorf("remove config dir: %w", err)
+	}
+	return nil
+}
+
+func (s *ServiceReader) RemoveDataDir(stackID string) error {
+	paths := stackPaths(s.cfg.RootDir, stackID)
+	if err := removeDirIfExists(paths.DataPath); err != nil {
+		return fmt.Errorf("remove data dir: %w", err)
+	}
+	return nil
+}
+
 func (s *ServiceReader) RunAction(ctx context.Context, stackID, action string) error {
 	stack, err := s.findStack(ctx, stackID)
 	if err != nil {
@@ -311,13 +431,16 @@ func (s *ServiceReader) RunAction(ctx context.Context, stackID, action string) e
 	case "up":
 		return s.runComposeAction(ctx, stack, "up", "-d")
 	case "down":
-		if stack.RuntimeState == RuntimeStateOrphaned {
-			return s.downOrphaned(ctx, stack)
-		}
-		return s.runComposeAction(ctx, stack, "down")
+		return s.removeRuntime(ctx, stack)
 	case "stop":
+		if stack.ConfigState == ConfigStateInvalid {
+			return s.runContainerAction(ctx, stack, "stop")
+		}
 		return s.runComposeAction(ctx, stack, "stop")
 	case "restart":
+		if stack.ConfigState == ConfigStateInvalid {
+			return s.runContainerAction(ctx, stack, "restart")
+		}
 		return s.runComposeAction(ctx, stack, "restart")
 	case "pull":
 		return s.runComposeAction(ctx, stack, "pull")
@@ -1199,7 +1322,17 @@ func (s *ServiceReader) runComposeAction(ctx context.Context, stack discoveredSt
 	return nil
 }
 
-func (s *ServiceReader) downOrphaned(ctx context.Context, stack discoveredStack) error {
+func (s *ServiceReader) removeRuntime(ctx context.Context, stack discoveredStack) error {
+	if len(stack.Containers) == 0 {
+		return nil
+	}
+	if stack.RuntimeState == RuntimeStateOrphaned || stack.ConfigState == ConfigStateInvalid {
+		return s.runContainerAction(ctx, stack, "rm", "-f")
+	}
+	return s.runComposeAction(ctx, stack, "down")
+}
+
+func (s *ServiceReader) runContainerAction(ctx context.Context, stack discoveredStack, action string, extraArgs ...string) error {
 	containerIDs := make([]string, 0, len(stack.Containers))
 	for _, container := range stack.Containers {
 		containerIDs = append(containerIDs, container.ID)
@@ -1208,7 +1341,9 @@ func (s *ServiceReader) downOrphaned(ctx context.Context, stack discoveredStack)
 		return nil
 	}
 
-	args := append([]string{"rm", "-f"}, containerIDs...)
+	args := []string{action}
+	args = append(args, extraArgs...)
+	args = append(args, containerIDs...)
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -1228,6 +1363,14 @@ func composeCommandArgs(projectDir, composePath, envPath string) []string {
 		args = append(args, "--env-file", envPath)
 	}
 	return args
+}
+
+type stackPathSet struct {
+	RootPath        string
+	ComposeFilePath string
+	EnvFilePath     string
+	ConfigPath      string
+	DataPath        string
 }
 
 func (s *ServiceReader) resolveCurrent(ctx context.Context, stack discoveredStack) ResolvedConfigResponse {
@@ -1259,6 +1402,55 @@ func (s *ServiceReader) resolveCurrent(ctx context.Context, stack discoveredStac
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
+}
+
+func pathExists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	switch {
+	case err == nil:
+		return true, nil
+	case os.IsNotExist(err):
+		return false, nil
+	default:
+		return false, err
+	}
+}
+
+func stackPaths(rootDir, stackID string) stackPathSet {
+	return stackPathSet{
+		RootPath:        filepath.Join(rootDir, "stacks", stackID),
+		ComposeFilePath: filepath.Join(rootDir, "stacks", stackID, "compose.yaml"),
+		EnvFilePath:     filepath.Join(rootDir, "stacks", stackID, ".env"),
+		ConfigPath:      filepath.Join(rootDir, "config", stackID),
+		DataPath:        filepath.Join(rootDir, "data", stackID),
+	}
+}
+
+func removeFileIfExists(path string) error {
+	err := os.Remove(path)
+	if err == nil || os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
+func removeDirIfExists(path string) error {
+	err := os.RemoveAll(path)
+	if err == nil || os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
+func removeDirIfEmpty(path string) error {
+	err := os.Remove(path)
+	if err == nil || os.IsNotExist(err) {
+		return nil
+	}
+	if errors.Is(err, syscall.ENOTEMPTY) || errors.Is(err, syscall.EEXIST) {
+		return nil
+	}
+	return err
 }
 
 func containsString(values []string, candidate string) bool {

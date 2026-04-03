@@ -81,6 +81,16 @@ func (s *Service) FinishFailed(ctx context.Context, job store.Job, errorCode, er
 	return job, nil
 }
 
+func (s *Service) UpdateWorkflow(ctx context.Context, job store.Job, steps []store.JobWorkflowStep) (store.Job, error) {
+	job.Workflow = &store.JobWorkflow{
+		Steps: append([]store.JobWorkflowStep(nil), steps...),
+	}
+	if err := s.store.UpdateJob(ctx, job); err != nil {
+		return store.Job{}, err
+	}
+	return job, nil
+}
+
 func (s *Service) Get(ctx context.Context, id string) (store.Job, error) {
 	job, err := s.store.JobByID(ctx, id)
 	if err != nil {
