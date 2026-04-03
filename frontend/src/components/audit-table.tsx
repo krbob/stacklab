@@ -39,16 +39,16 @@ export function AuditTable({ entries, showStack = false, onLoadMore, hasMore, lo
 
         return (
           <div key={entry.id}>
-            <div className="flex flex-wrap items-center gap-3 rounded-[16px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-4 py-3 text-sm">
-              <span className="shrink-0 w-36 text-xs text-[var(--muted)]">
+            <div className="flex min-w-0 items-center gap-3 overflow-hidden rounded-[16px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-4 py-3 text-sm">
+              <span className="shrink-0 text-xs text-[var(--muted)]" style={{ width: '140px' }}>
                 {new Date(entry.requested_at).toLocaleString()}
               </span>
               {showStack && entry.stack_id && (
-                <span className="shrink-0 w-28 truncate font-medium text-[var(--text)]">
+                <span className="shrink-0 truncate font-medium text-[var(--text)]" style={{ width: '100px' }}>
                   {entry.stack_id}
                 </span>
               )}
-              <span className="shrink-0 w-36 font-mono text-xs text-[var(--text)]">
+              <span className="shrink-0 truncate font-mono text-xs text-[var(--text)]" style={{ width: '130px' }}>
                 {entry.action}
               </span>
               <span className={cn('shrink-0 w-20 text-xs', resultColors[entry.result] ?? 'text-[var(--muted)]')}>
