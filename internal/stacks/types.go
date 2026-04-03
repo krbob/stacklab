@@ -214,6 +214,12 @@ type ResolvedConfigRequest struct {
 	Env         string `json:"env"`
 }
 
+type UpdateDefinitionRequest struct {
+	ComposeYAML       string `json:"compose_yaml"`
+	Env               string `json:"env"`
+	ValidateAfterSave bool   `json:"validate_after_save"`
+}
+
 type ResolvedConfigResponse struct {
 	StackID string       `json:"stack_id"`
 	Valid   bool         `json:"valid"`

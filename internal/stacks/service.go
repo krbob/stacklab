@@ -253,6 +253,37 @@ func (s *ServiceReader) ResolvedConfigDraft(ctx context.Context, stackID string,
 	}, nil
 }
 
+func (s *ServiceReader) SaveDefinition(ctx context.Context, stackID string, request UpdateDefinitionRequest) (ResolvedConfigResponse, error) {
+	stack, err := s.findStack(ctx, stackID)
+	if err != nil {
+		return ResolvedConfigResponse{}, err
+	}
+	if stack.RuntimeState == RuntimeStateOrphaned {
+		return ResolvedConfigResponse{}, ErrInvalidState
+	}
+
+	if err := writeFileAtomic(stack.ComposeFilePath, request.ComposeYAML); err != nil {
+		return ResolvedConfigResponse{}, fmt.Errorf("write compose file: %w", err)
+	}
+
+	if err := writeEnvFile(stack.EnvFilePath, request.Env); err != nil {
+		return ResolvedConfigResponse{}, fmt.Errorf("write env file: %w", err)
+	}
+
+	if !request.ValidateAfterSave {
+		return ResolvedConfigResponse{
+			StackID: stack.ID,
+			Valid:   true,
+		}, nil
+	}
+
+	refreshedStack, err := s.findStack(ctx, stackID)
+	if err != nil {
+		return ResolvedConfigResponse{}, err
+	}
+	return s.resolveCurrent(ctx, refreshedStack), nil
+}
+
 func IsValidStackID(value string) bool {
 	return stackIDRegexp.MatchString(value)
 }
@@ -1028,6 +1059,53 @@ func writeTempEnvFile(dataDir, content string) (string, func(), error) {
 	return file.Name(), func() {
 		_ = os.Remove(file.Name())
 	}, nil
+}
+
+func writeFileAtomic(path, content string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+
+	tmpFile, err := os.CreateTemp(filepath.Dir(path), ".stacklab-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmpFile.Name()
+
+	if _, err := tmpFile.WriteString(content); err != nil {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+
+	if err := os.Chmod(tmpName, 0o644); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+
+	return nil
+}
+
+func writeEnvFile(path, content string) error {
+	if content == "" {
+		if _, err := os.Stat(path); err == nil {
+			return writeFileAtomic(path, "")
+		} else if os.IsNotExist(err) {
+			return nil
+		} else {
+			return err
+		}
+	}
+
+	return writeFileAtomic(path, content)
 }
 
 func runComposeConfig(ctx context.Context, projectDir, composeArg, envPath, stdinContent string) (string, error) {

@@ -10,6 +10,7 @@ import (
 	"stacklab/internal/auth"
 	"stacklab/internal/config"
 	"stacklab/internal/httpapi"
+	"stacklab/internal/jobs"
 	"stacklab/internal/store"
 	"syscall"
 	"time"
@@ -33,6 +34,7 @@ func main() {
 	}()
 
 	authService := auth.NewService(cfg, authStore)
+	jobService := jobs.NewService(authStore)
 	if err := authService.Bootstrap(context.Background()); err != nil {
 		if errors.Is(err, auth.ErrNotConfigured) {
 			logger.Warn("authentication password not initialized; set STACKLAB_BOOTSTRAP_PASSWORD to create the first password")
@@ -42,7 +44,7 @@ func main() {
 		}
 	}
 
-	handler, err := httpapi.NewHandler(cfg, logger, authService)
+	handler, err := httpapi.NewHandler(cfg, logger, authService, jobService)
 	if err != nil {
 		logger.Error("failed to initialize HTTP handler", slog.String("err", err.Error()))
 		os.Exit(1)

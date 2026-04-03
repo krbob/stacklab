@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"stacklab/internal/auth"
 	"stacklab/internal/config"
+	"stacklab/internal/jobs"
 	"stacklab/internal/stacks"
 	"strings"
 	"time"
@@ -19,15 +20,17 @@ type Handler struct {
 	logger      *slog.Logger
 	mux         *http.ServeMux
 	auth        *auth.Service
+	jobs        *jobs.Service
 	stackReader *stacks.ServiceReader
 }
 
-func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Service) (http.Handler, error) {
+func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Service, jobService *jobs.Service) (http.Handler, error) {
 	handler := &Handler{
 		cfg:         cfg,
 		logger:      logger,
 		mux:         http.NewServeMux(),
 		auth:        authService,
+		jobs:        jobService,
 		stackReader: stacks.NewServiceReader(cfg, logger),
 	}
 
@@ -45,8 +48,10 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/stacks", h.withAuth(h.handleListStacks))
 	h.mux.HandleFunc("GET /api/stacks/{stackId}", h.withAuth(h.handleGetStack))
 	h.mux.HandleFunc("GET /api/stacks/{stackId}/definition", h.withAuth(h.handleGetDefinition))
+	h.mux.HandleFunc("PUT /api/stacks/{stackId}/definition", h.withAuth(h.handlePutDefinition))
 	h.mux.HandleFunc("GET /api/stacks/{stackId}/resolved-config", h.withAuth(h.handleGetResolvedConfig))
 	h.mux.HandleFunc("POST /api/stacks/{stackId}/resolved-config", h.withAuth(h.handlePostResolvedConfig))
+	h.mux.HandleFunc("GET /api/jobs/{jobId}", h.withAuth(h.handleGetJob))
 	h.mux.HandleFunc("/api/", h.withAuth(h.handleAPINotImplemented))
 	h.mux.HandleFunc("/", h.handleFrontend)
 }
@@ -189,6 +194,54 @@ func (h *Handler) handleGetDefinition(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
+func (h *Handler) handlePutDefinition(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request stacks.UpdateDefinitionRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	job, err := h.jobs.Start(r.Context(), r.PathValue("stackId"), "save_definition", "local")
+	if err != nil {
+		h.logger.Error("start save_definition job failed", slog.String("stack_id", r.PathValue("stackId")), slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create job.", nil)
+		return
+	}
+
+	preview, saveErr := h.stackReader.SaveDefinition(r.Context(), r.PathValue("stackId"), request)
+	if saveErr != nil {
+		_, _ = h.jobs.FinishFailed(r.Context(), job, "save_definition_failed", saveErr.Error())
+		switch {
+		case errors.Is(saveErr, stacks.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Stack was not found.", nil)
+		case errors.Is(saveErr, stacks.ErrInvalidState):
+			writeError(w, http.StatusConflict, "invalid_state", "Stack definition cannot be updated in this state.", nil)
+		default:
+			h.logger.Error("save definition failed", slog.String("stack_id", r.PathValue("stackId")), slog.String("err", saveErr.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to save stack definition.", nil)
+		}
+		return
+	}
+
+	job, err = h.jobs.FinishSucceeded(r.Context(), job)
+	if err != nil {
+		h.logger.Error("finish save_definition job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to finalize job.", nil)
+		return
+	}
+
+	if request.ValidateAfterSave && !preview.Valid {
+		h.logger.Warn("saved invalid stack definition", slog.String("stack_id", r.PathValue("stackId")), slog.String("message", preview.Error.Message))
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"job": job})
+}
+
 func (h *Handler) handleGetResolvedConfig(w http.ResponseWriter, r *http.Request) {
 	source := strings.TrimSpace(r.URL.Query().Get("source"))
 	switch source {
@@ -241,6 +294,22 @@ func (h *Handler) handlePostResolvedConfig(w http.ResponseWriter, r *http.Reques
 	}
 
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleGetJob(w http.ResponseWriter, r *http.Request) {
+	job, err := h.jobs.Get(r.Context(), r.PathValue("jobId"))
+	if err != nil {
+		switch {
+		case errors.Is(err, jobs.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Job was not found.", nil)
+		default:
+			h.logger.Error("get job failed", slog.String("job_id", r.PathValue("jobId")), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load job.", nil)
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"job": job})
 }
 
 func (h *Handler) handleAPINotImplemented(w http.ResponseWriter, r *http.Request) {

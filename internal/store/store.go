@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -27,6 +28,29 @@ type Session struct {
 	UserAgent  string
 	IPAddress  string
 	RevokedAt  *time.Time
+}
+
+type Job struct {
+	ID           string       `json:"id"`
+	StackID      string       `json:"stack_id"`
+	Action       string       `json:"action"`
+	State        string       `json:"state"`
+	RequestedBy  string       `json:"-"`
+	RequestedAt  time.Time    `json:"requested_at"`
+	StartedAt    *time.Time   `json:"started_at"`
+	FinishedAt   *time.Time   `json:"finished_at"`
+	Workflow     *JobWorkflow `json:"workflow,omitempty"`
+	ErrorCode    string       `json:"-"`
+	ErrorMessage string       `json:"-"`
+}
+
+type JobWorkflow struct {
+	Steps []JobWorkflowStep `json:"steps"`
+}
+
+type JobWorkflowStep struct {
+	Action string `json:"action"`
+	State  string `json:"state"`
 }
 
 func Open(databasePath string) (*Store, error) {
@@ -75,6 +99,21 @@ func (s *Store) migrate(ctx context.Context) error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires_at ON auth_sessions (expires_at);`,
 		`CREATE INDEX IF NOT EXISTS idx_auth_sessions_revoked_at ON auth_sessions (revoked_at);`,
+		`CREATE TABLE IF NOT EXISTS jobs (
+			id TEXT PRIMARY KEY,
+			stack_id TEXT NOT NULL,
+			action TEXT NOT NULL,
+			state TEXT NOT NULL,
+			requested_by TEXT NOT NULL,
+			requested_at TEXT NOT NULL,
+			started_at TEXT,
+			finished_at TEXT,
+			workflow_json TEXT,
+			error_code TEXT,
+			error_message TEXT
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_jobs_stack_requested_at ON jobs (stack_id, requested_at DESC);`,
+		`CREATE INDEX IF NOT EXISTS idx_jobs_state_requested_at ON jobs (state, requested_at DESC);`,
 	}
 
 	for _, statement := range statements {
@@ -229,4 +268,167 @@ func (s *Store) RevokeSession(ctx context.Context, id string, revokedAt time.Tim
 		return ErrNotFound
 	}
 	return nil
+}
+
+func (s *Store) CreateJob(ctx context.Context, job Job) error {
+	var workflowJSON sql.NullString
+	if job.Workflow != nil {
+		workflowBytes, err := json.Marshal(job.Workflow)
+		if err != nil {
+			return fmt.Errorf("marshal workflow: %w", err)
+		}
+		workflowJSON = sql.NullString{String: string(workflowBytes), Valid: true}
+	}
+
+	var startedAt sql.NullString
+	if job.StartedAt != nil {
+		startedAt = sql.NullString{String: job.StartedAt.UTC().Format(time.RFC3339Nano), Valid: true}
+	}
+	var finishedAt sql.NullString
+	if job.FinishedAt != nil {
+		finishedAt = sql.NullString{String: job.FinishedAt.UTC().Format(time.RFC3339Nano), Valid: true}
+	}
+
+	_, err := s.db.ExecContext(
+		ctx,
+		`INSERT INTO jobs (id, stack_id, action, state, requested_by, requested_at, started_at, finished_at, workflow_json, error_code, error_message)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		job.ID,
+		job.StackID,
+		job.Action,
+		job.State,
+		job.RequestedBy,
+		job.RequestedAt.UTC().Format(time.RFC3339Nano),
+		startedAt,
+		finishedAt,
+		workflowJSON,
+		nullIfEmpty(job.ErrorCode),
+		nullIfEmpty(job.ErrorMessage),
+	)
+	if err != nil {
+		return fmt.Errorf("create job: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) UpdateJob(ctx context.Context, job Job) error {
+	var workflowJSON sql.NullString
+	if job.Workflow != nil {
+		workflowBytes, err := json.Marshal(job.Workflow)
+		if err != nil {
+			return fmt.Errorf("marshal workflow: %w", err)
+		}
+		workflowJSON = sql.NullString{String: string(workflowBytes), Valid: true}
+	}
+
+	var startedAt sql.NullString
+	if job.StartedAt != nil {
+		startedAt = sql.NullString{String: job.StartedAt.UTC().Format(time.RFC3339Nano), Valid: true}
+	}
+	var finishedAt sql.NullString
+	if job.FinishedAt != nil {
+		finishedAt = sql.NullString{String: job.FinishedAt.UTC().Format(time.RFC3339Nano), Valid: true}
+	}
+
+	result, err := s.db.ExecContext(
+		ctx,
+		`UPDATE jobs
+		 SET state = ?, started_at = ?, finished_at = ?, workflow_json = ?, error_code = ?, error_message = ?
+		 WHERE id = ?`,
+		job.State,
+		startedAt,
+		finishedAt,
+		workflowJSON,
+		nullIfEmpty(job.ErrorCode),
+		nullIfEmpty(job.ErrorMessage),
+		job.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("update job: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update job rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) JobByID(ctx context.Context, id string) (Job, error) {
+	var rawRequestedAt string
+	var rawStartedAt sql.NullString
+	var rawFinishedAt sql.NullString
+	var rawWorkflow sql.NullString
+	var rawErrorCode sql.NullString
+	var rawErrorMessage sql.NullString
+
+	job := Job{}
+	err := s.db.QueryRowContext(
+		ctx,
+		`SELECT id, stack_id, action, state, requested_by, requested_at, started_at, finished_at, workflow_json, error_code, error_message
+		 FROM jobs
+		 WHERE id = ?`,
+		id,
+	).Scan(
+		&job.ID,
+		&job.StackID,
+		&job.Action,
+		&job.State,
+		&job.RequestedBy,
+		&rawRequestedAt,
+		&rawStartedAt,
+		&rawFinishedAt,
+		&rawWorkflow,
+		&rawErrorCode,
+		&rawErrorMessage,
+	)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return Job{}, ErrNotFound
+	case err != nil:
+		return Job{}, fmt.Errorf("load job: %w", err)
+	}
+
+	job.RequestedAt, err = time.Parse(time.RFC3339Nano, rawRequestedAt)
+	if err != nil {
+		return Job{}, fmt.Errorf("parse requested_at: %w", err)
+	}
+	if rawStartedAt.Valid {
+		startedAt, err := time.Parse(time.RFC3339Nano, rawStartedAt.String)
+		if err != nil {
+			return Job{}, fmt.Errorf("parse started_at: %w", err)
+		}
+		job.StartedAt = &startedAt
+	}
+	if rawFinishedAt.Valid {
+		finishedAt, err := time.Parse(time.RFC3339Nano, rawFinishedAt.String)
+		if err != nil {
+			return Job{}, fmt.Errorf("parse finished_at: %w", err)
+		}
+		job.FinishedAt = &finishedAt
+	}
+	if rawWorkflow.Valid {
+		var workflow JobWorkflow
+		if err := json.Unmarshal([]byte(rawWorkflow.String), &workflow); err != nil {
+			return Job{}, fmt.Errorf("unmarshal workflow: %w", err)
+		}
+		job.Workflow = &workflow
+	}
+	if rawErrorCode.Valid {
+		job.ErrorCode = rawErrorCode.String
+	}
+	if rawErrorMessage.Valid {
+		job.ErrorMessage = rawErrorMessage.String
+	}
+
+	return job, nil
+}
+
+func nullIfEmpty(value string) sql.NullString {
+	if value == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: value, Valid: true}
 }
