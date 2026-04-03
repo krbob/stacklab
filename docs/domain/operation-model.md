@@ -99,11 +99,28 @@ Rules:
 - queued jobs for the same stack are optional in v1; backend may reject instead of queueing
 - v1 may reject cancellation for actions that cannot be safely interrupted
 
+### Workflow Jobs
+
+Some jobs may internally consist of ordered steps while still remaining a single externally visible job.
+
+Examples:
+
+- `recreate`
+- `create_stack` when `deploy_after_create = true`
+
+Rules:
+
+- the UI should still treat the workflow as one job for progress and audit purposes
+- backend may expose current step and step events in streaming protocols
+- the top-level job `action` remains the user-requested action
+
 ### Job Output
 
 Each job may emit structured events:
 
 - `job_started`
+- `job_step_started`
+- `job_step_finished`
 - `job_progress`
 - `job_log`
 - `job_warning`
@@ -300,4 +317,3 @@ Container shell is in MVP.
 Host shell is intentionally outside MVP.
 
 The terminal subsystem should be designed so this capability can be added later without redefining the frontend terminal model.
-

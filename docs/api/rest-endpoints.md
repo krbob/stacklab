@@ -160,6 +160,8 @@ Response:
     {
       "id": "nextcloud",
       "name": "nextcloud",
+      "created_at": "2026-03-01T10:00:00Z",
+      "updated_at": "2026-04-03T18:42:00Z",
       "display_state": "running",
       "runtime_state": "running",
       "config_state": "drifted",
@@ -185,6 +187,8 @@ Response:
     "running_count": 8,
     "stopped_count": 3,
     "error_count": 1,
+    "defined_count": 0,
+    "orphaned_count": 0,
     "container_count": {
       "running": 28,
       "total": 35
@@ -211,6 +215,8 @@ Response:
   "stack": {
     "id": "nextcloud",
     "name": "nextcloud",
+    "created_at": "2026-03-01T10:00:00Z",
+    "updated_at": "2026-04-03T18:42:00Z",
     "root_path": "/opt/stacklab/stacks/nextcloud",
     "compose_file_path": "/opt/stacklab/stacks/nextcloud/compose.yaml",
     "env_file_path": "/opt/stacklab/stacks/nextcloud/.env",
@@ -331,6 +337,8 @@ Rules:
 
 - for `orphaned` stacks this endpoint returns `409 invalid_state`
 - `.env` may not exist; UI should handle `exists = false`
+- `env` is always present in the response shape
+- when `.env` does not exist, `env.exists = false` and `env.content = ""`
 
 ## `GET /api/stacks/{stackId}/resolved-config`
 
@@ -370,6 +378,42 @@ Invalid response:
 }
 ```
 
+## `POST /api/stacks/{stackId}/resolved-config`
+
+Purpose:
+
+- resolve a draft editor state without persisting it to disk
+
+This is a read-only dry-run endpoint intended for editor preview workflows.
+
+Request:
+
+```json
+{
+  "compose_yaml": "services:\n  app:\n    image: nextcloud:29\n",
+  "env": "PORT=8080\n"
+}
+```
+
+Success response:
+
+```json
+{
+  "stack_id": "nextcloud",
+  "valid": true,
+  "content": "name: nextcloud\nservices:\n  app:\n    image: nextcloud:29\n"
+}
+```
+
+Invalid response shape matches `GET /api/stacks/{stackId}/resolved-config`.
+
+Rules:
+
+- does not write files
+- does not create a job
+- may be called repeatedly by the editor
+- for `orphaned` stacks returns `409 invalid_state`
+
 ## `GET /api/stacks/{stackId}/audit`
 
 Purpose:
@@ -390,6 +434,7 @@ Response:
       "id": "audit_01hr...",
       "stack_id": "nextcloud",
       "action": "pull",
+      "requested_by": "local",
       "result": "succeeded",
       "requested_at": "2026-04-03T18:40:00Z",
       "finished_at": "2026-04-03T18:42:00Z",
@@ -484,7 +529,15 @@ Success response:
     "id": "job_01hr...",
     "stack_id": "my-new-app",
     "action": "create_stack",
-    "state": "running"
+    "state": "running",
+    "workflow": {
+      "steps": [
+        {
+          "action": "create_stack",
+          "state": "running"
+        }
+      ]
+    }
   }
 }
 ```
@@ -493,6 +546,9 @@ Rules:
 
 - invalid stack ID returns `422 validation_failed`
 - existing stack ID returns `409 conflict`
+- when `deploy_after_create = true`, backend still returns a single job with top-level `action = create_stack`
+- that job becomes a workflow job whose steps are `create_stack` followed by `up`
+- the UI should present this as one progress flow, not as two unrelated jobs
 
 ## `PUT /api/stacks/{stackId}/definition`
 
@@ -705,4 +761,3 @@ When `config_state = invalid`:
 - `validate` remains allowed
 - `save_definition` remains allowed
 - deploy-oriented actions may be rejected with `409 invalid_state`
-
