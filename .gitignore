@@ -1,0 +1,25 @@
+# OS
+.DS_Store
+
+# Editors
+.idea/
+.vscode/
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# Go
+bin/
+coverage.out
+
+# Runtime
+.env.local
+.env.*.local
+tmp/
+
+# Project data
+/data/
+/var/
+
