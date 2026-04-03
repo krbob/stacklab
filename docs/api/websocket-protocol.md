@@ -619,6 +619,7 @@ Possible `reason` values:
 
 - `process_exit`
 - `idle_timeout`
+- `client_close`
 - `server_cleanup`
 - `connection_replaced`
 

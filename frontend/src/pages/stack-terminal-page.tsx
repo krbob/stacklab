@@ -9,6 +9,7 @@ import { cn } from '@/lib/cn'
 const EXIT_REASONS: Record<string, string> = {
   process_exit: 'Shell exited',
   idle_timeout: 'Session timed out due to inactivity',
+  client_close: 'Session closed',
   server_cleanup: 'Session closed by server',
   connection_replaced: 'Session taken over by another connection',
 }

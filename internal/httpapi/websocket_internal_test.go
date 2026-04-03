@@ -85,3 +85,26 @@ func TestFilterContainersByService(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveLogTail(t *testing.T) {
+	t.Parallel()
+
+	if got := resolveLogTail(nil); got != 200 {
+		t.Fatalf("resolveLogTail(nil) = %d, want %d", got, 200)
+	}
+
+	zero := 0
+	if got := resolveLogTail(&zero); got != 0 {
+		t.Fatalf("resolveLogTail(&0) = %d, want %d", got, 0)
+	}
+
+	negative := -5
+	if got := resolveLogTail(&negative); got != 0 {
+		t.Fatalf("resolveLogTail(&-5) = %d, want %d", got, 0)
+	}
+
+	five := 5
+	if got := resolveLogTail(&five); got != 5 {
+		t.Fatalf("resolveLogTail(&5) = %d, want %d", got, 5)
+	}
+}

@@ -320,8 +320,8 @@ func TestIntegrationWebSocketTerminalOpenAndAttachWithDockerShim(t *testing.T) {
 	if exitedPayload.SessionID != openedPayload.SessionID {
 		t.Fatalf("terminal.exited session_id = %q, want %q", exitedPayload.SessionID, openedPayload.SessionID)
 	}
-	if exitedPayload.Reason != "server_cleanup" {
-		t.Fatalf("terminal.exited reason = %q, want %q", exitedPayload.Reason, "server_cleanup")
+	if exitedPayload.Reason != "client_close" {
+		t.Fatalf("terminal.exited reason = %q, want %q", exitedPayload.Reason, "client_close")
 	}
 }
 

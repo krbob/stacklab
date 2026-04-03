@@ -255,7 +255,7 @@ Frontend must assume:
 Required UI behavior:
 
 - disable mutating controls while `activity_state = locked`
-- show distinct messages for `idle_timeout`, `server_cleanup`, `process_exit`, and `connection_replaced`
+- show distinct messages for `idle_timeout`, `client_close`, `server_cleanup`, `process_exit`, and `connection_replaced`
 - do not render terminal or logs via raw HTML insertion
 
 ## Recommended Security Headers
@@ -302,4 +302,3 @@ Post-MVP hardening candidates:
 - optional TOTP or client-certificate access on LAN
 - encrypted secret references
 - stricter per-feature policy toggles
-

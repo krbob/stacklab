@@ -197,7 +197,7 @@ func (h *Handler) handleTerminalClose(ownerSessionID string, wsConn *wsConnectio
 	if err := decodeWSFrame(frame, &payload); err != nil || strings.TrimSpace(payload.SessionID) == "" {
 		return wsConn.writeJSON(validationErrorFrame(frame, "Invalid terminal.close payload."))
 	}
-	if err := h.terminals.Close(ownerSessionID, payload.SessionID, "server_cleanup"); err != nil {
+	if err := h.terminals.Close(ownerSessionID, payload.SessionID, "client_close"); err != nil {
 		return h.writeTerminalSessionError(wsConn, frame, err)
 	}
 	return nil

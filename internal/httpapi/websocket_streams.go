@@ -66,7 +66,7 @@ func (h *Handler) subscribeLogStream(ctx context.Context, wsConn *wsConnection, 
 	var payload struct {
 		StackID      string   `json:"stack_id"`
 		ServiceNames []string `json:"service_names"`
-		Tail         int      `json:"tail"`
+		Tail         *int     `json:"tail"`
 		Timestamps   bool     `json:"timestamps"`
 	}
 	if err := json.Unmarshal(frame.Payload, &payload); err != nil || strings.TrimSpace(payload.StackID) == "" || strings.TrimSpace(frame.StreamID) == "" {
@@ -105,10 +105,7 @@ func (h *Handler) subscribeLogStream(ctx context.Context, wsConn *wsConnection, 
 		return err
 	}
 
-	tail := payload.Tail
-	if tail <= 0 {
-		tail = 200
-	}
+	tail := resolveLogTail(payload.Tail)
 	for _, container := range containers {
 		go h.forwardContainerLogs(subCtx, wsConn, frame.StreamID, container, tail)
 	}
@@ -557,4 +554,11 @@ func filterContainersByService(containers []stacks.Container, serviceNames []str
 
 func roundFloat(value float64) float64 {
 	return math.Round(value*100) / 100
+}
+
+func resolveLogTail(tail *int) int {
+	if tail == nil {
+		return 200
+	}
+	return max(*tail, 0)
 }
