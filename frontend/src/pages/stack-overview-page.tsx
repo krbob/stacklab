@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { invokeAction } from '@/lib/api-client'
 import type { StackDetailResponse } from '@/lib/api-types'
 import { StackBadge } from '@/components/stack-badge'
+import { DeleteStackDialog } from '@/components/delete-stack-dialog'
 import { cn } from '@/lib/cn'
 
 const containerStatusColor: Record<string, string> = {
@@ -24,6 +26,7 @@ export function StackOverviewPage() {
     stack: StackDetailResponse['stack']
     refetch: () => void
   }>()
+  const [showDelete, setShowDelete] = useState(false)
 
   return (
     <div className="flex flex-col gap-5">
@@ -39,8 +42,16 @@ export function StackOverviewPage() {
           configState={stack.config_state}
           activityState={stack.activity_state}
         />
-        <ActionBar stack={stack} onAction={refetch} />
+        <ActionBar stack={stack} onAction={refetch} onRemove={() => setShowDelete(true)} />
       </div>
+
+      {showDelete && (
+        <DeleteStackDialog
+          stackId={stack.id}
+          stackName={stack.name}
+          onClose={() => { setShowDelete(false); refetch() }}
+        />
+      )}
 
       <div className="grid gap-3">
         {stack.services.map((svc) => {
@@ -123,9 +134,11 @@ export function StackOverviewPage() {
 function ActionBar({
   stack,
   onAction,
+  onRemove,
 }: {
   stack: StackDetailResponse['stack']
   onAction: () => void
+  onRemove: () => void
 }) {
   const locked = stack.activity_state === 'locked'
   const actions = stack.available_actions
@@ -169,6 +182,16 @@ function ActionBar({
           </button>
         )
       })}
+
+      {actions.includes('remove_stack_definition') && (
+        <button
+          disabled={locked}
+          onClick={onRemove}
+          className="rounded-full border border-red-400/30 px-3 py-1.5 text-xs font-medium text-red-400 transition hover:bg-red-400/10 disabled:opacity-40"
+        >
+          Remove
+        </button>
+      )}
     </div>
   )
 }
