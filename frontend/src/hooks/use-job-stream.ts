@@ -12,6 +12,14 @@ export function useJobStream({ jobId, enabled = true }: UseJobStreamOptions) {
   const [events, setEvents] = useState<JobEvent[]>([])
   const [state, setState] = useState<string | null>(null)
   const requestIdRef = useRef(0)
+  const seenTimestampsRef = useRef<Set<string>>(new Set())
+
+  // Reset state when jobId changes
+  useEffect(() => {
+    setEvents([])
+    setState(null)
+    seenTimestampsRef.current.clear()
+  }, [jobId])
 
   useEffect(() => {
     if (!jobId || !connected || !enabled) return
@@ -29,6 +37,13 @@ export function useJobStream({ jobId, enabled = true }: UseJobStreamOptions) {
     const unsub = subscribe(streamId, (frame: WsServerFrame) => {
       if (frame.type === 'jobs.event' && frame.payload) {
         const event = frame.payload as unknown as JobEvent
+
+        // Deduplicate: backend may replay events after reconnect.
+        // Use event+timestamp+message as a dedup key.
+        const dedup = `${event.event}:${event.timestamp}:${event.message ?? ''}`
+        if (seenTimestampsRef.current.has(dedup)) return
+        seenTimestampsRef.current.add(dedup)
+
         setEvents((prev) => [...prev, event])
         setState(event.state)
       }
@@ -47,5 +62,13 @@ export function useJobStream({ jobId, enabled = true }: UseJobStreamOptions) {
     }
   }, [jobId, connected, enabled, send, subscribe])
 
-  return { events, state, clear: () => { setEvents([]); setState(null) } }
+  return {
+    events,
+    state,
+    clear: () => {
+      setEvents([])
+      setState(null)
+      seenTimestampsRef.current.clear()
+    },
+  }
 }

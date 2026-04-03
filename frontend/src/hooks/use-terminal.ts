@@ -21,6 +21,13 @@ export function useTerminal({ stackId, containerId, shell = '/bin/sh', cols = 12
   const streamIdRef = useRef(`term_${stackId}_${containerId}_${Date.now()}`)
   const onDataRef = useRef<((data: string) => void) | null>(null)
   const requestIdRef = useRef(0)
+  const wasConnectedRef = useRef(false)
+  const colsRef = useRef(cols)
+  const rowsRef = useRef(rows)
+
+  // Keep refs up to date for reconnect
+  colsRef.current = cols
+  rowsRef.current = rows
 
   const open = useCallback(() => {
     if (!connected) return
@@ -39,11 +46,11 @@ export function useTerminal({ stackId, containerId, shell = '/bin/sh', cols = 12
         stack_id: stackId,
         container_id: containerId,
         shell,
-        cols,
-        rows,
+        cols: colsRef.current,
+        rows: rowsRef.current,
       },
     })
-  }, [connected, send, stackId, containerId, shell, cols, rows])
+  }, [connected, send, stackId, containerId, shell])
 
   const attach = useCallback((sessionId: string) => {
     if (!connected) return
@@ -56,9 +63,18 @@ export function useTerminal({ stackId, containerId, shell = '/bin/sh', cols = 12
       type: 'terminal.attach',
       request_id: reqId,
       stream_id: streamId,
-      payload: { session_id: sessionId, cols, rows },
+      payload: { session_id: sessionId, cols: colsRef.current, rows: rowsRef.current },
     })
-  }, [connected, send, cols, rows])
+  }, [connected, send])
+
+  // Auto-attach after reconnect if we had an active session
+  useEffect(() => {
+    if (connected && wasConnectedRef.current && sessionIdRef.current && termState === 'connected') {
+      // We just reconnected while a session was active — try to reattach
+      attach(sessionIdRef.current)
+    }
+    wasConnectedRef.current = connected
+  }, [connected, attach, termState])
 
   const write = useCallback((data: string) => {
     if (!sessionIdRef.current) return
@@ -70,6 +86,8 @@ export function useTerminal({ stackId, containerId, shell = '/bin/sh', cols = 12
   }, [send])
 
   const resize = useCallback((newCols: number, newRows: number) => {
+    colsRef.current = newCols
+    rowsRef.current = newRows
     if (!sessionIdRef.current) return
     send({
       type: 'terminal.resize',
@@ -114,8 +132,15 @@ export function useTerminal({ stackId, containerId, shell = '/bin/sh', cols = 12
           break
         }
         case 'error': {
-          setErrorMessage(frame.error?.message ?? 'Terminal error')
-          setTermState('error')
+          // If attach failed after reconnect (PTY gone), show ended state
+          if (frame.error?.code === 'terminal_session_not_found') {
+            sessionIdRef.current = null
+            setTermState('ended')
+            setErrorMessage('Session ended. Start a new session?')
+          } else {
+            setErrorMessage(frame.error?.message ?? 'Terminal error')
+            setTermState('error')
+          }
           break
         }
       }

@@ -16,11 +16,14 @@ export function useLogStream({ stackId, serviceNames = [], tail = 200, enabled =
   const bufferRef = useRef<LogEntry[]>([])
   const streamId = `logs_${stackId}_${serviceNames.join(',') || 'all'}`
   const requestIdRef = useRef(0)
+  const hasSubscribedRef = useRef(false)
 
   const sub = useCallback(() => {
     if (!connected || !enabled) return
 
     const reqId = `req_logs_${++requestIdRef.current}`
+    const isResubscribe = hasSubscribedRef.current
+
     send({
       type: 'logs.subscribe',
       request_id: reqId,
@@ -28,10 +31,14 @@ export function useLogStream({ stackId, serviceNames = [], tail = 200, enabled =
       payload: {
         stack_id: stackId,
         service_names: serviceNames,
-        tail,
+        // Only request tail on first subscribe. After reconnect, we already
+        // have lines in the buffer — requesting tail again would duplicate them.
+        tail: isResubscribe ? 0 : tail,
         timestamps: true,
       },
     })
+
+    hasSubscribedRef.current = true
   }, [connected, enabled, send, streamId, stackId, serviceNames, tail])
 
   useEffect(() => {
@@ -47,6 +54,11 @@ export function useLogStream({ stackId, serviceNames = [], tail = 200, enabled =
       }
     }
   }, [sub, connected, send, streamId])
+
+  // Reset first-subscribe flag when stackId or serviceNames change
+  useEffect(() => {
+    hasSubscribedRef.current = false
+  }, [stackId, serviceNames.join(',')])
 
   useEffect(() => {
     if (!enabled) return
@@ -80,6 +92,6 @@ export function useLogStream({ stackId, serviceNames = [], tail = 200, enabled =
     paused,
     pause: () => setPaused(true),
     resume,
-    clear: () => setEntries([]),
+    clear: () => { setEntries([]); hasSubscribedRef.current = false },
   }
 }

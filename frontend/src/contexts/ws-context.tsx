@@ -20,8 +20,11 @@ export function WsProvider({ children }: { children: ReactNode }) {
   const reconnectAttemptRef = useRef(0)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
+  const authFailedRef = useRef(false)
 
   const connect = useCallback(() => {
+    if (authFailedRef.current) return
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const ws = new WebSocket(`${protocol}//${window.location.host}/api/ws`)
     wsRef.current = ws
@@ -29,6 +32,7 @@ export function WsProvider({ children }: { children: ReactNode }) {
     ws.onopen = () => {
       setConnected(true)
       reconnectAttemptRef.current = 0
+      authFailedRef.current = false
     }
 
     ws.onmessage = (event) => {
@@ -60,7 +64,7 @@ export function WsProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       setConnected(false)
       wsRef.current = null
 
@@ -68,20 +72,46 @@ export function WsProvider({ children }: { children: ReactNode }) {
         clearInterval(heartbeatTimerRef.current)
       }
 
-      // reconnect with backoff
-      const delay = RECONNECT_DELAYS[Math.min(reconnectAttemptRef.current, RECONNECT_DELAYS.length - 1)]
-      reconnectAttemptRef.current++
-      reconnectTimerRef.current = setTimeout(connect, delay)
+      // 1008 = policy violation (auth rejected), 4401 = custom unauthorized
+      // HTTP 401 on upgrade also results in close before open (readyState never reaches OPEN)
+      if (event.code === 1008 || event.code === 4401 || event.code === 1006) {
+        // Check if this was an auth failure by trying GET /api/session
+        fetch('/api/session', { credentials: 'same-origin' })
+          .then((res) => {
+            if (res.status === 401 || !res.ok) {
+              authFailedRef.current = true
+              window.location.href = '/login'
+            } else {
+              // Session is valid, this was a transient failure — reconnect
+              scheduleReconnect()
+            }
+          })
+          .catch(() => {
+            // Backend unreachable — reconnect, not auth failure
+            scheduleReconnect()
+          })
+        return
+      }
+
+      scheduleReconnect()
     }
 
     ws.onerror = () => {
       ws.close()
+    }
+
+    function scheduleReconnect() {
+      if (authFailedRef.current) return
+      const delay = RECONNECT_DELAYS[Math.min(reconnectAttemptRef.current, RECONNECT_DELAYS.length - 1)]
+      reconnectAttemptRef.current++
+      reconnectTimerRef.current = setTimeout(connect, delay)
     }
   }, [])
 
   useEffect(() => {
     connect()
     return () => {
+      authFailedRef.current = true // prevent reconnect on unmount
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
       if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current)
       wsRef.current?.close()
