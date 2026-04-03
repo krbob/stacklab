@@ -44,11 +44,11 @@ Purpose: Overview of all stacks, quick actions, entry point to detail views.
 │ Stacks │─────────────────────────────────────────────────────────────│
 │ Audit  │                                                            │
 │ Settin │  ● traefik        Running           3/3   [↻] [⏹] [⬆]   │
-│        │  ● nextcloud       Running  ✎       2/2   [↻] [⏹] [⬆]   │
+│        │  ● nextcloud       Running  ✎ Drifted 2/2  [↻] [⏹] [⬆]  │
 │        │  ◐ monitoring      Partial          2/3   [↻] [⏹] [⬆]   │
 │        │  ! home-assistant  Error            1/2   [↻] [⏹] [⬆]   │
 │        │  ○ backup-nightly  Stopped          0/2   [▶] [⬆]        │
-│        │  ✦ new-project     New              —     [▶]             │
+│        │  ◌ new-project     Defined          —     [▶]             │
 │        │                                                            │
 │        │  ─── Quick stats ──────────────────────────────────────    │
 │        │  Stacks: 12 running, 3 stopped, 1 error                   │
@@ -65,8 +65,8 @@ Each row contains:
 |---|---|
 | Runtime badge | Color circle indicating runtime state |
 | Stack name | Clickable, navigates to stack detail |
-| Runtime label | Text label: Running, Stopped, Partial, Error |
-| Config indicator | Shown only when not synced: Modified, New, Invalid |
+| Runtime label | Text label from `display_state`: Running, Stopped, Partial, Error, Defined, Orphaned |
+| Config indicator | Secondary indicator from `config_state`, shown only when `drifted` or `invalid` |
 | Service count | `running/total` format |
 | Quick actions | Contextual: restart, stop, start, pull. Disabled during operations. |
 
@@ -97,7 +97,7 @@ Purpose: Detailed view of a single stack with service breakdown.
 ├────────┬─────────────────────────────────────────────────────────────┤
 │        │  ← Stacks / nextcloud                                      │
 │ Stacks │                                                            │
-│ Audit  │  ● Running (2/2)                     ✎ Modified            │
+│ Audit  │  ● Running (2/2)                     ✎ Drifted             │
 │ Settin │                                                            │
 │        │  [Overview] [Editor] [Logs] [Stats] [Terminal] [History]   │
 │        │─────────────────────────────────────────────────────────────│
@@ -131,7 +131,7 @@ Purpose: Detailed view of a single stack with service breakdown.
 |---|---|
 | State badge | Same colors as container states |
 | Service name | From compose.yaml service key |
-| Image / Build | Image tag or build context path. Labeled "pull" or "build" mode. |
+| Image / Build | Image tag or build context path. Labeled with domain `mode`: `image`, `build`, or `hybrid`. |
 | Ports | Published ports mapping |
 | Status | Docker status string + uptime |
 | Inline stats | CPU % and RAM usage (mini, from stats stream) |
@@ -140,14 +140,33 @@ Purpose: Detailed view of a single stack with service breakdown.
 
 ### Stack-level actions bar
 
-Buttons contextual to current state:
+Buttons are contextual to `display_state` (from `runtime_state`). `activity_state = locked` disables all mutating buttons as an overlay.
 
-- `running` → Deploy, Restart, Stop, Down, Pull
-- `stopped` → Deploy (Up), Pull, Remove
-- `new` → Deploy, Edit
-- `in_progress` → all disabled, show spinner with operation name
+| `display_state` | Available actions |
+|---|---|
+| `running` | Deploy (Up), Restart, Stop, Down, Pull |
+| `stopped` | Deploy (Up), Pull, Remove |
+| `partial` | Deploy (Up), Restart, Stop, Down, Pull |
+| `error` | Deploy (Up), Restart, Stop, Down, Pull |
+| `defined` | Deploy (Up), Edit |
+| `orphaned` | Down, Remove |
+
+When `activity_state = locked`: all buttons disabled, spinner shown with current job action name.
 
 "Down" and "Remove" require confirmation dialog (see states-and-empty-cases.md).
+
+Action names in the UI map to domain operations (see `docs/domain/operation-model.md`):
+
+| UI button | Domain action |
+|---|---|
+| Deploy | `up` |
+| Restart | `restart` |
+| Stop | `stop` |
+| Down | `down` |
+| Pull | `pull` |
+| Build | `build` |
+| Remove | `remove_stack_definition` |
+| Save | `save_definition` |
 
 ## 4. Compose Editor
 
@@ -342,7 +361,7 @@ Purpose: Container shell sessions via `docker exec`.
 - **Shell selector**: defaults to `/bin/sh`, option for `/bin/bash` if available
 - **Multiple sessions**: tab bar for parallel sessions to different (or same) containers
 - **Close session**: per-tab close button. Confirmation if session is active.
-- **Connection indicator**: green dot when connected, red when disconnected with reconnect option
+- **Connection indicator**: green dot when connected, red when disconnected. On disconnect: UI attempts WebSocket reconnect with backoff. If the backend PTY session is still alive, the stream resumes. If the PTY was terminated (idle timeout, cleanup), UI shows "Session ended. Start a new session?" — it does not silently pretend the old session continues. Scrollback buffer is preserved client-side in both cases.
 - **Auto-resize**: XTerm.js fit addon syncs terminal size with browser viewport
 
 ### Terminal component architecture
@@ -383,13 +402,13 @@ Purpose: Chronological log of mutating operations on this stack.
 │                                                                      │
 │  Stack history                                          [Export]     │
 │                                                                      │
-│  2026-04-03 14:22  pull        ✓ completed    12s                   │
-│  2026-04-03 14:23  up          ✓ completed     4s                   │
-│  2026-04-02 09:15  restart     ✓ completed     6s                   │
-│  2026-04-01 18:00  edit        compose.yaml modified                │
-│  2026-04-01 18:01  up          ✗ failed        2s   [View log]     │
-│  2026-04-01 18:05  edit        compose.yaml modified                │
-│  2026-04-01 18:05  up          ✓ completed     3s                   │
+│  2026-04-03 14:22  pull             ✓ succeeded   12s                │
+│  2026-04-03 14:23  up               ✓ succeeded    4s                │
+│  2026-04-02 09:15  restart          ✓ succeeded    6s                │
+│  2026-04-01 18:00  save_definition  ✓ succeeded    —                 │
+│  2026-04-01 18:01  up               ✗ failed       2s  [View log]   │
+│  2026-04-01 18:05  save_definition  ✓ succeeded    —                 │
+│  2026-04-01 18:05  up               ✓ succeeded    3s                │
 │  ...                                                                 │
 │                                                                      │
 │                                          [Load more]                 │
@@ -398,13 +417,15 @@ Purpose: Chronological log of mutating operations on this stack.
 
 ### Row anatomy
 
-| Field | Description |
-|---|---|
-| Timestamp | Local time |
-| Action | pull, up, down, stop, restart, build, edit, remove |
-| Result | completed, failed, in_progress |
-| Duration | Wall clock time of operation |
-| Detail link | "View log" for failed operations — shows captured stdout/stderr |
+All field names and values use the domain vocabulary from `docs/domain/operation-model.md`.
+
+| Field | Domain source | Description |
+|---|---|---|
+| Timestamp | `requested_at` | Local time |
+| Action | `action` | Domain action name: `up`, `down`, `stop`, `restart`, `pull`, `build`, `recreate`, `save_definition`, `create_stack`, `remove_stack_definition`, `validate` |
+| Result | job `state` | `succeeded`, `failed`, `cancelled`, `timed_out` |
+| Duration | `finished_at - started_at` | Wall clock time, shown as `duration_ms` formatted |
+| Detail link | — | "View log" for `failed` / `timed_out` — shows captured job output |
 
 ### Pagination
 
@@ -421,8 +442,8 @@ Purpose: System-wide audit log across all stacks.
 Same layout as stack history but with an additional "Stack" column and a stack filter dropdown.
 
 ```
-│  2026-04-03 14:22  nextcloud   pull     ✓ completed    12s         │
-│  2026-04-03 14:20  traefik     restart  ✓ completed     2s         │
+│  2026-04-03 14:22  nextcloud   pull     ✓ succeeded    12s         │
+│  2026-04-03 14:20  traefik     restart  ✓ succeeded     2s         │
 │  2026-04-03 10:00  monitoring  up       ✗ failed        8s  [Log]  │
 ```
 

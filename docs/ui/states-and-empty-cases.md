@@ -6,26 +6,39 @@ Stack state is composed of two independent dimensions following the architect's 
 
 ### Runtime State
 
-Derived from Docker Engine. Describes what is actually running.
+Derived from Docker Engine. Describes what is actually running. Maps directly to the domain `runtime_state` (see `docs/domain/stack-model.md`).
 
-| State | Meaning | Badge color | Icon |
+| Domain value | UI label | Badge color | Icon |
 |---|---|---|---|
-| `running` | All defined services have running containers | Green | Filled circle |
-| `stopped` | All containers are stopped or removed | Gray | Empty circle |
-| `partial` | Some services running, some not | Yellow | Half circle |
-| `error` | At least one container in error, restarting, or dead state | Red | Exclamation |
-| `unknown` | Cannot determine state (Docker unreachable, race condition) | Gray dashed | Question mark |
+| `running` | Running | Green | Filled circle |
+| `stopped` | Stopped | Gray | Empty circle |
+| `partial` | Partial | Yellow | Half circle |
+| `error` | Error | Red | Exclamation |
+| `defined` | Defined | Gray muted | Dotted circle |
+| `orphaned` | Orphaned | Red/warning | Warning triangle |
+
+Notes:
+
+- `display_state` from the API equals `runtime_state` — UI uses it directly as the primary badge
+- `defined` replaces the previous UI-only concept of "new" — it means the stack exists on disk but has no runtime containers and no known deployment history
+- `orphaned` means runtime containers claim a stack identity but the canonical `compose.yaml` is missing on disk
 
 ### Config State
 
-Derived from filesystem and deploy history. Describes relationship between files on disk and last deployed state.
+Derived from filesystem and deploy history. Describes relationship between files on disk and last deployed state. Maps directly to the domain `config_state` (see `docs/domain/stack-model.md`).
 
-| State | Meaning | Badge | Icon |
+| Domain value | UI label | Badge | Icon |
 |---|---|---|---|
-| `synced` | `compose.yaml` matches last deployed version | None (default) | — |
-| `modified` | `compose.yaml` changed since last deploy | Yellow dot | Pencil |
-| `new` | Stack directory exists with `compose.yaml` but was never deployed through Stacklab | Blue dot | Sparkle |
-| `invalid` | `compose.yaml` fails `docker compose config` validation | Red dot | Warning triangle |
+| `in_sync` | — | None (default, not shown) | — |
+| `drifted` | Drifted | Yellow dot | Pencil |
+| `unknown` | — | None (not shown, applies to stacks never deployed) | — |
+| `invalid` | Invalid | Red dot | Warning triangle |
+
+Notes:
+
+- `in_sync` and `unknown` produce no secondary indicator — they are the "quiet" states
+- `drifted` means the compose definition changed since the last known deploy; it is informational, not an error
+- `invalid` blocks deploy actions but allows save (user may want to save work in progress)
 
 ### Combined Display
 
@@ -34,49 +47,75 @@ The stack list shows both states together:
 ```
 ┌──────────────────────────────────────────────────┐
 │  ● traefik          Running              3/3     │
-│  ● nextcloud        Running   ✎ Modified  2/2    │
+│  ● nextcloud        Running   ✎ Drifted   2/2    │
 │  ◐ monitoring       Partial              2/3     │
 │  ○ backup           Stopped              0/2     │
-│  ✦ new-stack        New                  —       │
+│  ◌ new-stack        Defined              —       │
 │  ○ broken           Stopped   ⚠ Invalid  0/1     │
+│  ⚠ ghost            Orphaned             2/?     │
 └──────────────────────────────────────────────────┘
 ```
 
-Runtime state is the primary badge (left). Config state is shown as a secondary indicator only when not `synced`.
+- Primary badge (left icon + label) = `display_state` derived from `runtime_state`
+- Secondary indicator (right) = `config_state`, shown only when `drifted` or `invalid`
+- `activity_state = locked` is an overlay on top of both (see Activity State below)
 
-## Service State
+## Service / Container State
 
-Individual services within a stack detail view:
+Individual containers within a stack detail view. Maps to the normalized Docker `status` values from the domain Container entity (see `docs/domain/stack-model.md`).
 
-| State | Meaning | Color |
+| Domain `status` | UI label | Color | Notes |
+|---|---|---|---|
+| `created` | Created | Gray | Container exists but never started |
+| `running` | Running | Green | Health shown separately if healthcheck present |
+| `restarting` | Restarting | Yellow pulsing | Container in restart loop |
+| `paused` | Paused | Yellow | Container paused |
+| `exited` | Exited | Gray (code 0) or Red (non-zero) | Show exit code |
+| `dead` | Dead | Red | Unrecoverable state |
+
+Health status (shown as supplementary badge when `healthcheck_present = true`):
+
+| Health | UI indicator | Color |
 |---|---|---|
-| `running` | Container running, health check passing or no healthcheck | Green |
-| `healthy` | Container running, health check explicitly passing | Green with heart |
-| `unhealthy` | Container running, health check failing | Red |
-| `starting` | Container starting, health check not yet passed | Yellow |
-| `stopped` | Container exited with code 0 or manually stopped | Gray |
-| `exited` | Container exited with non-zero code | Red |
-| `restarting` | Container in restart loop | Yellow pulsing |
-| `dead` | Container in dead state | Red |
-| `not_created` | Service defined in compose but no container exists | Gray dashed |
+| `healthy` | Heart icon | Green |
+| `unhealthy` | Broken heart icon | Red |
+| `starting` | Pulse icon | Yellow |
+| none | — | — |
 
-## Operation State
+When a service has no container at all (defined in compose but not created), the row shows "Not created" in gray dashed style.
 
-When a mutating operation is in progress on a stack:
+## Activity State (Operation Overlay)
 
-| State | Meaning | UI Treatment |
-|---|---|---|
-| `idle` | No operation running | Normal display |
-| `in_progress` | Operation executing (pull, build, up, down, restart) | Blue spinner on stack badge. Action buttons disabled. Progress panel visible. |
-| `completed` | Last operation succeeded | Brief green flash, then return to idle |
-| `failed` | Last operation failed | Red indicator with "View log" link. Persists until dismissed or next operation. |
+The domain `activity_state` is an overlay on top of the primary badge, not a replacement for it. It maps to the stack lock (see `docs/domain/stack-model.md` and `docs/domain/operation-model.md`).
 
-When a stack is `in_progress`:
+| Domain value | UI treatment |
+|---|---|
+| `idle` | Normal display, no overlay |
+| `locked` | Blue spinner overlaid on primary badge. Action buttons disabled. Progress panel visible. |
 
-- all action buttons for that stack are disabled
-- the progress panel shows real-time output streamed via WebSocket
+`locked` does not replace `display_state`. A stack can be `running` + `locked` (e.g. pull in progress while containers still run).
+
+### Job State Mapping
+
+Jobs streamed via WebSocket use domain job states. UI maps them as follows:
+
+| Domain job state | UI presentation |
+|---|---|
+| `queued` | "Queued..." in progress panel (v1 may skip queuing and reject instead) |
+| `running` | Active progress panel with streaming output |
+| `succeeded` | Brief green flash on badge, progress panel auto-collapses after 3s |
+| `failed` | Red indicator with "View log" link. Persists until dismissed or next operation. |
+| `cancel_requested` | "Cancelling..." in progress panel |
+| `cancelled` | Gray "Cancelled" status, progress panel stays open |
+| `timed_out` | Red "Timed out" status, same treatment as `failed` |
+
+### Behavior when `activity_state = locked`
+
+- all mutating action buttons for that stack are disabled
+- the progress panel shows real-time job output streamed via WebSocket
 - other stacks remain fully interactive
-- navigation away from the stack is allowed (operation continues in background)
+- navigation away from the stack is allowed (job continues in background)
+- read operations and streaming diagnostics (logs, stats) remain available
 
 ## Empty States
 
@@ -207,7 +246,13 @@ Inline indicator on affected view (logs, stats, terminal):
 Stream disconnected. Reconnecting...   [Reconnect]
 ```
 
-Auto-reconnect with backoff. Terminal preserves scrollback buffer on reconnect.
+Auto-reconnect with backoff for logs and stats streams.
+
+For terminal: WebSocket reconnect restores the transport connection, but does **not** automatically resume the same PTY session. Three distinct concerns:
+
+1. **Scrollback preservation** — XTerm.js maintains the local scrollback buffer client-side across reconnects. This is purely a UI concern.
+2. **WebSocket reconnect** — re-establishes the transport to the backend. Automatic with backoff.
+3. **PTY session resume** — the original PTY process may have been terminated by the backend during disconnect (idle timeout, cleanup). If the PTY is gone, the UI shows "Session ended. Start a new session?" instead of silently reconnecting to a dead stream. If the PTY is still alive (brief network blip), the backend may reattach — but this is a backend capability, not a UI guarantee.
 
 ### Operation failed
 
