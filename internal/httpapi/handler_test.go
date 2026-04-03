@@ -8,10 +8,14 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
 
 	"stacklab/internal/audit"
 	"stacklab/internal/auth"
@@ -184,6 +188,179 @@ func TestHandlerCreateAndDeleteStackWithoutRuntime(t *testing.T) {
 	}
 }
 
+func TestWebSocketReplaysJobEvents(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := newTestHandler(t)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	client := server.Client()
+	loginRequestBody := bytes.NewBufferString(`{"password":"secret"}`)
+	loginRequest, err := http.NewRequest(http.MethodPost, server.URL+"/api/auth/login", loginRequestBody)
+	if err != nil {
+		t.Fatalf("http.NewRequest(login) error = %v", err)
+	}
+	loginRequest.Header.Set("Origin", server.URL)
+	loginRequest.Header.Set("Content-Type", "application/json")
+
+	loginResponse, err := client.Do(loginRequest)
+	if err != nil {
+		t.Fatalf("client.Do(login) error = %v", err)
+	}
+	defer loginResponse.Body.Close()
+	if loginResponse.StatusCode != http.StatusOK {
+		t.Fatalf("login status = %d, want %d", loginResponse.StatusCode, http.StatusOK)
+	}
+
+	cookies := loginResponse.Cookies()
+	if len(cookies) == 0 {
+		t.Fatalf("expected login to set cookies")
+	}
+
+	createRequestBody := bytes.NewBufferString(`{"stack_id":"demo","compose_yaml":"services:\n  app:\n    image: nginx:alpine\n","env":"","create_config_dir":false,"create_data_dir":false,"deploy_after_create":false}`)
+	createRequest, err := http.NewRequest(http.MethodPost, server.URL+"/api/stacks", createRequestBody)
+	if err != nil {
+		t.Fatalf("http.NewRequest(create) error = %v", err)
+	}
+	createRequest.Header.Set("Origin", server.URL)
+	createRequest.Header.Set("Content-Type", "application/json")
+	for _, cookie := range cookies {
+		createRequest.AddCookie(cookie)
+	}
+
+	createResponse, err := client.Do(createRequest)
+	if err != nil {
+		t.Fatalf("client.Do(create) error = %v", err)
+	}
+	defer createResponse.Body.Close()
+	if createResponse.StatusCode != http.StatusOK {
+		t.Fatalf("create status = %d, want %d", createResponse.StatusCode, http.StatusOK)
+	}
+
+	var createPayload struct {
+		Job struct {
+			ID string `json:"id"`
+		} `json:"job"`
+	}
+	if err := json.NewDecoder(createResponse.Body).Decode(&createPayload); err != nil {
+		t.Fatalf("decode create response error = %v", err)
+	}
+	if createPayload.Job.ID == "" {
+		t.Fatalf("expected create job id")
+	}
+
+	wsURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("url.Parse(server.URL) error = %v", err)
+	}
+	wsURL.Scheme = strings.Replace(wsURL.Scheme, "http", "ws", 1)
+	wsURL.Path = "/api/ws"
+
+	header := http.Header{}
+	header.Set("Origin", server.URL)
+	for _, cookie := range cookies {
+		header.Add("Cookie", cookie.Name+"="+cookie.Value)
+	}
+
+	wsConn, wsResponse, err := websocket.DefaultDialer.Dial(wsURL.String(), header)
+	if err != nil {
+		if wsResponse != nil {
+			body, _ := io.ReadAll(wsResponse.Body)
+			_ = wsResponse.Body.Close()
+			t.Fatalf("websocket dial error = %v (status=%d body=%q)", err, wsResponse.StatusCode, string(body))
+		}
+		t.Fatalf("websocket dial error = %v", err)
+	}
+	defer wsConn.Close()
+	_ = wsConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+
+	var helloFrame struct {
+		Type    string `json:"type"`
+		Payload struct {
+			ConnectionID        string `json:"connection_id"`
+			ProtocolVersion     int    `json:"protocol_version"`
+			HeartbeatIntervalMS int    `json:"heartbeat_interval_ms"`
+		} `json:"payload"`
+	}
+	if err := wsConn.ReadJSON(&helloFrame); err != nil {
+		t.Fatalf("ReadJSON(hello) error = %v", err)
+	}
+	if helloFrame.Type != "hello" || helloFrame.Payload.ConnectionID == "" || helloFrame.Payload.ProtocolVersion != 1 {
+		t.Fatalf("unexpected hello frame: %#v", helloFrame)
+	}
+
+	subscribeFrame := map[string]any{
+		"type":       "jobs.subscribe",
+		"request_id": "req_1",
+		"stream_id":  "job_demo",
+		"payload": map[string]any{
+			"job_id": createPayload.Job.ID,
+		},
+	}
+	if err := wsConn.WriteJSON(subscribeFrame); err != nil {
+		t.Fatalf("WriteJSON(subscribe) error = %v", err)
+	}
+
+	var ackFrame struct {
+		Type      string `json:"type"`
+		RequestID string `json:"request_id"`
+		StreamID  string `json:"stream_id"`
+		Payload   struct {
+			Status string `json:"status"`
+		} `json:"payload"`
+	}
+	if err := wsConn.ReadJSON(&ackFrame); err != nil {
+		t.Fatalf("ReadJSON(ack) error = %v", err)
+	}
+	if ackFrame.Type != "ack" || ackFrame.RequestID != "req_1" || ackFrame.StreamID != "job_demo" || ackFrame.Payload.Status != "subscribed" {
+		t.Fatalf("unexpected ack frame: %#v", ackFrame)
+	}
+
+	eventNames := make([]string, 0, 8)
+	for {
+		var eventFrame struct {
+			Type     string `json:"type"`
+			StreamID string `json:"stream_id"`
+			Payload  struct {
+				JobID   string `json:"job_id"`
+				Event   string `json:"event"`
+				State   string `json:"state"`
+				Message string `json:"message"`
+			} `json:"payload"`
+		}
+		if err := wsConn.ReadJSON(&eventFrame); err != nil {
+			t.Fatalf("ReadJSON(job event) error = %v", err)
+		}
+		if eventFrame.Type != "jobs.event" {
+			continue
+		}
+		if eventFrame.StreamID != "job_demo" || eventFrame.Payload.JobID != createPayload.Job.ID {
+			t.Fatalf("unexpected job event frame: %#v", eventFrame)
+		}
+		eventNames = append(eventNames, eventFrame.Payload.Event)
+		if eventFrame.Payload.Event == "job_finished" {
+			if eventFrame.Payload.State != "succeeded" {
+				t.Fatalf("job_finished state = %q, want %q", eventFrame.Payload.State, "succeeded")
+			}
+			break
+		}
+	}
+
+	if !containsString(eventNames, "job_started") {
+		t.Fatalf("expected replay to include job_started, got %#v", eventNames)
+	}
+	if !containsString(eventNames, "job_step_started") {
+		t.Fatalf("expected replay to include job_step_started, got %#v", eventNames)
+	}
+	if !containsString(eventNames, "job_step_finished") {
+		t.Fatalf("expected replay to include job_step_finished, got %#v", eventNames)
+	}
+	if !containsString(eventNames, "job_finished") {
+		t.Fatalf("expected replay to include job_finished, got %#v", eventNames)
+	}
+}
+
 func newTestHandler(t *testing.T) (http.Handler, config.Config) {
 	t.Helper()
 
@@ -289,4 +466,13 @@ func assertPathMissing(t *testing.T, path string) {
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("expected path %q to be missing, got err = %v", path, err)
 	}
+}
+
+func containsString(values []string, candidate string) bool {
+	for _, value := range values {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
 }

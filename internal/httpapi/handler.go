@@ -1,10 +1,12 @@
 package httpapi
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -48,6 +50,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Servic
 
 func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/health", h.handleHealth)
+	h.mux.HandleFunc("GET /api/ws", h.handleWebSocket)
 	h.mux.HandleFunc("GET /api/session", h.handleSession)
 	h.mux.HandleFunc("POST /api/auth/login", h.handleLogin)
 	h.mux.HandleFunc("POST /api/auth/logout", h.withAuth(h.handleLogout))
@@ -241,6 +244,7 @@ func (h *Handler) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 
 	workflow := createWorkflowSteps(request.DeployAfterCreate)
 	job, _ = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
+	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", "Creating stack files.", "", workflowStepRef(workflow, 0))
 
 	if err := h.stackReader.CreateStack(r.Context(), request); err != nil {
 		workflow = markWorkflowFailed(workflow, 0)
@@ -259,8 +263,10 @@ func (h *Handler) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 	}
 
 	workflow = markWorkflowSucceeded(workflow, 0)
+	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_finished", "Created stack files.", "", workflowStepRef(workflow, 0))
 	if request.DeployAfterCreate {
 		workflow = markWorkflowRunning(workflow, 1)
+		_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", "Starting stack runtime.", "", workflowStepRef(workflow, 1))
 	}
 	job, _ = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
 
@@ -276,6 +282,7 @@ func (h *Handler) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 		}
 		workflow = markWorkflowSucceeded(workflow, 1)
 		job, _ = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
+		_ = h.jobs.PublishEvent(r.Context(), job, "job_step_finished", "Started stack runtime.", "", workflowStepRef(workflow, 1))
 	}
 
 	job, err = h.jobs.FinishSucceeded(r.Context(), job)
@@ -353,6 +360,7 @@ func (h *Handler) handleDeleteStack(w http.ResponseWriter, r *http.Request) {
 	if len(workflow) > 0 {
 		workflow = markWorkflowRunning(workflow, 0)
 		job, _ = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
+		_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", "Starting delete workflow step.", "", workflowStepRef(workflow, 0))
 	}
 
 	stepIndex := 0
@@ -426,6 +434,7 @@ func (h *Handler) handlePutDefinition(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	_ = h.jobs.PublishEvent(r.Context(), job, "job_progress", "Saving stack definition.", "", nil)
 	preview, saveErr := h.stackReader.SaveDefinition(r.Context(), r.PathValue("stackId"), request)
 	if saveErr != nil {
 		job, _ = h.jobs.FinishFailed(r.Context(), job, "save_definition_failed", saveErr.Error())
@@ -453,6 +462,7 @@ func (h *Handler) handlePutDefinition(w http.ResponseWriter, r *http.Request) {
 
 	if request.ValidateAfterSave && !preview.Valid {
 		h.logger.Warn("saved invalid stack definition", slog.String("stack_id", r.PathValue("stackId")), slog.String("message", preview.Error.Message))
+		_ = h.jobs.PublishEvent(r.Context(), job, "job_warning", preview.Error.Message, "", nil)
 	}
 
 	if err := h.audit.RecordStackJob(r.Context(), job); err != nil {
@@ -602,6 +612,7 @@ func (h *Handler) handleRunStackAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	_ = h.jobs.PublishEvent(r.Context(), job, "job_progress", "Running stack action "+action+".", "", nil)
 	actionErr := h.stackReader.RunAction(r.Context(), stackID, action)
 	if actionErr != nil {
 		job, finishErr := h.jobs.FinishFailed(r.Context(), job, "stack_action_failed", actionErr.Error())
@@ -735,6 +746,21 @@ type statusRecorder struct {
 func (r *statusRecorder) WriteHeader(status int) {
 	r.status = status
 	r.ResponseWriter.WriteHeader(status)
+}
+
+func (r *statusRecorder) Flush() {
+	flusher, ok := r.ResponseWriter.(http.Flusher)
+	if ok {
+		flusher.Flush()
+	}
+}
+
+func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := r.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, http.ErrNotSupported
+	}
+	return hijacker.Hijack()
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
@@ -911,8 +937,10 @@ func (h *Handler) runDeleteStep(ctx context.Context, job *store.Job, workflow *[
 	}
 
 	*workflow = markWorkflowSucceeded(*workflow, index)
+	_ = h.jobs.PublishEvent(ctx, *job, "job_step_finished", "Finished delete workflow step.", "", workflowStepRef(*workflow, index))
 	if index+1 < len(*workflow) {
 		*workflow = markWorkflowRunning(*workflow, index+1)
+		_ = h.jobs.PublishEvent(ctx, *job, "job_step_started", "Starting delete workflow step.", "", workflowStepRef(*workflow, index+1))
 	}
 	updatedJob, err := h.jobs.UpdateWorkflow(ctx, *job, *workflow)
 	if err == nil {
@@ -920,4 +948,16 @@ func (h *Handler) runDeleteStep(ctx context.Context, job *store.Job, workflow *[
 	}
 
 	return false
+}
+
+func workflowStepRef(steps []store.JobWorkflowStep, index int) *store.JobEventStep {
+	if index < 0 || index >= len(steps) {
+		return nil
+	}
+
+	return &store.JobEventStep{
+		Index:  index + 1,
+		Total:  len(steps),
+		Action: steps[index].Action,
+	}
 }

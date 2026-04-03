@@ -55,6 +55,23 @@ type JobWorkflowStep struct {
 	State  string `json:"state"`
 }
 
+type JobEvent struct {
+	JobID     string        `json:"job_id"`
+	Sequence  int           `json:"sequence"`
+	Event     string        `json:"event"`
+	State     string        `json:"state"`
+	Message   string        `json:"message,omitempty"`
+	Data      string        `json:"data,omitempty"`
+	Step      *JobEventStep `json:"step,omitempty"`
+	Timestamp time.Time     `json:"timestamp"`
+}
+
+type JobEventStep struct {
+	Index  int    `json:"index"`
+	Total  int    `json:"total"`
+	Action string `json:"action"`
+}
+
 type AuditEntry struct {
 	ID          string     `json:"id"`
 	StackID     *string    `json:"stack_id"`
@@ -142,6 +159,18 @@ func (s *Store) migrate(ctx context.Context) error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_jobs_stack_requested_at ON jobs (stack_id, requested_at DESC);`,
 		`CREATE INDEX IF NOT EXISTS idx_jobs_state_requested_at ON jobs (state, requested_at DESC);`,
+		`CREATE TABLE IF NOT EXISTS job_events (
+			job_id TEXT NOT NULL,
+			sequence INTEGER NOT NULL,
+			event TEXT NOT NULL,
+			state TEXT NOT NULL,
+			message TEXT,
+			data TEXT,
+			step_json TEXT,
+			timestamp TEXT NOT NULL,
+			PRIMARY KEY (job_id, sequence)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_job_events_job_sequence ON job_events (job_id, sequence ASC);`,
 		`CREATE TABLE IF NOT EXISTS audit_entries (
 			id TEXT PRIMARY KEY,
 			stack_id TEXT,
@@ -471,6 +500,81 @@ func (s *Store) JobByID(ctx context.Context, id string) (Job, error) {
 	return job, nil
 }
 
+func (s *Store) NextJobEventSequence(ctx context.Context, jobID string) (int, error) {
+	var nextSequence int
+	err := s.db.QueryRowContext(
+		ctx,
+		`SELECT COALESCE(MAX(sequence), 0) + 1
+		 FROM job_events
+		 WHERE job_id = ?`,
+		jobID,
+	).Scan(&nextSequence)
+	if err != nil {
+		return 0, fmt.Errorf("next job event sequence: %w", err)
+	}
+
+	return nextSequence, nil
+}
+
+func (s *Store) CreateJobEvent(ctx context.Context, event JobEvent) error {
+	var stepJSON sql.NullString
+	if event.Step != nil {
+		encoded, err := json.Marshal(event.Step)
+		if err != nil {
+			return fmt.Errorf("marshal job event step: %w", err)
+		}
+		stepJSON = sql.NullString{String: string(encoded), Valid: true}
+	}
+
+	_, err := s.db.ExecContext(
+		ctx,
+		`INSERT INTO job_events (job_id, sequence, event, state, message, data, step_json, timestamp)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		event.JobID,
+		event.Sequence,
+		event.Event,
+		event.State,
+		nullIfEmpty(event.Message),
+		nullIfEmpty(event.Data),
+		stepJSON,
+		event.Timestamp.UTC().Format(time.RFC3339Nano),
+	)
+	if err != nil {
+		return fmt.Errorf("create job event: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Store) ListJobEvents(ctx context.Context, jobID string) ([]JobEvent, error) {
+	rows, err := s.db.QueryContext(
+		ctx,
+		`SELECT job_id, sequence, event, state, message, data, step_json, timestamp
+		 FROM job_events
+		 WHERE job_id = ?
+		 ORDER BY sequence ASC`,
+		jobID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list job events: %w", err)
+	}
+	defer rows.Close()
+
+	events := make([]JobEvent, 0, 16)
+	for rows.Next() {
+		event, err := scanJobEvent(rows)
+		if err != nil {
+			return nil, err
+		}
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate job events: %w", err)
+	}
+
+	return events, nil
+}
+
 func (s *Store) CreateAuditEntry(ctx context.Context, entry AuditEntry) error {
 	var finishedAt sql.NullString
 	if entry.FinishedAt != nil {
@@ -628,6 +732,50 @@ func nullIfPtr(value *string) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: *value, Valid: true}
+}
+
+func scanJobEvent(scanner interface{ Scan(dest ...any) error }) (JobEvent, error) {
+	var rawMessage sql.NullString
+	var rawData sql.NullString
+	var rawStepJSON sql.NullString
+	var rawTimestamp string
+
+	event := JobEvent{}
+	err := scanner.Scan(
+		&event.JobID,
+		&event.Sequence,
+		&event.Event,
+		&event.State,
+		&rawMessage,
+		&rawData,
+		&rawStepJSON,
+		&rawTimestamp,
+	)
+	if err != nil {
+		return JobEvent{}, fmt.Errorf("scan job event: %w", err)
+	}
+
+	if rawMessage.Valid {
+		event.Message = rawMessage.String
+	}
+	if rawData.Valid {
+		event.Data = rawData.String
+	}
+	if rawStepJSON.Valid {
+		var step JobEventStep
+		if err := json.Unmarshal([]byte(rawStepJSON.String), &step); err != nil {
+			return JobEvent{}, fmt.Errorf("unmarshal job event step: %w", err)
+		}
+		event.Step = &step
+	}
+
+	timestamp, err := time.Parse(time.RFC3339Nano, rawTimestamp)
+	if err != nil {
+		return JobEvent{}, fmt.Errorf("parse job event timestamp: %w", err)
+	}
+	event.Timestamp = timestamp
+
+	return event, nil
 }
 
 func scanAuditEntry(scanner interface{ Scan(dest ...any) error }) (AuditEntry, error) {

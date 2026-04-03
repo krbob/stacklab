@@ -19,12 +19,14 @@ type Service struct {
 	store      *store.Store
 	mu         sync.Mutex
 	lockedByID map[string]string
+	subsByJob  map[string]map[chan store.JobEvent]struct{}
 }
 
 func NewService(jobStore *store.Store) *Service {
 	return &Service{
 		store:      jobStore,
 		lockedByID: map[string]string{},
+		subsByJob:  map[string]map[chan store.JobEvent]struct{}{},
 	}
 }
 
@@ -52,6 +54,10 @@ func (s *Service) Start(ctx context.Context, stackID, action, requestedBy string
 	if err := s.store.CreateJob(ctx, job); err != nil {
 		return store.Job{}, err
 	}
+	if err := s.PublishEvent(ctx, job, "job_started", "Job started.", "", nil); err != nil {
+		s.unlockStack(stackID, job.ID)
+		return store.Job{}, err
+	}
 	return job, nil
 }
 
@@ -62,6 +68,9 @@ func (s *Service) FinishSucceeded(ctx context.Context, job store.Job) (store.Job
 	job.State = "succeeded"
 	job.FinishedAt = &now
 	if err := s.store.UpdateJob(ctx, job); err != nil {
+		return store.Job{}, err
+	}
+	if err := s.PublishEvent(ctx, job, "job_finished", "Job finished successfully.", "", nil); err != nil {
 		return store.Job{}, err
 	}
 	return job, nil
@@ -78,6 +87,12 @@ func (s *Service) FinishFailed(ctx context.Context, job store.Job, errorCode, er
 	if err := s.store.UpdateJob(ctx, job); err != nil {
 		return store.Job{}, err
 	}
+	if err := s.PublishEvent(ctx, job, "job_error", errorMessage, "", nil); err != nil {
+		return store.Job{}, err
+	}
+	if err := s.PublishEvent(ctx, job, "job_finished", "Job finished with errors.", "", nil); err != nil {
+		return store.Job{}, err
+	}
 	return job, nil
 }
 
@@ -89,6 +104,59 @@ func (s *Service) UpdateWorkflow(ctx context.Context, job store.Job, steps []sto
 		return store.Job{}, err
 	}
 	return job, nil
+}
+
+func (s *Service) PublishEvent(ctx context.Context, job store.Job, eventType, message, data string, step *store.JobEventStep) error {
+	sequence, err := s.store.NextJobEventSequence(ctx, job.ID)
+	if err != nil {
+		return err
+	}
+
+	event := store.JobEvent{
+		JobID:     job.ID,
+		Sequence:  sequence,
+		Event:     eventType,
+		State:     job.State,
+		Message:   message,
+		Data:      data,
+		Step:      step,
+		Timestamp: time.Now().UTC(),
+	}
+	if err := s.store.CreateJobEvent(ctx, event); err != nil {
+		return err
+	}
+
+	s.publishLive(event)
+	return nil
+}
+
+func (s *Service) ReplayEvents(ctx context.Context, jobID string) ([]store.JobEvent, error) {
+	return s.store.ListJobEvents(ctx, jobID)
+}
+
+func (s *Service) Subscribe(jobID string) (<-chan store.JobEvent, func()) {
+	events := make(chan store.JobEvent, 64)
+
+	s.mu.Lock()
+	if _, ok := s.subsByJob[jobID]; !ok {
+		s.subsByJob[jobID] = map[chan store.JobEvent]struct{}{}
+	}
+	s.subsByJob[jobID][events] = struct{}{}
+	s.mu.Unlock()
+
+	unsubscribe := func() {
+		s.mu.Lock()
+		subs := s.subsByJob[jobID]
+		if subs != nil {
+			delete(subs, events)
+			if len(subs) == 0 {
+				delete(s.subsByJob, jobID)
+			}
+		}
+		s.mu.Unlock()
+	}
+
+	return events, unsubscribe
 }
 
 func (s *Service) Get(ctx context.Context, id string) (store.Job, error) {
@@ -108,6 +176,23 @@ func randomToken(length int) string {
 		return fmt.Sprintf("%d", time.Now().UnixNano())
 	}
 	return base64.RawURLEncoding.EncodeToString(bytes)
+}
+
+func (s *Service) publishLive(event store.JobEvent) {
+	s.mu.Lock()
+	subs := s.subsByJob[event.JobID]
+	channels := make([]chan store.JobEvent, 0, len(subs))
+	for channel := range subs {
+		channels = append(channels, channel)
+	}
+	s.mu.Unlock()
+
+	for _, channel := range channels {
+		select {
+		case channel <- event:
+		default:
+		}
+	}
 }
 
 func (s *Service) lockStack(stackID, jobID string) error {
