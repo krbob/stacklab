@@ -1,0 +1,520 @@
+# Screen Specifications
+
+## 1. Login
+
+Route: `/login`
+
+Purpose: Single-user authentication.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                                                          │
+│                                                          │
+│                      STACKLAB                            │
+│                                                          │
+│               ┌──────────────────────┐                   │
+│               │ Password             │                   │
+│               └──────────────────────┘                   │
+│               [        Log in        ]                   │
+│                                                          │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+```
+
+Notes:
+
+- single password field (single-user system, no username needed)
+- on first launch, show "Set password" instead of "Log in"
+- session persists via HTTP-only cookie
+- failed attempts show inline error, no lockout in v1 (LAN-only)
+
+## 2. Stack List (Dashboard)
+
+Route: `/stacks`
+
+Purpose: Overview of all stacks, quick actions, entry point to detail views.
+
+### Desktop (>= 1280px)
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  STACKLAB                              🔍 Search...    [user ▾]     │
+├────────┬─────────────────────────────────────────────────────────────┤
+│        │  Stacks (12)                              [+ New stack]    │
+│ Stacks │─────────────────────────────────────────────────────────────│
+│ Audit  │                                                            │
+│ Settin │  ● traefik        Running           3/3   [↻] [⏹] [⬆]   │
+│        │  ● nextcloud       Running  ✎       2/2   [↻] [⏹] [⬆]   │
+│        │  ◐ monitoring      Partial          2/3   [↻] [⏹] [⬆]   │
+│        │  ! home-assistant  Error            1/2   [↻] [⏹] [⬆]   │
+│        │  ○ backup-nightly  Stopped          0/2   [▶] [⬆]        │
+│        │  ✦ new-project     New              —     [▶]             │
+│        │                                                            │
+│        │  ─── Quick stats ──────────────────────────────────────    │
+│        │  Stacks: 12 running, 3 stopped, 1 error                   │
+│        │  Containers: 28 running / 35 total                         │
+│        │                                                            │
+└────────┴─────────────────────────────────────────────────────────────┘
+```
+
+### Stack row anatomy
+
+Each row contains:
+
+| Element | Description |
+|---|---|
+| Runtime badge | Color circle indicating runtime state |
+| Stack name | Clickable, navigates to stack detail |
+| Runtime label | Text label: Running, Stopped, Partial, Error |
+| Config indicator | Shown only when not synced: Modified, New, Invalid |
+| Service count | `running/total` format |
+| Quick actions | Contextual: restart, stop, start, pull. Disabled during operations. |
+
+### Tablet (768px - 1279px)
+
+- sidebar collapses to icon bar
+- quick actions collapse to a single "..." menu per row
+- service count still visible
+
+### Search
+
+- filters stack list by name (client-side, instant)
+- no server round-trip needed for v1
+
+### Sorting
+
+Default: alphabetical by name. Optional sort by state (errors first) or last action time.
+
+## 3. Stack Overview
+
+Route: `/stacks/:stackId`
+
+Purpose: Detailed view of a single stack with service breakdown.
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  STACKLAB                              🔍 Search...    [user ▾]     │
+├────────┬─────────────────────────────────────────────────────────────┤
+│        │  ← Stacks / nextcloud                                      │
+│ Stacks │                                                            │
+│ Audit  │  ● Running (2/2)                     ✎ Modified            │
+│ Settin │                                                            │
+│        │  [Overview] [Editor] [Logs] [Stats] [Terminal] [History]   │
+│        │─────────────────────────────────────────────────────────────│
+│        │                                                            │
+│        │  Actions: [▶ Deploy] [↻ Restart] [⏹ Stop] [⬇ Down] [⬆ Pull]
+│        │                                                            │
+│        │  ┌─ Services ──────────────────────────────────────────┐   │
+│        │  │                                                     │   │
+│        │  │  ● app                                              │   │
+│        │  │    Image: nextcloud:29       Mode: pull             │   │
+│        │  │    Ports: 8080:80                                   │   │
+│        │  │    Status: Up 3 days         CPU: 2.1%  RAM: 245MB │   │
+│        │  │    Mounts: config/nextcloud → /config               │   │
+│        │  │            data/nextcloud → /data                   │   │
+│        │  │    [Shell] [Logs] [Restart]                         │   │
+│        │  │                                                     │   │
+│        │  │  ● db                                               │   │
+│        │  │    Image: postgres:16        Mode: pull             │   │
+│        │  │    Status: Up 3 days (healthy)  CPU: 0.3%  RAM: 64MB│  │
+│        │  │    Mounts: data/nextcloud/db → /var/lib/postgresql  │   │
+│        │  │    [Shell] [Logs] [Restart]                         │   │
+│        │  │                                                     │   │
+│        │  └─────────────────────────────────────────────────────┘   │
+│        │                                                            │
+└────────┴─────────────────────────────────────────────────────────────┘
+```
+
+### Service card anatomy
+
+| Element | Description |
+|---|---|
+| State badge | Same colors as container states |
+| Service name | From compose.yaml service key |
+| Image / Build | Image tag or build context path. Labeled "pull" or "build" mode. |
+| Ports | Published ports mapping |
+| Status | Docker status string + uptime |
+| Inline stats | CPU % and RAM usage (mini, from stats stream) |
+| Mounts | Key volume mounts, showing relative paths under /opt/stacklab |
+| Per-service actions | Shell, Logs (navigate to filtered log view), Restart |
+
+### Stack-level actions bar
+
+Buttons contextual to current state:
+
+- `running` → Deploy, Restart, Stop, Down, Pull
+- `stopped` → Deploy (Up), Pull, Remove
+- `new` → Deploy, Edit
+- `in_progress` → all disabled, show spinner with operation name
+
+"Down" and "Remove" require confirmation dialog (see states-and-empty-cases.md).
+
+## 4. Compose Editor
+
+Route: `/stacks/:stackId/editor`
+
+Purpose: Edit `compose.yaml` and `.env`, validate, preview resolved config, deploy.
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  ← Stacks / nextcloud                                               │
+│  [Overview] [Editor] [Logs] [Stats] [Terminal] [History]            │
+├─────────────────────────────────┬────────────────────────────────────┤
+│                                 │                                    │
+│  [compose.yaml ▾] [.env]       │  Resolved config                   │
+│                                 │                                    │
+│  services:                      │  name: nextcloud                   │
+│    app:                         │  services:                         │
+│      image: nextcloud:29        │    app:                            │
+│      ports:                     │      image: nextcloud:29           │
+│        - "${PORT}:80"           │      ports:                        │
+│      volumes:                   │        - "8080:80"                 │
+│        - ../../config/next...   │      environment:                  │
+│      environment:               │        DB_HOST: db                 │
+│        DB_HOST: db              │        DB_NAME: nextcloud          │
+│        DB_NAME: ${DB_NAME}      │      ...                           │
+│    db:                          │    db:                              │
+│      image: postgres:16         │      image: postgres:16            │
+│      ...                        │      ...                           │
+│                                 │                                    │
+│                                 │                                    │
+│                                 │                                    │
+├─────────────────────────────────┴────────────────────────────────────┤
+│  ✓ Config valid                    [Discard] [Save] [Save & Deploy] │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### Layout
+
+- **Left panel**: CodeMirror 6 editor. Tab selector for `compose.yaml` and `.env`.
+- **Right panel**: Read-only resolved config output from `docker compose config`. Auto-refreshes on save or on-demand.
+- **Bottom bar**: Validation status, action buttons.
+
+### Desktop vs tablet
+
+- Desktop (>= 1280px): side-by-side panels
+- Tablet (768-1279px): stacked vertically (editor on top, resolved below) or toggle between editor and preview
+- Below 768px: editor only with a "Preview" toggle button. Hint: "Full editor experience on desktop."
+
+### Validation
+
+- triggered on save (not on every keystroke — YAML parsing is expensive)
+- runs `docker compose config` via backend API
+- result shown in bottom bar: green checkmark or red error with line number
+- invalid config blocks "Save & Deploy" but allows "Save" (user may want to save work in progress)
+
+### File tabs
+
+- `compose.yaml` — primary, always present
+- `.env` — shown if file exists or user creates one
+- future: additional compose override files
+
+## 5. Log Viewer
+
+Route: `/stacks/:stackId/logs`
+
+Purpose: Live-streamed logs from stack services.
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  ← Stacks / nextcloud                                               │
+│  [Overview] [Editor] [Logs] [Stats] [Terminal] [History]            │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  Services: [All ▾]  [app] [db]        🔍 Filter...    [⏸ Pause]    │
+│                                                                      │
+│  12:03:01  app  | Nextcloud is ready                                │
+│  12:03:02  db   | LOG: checkpoint complete                          │
+│  12:04:15  app  | GET /status 200 OK                                │
+│  12:04:15  app  | GET /apps/dashboard 200 OK                        │
+│  12:05:00  db   | LOG: automatic vacuum of table "oc_filecache"     │
+│  12:05:01  app  | WARN: session timeout for user admin              │
+│  ...                                                                 │
+│  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ (live)     │
+│                                                                      │
+│  [↓ Scroll to bottom]                     Lines: 1,247   [Download] │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### Features
+
+- **Service filter**: toggle which services are visible. "All" is default.
+- **Text filter**: client-side search within visible lines. Highlights matches.
+- **Pause/Resume**: pauses auto-scroll and incoming lines buffer. Resume appends buffered lines.
+- **Auto-scroll**: follows new output. Disabled when user scrolls up. "Scroll to bottom" button appears.
+- **Download**: exports visible (filtered) logs as text file.
+- **Color coding**: each service gets a consistent color for its name prefix.
+- **Timestamps**: shown in local time, toggleable between local and UTC.
+
+### Performance
+
+- virtual scrolling for large log buffers (10k+ lines)
+- configurable buffer limit (default: 5000 lines, older lines dropped)
+- WebSocket stream with backpressure handling
+
+## 6. Stats Dashboard
+
+Route: `/stacks/:stackId/stats`
+
+Purpose: Real-time resource usage per container and aggregated per stack.
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  ← Stacks / nextcloud                                               │
+│  [Overview] [Editor] [Logs] [Stats] [Terminal] [History]            │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  Stack totals:  CPU 2.4%  │  RAM 309 MB  │  Net ↓12 KB/s ↑3 KB/s  │
+│                                                                      │
+│  ┌─ app ────────────────────────────────────────────────────────┐   │
+│  │  CPU ████████░░░░░░░░░░ 2.1%    RAM ██████░░░░░░ 245/512 MB │   │
+│  │  Net ↓ 10.2 KB/s  ↑ 2.8 KB/s                                │   │
+│  │  [cpu sparkline ~~~~~~~~~~~]  [ram sparkline ~~~~~~~~~~~]    │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                      │
+│  ┌─ db ─────────────────────────────────────────────────────────┐   │
+│  │  CPU █░░░░░░░░░░░░░░░░░ 0.3%    RAM ██░░░░░░░░░░  64/256 MB │   │
+│  │  Net ↓ 1.5 KB/s  ↑ 0.4 KB/s                                 │   │
+│  │  [cpu sparkline ~~~~~~~~~~~]  [ram sparkline ~~~~~~~~~~~]    │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### Per-container card
+
+| Element | Description |
+|---|---|
+| CPU bar | Percentage bar + numeric value |
+| RAM bar | Usage / limit bar + numeric values |
+| Network | Download and upload rates |
+| Sparklines | Rolling 5-minute mini charts for CPU and RAM |
+
+### Stack aggregate
+
+Summary line at top showing totals across all containers.
+
+### Data source
+
+- WebSocket stats stream from Docker Engine API
+- update interval: ~2 seconds
+- sparklines store last 150 data points (5 min at 2s intervals) client-side
+
+### No running containers
+
+Show empty state (see states-and-empty-cases.md).
+
+## 7. Terminal
+
+Route: `/stacks/:stackId/terminal`
+
+Purpose: Container shell sessions via `docker exec`.
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  ← Stacks / nextcloud                                               │
+│  [Overview] [Editor] [Logs] [Stats] [Terminal] [History]            │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  Container: [app ▾]    Shell: [/bin/sh ▾]    [+ New session]        │
+│                                                                      │
+│  Sessions: [app #1] [app #2] [db #1]                        [×]    │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │ root@abc123:/app# ls -la                                     │   │
+│  │ total 48                                                     │   │
+│  │ drwxr-xr-x  1 root root 4096 Apr  1 10:00 .                │   │
+│  │ drwxr-xr-x  1 root root 4096 Apr  1 10:00 ..               │   │
+│  │ -rw-r--r--  1 root root  123 Apr  1 10:00 config.php       │   │
+│  │ root@abc123:/app# _                                          │   │
+│  │                                                              │   │
+│  │                                                              │   │
+│  │                                                              │   │
+│  │                                                              │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                      │
+│  Connected ●                                         Resize: auto   │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### Features
+
+- **Container selector**: dropdown listing running containers in the stack
+- **Shell selector**: defaults to `/bin/sh`, option for `/bin/bash` if available
+- **Multiple sessions**: tab bar for parallel sessions to different (or same) containers
+- **Close session**: per-tab close button. Confirmation if session is active.
+- **Connection indicator**: green dot when connected, red when disconnected with reconnect option
+- **Auto-resize**: XTerm.js fit addon syncs terminal size with browser viewport
+
+### Terminal component architecture
+
+The terminal component is designed for reuse across two modes:
+
+| Mode | MVP | Source |
+|---|---|---|
+| Container exec | Yes | `docker exec -it <container> <shell>` |
+| Host shell | Post-MVP | Direct PTY on host |
+
+Both modes use the same XTerm.js wrapper and WebSocket transport. The mode selector is hidden in v1 but the plumbing supports both.
+
+### Security (pending architect's security-model.md)
+
+- terminal WebSocket requires authenticated session
+- idle timeout: TBD by architect (suggested: 30 minutes)
+- max concurrent sessions: TBD by architect (suggested: 5)
+- session activity logged in audit
+
+### Tablet / responsive
+
+- terminal is usable on tablet but shows a hint: "Best experience on desktop"
+- minimum usable width: 768px (80 columns at standard font size)
+- below 768px: terminal view shows "Open on desktop for terminal access"
+
+## 8. Stack History (Per-Stack Audit)
+
+Route: `/stacks/:stackId/audit`
+
+Purpose: Chronological log of mutating operations on this stack.
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  ← Stacks / nextcloud                                               │
+│  [Overview] [Editor] [Logs] [Stats] [Terminal] [History]            │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  Stack history                                          [Export]     │
+│                                                                      │
+│  2026-04-03 14:22  pull        ✓ completed    12s                   │
+│  2026-04-03 14:23  up          ✓ completed     4s                   │
+│  2026-04-02 09:15  restart     ✓ completed     6s                   │
+│  2026-04-01 18:00  edit        compose.yaml modified                │
+│  2026-04-01 18:01  up          ✗ failed        2s   [View log]     │
+│  2026-04-01 18:05  edit        compose.yaml modified                │
+│  2026-04-01 18:05  up          ✓ completed     3s                   │
+│  ...                                                                 │
+│                                                                      │
+│                                          [Load more]                 │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### Row anatomy
+
+| Field | Description |
+|---|---|
+| Timestamp | Local time |
+| Action | pull, up, down, stop, restart, build, edit, remove |
+| Result | completed, failed, in_progress |
+| Duration | Wall clock time of operation |
+| Detail link | "View log" for failed operations — shows captured stdout/stderr |
+
+### Pagination
+
+- newest first
+- load 50 entries at a time
+- "Load more" button (no infinite scroll — explicit control)
+
+## 9. Global Audit
+
+Route: `/audit`
+
+Purpose: System-wide audit log across all stacks.
+
+Same layout as stack history but with an additional "Stack" column and a stack filter dropdown.
+
+```
+│  2026-04-03 14:22  nextcloud   pull     ✓ completed    12s         │
+│  2026-04-03 14:20  traefik     restart  ✓ completed     2s         │
+│  2026-04-03 10:00  monitoring  up       ✗ failed        8s  [Log]  │
+```
+
+## 10. Create Stack
+
+Route: `/stacks/new`
+
+Purpose: Create a new stack with directory scaffolding.
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  ← Stacks / New stack                                               │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  Stack name:  [my-new-app          ]                                │
+│                                                                      │
+│  ℹ Will create:                                                     │
+│    /opt/stacklab/stacks/my-new-app/compose.yaml                     │
+│    /opt/stacklab/config/my-new-app/                                 │
+│    /opt/stacklab/data/my-new-app/                                   │
+│                                                                      │
+│  Initial compose.yaml:                                               │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │ services:                                                    │   │
+│  │   app:                                                       │   │
+│  │     image: _                                                 │   │
+│  │                                                              │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                      │
+│  [Cancel]                                  [Create] [Create & Deploy]│
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### Validation
+
+- stack name: lowercase ASCII with dashes, no spaces, no special characters
+- real-time validation as user types (inline error if invalid)
+- check for name collision with existing stacks
+- initial compose.yaml must pass `docker compose config` for "Create & Deploy"
+
+## 11. Settings
+
+Route: `/settings`
+
+Purpose: Application configuration.
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  Settings                                                            │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  Authentication                                                      │
+│  ──────────────                                                      │
+│  Change password:  [current] [new] [confirm]    [Update]            │
+│                                                                      │
+│  Appearance                                                          │
+│  ──────────                                                          │
+│  Theme: [Dark ▾]                                                    │
+│                                                                      │
+│  Stack defaults                                                      │
+│  ──────────────                                                      │
+│  Stack root: /opt/stacklab  (read-only in v1)                       │
+│                                                                      │
+│  About                                                               │
+│  ─────                                                               │
+│  Stacklab v1.0.0                                                    │
+│  Docker Engine: 27.0.1                                               │
+│  Docker Compose: v2.29.0                                             │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+## 12. Operation Progress Panel
+
+Not a standalone screen but an inline/overlay panel shown during mutating operations.
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  ⟳ Pulling nextcloud...                                             │
+│                                                                      │
+│  app: Pulling from library/nextcloud                                │
+│  app: 29-apache: Pulling fs layer                                   │
+│  app: 29-apache: Downloading  ████████░░░░ 67%                     │
+│  db:  Pulling from library/postgres                                 │
+│  db:  16: Already up to date                                        │
+│                                                                      │
+│  [Cancel]                                                            │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+- appears below the action bar on stack overview
+- streamed via WebSocket in real time
+- cancellable where Docker supports it (SIGINT)
+- on completion: auto-collapses after 3 seconds if success, stays open if failure
