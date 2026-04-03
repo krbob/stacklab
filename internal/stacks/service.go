@@ -22,8 +22,9 @@ import (
 )
 
 var (
-	ErrNotFound   = errors.New("stack not found")
-	stackIDRegexp = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+	ErrNotFound     = errors.New("stack not found")
+	ErrInvalidState = errors.New("invalid state")
+	stackIDRegexp   = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 )
 
 const AppVersion = "0.1.0-dev"
@@ -155,8 +156,122 @@ func (s *ServiceReader) Get(ctx context.Context, stackID string) (StackDetailRes
 	return StackDetailResponse{}, ErrNotFound
 }
 
+func (s *ServiceReader) Definition(ctx context.Context, stackID string) (StackDefinitionResponse, error) {
+	stack, err := s.findStack(ctx, stackID)
+	if err != nil {
+		return StackDefinitionResponse{}, err
+	}
+	if stack.RuntimeState == RuntimeStateOrphaned {
+		return StackDefinitionResponse{}, ErrInvalidState
+	}
+
+	composeContent, err := os.ReadFile(stack.ComposeFilePath)
+	if err != nil {
+		return StackDefinitionResponse{}, fmt.Errorf("read compose file: %w", err)
+	}
+
+	envContent := ""
+	envExists := false
+	if envBytes, err := os.ReadFile(stack.EnvFilePath); err == nil {
+		envExists = true
+		envContent = string(envBytes)
+	} else if !os.IsNotExist(err) {
+		return StackDefinitionResponse{}, fmt.Errorf("read env file: %w", err)
+	}
+
+	configState := stack.ConfigState
+	preview := s.resolveCurrent(ctx, stack)
+	if !preview.Valid {
+		configState = ConfigStateInvalid
+	}
+
+	return StackDefinitionResponse{
+		StackID: stack.ID,
+		Files: StackDefinitionFiles{
+			ComposeYAML: ComposeYAMLFile{
+				Path:    stack.ComposeFilePath,
+				Content: string(composeContent),
+			},
+			Env: EnvFile{
+				Path:    stack.EnvFilePath,
+				Content: envContent,
+				Exists:  envExists,
+			},
+		},
+		ConfigState: configState,
+	}, nil
+}
+
+func (s *ServiceReader) ResolvedConfigCurrent(ctx context.Context, stackID string, source string) (ResolvedConfigResponse, error) {
+	if source == "last_valid" {
+		return ResolvedConfigResponse{}, fmt.Errorf("last_valid source is not implemented")
+	}
+
+	stack, err := s.findStack(ctx, stackID)
+	if err != nil {
+		return ResolvedConfigResponse{}, err
+	}
+	if stack.RuntimeState == RuntimeStateOrphaned {
+		return ResolvedConfigResponse{}, ErrInvalidState
+	}
+
+	return s.resolveCurrent(ctx, stack), nil
+}
+
+func (s *ServiceReader) ResolvedConfigDraft(ctx context.Context, stackID string, request ResolvedConfigRequest) (ResolvedConfigResponse, error) {
+	stack, err := s.findStack(ctx, stackID)
+	if err != nil {
+		return ResolvedConfigResponse{}, err
+	}
+	if stack.RuntimeState == RuntimeStateOrphaned {
+		return ResolvedConfigResponse{}, ErrInvalidState
+	}
+
+	envPath, cleanup, err := writeTempEnvFile(s.cfg.DataDir, request.Env)
+	if err != nil {
+		return ResolvedConfigResponse{}, err
+	}
+	defer cleanup()
+
+	content, resolveErr := runComposeConfig(ctx, stack.RootPath, "-", envPath, request.ComposeYAML)
+	if resolveErr != nil {
+		return ResolvedConfigResponse{
+			StackID: stack.ID,
+			Valid:   false,
+			Error: &ErrorDetail{
+				Code:    "validation_failed",
+				Message: resolveErr.Error(),
+				Details: nil,
+			},
+		}, nil
+	}
+
+	return ResolvedConfigResponse{
+		StackID: stack.ID,
+		Valid:   true,
+		Content: content,
+	}, nil
+}
+
 func IsValidStackID(value string) bool {
 	return stackIDRegexp.MatchString(value)
+}
+
+func (s *ServiceReader) findStack(ctx context.Context, stackID string) (discoveredStack, error) {
+	if !IsValidStackID(stackID) {
+		return discoveredStack{}, ErrNotFound
+	}
+
+	allStacks, err := s.readStacks(ctx)
+	if err != nil {
+		return discoveredStack{}, err
+	}
+	for _, stack := range allStacks {
+		if stack.ID == stackID {
+			return stack, nil
+		}
+	}
+	return discoveredStack{}, ErrNotFound
 }
 
 type discoveredStack struct {
@@ -888,6 +1003,82 @@ func detectDockerEngineVersion(ctx context.Context) string {
 		return "unavailable"
 	}
 	return strings.TrimSpace(string(output))
+}
+
+func writeTempEnvFile(dataDir, content string) (string, func(), error) {
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		return "", func() {}, fmt.Errorf("create data dir for temp env: %w", err)
+	}
+
+	file, err := os.CreateTemp(dataDir, "stacklab-preview-*.env")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("create temp env file: %w", err)
+	}
+
+	if _, err := file.WriteString(content); err != nil {
+		_ = file.Close()
+		_ = os.Remove(file.Name())
+		return "", func() {}, fmt.Errorf("write temp env file: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(file.Name())
+		return "", func() {}, fmt.Errorf("close temp env file: %w", err)
+	}
+
+	return file.Name(), func() {
+		_ = os.Remove(file.Name())
+	}, nil
+}
+
+func runComposeConfig(ctx context.Context, projectDir, composeArg, envPath, stdinContent string) (string, error) {
+	args := []string{"compose", "--project-directory", projectDir, "-f", composeArg}
+	if envPath != "" {
+		args = append(args, "--env-file", envPath)
+	}
+	args = append(args, "config")
+
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd.Dir = projectDir
+	if composeArg == "-" {
+		cmd.Stdin = strings.NewReader(stdinContent)
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		message := strings.TrimSpace(string(output))
+		if message == "" {
+			message = err.Error()
+		}
+		return "", errors.New(message)
+	}
+
+	return string(output), nil
+}
+
+func (s *ServiceReader) resolveCurrent(ctx context.Context, stack discoveredStack) ResolvedConfigResponse {
+	envPath := ""
+	if _, err := os.Stat(stack.EnvFilePath); err == nil {
+		envPath = stack.EnvFilePath
+	}
+
+	content, err := runComposeConfig(ctx, stack.RootPath, stack.ComposeFilePath, envPath, "")
+	if err != nil {
+		return ResolvedConfigResponse{
+			StackID: stack.ID,
+			Valid:   false,
+			Error: &ErrorDetail{
+				Code:    "validation_failed",
+				Message: err.Error(),
+				Details: nil,
+			},
+		}
+	}
+
+	return ResolvedConfigResponse{
+		StackID: stack.ID,
+		Valid:   true,
+		Content: content,
+	}
 }
 
 func parseExposedPort(value string) (int, string) {

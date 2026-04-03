@@ -44,6 +44,9 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/meta", h.withAuth(h.handleMeta))
 	h.mux.HandleFunc("GET /api/stacks", h.withAuth(h.handleListStacks))
 	h.mux.HandleFunc("GET /api/stacks/{stackId}", h.withAuth(h.handleGetStack))
+	h.mux.HandleFunc("GET /api/stacks/{stackId}/definition", h.withAuth(h.handleGetDefinition))
+	h.mux.HandleFunc("GET /api/stacks/{stackId}/resolved-config", h.withAuth(h.handleGetResolvedConfig))
+	h.mux.HandleFunc("POST /api/stacks/{stackId}/resolved-config", h.withAuth(h.handlePostResolvedConfig))
 	h.mux.HandleFunc("/api/", h.withAuth(h.handleAPINotImplemented))
 	h.mux.HandleFunc("/", h.handleFrontend)
 }
@@ -161,6 +164,78 @@ func (h *Handler) handleGetStack(w http.ResponseWriter, r *http.Request) {
 		default:
 			h.logger.Error("get stack failed", slog.String("stack_id", r.PathValue("stackId")), slog.String("err", err.Error()))
 			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load stack.", nil)
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleGetDefinition(w http.ResponseWriter, r *http.Request) {
+	response, err := h.stackReader.Definition(r.Context(), r.PathValue("stackId"))
+	if err != nil {
+		switch {
+		case errors.Is(err, stacks.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Stack was not found.", nil)
+		case errors.Is(err, stacks.ErrInvalidState):
+			writeError(w, http.StatusConflict, "invalid_state", "Stack definition is not available for this stack state.", nil)
+		default:
+			h.logger.Error("get definition failed", slog.String("stack_id", r.PathValue("stackId")), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load stack definition.", nil)
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleGetResolvedConfig(w http.ResponseWriter, r *http.Request) {
+	source := strings.TrimSpace(r.URL.Query().Get("source"))
+	switch source {
+	case "", "current":
+		source = "current"
+	case "last_valid":
+		writeError(w, http.StatusNotImplemented, "not_implemented", "last_valid resolved config is not implemented yet.", nil)
+		return
+	default:
+		writeError(w, http.StatusBadRequest, "validation_failed", "Unsupported resolved config source.", nil)
+		return
+	}
+
+	response, err := h.stackReader.ResolvedConfigCurrent(r.Context(), r.PathValue("stackId"), source)
+	if err != nil {
+		switch {
+		case errors.Is(err, stacks.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Stack was not found.", nil)
+		case errors.Is(err, stacks.ErrInvalidState):
+			writeError(w, http.StatusConflict, "invalid_state", "Resolved config is not available for this stack state.", nil)
+		default:
+			h.logger.Error("get resolved config failed", slog.String("stack_id", r.PathValue("stackId")), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to resolve config.", nil)
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handlePostResolvedConfig(w http.ResponseWriter, r *http.Request) {
+	var request stacks.ResolvedConfigRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	response, err := h.stackReader.ResolvedConfigDraft(r.Context(), r.PathValue("stackId"), request)
+	if err != nil {
+		switch {
+		case errors.Is(err, stacks.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Stack was not found.", nil)
+		case errors.Is(err, stacks.ErrInvalidState):
+			writeError(w, http.StatusConflict, "invalid_state", "Resolved config is not available for this stack state.", nil)
+		default:
+			h.logger.Error("post resolved config failed", slog.String("stack_id", r.PathValue("stackId")), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to resolve draft config.", nil)
 		}
 		return
 	}

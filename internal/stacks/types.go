@@ -186,3 +186,43 @@ type LastAction struct {
 	Result     string    `json:"result"`
 	FinishedAt time.Time `json:"finished_at"`
 }
+
+type StackDefinitionResponse struct {
+	StackID     string               `json:"stack_id"`
+	Files       StackDefinitionFiles `json:"files"`
+	ConfigState ConfigState          `json:"config_state"`
+}
+
+type StackDefinitionFiles struct {
+	ComposeYAML ComposeYAMLFile `json:"compose_yaml"`
+	Env         EnvFile         `json:"env"`
+}
+
+type ComposeYAMLFile struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
+type EnvFile struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+	Exists  bool   `json:"exists"`
+}
+
+type ResolvedConfigRequest struct {
+	ComposeYAML string `json:"compose_yaml"`
+	Env         string `json:"env"`
+}
+
+type ResolvedConfigResponse struct {
+	StackID string       `json:"stack_id"`
+	Valid   bool         `json:"valid"`
+	Content string       `json:"content,omitempty"`
+	Error   *ErrorDetail `json:"error,omitempty"`
+}
+
+type ErrorDetail struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Details any    `json:"details"`
+}
