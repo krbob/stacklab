@@ -2,10 +2,13 @@ import { useCallback, useMemo, useState } from 'react'
 import { getStacks, updateStacksMaintenance } from '@/lib/api-client'
 import { useApi } from '@/hooks/use-api'
 import { useJobStream } from '@/hooks/use-job-stream'
+import { MaintenanceImages } from '@/components/maintenance-images'
+import { MaintenanceCleanup } from '@/components/maintenance-cleanup'
 import type { StackListItem } from '@/lib/api-types'
 import type { JobEvent } from '@/lib/ws-types'
 import { cn } from '@/lib/cn'
 
+type MaintenanceTab = 'update' | 'images' | 'cleanup'
 type TargetMode = 'all' | 'selected'
 
 const stepStatusColors: Record<string, string> = {
@@ -82,11 +85,34 @@ export function MaintenancePage() {
     }
   }, [targetMode, selectedIds, pullImages, buildImages, removeOrphans, pruneAfter, pruneVolumes])
 
+  const [activeTab, setActiveTab] = useState<MaintenanceTab>('update')
+
   return (
-    <div className="flex flex-col gap-4 lg:flex-row" style={{ minHeight: 'calc(100vh - 120px)' }}>
+    <div className="flex flex-col gap-4" style={{ minHeight: 'calc(100vh - 120px)' }}>
+      {/* Tab bar */}
+      <div className="flex items-center gap-2">
+        <h2 className="text-2xl font-semibold tracking-[-0.04em] text-[var(--text)]">Maintenance</h2>
+        <div className="ml-4 flex gap-1">
+          {([['update', 'Update'], ['images', 'Images'], ['cleanup', 'Cleanup']] as const).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setActiveTab(key)}
+              className={cn('rounded-full border px-3 py-1.5 text-xs transition', activeTab === key ? 'border-[rgba(79,209,197,0.35)] bg-[rgba(79,209,197,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {activeTab === 'images' && <MaintenanceImages />}
+      {activeTab === 'cleanup' && <MaintenanceCleanup />}
+
+      {activeTab === 'update' && (
+    <div className="flex flex-col gap-4 lg:flex-row">
       {/* Left: workflow setup */}
       <div className="w-full shrink-0 rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)] lg:flex lg:w-80 lg:flex-col">
-        <h2 className="text-2xl font-semibold tracking-[-0.04em] text-[var(--text)]">Update stacks</h2>
+        <h3 className="text-lg font-medium text-[var(--text)]">Update stacks</h3>
         <p className="mt-2 text-xs text-[var(--muted)]">Pull images, build, and restart selected stacks.</p>
 
         {/* Target mode */}
@@ -217,6 +243,8 @@ export function MaintenancePage() {
           </div>
         )}
       </div>
+    </div>
+      )}
     </div>
   )
 }
