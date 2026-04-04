@@ -92,12 +92,12 @@ This does not mean deep manual auditing of each diff. It means:
 Recommended initial limits:
 
 - maximum 1 or 2 open Renovate PRs at a time
-- weekly schedule rather than continuous updates
 
 Why:
 
 - avoids dependency-update noise during active product work
 - keeps review effort bounded
+- keeps review effort bounded without depending on dashboard schedule overrides
 
 ### Grouping policy
 
@@ -113,13 +113,24 @@ Do not start with one PR per package unless update volume is very low.
 Recommended repository config:
 
 - `prConcurrentLimit = 2`
-- weekly Monday-morning schedule
 - grouped PRs for:
   - frontend runtime dependencies
   - frontend dev dependencies
   - Go modules
   - GitHub Actions
 - major updates kept separate
+
+Note on scheduling:
+
+- Stacklab initially relied on a weekly Renovate schedule
+- in practice, the Dependency Dashboard "create all awaiting schedule PRs" flow did not reliably bypass the schedule in the hosted Renovate environment
+- because of that, the preferred starting policy is:
+  - no global schedule
+  - low concurrency limits
+  - grouped PRs
+  - manual merge after green CI
+
+This keeps update volume controlled while avoiding confusing "pending but not created" behavior.
 
 ## Risk-Based Update Classes
 

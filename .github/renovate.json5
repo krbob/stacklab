@@ -12,7 +12,6 @@
   "prHourlyLimit": 2,
   "rebaseWhen": "conflicted",
   "rangeStrategy": "bump",
-  "schedule": ["before 6am on Monday"],
   "packageRules": [
     {
       "description": "Group frontend runtime dependencies into one reviewable PR.",
