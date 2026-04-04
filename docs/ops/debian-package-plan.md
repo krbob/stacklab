@@ -55,6 +55,7 @@ Recommended sequence:
 2. build `.deb` artifacts later
 3. test package installs and upgrades manually
 4. only then publish an APT repository
+5. only after that automate `nightly` and monthly `stable` publication
 
 ## Current Recommendation
 
@@ -65,6 +66,7 @@ Use this phased rollout:
 Publish:
 
 - `stacklab_<version>_amd64.deb`
+- `stacklab_<version>_arm64.deb`
 
 Do not publish an APT repository yet.
 
@@ -74,6 +76,13 @@ This gives us:
 - realistic upgrade tests
 - simpler debugging
 
+Current implementation status:
+
+- the first `.deb` build slice is now expected from:
+  - `scripts/release/build-deb.sh`
+  - `.github/workflows/release-build.yml`
+- publication to GitHub Releases and APT is still pending
+
 ### Phase 2: signed APT repository
 
 When package upgrades are stable:
@@ -82,6 +91,14 @@ When package upgrades are stable:
 - sign repository metadata
 - document `apt` installation
 - allow normal `apt upgrade`
+
+### Phase 3: channel-based publication
+
+When stable package publication is routine:
+
+- publish `stable` and `nightly` channels
+- keep `nightly` as prerelease-only
+- keep hotfixes on the `stable` channel
 
 ## Package Scope
 
@@ -248,6 +265,16 @@ Recommendation:
 - prefer the simplest tool that produces standard signed Debian metadata
 - avoid inventing custom repository-generation scripts unless the toolchain forces it
 
+Recommended channel model:
+
+- `stable`
+- `nightly`
+
+Meaning:
+
+- `stable` contains monthly releases and hotfixes
+- `nightly` contains prerelease builds from the default branch
+
 ## Proposed Release Flow Later
 
 When packaging work starts, the future release flow should look like this:
@@ -258,6 +285,7 @@ When packaging work starts, the future release flow should look like this:
 4. test package upgrade from previous version
 5. test service start under `systemd`
 6. test login, dashboard, actions, logs, stats, terminal
+7. only then publish to GitHub Releases and APT
 7. publish `.deb` to GitHub Releases
 8. only later update the APT repository
 

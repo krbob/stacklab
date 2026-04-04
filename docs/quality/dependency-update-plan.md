@@ -140,6 +140,7 @@ Good candidates for eventual automerge after trust is established:
 
 - frontend devDependencies
 - linting and formatting tools
+- selected GitHub Actions that repeatedly prove safe in CI
 - TypeScript toolchain updates that repeatedly prove safe in CI
 
 ### Medium-risk candidates
@@ -161,6 +162,29 @@ Keep manual unless there is very strong confidence:
 - `modernc.org/sqlite`
 - any dependency that directly affects process execution, PTY lifecycle, WebSocket transport, or persistent state
 - anything that changes Docker or Compose interaction behavior
+
+## Relationship To Monthly Release Automation
+
+Automatic monthly stable publication is only sensible if dependency policy remains risk-aware.
+
+Recommended model:
+
+- low-risk dependency classes may automerge later
+- high-risk and major updates remain manual
+- monthly stable release publishes the already-green state of `main`
+
+Do **not** design the release process around merging all Renovate PRs on release day.
+
+That would make the `1st` of the month both:
+
+- dependency integration day
+- release publication day
+
+This is much riskier than:
+
+- merging safe updates continuously
+- merging risky updates intentionally
+- publishing the stable state already present on `main`
 
 ## Required CI Before Renovate
 

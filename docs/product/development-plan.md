@@ -258,6 +258,91 @@ Initial product fit:
 
 Non-goals in the first version:
 
+- full notification center
+- release-management UX
+
+## Milestone 10: Debian Package Build
+
+Goal:
+
+- produce native `.deb` artifacts for supported Debian architectures
+
+Scope:
+
+- package-managed runtime payload
+- service account creation
+- `systemd` unit installation
+- dependency declaration:
+  - `systemd`
+  - Docker Engine
+  - Compose
+  - `git`
+- install and upgrade validation on Debian `amd64` and `arm64`
+
+Backend / release work:
+
+- packaging layout under Debian-native paths
+- maintainer scripts
+- `.deb` build workflow
+- Debian install/upgrade smoke
+
+UI developer input needed:
+
+- none initially
+
+## Milestone 11: Stable Release And APT Publication
+
+Goal:
+
+- turn release artifacts into a repeatable operator-facing release channel
+
+Scope:
+
+- manual stable release workflow
+- Git tags and GitHub Releases
+- signed APT `stable` repository
+- documented hotfix release path
+
+Backend / release work:
+
+- stable release workflow
+- release notes generation
+- APT metadata generation and signing
+- release validation and rollback documentation
+
+UI developer input needed:
+
+- none
+
+## Milestone 12: Nightly And Monthly Release Automation
+
+Goal:
+
+- automate publication once packaging and release validation are proven
+
+Scope:
+
+- nightly prereleases when `main` changed
+- APT `nightly` publication
+- automatic monthly stable release on the `1st`
+- selective Renovate automerge for low-risk dependency classes only
+
+Important constraint:
+
+- release day publishes the already-green state of `main`
+- it does not merge a batch of risky updates
+
+Backend / release work:
+
+- nightly workflow
+- scheduled stable workflow
+- change detection for nightly builds
+- release guardrails and fallback manual dispatch
+
+UI developer input needed:
+
+- none
+
 - full historical job browser replacing audit
 - desktop-style notification center
 - exact Dockge-style pull telemetry for every image layer

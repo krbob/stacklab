@@ -31,6 +31,10 @@ Recommended future workflow files:
 - `.github/workflows/advisory-static-analysis.yml`
 - `.github/workflows/browser-e2e.yml`
 - `.github/workflows/release-build.yml`
+- `.github/workflows/nightly-release.yml`
+- `.github/workflows/stable-release.yml`
+- `.github/workflows/hotfix-release.yml`
+- `.github/workflows/apt-publish.yml`
 - `.github/workflows/pre-release-smoke.yml`
 
 Currently implemented:
@@ -41,7 +45,19 @@ Currently implemented:
 - `.github/workflows/browser-e2e.yml`
 - `.github/workflows/release-build.yml`
 
+Current `release-build.yml` scope:
+
+- tarball artifacts for `amd64` and `arm64`
+- `.deb` artifacts for `amd64` and `arm64`
+- manual invocation only
+
 The advisory workflows should run, but they should not become required too early.
+
+Release automation note:
+
+- future scheduled workflows should not run exactly at the top of the hour
+- GitHub schedule runs can be delayed or dropped under load
+- every scheduled release workflow should also support `workflow_dispatch`
 
 ## 1. `pr-quality.yml`
 

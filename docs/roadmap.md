@@ -58,6 +58,10 @@ Implemented and already exercised on Linux staging hosts:
 
 - manual prune workflows with explicit scope and preview
 - image inventory and selective image maintenance
+- Debian-native `.deb` packaging for `amd64` and `arm64`
+- stable release workflow with GitHub Releases and signed APT `stable`
+- nightly prereleases and signed APT `nightly`
+- automatic monthly stable publication only after packaging and release validation are proven
 - Docker administration surface for daemon-level settings:
   - read-only Docker service status and daemon config visibility first
   - managed edits for selected `daemon.json` keys later

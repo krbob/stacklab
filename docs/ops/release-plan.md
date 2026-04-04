@@ -25,7 +25,7 @@ Current validation status:
 - host-native staging deployments have been exercised successfully on Ubuntu `arm64`, Ubuntu `amd64`, and Debian `amd64`
 - a repeatable tarball install/upgrade path now exists
 - the tarball upgrade flow has been exercised on Debian `amd64` across multiple release directories
-- the remaining gap is release publication automation and later packaging, not basic host-native viability
+- the remaining gap is `.deb` packaging, release publication automation, and later APT publication, not basic host-native viability
 
 ## What We Should Do Now
 
@@ -34,7 +34,7 @@ At the current stage:
 - keep the release artifact build in CI
 - use the host-side tarball install/upgrade path
 - keep deployment assumptions documented
-- avoid spending time yet on GitHub Release publication or auto-deploy
+- avoid spending time yet on full release publication or APT automation before `.deb` exists
 
 This is the right time to standardize the artifact and upgrade shape, but not yet the right time to automate host rollout.
 
@@ -166,11 +166,14 @@ The first implemented release workflow should stay small.
 Current responsibilities:
 
 - build Linux `amd64` and `arm64` release artifacts on demand
-- upload the artifact and checksum to the workflow run
+- build matching `.deb` artifacts on demand
+- upload tarballs, `.deb` packages, and checksums to the workflow run
 
 Planned later responsibilities:
 
-- publish that artifact to GitHub Releases
+- build `.deb` packages
+- publish artifacts to GitHub Releases
+- later publish `nightly` and `stable` APT metadata
 
 Recommended non-goals for the first iteration:
 
@@ -200,6 +203,23 @@ Responsibilities:
 - restart the service
 - run a health check
 - rollback automatically if health check fails
+
+## Release Automation Direction
+
+The target release automation model is:
+
+- nightly prerelease builds from `main`
+- monthly stable releases on the `1st`
+- manual hotfix releases
+
+See:
+
+- [release-automation-plan.md](release-automation-plan.md)
+
+Important principle:
+
+- scheduled stable publication is viable only if `main` is continuously releasable
+- release day should publish the current green state, not trigger a large integration event
 
 ## Local Validation Strategy
 

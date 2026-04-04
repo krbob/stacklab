@@ -14,13 +14,14 @@ It also defines the recommended balance between:
 
 Recommendation:
 
-- keep release publication manual
-- make release reminders automatic
-- adopt a monthly release window when the project is stable enough
+- keep stable release publication manual in the near term
+- build toward automated nightly publication first
+- keep hotfix publication manual
+- move to automated monthly stable publication only after packaging and release CI are proven
 
-This is the intended long-term model. It does **not** mean we should implement monthly release automation immediately.
+This is the intended long-term model. It does **not** mean we should implement full automation immediately.
 
-## Why Not Fully Automatic Releases
+## Why Not Fully Automatic Releases Immediately
 
 Stacklab is an admin tool that:
 
@@ -29,7 +30,7 @@ Stacklab is an admin tool that:
 - opens terminal sessions
 - depends on Docker and host behavior
 
-Because of that, fully automated release publication is too aggressive for the current phase.
+Because of that, fully automated release publication is still too aggressive for the current phase.
 
 Automatic release publication would increase the chance of:
 
@@ -49,11 +50,11 @@ Real risk:
 
 So the right model is not "everything manual" and not "everything automatic".
 
-The right model is:
+The right long-term model is:
 
-- automated reminder
-- human approval
-- controlled publication
+- automated nightly publication
+- controlled monthly stable publication
+- human-controlled hotfixes
 
 ## Recommended Versioning Scheme
 
@@ -70,6 +71,7 @@ Examples:
 - `2026.04.0`
 - `2026.04.1`
 - `2026.05.0`
+- `2026.05.0~nightly20260404+gabcdef1` for Debian nightly package versions
 
 Meaning:
 
@@ -87,16 +89,17 @@ Why this is a good fit:
 
 ### Target steady-state cadence
 
-When Stacklab is production-deployed and CI is stable:
+When Stacklab packaging, CI, and host validation are stable:
 
 - one planned maintenance release per month
+- automated nightly prerelease builds for the default branch
 
 This should be treated as a release window, not as a hard obligation to publish something every month no matter what.
 
 Practical rule:
 
-- if there are worthwhile changes and the release candidate is green, publish
-- if the branch is unstable or there is nothing meaningful to ship, skip that month
+- if `main` is green and changed meaningfully, publish the monthly stable
+- if there is no meaningful change since the previous stable, skip that month cleanly
 
 ### Releases outside the monthly window
 
@@ -119,45 +122,43 @@ Recommended model:
 
 - Renovate opens dependency update PRs
 - CI validates them
-- humans merge them intentionally
-- monthly release picks up already-merged, already-green updates
+- low-risk classes may automerge later
+- risky or major updates are still merged intentionally
+- monthly stable release picks up already-merged, already-green updates
 
 This keeps dependency maintenance continuous while keeping published releases controlled.
 
-## Semi-Automatic Reminder Model
+## Release Automation Model
 
-Recommendation:
+Target automation model:
 
-- use GitHub Actions on a monthly schedule
-- do **not** publish a release automatically
+- nightly prerelease workflow on a schedule
+- monthly stable workflow on the `1st`
+- manual `workflow_dispatch` for hotfix releases
 
-Instead, the scheduled workflow should do one small thing:
+Important constraint:
 
-- open or refresh a "monthly release reminder" issue
+- monthly stable should publish the already-stable state of `main`
+- it should not depend on a batch merge event on release day
 
-Suggested behavior:
+Operational fallback:
 
-1. runs on the first weekday of each month
-2. checks whether a release for the current month already exists
-3. if not, opens an issue like:
-   - `Release reminder: 2026.04`
-4. includes a checklist
-5. assigns or mentions the maintainer
+- keep `workflow_dispatch` for nightly and stable workflows
+- if a scheduled run is delayed or dropped, a human can rerun it manually
 
-This solves the "I will forget" problem without removing human judgment.
+## Suggested Monthly Stable Checklist
 
-## Suggested Monthly Release Checklist
-
-The reminder issue should include:
+The stable workflow or its manual fallback should effectively verify:
 
 1. review merged changes since the previous release
 2. review Renovate PRs that are already green and safe to merge
 3. ensure required CI checks are green on `main`
 4. run Linux smoke validation
    `amd64` is primary; use `arm64` smoke too when shipping or validating that architecture
-5. build the release artifact
-6. publish release notes and tag
-7. optionally deploy to the homelab host
+5. build release artifacts and `.deb`
+6. create tag and release notes
+7. publish to APT `stable`
+8. optionally deploy to the homelab host
 
 ## Release Decision Rules
 
@@ -168,22 +169,23 @@ Publish the monthly release only if all of these are true:
 - backend and frontend integration is stable for the intended scope
 - Linux smoke validation passes for the intended release architecture, with `amd64` as the primary baseline
 
-Do not publish just because the reminder fired.
+Do not publish just because the calendar fired.
 
 ## Recommended Automation Boundaries
 
-Automate:
+Automate later:
 
-- reminder issue creation
-- CI validation
+- nightly publication
 - release artifact build
-- draft release creation later, if desired
+- GitHub release creation
+- APT publication
 
-Do not automate yet:
+Keep manual longer:
 
-- final release publication
-- host deployment
+- hotfix decision making
+- deployment to the homelab host
 - rollback decisions
+- risky dependency merges
 
 ## Future Evolution
 
@@ -196,22 +198,22 @@ The release process can become more automated later if all of these become true:
 
 At that point, we may consider:
 
-- automatic draft release creation every month
-- optional automerge for low-risk dependencies
+- automatic nightly prereleases
+- automatic monthly stable publication
+- selective automerge for low-risk dependencies
 - stronger release trains
-
-But even then, final publication should probably remain human-approved for Stacklab.
 
 ## Recommendation For The Current Phase
 
 Do now:
 
-- keep release publication manual
 - keep versioning policy documented
 - keep the release artifact workflow manual-on-demand
-- plan for monthly reminder automation later
+- define the future nightly/stable/hotfix model
+- implement `.deb` build before full publication automation
 
 Do later:
 
-- implement scheduled GitHub Actions reminder
-- adopt monthly `CalVer` release train once the app is closer to its first real deployment
+- add nightly prereleases
+- add APT publication
+- add automatic monthly stable publication once the packaging path is proven
