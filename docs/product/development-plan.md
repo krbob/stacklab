@@ -207,10 +207,10 @@ Suggested order:
 
 ## Recommended Immediate Next Step
 
-Start Milestone 1.
+Start Milestone 3.
 
 Concrete first deliverables:
 
-1. backend contract draft for host overview and Stacklab service logs
-2. UI handoff for host overview page and Stacklab log viewer
-3. backend implementation and tests
+1. backend contract draft for Git workspace status and diff
+2. UI handoff for `Changes` mode inside `/config`
+3. backend implementation and tests for read-only Git visibility

@@ -10,6 +10,7 @@ This section contains information architecture, screens, and UI-facing contracts
 - [editor-progress-integration.md](editor-progress-integration.md) — backend-backed integration notes for the editor, mutating actions, and progress panel
 - [host-observability-handoff.md](host-observability-handoff.md) — route and screen guidance for host overview and Stacklab service logs
 - [config-workspace-handoff.md](config-workspace-handoff.md) — route and screen guidance for `/opt/stacklab/config` browsing and editing
+- [git-workspace-handoff.md](git-workspace-handoff.md) — route and screen guidance for local Git change visibility inside `/config`
 - [browser-e2e-handoff.md](browser-e2e-handoff.md) — backend harness, fixture root, and CI shape for browser E2E smoke
 
 ## Frontend Stack
