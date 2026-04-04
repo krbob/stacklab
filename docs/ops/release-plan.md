@@ -4,13 +4,14 @@
 
 This document records the release, upgrade, rollback, and local validation model for Stacklab.
 
-The initial release-artifact build is now implemented, but publication and deployment automation remain intentionally limited.
+The initial release-artifact build is now implemented, and the first host-side tarball upgrade path is now defined.
 
 ## Current Decision
 
 Recommendation:
 
 - build release artifacts in CI now
+- use a small host-side upgrade script for tarball installs and upgrades
 - keep publication and deployment manual for now
 
 Reasoning:
@@ -22,17 +23,20 @@ Reasoning:
 Current validation status:
 
 - host-native staging deployments have been exercised successfully on Ubuntu `arm64`, Ubuntu `amd64`, and Debian `amd64`
-- the remaining gap is packaging and repeatable upgrade automation, not basic host-native viability
+- a repeatable tarball install/upgrade path now exists
+- the tarball upgrade flow has been exercised on Debian `amd64` across multiple release directories
+- the remaining gap is release publication automation and later packaging, not basic host-native viability
 
 ## What We Should Do Now
 
 At the current stage:
 
 - keep the release artifact build in CI
+- use the host-side tarball install/upgrade path
 - keep deployment assumptions documented
-- avoid spending time yet on GitHub Release publication or upgrade scripts
+- avoid spending time yet on GitHub Release publication or auto-deploy
 
-This is the right time to standardize the artifact shape, but not yet the right time to automate host rollout.
+This is the right time to standardize the artifact and upgrade shape, but not yet the right time to automate host rollout.
 
 ## Trigger To Start Implementing Release Automation
 
@@ -56,7 +60,8 @@ Target release contents:
 - backend binary `stacklab`
 - frontend static bundle
 - version metadata
-- optional example `systemd` unit and environment file template
+- example `systemd` unit and environment file template
+- host-side `upgrade.sh`
 
 Packaging note:
 
@@ -104,6 +109,7 @@ stacklab-<version>-linux-<arch>/
   metadata/version.txt
   metadata/commit.txt
   systemd/stacklab.service.example
+  host-tools/upgrade.sh
 ```
 
 Why this format:
@@ -111,6 +117,20 @@ Why this format:
 - easy to publish via GitHub Releases
 - easy to unpack on a simple Linux host
 - does not depend on Docker on the deployment side
+
+## Implemented Tarball Upgrade Flow
+
+The current supported upgrade path is:
+
+1. obtain the release tarball
+2. extract it on the host
+3. run `host-tools/upgrade.sh`
+4. let the script install the release, switch `current`, restart the service, and verify health
+
+See:
+
+- [install-from-tarball.md](install-from-tarball.md)
+- [upgrade-validation-checklist.md](upgrade-validation-checklist.md)
 
 ## Planned Upgrade Flow
 
@@ -165,21 +185,21 @@ Reasoning:
 - rollback remains easier to reason about
 - the release pipeline stays transparent
 
-## Planned Host Upgrade Script
+## Host Upgrade Script
 
-When we implement deployment tooling, prefer one small host-side script such as `upgrade.sh`.
+The current host-side script is:
+
+- `scripts/release/upgrade.sh` in the repository
+- packaged as `host-tools/upgrade.sh` in release artifacts
 
 Responsibilities:
 
-- accept a version or release URL
-- fetch the artifact
-- unpack it into `releases/`
+- accept a tarball, URL, or extracted artifact directory
+- install the release into `releases/`
 - switch the symlink
 - restart the service
 - run a health check
 - rollback automatically if health check fails
-
-This script should live outside the app runtime itself or at least be runnable independently of the service.
 
 ## Local Validation Strategy
 
@@ -246,7 +266,7 @@ Do this now:
 
 - keep this plan in the repo
 - keep using the manual `workflow_dispatch` release build
-- continue feature integration
+- validate real upgrades with the tarball flow
 
 Do not do this yet:
 

@@ -214,6 +214,11 @@ Operational caution:
 7. install and enable the systemd unit
 8. initialize password on first launch
 
+Practical shortcut:
+
+- for tarball-based installs and upgrades, prefer the packaged `host-tools/upgrade.sh`
+- see [install-from-tarball.md](install-from-tarball.md)
+
 ## Upgrade Strategy
 
 Recommended upgrade flow:

@@ -20,7 +20,7 @@ skip_frontend_build="${STACKLAB_SKIP_FRONTEND_BUILD:-0}"
 
 mkdir -p "${output_dir}"
 rm -rf "${stage_dir}" "${tarball_path}" "${sha_path}"
-mkdir -p "${stage_dir}/bin" "${stage_dir}/frontend" "${stage_dir}/metadata" "${stage_dir}/systemd"
+mkdir -p "${stage_dir}/bin" "${stage_dir}/frontend" "${stage_dir}/metadata" "${stage_dir}/systemd" "${stage_dir}/host-tools"
 
 if [[ "${skip_frontend_build}" != "1" ]]; then
   echo "Building frontend assets..."
@@ -43,6 +43,12 @@ echo "Building backend binary for ${platform}..."
 cp -R "${repo_root}/frontend/dist" "${stage_dir}/frontend/dist"
 cp "${repo_root}/packaging/systemd/stacklab.service.example" "${stage_dir}/systemd/stacklab.service.example"
 cp "${repo_root}/packaging/systemd/stacklab.env.example" "${stage_dir}/systemd/stacklab.env.example"
+cp "${repo_root}/scripts/release/upgrade.sh" "${stage_dir}/host-tools/upgrade.sh"
+chmod +x "${stage_dir}/host-tools/upgrade.sh"
+
+if command -v xattr >/dev/null 2>&1; then
+  xattr -cr "${stage_dir}" 2>/dev/null || true
+fi
 
 printf '%s\n' "${version}" > "${stage_dir}/metadata/version.txt"
 printf '%s\n' "${commit}" > "${stage_dir}/metadata/commit.txt"
@@ -51,7 +57,11 @@ printf '%s\n' "${platform}" > "${stage_dir}/metadata/platform.txt"
 
 (
   cd "${output_dir}"
-  tar -czf "${tarball_path}" "${artifact_name}"
+  tar_cmd=(tar)
+  if tar --help 2>/dev/null | grep -q -- '--no-mac-metadata'; then
+    tar_cmd+=(--no-mac-metadata)
+  fi
+  COPYFILE_DISABLE=1 "${tar_cmd[@]}" -czf "${tarball_path}" "${artifact_name}"
 )
 
 (
