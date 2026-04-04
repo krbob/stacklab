@@ -207,10 +207,10 @@ Do now:
 
 - keep release publication manual
 - keep versioning policy documented
+- keep the release artifact workflow manual-on-demand
 - plan for monthly reminder automation later
 
 Do later:
 
 - implement scheduled GitHub Actions reminder
-- implement release artifact workflow
 - adopt monthly `CalVer` release train once the app is closer to its first real deployment

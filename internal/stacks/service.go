@@ -33,7 +33,10 @@ var (
 	composeCLICached     *composeCLI
 )
 
-const AppVersion = "0.1.0-dev"
+var (
+	AppVersion = "0.1.0-dev"
+	AppCommit  = "dev"
+)
 
 type composeCLI struct {
 	command string

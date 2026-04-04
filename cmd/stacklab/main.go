@@ -12,6 +12,7 @@ import (
 	"stacklab/internal/config"
 	"stacklab/internal/httpapi"
 	"stacklab/internal/jobs"
+	"stacklab/internal/stacks"
 	"stacklab/internal/store"
 	"syscall"
 	"time"
@@ -59,6 +60,8 @@ func main() {
 	}
 
 	logger.Info("starting stacklab",
+		slog.String("version", stacks.AppVersion),
+		slog.String("commit", stacks.AppCommit),
 		slog.String("http_addr", cfg.HTTPAddr),
 		slog.String("root", cfg.RootDir),
 		slog.String("data_dir", cfg.DataDir),

@@ -2,22 +2,22 @@
 
 ## Purpose
 
-This document records the planned release, upgrade, rollback, and local validation model for Stacklab.
+This document records the release, upgrade, rollback, and local validation model for Stacklab.
 
-It is intentionally a planning artifact for now. It does **not** mean we should implement CI/CD or deployment automation immediately.
+The initial release-artifact build is now implemented, but publication and deployment automation remain intentionally limited.
 
 ## Current Decision
 
 Recommendation:
 
-- document the release model now
-- postpone implementation until the product is closer to its first real deployment
+- build release artifacts in CI now
+- keep publication and deployment manual for now
 
 Reasoning:
 
-- core backend and frontend integration is still in active motion
-- release automation created too early would add maintenance cost during rapid changes
-- we already know enough to choose the operational shape without building it yet
+- the application is already stable enough to justify repeatable artifacts
+- the remaining operational risk is in publication, upgrade, and rollback automation
+- a build artifact is useful now without committing us to auto-deploy
 
 Current validation status:
 
@@ -28,15 +28,15 @@ Current validation status:
 
 At the current stage:
 
-- keep developing and integrating the product
+- keep the release artifact build in CI
 - keep deployment assumptions documented
-- avoid spending time yet on GitHub Actions, artifact publishing, or upgrade scripts
+- avoid spending time yet on GitHub Release publication or upgrade scripts
 
-This is the right time to decide the target model, but not yet the right time to automate it.
+This is the right time to standardize the artifact shape, but not yet the right time to automate host rollout.
 
 ## Trigger To Start Implementing Release Automation
 
-Start real release work when at least one of these is true:
+Start the next phase of release work when at least one of these is true:
 
 - the first deployment to a real Linux `amd64` host is planned
 - the MVP user flows are stable enough that weekly upgrade churn is no longer extreme
@@ -44,8 +44,8 @@ Start real release work when at least one of these is true:
 
 Practical recommendation:
 
-- finish the current application milestone first
-- implement release automation shortly before the first homelab deployment
+- keep the current artifact workflow simple
+- implement publication and upgrade automation shortly before the first recurring homelab deployment
 
 ## Target Production Model
 
@@ -141,19 +141,22 @@ This is one of the main reasons to prefer release directories plus a stable syml
 
 ## Planned GitHub Actions Scope
 
-When we decide to implement CI/CD, the first version should stay small.
+The first implemented release workflow should stay small.
 
-Recommended responsibilities:
+Current responsibilities:
 
-- run backend tests
-- run frontend typecheck, lint, and build
-- build Linux `amd64` release artifact
+- build a Linux `amd64` release artifact on demand
+- upload the artifact and checksum to the workflow run
+
+Planned later responsibilities:
+
 - publish that artifact to GitHub Releases
 
 Recommended non-goals for the first iteration:
 
 - do not SSH into the homelab host from GitHub Actions
 - do not auto-deploy from CI
+- do not create GitHub Releases automatically
 - do not build a self-updater into Stacklab itself
 
 Reasoning:
@@ -242,12 +245,11 @@ This validation should cover:
 Do this now:
 
 - keep this plan in the repo
+- keep using the manual `workflow_dispatch` release build
 - continue feature integration
-- postpone release automation
 
 Do not do this yet:
 
-- GitHub Actions release pipeline
 - production upgrade script
 - automatic deployment to the homelab server
 - Debian APT repository publication

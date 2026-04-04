@@ -1,0 +1,55 @@
+name: Release Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version, for example 2026.04.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-build:
+    name: release-build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build release artifact
+        env:
+          STACKLAB_RELEASE_VERSION: ${{ inputs.version }}
+          STACKLAB_RELEASE_COMMIT: ${{ github.sha }}
+        run: scripts/release/build-artifact.sh
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stacklab-${{ inputs.version }}-linux-amd64
+          path: |
+            dist/release/stacklab-${{ inputs.version }}-linux-amd64.tar.gz
+            dist/release/stacklab-${{ inputs.version }}-linux-amd64.tar.gz.sha256

@@ -39,6 +39,7 @@ Currently implemented:
 - `.github/workflows/docker-integration.yml`
 - `.github/workflows/advisory-static-analysis.yml`
 - `.github/workflows/browser-e2e.yml`
+- `.github/workflows/release-build.yml`
 
 The advisory workflows should run, but they should not become required too early.
 
@@ -313,6 +314,13 @@ Promote only after:
 This workflow builds the distributable Linux `amd64` artifact described in the release plan.
 
 It is not a normal PR gate at the beginning.
+
+## Current posture
+
+- implemented
+- manual `workflow_dispatch`
+- uploads workflow artifacts only
+- does not publish GitHub Releases yet
 
 ## Recommended triggers
 

@@ -25,11 +25,12 @@ Implemented today:
 - stack create/delete flows
 - audit history
 - backend and frontend automated tests
+- manual-on-demand Linux `amd64` release artifact build
 - staging deployment trials on Linux `arm64`, Ubuntu `amd64`, and Debian `amd64`
 
 Not done yet:
 
-- production release automation
+- release publication and host upgrade automation
 - scheduled dependency maintenance workflows
 - packaged distribution (`.deb`) and APT repository
 - final hardening for long-term production use

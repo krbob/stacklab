@@ -1,0 +1,26 @@
+[Unit]
+Description=Stacklab
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=stacklab
+Group=stacklab
+SupplementaryGroups=docker
+EnvironmentFile=-/etc/stacklab/stacklab.env
+WorkingDirectory=/opt/stacklab/app/current
+ExecStart=/opt/stacklab/app/current/bin/stacklab
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=30
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/stacklab /var/lib/stacklab
+
+[Install]
+WantedBy=multi-user.target
