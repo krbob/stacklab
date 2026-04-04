@@ -151,7 +151,7 @@ UI developer input needed:
 
 - after backend exposes concrete blocked-file semantics
 
-## Milestone 7: Broader Maintenance Inventory
+## Milestone 7: Maintenance Inventory And Cleanup
 
 Goal:
 
@@ -159,28 +159,30 @@ Goal:
 
 Scope:
 
+- image inventory first
 - manual prune workflows with explicit scope and preview
-- image inventory and selective image maintenance
-- read-only networks and volumes inventory
+- read-only networks and volumes inventory later
 - limited actions only where they directly support Compose operations
 
 Backend work:
 
-- inventory endpoints
+- image inventory endpoint(s)
 - prune preview/execution model
+- global prune job model
+- audit integration for cleanup jobs
 - destructive action guardrails
 - tests around Docker-dependent maintenance flows
 
 UI work:
 
-- maintenance dashboard/views
+- `Images` and `Cleanup` sections inside `/maintenance`
 - destructive confirmation UX
 - inventory filters and relationships
 
 UI developer input needed:
 
-- after backend model stabilizes
-- especially for prune UX and destructive affordances
+- early for `Images` vs `Cleanup` IA inside `/maintenance`
+- again after prune preview shape stabilizes
 
 ## Packaging Track
 
@@ -200,4 +202,10 @@ Suggested order:
 
 ## Recommended Immediate Next Step
 
-Complete Milestone 6 UI blocked-file states on top of the stable backend semantics, then move to Milestone 7.
+Implement the first Milestone 7 backend slice:
+
+1. `GET /api/maintenance/images`
+2. `GET /api/maintenance/prune-preview`
+3. `POST /api/maintenance/prune`
+
+Then hand the concrete backend model to the UI developer for `Images` and `Cleanup` inside `/maintenance`.

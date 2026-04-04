@@ -123,6 +123,13 @@ Recommended daily workflow:
 3. run frontend dev server
 4. exercise stack list, editor, logs, stats, and terminal against the local Docker daemon
 
+Notes for local host observability:
+
+- `/host` is fully representative only on Linux hosts that expose the same primitives as production
+- on macOS, Stacklab service logs are expected to be unavailable because there is no `journald` service unit to read
+- some host metrics shown on `/host` may be partial or look unusual on macOS because Docker runs through Docker Desktop / virtualization rather than as a native Linux host daemon
+- use Linux staging hosts to validate the final `/host` experience
+
 ## API Workflow
 
 Recommended contract-first loop:

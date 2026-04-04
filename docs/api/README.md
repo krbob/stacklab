@@ -8,3 +8,4 @@ Current focused additions:
 - `config-workspace.md`
 - `git-workspace.md`
 - `maintenance-workflows.md`
+- `maintenance-inventory.md`

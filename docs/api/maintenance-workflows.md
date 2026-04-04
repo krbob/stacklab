@@ -44,6 +44,49 @@ optional:
 
 Stacklab should own this workflow directly instead of requiring a sidecar shell script.
 
+## Current Progress Model vs. Rich Docker Pull Progress
+
+The current Stacklab maintenance workflow is intentionally:
+
+- workflow-oriented
+- step-oriented
+- log-oriented
+
+That means the UI can reliably show:
+
+- overall job state
+- current step index and total
+- current `target_stack_id`
+- chronological step transitions
+- raw output emitted by the underlying Compose commands
+
+This is enough to answer:
+
+- which stack is being processed
+- which action is currently running
+- where the workflow failed
+- what raw command output led to the result
+
+It does **not** yet provide Dockge-style structured progress such as:
+
+- per-image or per-layer pull progress bars
+- precise elapsed time per pull/build step
+- live percentage updates for image transfer
+
+That richer experience remains a planned enhancement rather than a v1 contract requirement.
+It would require extending the current job event model with structured maintenance progress events instead of relying only on:
+
+- `job_step_started`
+- `job_log`
+- `job_step_finished`
+
+Recommended later enrichment:
+
+1. elapsed time on each workflow step
+2. live step duration while a step is running
+3. richer rendering of `pull`, `build`, and `up` output
+4. optional structured image progress events for Docker pull/build operations
+
 ## Job Model Implication
 
 Milestone 4 is the first clear case of a workspace-scoped mutating job.

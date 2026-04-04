@@ -56,6 +56,7 @@ Implemented and already exercised on Linux staging hosts:
 - read-only visibility into Docker networks and volumes that affect Compose stacks
 - targeted create/delete actions for external networks or volumes when directly useful to stacks
 - scheduled maintenance jobs only as explicit opt-in policies
+- richer live stats visualization beyond the current lightweight sparklines
 - theme toggle with system preference support
 - compose template library and starter catalog
 - custom project metadata such as icon and useful external links

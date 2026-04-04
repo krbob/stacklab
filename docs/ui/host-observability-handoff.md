@@ -83,6 +83,18 @@ Need to define:
 - permission/unavailable state when `journald` is not readable
 - degraded state if host metrics load but logs do not
 
+## Local Development Caveat
+
+When `/host` is exercised on macOS during development, the page may look incomplete compared to a real Linux host.
+
+Expected degraded behaviors on macOS:
+
+- Stacklab logs may show an unavailable state because `journald` is not present
+- host resource numbers may be partial or less trustworthy than on Linux
+- the page should still render cleanly and communicate degraded availability instead of looking broken
+
+This page should be judged primarily on Linux staging and production-like hosts, not only on macOS screenshots.
+
 ## UI Decisions Captured
 
 1. `/host` is a dedicated page in the main sidebar

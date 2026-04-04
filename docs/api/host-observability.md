@@ -14,6 +14,23 @@ It is intentionally narrower than a full host monitoring API.
 - expose Stacklab's own version and runtime context clearly
 - make Stacklab service logs available in the browser without exposing arbitrary host logs
 
+## Platform Caveat
+
+The host observability surface is designed primarily for Linux hosts running Stacklab under `systemd`.
+
+Practical implication:
+
+- the most complete and representative `/host` view is on Linux
+- local development on macOS is useful for UI work, but it is a degraded environment for host observability
+
+Typical macOS limitations during development:
+
+- Stacklab service logs may be unavailable because there is no `journald` + `journalctl -u stacklab` model
+- some host metrics may be partial or less representative than on Linux
+- Docker Desktop / local virtualization can make resource numbers look unlike a real target host
+
+This is expected behavior, not a product bug by itself.
+
 ## Non-Goals
 
 - full host monitoring platform
@@ -78,6 +95,7 @@ Notes:
 - refresh target: every `15s` to `30s`
 - `disk.path` should reflect the Stacklab root filesystem, not every mounted filesystem
 - `stacklab.started_at` is process-start metadata, not install time
+- on non-Linux development hosts the response may be partial or degraded compared to production Linux hosts
 
 ## `GET /api/host/stacklab-logs`
 
@@ -114,6 +132,7 @@ Notes:
 - this endpoint should support polling-based follow mode
 - it does not need WebSocket support in the first implementation
 - `cursor` should be opaque to the UI
+- on hosts without readable `journald` service logs, the UI should show an unavailable/degraded state instead of treating it as a generic failure
 
 ## `GET /api/host/stacklab-logs/stream`
 

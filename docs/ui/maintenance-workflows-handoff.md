@@ -127,6 +127,29 @@ Recommended stack row display:
 - `nextcloud · Build`
 - `traefik · Up`
 
+## Important Current Limitation
+
+The current maintenance progress model is not meant to mimic the exact visual behavior of Dockge's image pull screen.
+
+Today the UI should emphasize:
+
+- clear workflow steps
+- current target stack
+- readable chronological history
+- raw Compose output
+
+It should **not** assume the backend provides:
+
+- per-image progress bars
+- per-layer transfer percentages
+- precise elapsed time for every Docker pull/build operation
+
+If the backend later starts emitting richer structured progress events, the page can evolve toward a more Dockge-like progress view.
+For now the correct mental model is:
+
+- reliable workflow visibility first
+- rich transfer telemetry later
+
 ## Required UI States
 
 - no stacks selected state
