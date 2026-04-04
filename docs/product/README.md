@@ -8,3 +8,4 @@ Core entry points:
 - `mvp.md`
 - `non-goals.md`
 - `feature-strategy.md`
+- `development-plan.md`
