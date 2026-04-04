@@ -4,6 +4,13 @@
 
 Deliver a stable first version that covers the full daily loop of managing Compose stacks on one host without trying to replace all Docker tooling.
 
+## MVP Status
+
+This baseline is now implemented and staging-tested. This document remains useful as the definition of the first product generation; roadmap work beyond it now lives in:
+
+- `docs/roadmap.md`
+- `docs/product/feature-strategy.md`
+
 ## Included In MVP
 
 ### Stack Discovery And Overview
@@ -60,8 +67,9 @@ Deliver a stable first version that covers the full daily loop of managing Compo
 - multi-host support
 - remote agents
 - host shell enabled by default
+- full GitOps reconciliation from remote repositories
+- broad Docker object CRUD outside Compose
 - long-term metrics storage
-- Docker object management outside Compose
 - advanced RBAC
 - public internet deployment model
 

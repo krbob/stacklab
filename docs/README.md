@@ -5,7 +5,7 @@ This directory contains project documentation for Stacklab.
 ## Sections
 
 - `adr/` architectural decision records
-- `product/` scope, MVP, and non-goals
+- `product/` scope, MVP, roadmap inputs, and feature strategy
 - `architecture/` system-level design
 - `domain/` domain models and operational rules
 - `api/` REST and WebSocket contracts
@@ -17,3 +17,9 @@ This directory contains project documentation for Stacklab.
 ## Status
 
 Documentation started contract-first and is now being updated alongside implementation and staging validation.
+
+Recommended product entry points:
+
+- `roadmap.md`
+- `product/scope.md`
+- `product/feature-strategy.md`

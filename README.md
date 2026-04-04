@@ -120,8 +120,10 @@ Project documentation lives in [`docs/`](docs/README.md).
 
 Good entry points:
 
+- [`docs/roadmap.md`](docs/roadmap.md)
 - [`docs/product/scope.md`](docs/product/scope.md)
 - [`docs/product/mvp.md`](docs/product/mvp.md)
+- [`docs/product/feature-strategy.md`](docs/product/feature-strategy.md)
 - [`docs/architecture/system-overview.md`](docs/architecture/system-overview.md)
 - [`docs/ops/systemd.md`](docs/ops/systemd.md)
 - [`docs/ops/release-plan.md`](docs/ops/release-plan.md)
