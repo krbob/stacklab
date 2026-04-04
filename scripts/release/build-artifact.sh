@@ -18,6 +18,20 @@ sha_path="${tarball_path}.sha256"
 build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 skip_frontend_build="${STACKLAB_SKIP_FRONTEND_BUILD:-0}"
 
+sha256_file() {
+  local target="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "${target}"
+    return 0
+  fi
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "${target}"
+    return 0
+  fi
+  echo "missing required command: sha256sum or shasum" >&2
+  exit 1
+}
+
 mkdir -p "${output_dir}"
 rm -rf "${stage_dir}" "${tarball_path}" "${sha_path}"
 mkdir -p "${stage_dir}/bin" "${stage_dir}/frontend" "${stage_dir}/metadata" "${stage_dir}/systemd" "${stage_dir}/host-tools"
@@ -66,7 +80,7 @@ printf '%s\n' "${platform}" > "${stage_dir}/metadata/platform.txt"
 
 (
   cd "${output_dir}"
-  shasum -a 256 "$(basename "${tarball_path}")" > "$(basename "${sha_path}")"
+  sha256_file "$(basename "${tarball_path}")" > "$(basename "${sha_path}")"
 )
 
 echo "Release artifact created:"

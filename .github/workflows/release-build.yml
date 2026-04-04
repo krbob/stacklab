@@ -53,6 +53,12 @@ jobs:
           STACKLAB_RELEASE_GOARCH: ${{ matrix.arch }}
         run: scripts/release/build-artifact.sh
 
+      - name: Build Debian package
+        env:
+          STACKLAB_RELEASE_VERSION: ${{ inputs.version }}
+          STACKLAB_RELEASE_GOARCH: ${{ matrix.arch }}
+        run: scripts/release/build-deb.sh
+
       - name: Upload release artifact
         uses: actions/upload-artifact@v7
         with:
@@ -60,3 +66,5 @@ jobs:
           path: |
             dist/release/stacklab-${{ inputs.version }}-linux-${{ matrix.arch }}.tar.gz
             dist/release/stacklab-${{ inputs.version }}-linux-${{ matrix.arch }}.tar.gz.sha256
+            dist/release/stacklab_${{ inputs.version }}_${{ matrix.arch }}.deb
+            dist/release/stacklab_${{ inputs.version }}_${{ matrix.arch }}.deb.sha256

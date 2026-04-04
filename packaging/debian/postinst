@@ -1,0 +1,85 @@
+#!/bin/sh
+set -e
+
+SERVICE_USER="stacklab"
+SERVICE_GROUP="stacklab"
+WORKSPACE_ROOT="/srv/stacklab"
+DATA_DIR="/var/lib/stacklab"
+ENV_FILE="/etc/stacklab/stacklab.env"
+SERVICE_NAME="stacklab.service"
+
+create_group() {
+  if ! getent group "${SERVICE_GROUP}" >/dev/null 2>&1; then
+    addgroup --system "${SERVICE_GROUP}"
+  fi
+}
+
+create_user() {
+  if ! id -u "${SERVICE_USER}" >/dev/null 2>&1; then
+    adduser \
+      --system \
+      --ingroup "${SERVICE_GROUP}" \
+      --home "${DATA_DIR}/home" \
+      --shell /usr/sbin/nologin \
+      "${SERVICE_USER}"
+  fi
+}
+
+ensure_workspace_dirs() {
+  for dir in \
+    "${WORKSPACE_ROOT}" \
+    "${WORKSPACE_ROOT}/stacks" \
+    "${WORKSPACE_ROOT}/config" \
+    "${WORKSPACE_ROOT}/data"; do
+    if [ ! -e "${dir}" ]; then
+      install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0755 "${dir}"
+    fi
+  done
+}
+
+ensure_runtime_dirs() {
+  install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0755 "${DATA_DIR}"
+  install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0755 "${DATA_DIR}/home"
+  install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0755 "${DATA_DIR}/docker"
+}
+
+ensure_groups() {
+  if getent group docker >/dev/null 2>&1; then
+    usermod -a -G docker "${SERVICE_USER}" || true
+  fi
+  if getent group systemd-journal >/dev/null 2>&1; then
+    usermod -a -G systemd-journal "${SERVICE_USER}" || true
+  fi
+}
+
+maybe_enable_service() {
+  if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+    systemctl daemon-reload || true
+    systemctl enable "${SERVICE_NAME}" >/dev/null 2>&1 || true
+    if [ -n "$2" ]; then
+      systemctl try-restart "${SERVICE_NAME}" >/dev/null 2>&1 || true
+    else
+      systemctl start "${SERVICE_NAME}" >/dev/null 2>&1 || true
+    fi
+  fi
+}
+
+print_bootstrap_hint() {
+  if [ -f "${ENV_FILE}" ] && ! grep -q '^STACKLAB_BOOTSTRAP_PASSWORD=' "${ENV_FILE}"; then
+    echo "stacklab: set STACKLAB_BOOTSTRAP_PASSWORD in ${ENV_FILE} and restart ${SERVICE_NAME} before first login if auth is not configured." >&2
+  fi
+}
+
+case "$1" in
+  configure)
+    create_group
+    create_user
+    ensure_workspace_dirs
+    ensure_runtime_dirs
+    ensure_groups
+    maybe_enable_service "$@"
+    print_bootstrap_hint
+    ;;
+esac
+
+exit 0
