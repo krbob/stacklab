@@ -13,6 +13,11 @@ Recommendation:
 - yes, this is a good medium-term direction for Debian deployments
 - no, we should not implement it before the install and upgrade shape is a little more stable
 
+Support policy for the future package:
+
+- the `.deb` targets Debian-family hosts running `systemd`
+- Debian systems booted with another init system are out of scope for the first package version
+
 ## Why This Makes Sense
 
 Stacklab has a very opinionated production target:
@@ -101,59 +106,47 @@ This rule is critical:
 
 - package install and upgrade must never take ownership away from the filesystem-first Compose model
 
-## Proposed Runtime Layout
+## Proposed Package Layout
 
-Keep the current managed-root model for operator content:
+The future `.deb` should use a Debian-native split between:
 
-```text
-/opt/stacklab/
-  stacks/
-  config/
-  data/
-/var/lib/stacklab/
-/etc/stacklab/
-```
+- package-managed immutable application files
+- operator-managed workspace files
+- runtime state owned by Stacklab itself
 
-For package-managed application code, prefer one of these models later:
-
-### Option A: Debian-native code path
+Recommended package layout:
 
 ```text
 /usr/lib/stacklab/
   bin/stacklab
   frontend/dist/
-/etc/stacklab/stacklab.env
+/etc/stacklab/
+  stacklab.env
+/srv/stacklab/
+  stacks/
+  config/
+  data/
+/var/lib/stacklab/
 ```
 
-Advantages:
+Meaning:
 
-- more Debian-native
-- simpler package payload
-- easier to reason about for `dpkg`
+- `/usr/lib/stacklab` holds versioned application payload installed by `dpkg`
+- `/etc/stacklab/stacklab.env` holds service configuration
+- `/srv/stacklab` is the operator-managed workspace and Git root
+- `/var/lib/stacklab` holds SQLite, service home, Docker config, and other runtime state
 
-### Option B: package installs current host-native release layout
+Why not keep `/opt/stacklab` for the package:
 
-```text
-/opt/stacklab/app/
-  current
-  releases/
-```
+- `/opt` is reasonable for tarball/manual installs of third-party software
+- for a native Debian package, `/usr/lib` + `/etc` + `/var/lib` is more conventional
+- operator-managed stack/config/data content fits better under `/srv` than under `/var/lib`
+- this keeps package-owned files and operator-owned files clearly separate
 
-Advantages:
+Practical recommendation:
 
-- consistent with current release plan
-- easier conceptual alignment with tarball-based upgrades
-
-Disadvantages:
-
-- more maintainer-script complexity
-- less Debian-native
-
-Current recommendation:
-
-- keep this decision open for now
-- do not change the already-documented runtime layout until packaging work starts for real
-- evaluate both options during the first `.deb` implementation spike
+- keep `/opt/stacklab` for the current tarball-based install flow
+- use `/usr/lib/stacklab` + `/srv/stacklab` + `/var/lib/stacklab` for the future `.deb`
 
 ## Package Dependencies
 
@@ -162,16 +155,27 @@ The package should declare runtime dependencies clearly.
 Expected Debian dependency shape:
 
 - `systemd`
-- `docker.io | docker-ce`
-- `docker-compose-plugin | docker-compose`
-- `git` once Git workspace status/diff/commit/push are treated as first-class product features
+- `docker.io | docker-ce | moby-engine`
+- `docker-compose | docker-compose-plugin`
+- `git`
+
+Reasoning:
+
+- `systemd` is an intentional product dependency for the package, not an accidental implementation detail
+- Docker may come from Debian packages or vendor packages
+- Compose may exist as the standalone `docker-compose` binary or the plugin-backed `docker compose`
+- Git is now part of the supported operator workflow, not an optional extra
+
+Recommended `Recommends`:
+
+- `ca-certificates`
 
 Notes:
 
 - stock Debian may provide Compose via standalone `docker-compose`
 - some hosts may use Docker CE packages instead of distro Docker
 - Stacklab already supports both `docker compose` and standalone `docker-compose`
-- Git can remain optional in development or minimal installs, but the production `.deb` should install it once Git workflows are part of the supported operator path
+- tarball installs may still rely on host tooling such as `curl`, `wget`, and `tar`, but those do not need to become hard runtime dependencies of the package itself
 
 ## Package Responsibilities
 
@@ -204,6 +208,9 @@ Expected `postinst` responsibilities:
 - create service account if missing
 - create required directories if missing
 - install default env file if absent
+- ensure the service account is in:
+  - the Docker socket-owning group when present, typically `docker`
+  - `systemd-journal` when present, so `/host` Stacklab logs can be read
 - reload `systemd`
 - optionally enable or restart the service
 
