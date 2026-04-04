@@ -1,10 +1,11 @@
-import { Activity, FolderKanban, LogOut, Monitor, Settings } from 'lucide-react'
+import { Activity, FolderCog, FolderKanban, LogOut, Monitor, Settings } from 'lucide-react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '@/hooks/use-auth'
 
 const links = [
   { to: '/stacks', label: 'Stacks', icon: FolderKanban },
   { to: '/host', label: 'Host', icon: Monitor },
+  { to: '/config', label: 'Config', icon: FolderCog },
   { to: '/audit', label: 'Audit', icon: Activity },
   { to: '/settings', label: 'Settings', icon: Settings },
 ]

@@ -9,6 +9,7 @@ import { NotFoundPage } from '@/pages/not-found-page'
 import { StacksPage } from '@/pages/stacks-page'
 const CreateStackPage = lazy(() => import('@/pages/create-stack-page').then((m) => ({ default: m.CreateStackPage })))
 import { HostPage } from '@/pages/host-page'
+const ConfigPage = lazy(() => import('@/pages/config-page').then((m) => ({ default: m.ConfigPage })))
 import { GlobalAuditPage } from '@/pages/global-audit-page'
 import { SettingsPage } from '@/pages/settings-page'
 import { StackOverviewPage } from '@/pages/stack-overview-page'
@@ -35,6 +36,7 @@ export function AppRoutes() {
         <Route path="stacks" element={<StacksPage />} />
         <Route path="stacks/new" element={<Suspense><CreateStackPage /></Suspense>} />
         <Route path="host" element={<HostPage />} />
+        <Route path="config" element={<Suspense><ConfigPage /></Suspense>} />
         <Route path="audit" element={<GlobalAuditPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="stacks/:stackId" element={<StackLayout />}>

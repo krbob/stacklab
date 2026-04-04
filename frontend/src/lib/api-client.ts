@@ -1,5 +1,8 @@
 import type {
   AuditResponse,
+  ConfigFileResponse,
+  ConfigFileSaveResponse,
+  ConfigTreeResponse,
   DefinitionResponse,
   HealthResponse,
   HostOverviewResponse,
@@ -91,6 +94,28 @@ export function getStacklabLogs(params?: { limit?: number; cursor?: string; leve
   const qs = search.toString()
   return request(`/api/host/stacklab-logs${qs ? `?${qs}` : ''}`)
 }
+
+// --- Config workspace ---
+
+export function getConfigTree(path?: string): Promise<ConfigTreeResponse> {
+  const search = new URLSearchParams()
+  if (path) search.set('path', path)
+  const qs = search.toString()
+  return request(`/api/config/workspace/tree${qs ? `?${qs}` : ''}`)
+}
+
+export function getConfigFile(path: string): Promise<ConfigFileResponse> {
+  return request(`/api/config/workspace/file?path=${encodeURIComponent(path)}`)
+}
+
+export function saveConfigFile(path: string, content: string, createParentDirectories = false): Promise<ConfigFileSaveResponse> {
+  return request('/api/config/workspace/file', {
+    method: 'PUT',
+    body: JSON.stringify({ path, content, create_parent_directories: createParentDirectories }),
+  })
+}
+
+// --- Stack management ---
 
 export function getStacks(params?: { q?: string; sort?: string }): Promise<StackListResponse> {
   const search = new URLSearchParams()

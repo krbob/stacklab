@@ -306,6 +306,45 @@ export interface StacklabLogsResponse {
   has_more: boolean
 }
 
+// --- Config workspace ---
+
+export type ConfigEntryType = 'directory' | 'text_file' | 'binary_file' | 'unknown_file'
+
+export interface ConfigTreeEntry {
+  name: string
+  path: string
+  type: ConfigEntryType
+  size_bytes: number
+  modified_at: string
+  stack_id: string | null
+}
+
+export interface ConfigTreeResponse {
+  workspace_root: string
+  current_path: string
+  parent_path: string | null
+  items: ConfigTreeEntry[]
+}
+
+export interface ConfigFileResponse {
+  path: string
+  name: string
+  type: ConfigEntryType
+  stack_id: string | null
+  content: string | null
+  encoding: string | null
+  size_bytes: number
+  modified_at: string
+  writable: boolean
+}
+
+export interface ConfigFileSaveResponse {
+  saved: boolean
+  path: string
+  modified_at: string
+  audit_action: string
+}
+
 export interface ApiError {
   error: {
     code: string
