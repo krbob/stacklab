@@ -1,10 +1,15 @@
 # Git Workspace Handoff
 
-This handoff covers the UI work for Milestone 3:
+This handoff covers:
 
-- showing local Git changes for the Stacklab workspace
-- diffing changed files
-- integrating Git visibility into the existing `/config` workspace
+- Milestone 3:
+  - showing local Git changes for the Stacklab workspace
+  - diffing changed files
+  - integrating Git visibility into the existing `/config` workspace
+- Milestone 5:
+  - selecting changed files
+  - creating a local commit
+  - pushing to the configured upstream
 
 Backend contract draft:
 
@@ -164,4 +169,33 @@ Confirmed by UI implementation planning:
 1. backend implements read-only Git status and diff endpoints
 2. UI adds `Changes` mode inside `/config`
 3. UI validates grouping and diff readability
-4. later Milestone 4 adds per-file commit/push actions on top of the same surface, with stack-scoped quick selection as a convenience
+4. later Milestone 5 adds per-file commit/push actions on top of the same surface, with stack-scoped quick selection as a convenience
+
+## Milestone 5 Confirmed Direction
+
+Confirmed product direction:
+
+- primary write model is per-file selection
+- stack-scoped quick selection is a UI shortcut, not the backend contract
+- commit/push stay inside `/config` `Changes` mode
+
+Recommended UI shape for Milestone 5:
+
+- left panel:
+  - file checkboxes in `Changes` mode
+  - stack-group headers with quick-select action
+- right panel:
+  - current diff view
+  - commit toolbar/footer with:
+    - selected count
+    - commit action
+    - push action when applicable
+
+Recommended UX states:
+
+- no files selected
+- commit dialog with message input
+- commit success with returned SHA
+- push success / already up to date
+- auth or upstream error
+- file became clean before commit

@@ -27,7 +27,11 @@ The following milestones are already materially in place:
   - audit integration
 - Local Git Workspace Visibility
   - read-only Git status and diff backend
-  - UI integration remains the active follow-through
+  - UI integration in `/config`
+- Safe Bulk Maintenance
+  - selected/all stack update workflow
+  - optional prune
+  - progress and audit integration
 
 ## Recommended Sequence
 
@@ -191,10 +195,10 @@ Suggested order:
 
 ## Recommended Immediate Next Step
 
-Start Milestone 4.
+Start Milestone 5.
 
 Concrete first deliverables:
 
-1. backend contract draft for bulk maintenance/update workflows
-2. UI handoff for stack selection and bulk progress UX
-3. backend implementation and tests for selected/all stack update flow
+1. backend contract draft for selective commit/push
+2. UI handoff for per-file selection and stack quick-select
+3. backend implementation and tests for local commit + push

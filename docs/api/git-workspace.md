@@ -1,10 +1,9 @@
 # Git Workspace Contract Draft
 
-This document defines the proposed contract for Milestone 3:
+This document defines the contract for:
 
-- read-only Git visibility for the local Stacklab workspace
-- changed/untracked file listing
-- per-file diff against `HEAD`
+- Milestone 3: read-only Git visibility for the local Stacklab workspace
+- Milestone 5: selective commit + push for that same workspace
 
 It is intentionally narrower than full GitOps or a generic Git client.
 
@@ -12,8 +11,8 @@ It is intentionally narrower than full GitOps or a generic Git client.
 
 - expose local Git state for `/opt/stacklab/stacks` and `/opt/stacklab/config`
 - make UI edits auditable in a Git-aware workflow
-- prepare the ground for later `commit + push`
-- preserve enough metadata for selective per-file commit flows later
+- support selective per-file commits and later push without leaving Stacklab
+- preserve enough metadata for stack-scoped quick selection in UI later
 
 ## Non-Goals
 
@@ -236,15 +235,97 @@ Recommended grouping:
 - by `stack_id`
 - with an `Other` group for paths outside stack-specific directories
 
-## Later Compatibility
+## `POST /api/git/workspace/commit`
 
-This contract is intentionally compatible with Milestone 4:
+Purpose:
 
-- `commit + push`
+- create one local Git commit from a selected set of changed managed files
 
-Meaning:
+Request body:
 
-- `status` response should already include enough metadata for file selection UX later
-- the primary write model later should be per-file selection
-- stack-aware grouping should support quick selection of one stack without forcing stack-only commits
-- but Milestone 3 itself remains read-only
+```json
+{
+  "message": "Update demo stack settings",
+  "paths": [
+    "config/demo/app.conf",
+    "stacks/demo/compose.yaml"
+  ]
+}
+```
+
+Notes:
+
+- `paths` is the primary write model
+- UI may offer quick-select per stack, but backend still receives explicit file paths
+- each selected path must currently be changed under `stacks/` or `config/`
+- conflicted files must be rejected
+
+Response:
+
+```json
+{
+  "committed": true,
+  "commit": "abc1234def5678",
+  "summary": "Update demo stack settings",
+  "paths": [
+    "config/demo/app.conf",
+    "stacks/demo/compose.yaml"
+  ],
+  "remaining_changes": 3
+}
+```
+
+Suggested error codes:
+
+- `validation_failed`
+- `path_outside_workspace`
+- `not_found`
+- `conflicted_files_selected`
+- `permission_denied`
+- `nothing_to_commit`
+- `git_unavailable`
+
+## `POST /api/git/workspace/push`
+
+Purpose:
+
+- push current branch `HEAD` to its configured upstream
+
+Request body:
+
+- none
+
+Response:
+
+```json
+{
+  "pushed": true,
+  "remote": "origin",
+  "branch": "main",
+  "upstream_name": "origin/main",
+  "head_commit": "abc1234def5678",
+  "ahead_count": 0,
+  "behind_count": 0
+}
+```
+
+Notes:
+
+- this milestone only supports push to the current upstream
+- no branch switching, force push, pull, merge, or rebase
+- if branch has no upstream, backend should return a clear non-500 error
+- if there is nothing ahead to push, backend may return `pushed: false`
+
+Suggested error codes:
+
+- `git_unavailable`
+- `upstream_not_configured`
+- `git_auth_failed`
+- `push_rejected`
+
+## Milestone 5 UI Expectations
+
+- commit/push live on top of the existing `/config` `Changes` surface
+- primary selection stays per-file
+- stack quick-select is a convenience action that expands to file paths
+- push should be available only when workspace has an upstream and local commits ahead of remote
