@@ -6,6 +6,7 @@ import type { ConfigTreeEntry, ConfigFileResponse, GitStatusItem, GitDiffRespons
 import { YamlEditor } from '@/components/yaml-editor'
 import { DiffView } from '@/components/diff-view'
 import { GitCommitBar } from '@/components/git-commit-bar'
+import { BlockedFileCard } from '@/components/blocked-file-card'
 import { cn } from '@/lib/cn'
 
 type Mode = 'files' | 'changes'
@@ -222,14 +223,15 @@ export function ConfigPage() {
   const toggleGroupPaths = useCallback((groupKey: string) => {
     const items = groupedGitItems.get(groupKey)
     if (!items) return
-    const paths = items.map((i) => i.path)
+    // Only select committable files — skip blocked
+    const committable = items.filter((i) => i.commit_allowed).map((i) => i.path)
     setSelectedGitPaths((prev) => {
-      const allSelected = paths.every((p) => prev.has(p))
+      const allSelected = committable.every((p) => prev.has(p))
       const next = new Set(prev)
       if (allSelected) {
-        paths.forEach((p) => next.delete(p))
+        committable.forEach((p) => next.delete(p))
       } else {
-        paths.forEach((p) => next.add(p))
+        committable.forEach((p) => next.add(p))
       }
       return next
     })
@@ -364,12 +366,14 @@ export function ConfigPage() {
                         const fileName = item.path.split('/').pop() ?? item.path
                         const isDiffSelected = selectedChangePath === item.path
                         const isChecked = selectedGitPaths.has(item.path)
+                        const isBlocked = !item.commit_allowed
                         return (
                           <div key={item.path} className={cn('flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition', isDiffSelected ? 'bg-[rgba(79,209,197,0.14)] text-[var(--text)]' : 'text-[var(--muted)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]')}>
-                            <input type="checkbox" checked={isChecked} onChange={() => toggleGitPath(item.path)} className="rounded shrink-0" />
+                            <input type="checkbox" checked={isChecked} onChange={() => toggleGitPath(item.path)} disabled={isBlocked} title={isBlocked ? 'File cannot be committed — permissions blocked' : undefined} className="rounded shrink-0 disabled:opacity-30" />
                             <button onClick={() => openDiff(item.path)} className="flex min-w-0 flex-1 items-center gap-1">
                               {prefix && <span className={cn('w-3 shrink-0 font-mono font-bold', prefix.color)}>{prefix.letter}</span>}
-                              <span className="truncate">{fileName}</span>
+                              <span className={cn('truncate', isBlocked && 'opacity-50')}>{fileName}</span>
+                              {isBlocked && <span className="shrink-0 text-amber-400" title="Access blocked">⚠</span>}
                             </button>
                           </div>
                         )
@@ -447,7 +451,9 @@ export function ConfigPage() {
                 </div>
                 {saveMessage && <div className={cn('mt-2 text-xs', saveMessage.type === 'success' ? 'text-emerald-400' : 'text-red-400')}>{saveMessage.text}</div>}
                 <div className="mt-3 flex-1" style={{ minHeight: '400px' }}>
-                  {selectedFile.type === 'text_file' ? (
+                  {selectedFile.blocked_reason ? (
+                    <BlockedFileCard blockedReason={selectedFile.blocked_reason} permissions={selectedFile.permissions} />
+                  ) : selectedFile.type === 'text_file' ? (
                     <YamlEditor value={editContent} onChange={setEditContent} readOnly={!selectedFile.writable} />
                   ) : (
                     <div className="flex h-full items-center justify-center rounded-[16px] border border-[var(--panel-border)] bg-[rgba(0,0,0,0.2)]">
@@ -495,7 +501,7 @@ export function ConfigPage() {
                       <span className="text-zinc-600">{selectedDiff.scope}</span>
                     </div>
                   </div>
-                  {selectedDiff.status !== 'deleted' && selectedDiff.scope === 'config' && (
+                  {selectedDiff.status !== 'deleted' && selectedDiff.scope === 'config' && !selectedDiff.blocked_reason && (
                     <button
                       onClick={() => {
                         const configPath = selectedDiff.path.replace(/^config\//, '')
@@ -517,7 +523,9 @@ export function ConfigPage() {
                   )}
                 </div>
                 <div className="mt-3 flex-1" style={{ minHeight: '400px' }}>
-                  {selectedDiff.is_binary ? (
+                  {selectedDiff.blocked_reason ? (
+                    <BlockedFileCard blockedReason={selectedDiff.blocked_reason} permissions={selectedDiff.permissions} />
+                  ) : selectedDiff.is_binary ? (
                     <div className="flex h-full items-center justify-center rounded-[16px] border border-[var(--panel-border)] bg-[rgba(0,0,0,0.2)]">
                       <div className="text-center">
                         <FileWarning className="mx-auto size-8 text-[var(--muted)]" />
