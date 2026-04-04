@@ -14,6 +14,8 @@ const mockGetConfigFile = vi.fn()
 const mockSaveConfigFile = vi.fn()
 const mockGetGitWorkspaceStatus = vi.fn()
 const mockGetGitWorkspaceDiff = vi.fn()
+const mockCommitGitWorkspace = vi.fn()
+const mockPushGitWorkspace = vi.fn()
 
 vi.mock('@/lib/api-client', () => ({
   getConfigTree: (...args: unknown[]) => mockGetConfigTree(...args),
@@ -21,6 +23,8 @@ vi.mock('@/lib/api-client', () => ({
   saveConfigFile: (...args: unknown[]) => mockSaveConfigFile(...args),
   getGitWorkspaceStatus: (...args: unknown[]) => mockGetGitWorkspaceStatus(...args),
   getGitWorkspaceDiff: (...args: unknown[]) => mockGetGitWorkspaceDiff(...args),
+  commitGitWorkspace: (...args: unknown[]) => mockCommitGitWorkspace(...args),
+  pushGitWorkspace: (...args: unknown[]) => mockPushGitWorkspace(...args),
 }))
 
 vi.mock('@/components/yaml-editor', () => ({
@@ -141,10 +145,28 @@ describe('ConfigPage', () => {
     mockSaveConfigFile.mockReset()
     mockGetGitWorkspaceStatus.mockReset()
     mockGetGitWorkspaceDiff.mockReset()
+    mockCommitGitWorkspace.mockReset()
+    mockPushGitWorkspace.mockReset()
 
     mockGetConfigTree.mockResolvedValue(rootTree)
     mockGetGitWorkspaceStatus.mockResolvedValue(gitStatus)
     mockGetGitWorkspaceDiff.mockResolvedValue(gitDiff)
+    mockCommitGitWorkspace.mockResolvedValue({
+      committed: true,
+      commit: 'abc12345',
+      summary: 'Update demo config',
+      paths: ['config/demo/app.conf'],
+      remaining_changes: 0,
+    })
+    mockPushGitWorkspace.mockResolvedValue({
+      pushed: true,
+      remote: 'origin',
+      branch: 'main',
+      upstream_name: 'origin/main',
+      head_commit: 'abc12345',
+      ahead_count: 0,
+      behind_count: 0,
+    })
   })
 
   it('loads, edits, and saves a config file in Files mode', async () => {
@@ -274,5 +296,59 @@ describe('ConfigPage', () => {
     expect(await screen.findByText('Binary file')).toBeInTheDocument()
     expect(screen.getByText(/cannot be edited/)).toBeInTheDocument()
     expect(screen.queryByLabelText('yaml-editor')).not.toBeInTheDocument()
+  })
+
+  it('commits selected files and clears stale diff when the file is no longer changed', async () => {
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Changes/ }))
+
+    const diffButton = await screen.findByRole('button', { name: /app\.conf$/ })
+    const checkboxes = screen.getAllByRole('checkbox')
+    fireEvent.click(checkboxes[1])
+    fireEvent.click(diffButton)
+
+    expect(await screen.findByText('modified')).toBeInTheDocument()
+
+    mockGetGitWorkspaceStatus.mockResolvedValue({
+      ...gitStatus,
+      ahead_count: 2,
+      items: [],
+      clean: true,
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Commit' }))
+    fireEvent.change(screen.getByTestId('git-commit-message'), { target: { value: 'Update demo config' } })
+    fireEvent.click(screen.getByTestId('git-commit-submit'))
+
+    await waitFor(() => {
+      expect(mockCommitGitWorkspace).toHaveBeenCalledWith({
+        message: 'Update demo config',
+        paths: ['config/demo/app.conf'],
+      })
+    })
+
+    expect(await screen.findByText('No local changes detected.')).toBeInTheDocument()
+    expect(screen.queryByText('modified')).not.toBeInTheDocument()
+  })
+
+  it('pushes ahead commits and refreshes Git status', async () => {
+    mockGetGitWorkspaceStatus
+      .mockResolvedValueOnce(gitStatus)
+      .mockResolvedValueOnce({
+        ...gitStatus,
+        ahead_count: 0,
+      })
+
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Changes/ }))
+    fireEvent.click(await screen.findByTestId('git-push'))
+
+    await waitFor(() => {
+      expect(mockPushGitWorkspace).toHaveBeenCalled()
+    })
+    expect(await screen.findByText('main')).toBeInTheDocument()
+    expect(screen.queryByTestId('git-push')).not.toBeInTheDocument()
   })
 })

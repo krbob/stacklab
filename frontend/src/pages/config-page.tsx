@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { File, FileQuestion, FileWarning, Folder, FolderKanban, GitBranch, Plus } from 'lucide-react'
 import { getConfigTree, getConfigFile, saveConfigFile, getGitWorkspaceStatus, getGitWorkspaceDiff } from '@/lib/api-client'
@@ -66,6 +66,11 @@ export function ConfigPage() {
   const [diffError, setDiffError] = useState<string | null>(null)
   const [selectedChangePath, setSelectedChangePath] = useState<string | null>(null)
   const [selectedGitPaths, setSelectedGitPaths] = useState<Set<string>>(new Set())
+  const selectedChangePathRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    selectedChangePathRef.current = selectedChangePath
+  }, [selectedChangePath])
 
   // --- Files mode logic ---
 
@@ -164,6 +169,11 @@ export function ConfigPage() {
       setGitClean(result.clean ?? true)
       setGitReason(result.reason ?? null)
       setSelectedGitPaths(new Set())
+      if (selectedChangePathRef.current && !(result.items ?? []).some((item) => item.path === selectedChangePathRef.current)) {
+        setSelectedDiff(null)
+        setSelectedChangePath(null)
+        setDiffError(null)
+      }
     } catch (err) {
       setGitError(err instanceof Error ? err.message : 'Failed to load Git status')
     } finally {
