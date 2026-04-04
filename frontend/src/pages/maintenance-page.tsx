@@ -27,12 +27,14 @@ export function MaintenancePage() {
   const [pruneVolumes, setPruneVolumes] = useState(false)
 
   const [jobId, setJobId] = useState<string | null>(null)
-  const [running, setRunning] = useState(false)
+  const [startPending, setStartPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const { events, state: jobState } = useJobStream({ jobId })
 
   const stacks = useMemo(() => stacksData?.items ?? [], [stacksData])
+  const isTerminal = jobState === 'succeeded' || jobState === 'failed' || jobState === 'cancelled' || jobState === 'timed_out'
+  const running = startPending || (jobId !== null && !isTerminal)
   const canStart = targetMode === 'all' ? stacks.length > 0 : selectedIds.size > 0
 
   const toggleStack = useCallback((id: string) => {
@@ -53,7 +55,7 @@ export function MaintenancePage() {
   }, [])
 
   const handleStart = useCallback(async () => {
-    setRunning(true)
+    setStartPending(true)
     setError(null)
     setJobId(null)
     try {
@@ -68,25 +70,22 @@ export function MaintenancePage() {
           remove_orphans: removeOrphans,
           prune_after: {
             enabled: pruneAfter,
-            include_volumes: pruneVolumes,
+            include_volumes: pruneAfter ? pruneVolumes : false,
           },
         },
       })
       setJobId(result.job.id)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start maintenance')
-      setRunning(false)
+    } finally {
+      setStartPending(false)
     }
   }, [targetMode, selectedIds, pullImages, buildImages, removeOrphans, pruneAfter, pruneVolumes])
 
-  // Track when job finishes
-  const isTerminal = jobState === 'succeeded' || jobState === 'failed' || jobState === 'cancelled' || jobState === 'timed_out'
-  if (isTerminal && running) setRunning(false)
-
   return (
-    <div className="flex gap-4" style={{ minHeight: 'calc(100vh - 120px)' }}>
+    <div className="flex flex-col gap-4 lg:flex-row" style={{ minHeight: 'calc(100vh - 120px)' }}>
       {/* Left: workflow setup */}
-      <div className="hidden w-80 shrink-0 flex-col rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)] lg:flex">
+      <div className="w-full shrink-0 rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)] lg:flex lg:w-80 lg:flex-col">
         <h2 className="text-2xl font-semibold tracking-[-0.04em] text-[var(--text)]">Update stacks</h2>
         <p className="mt-2 text-xs text-[var(--muted)]">Pull images, build, and restart selected stacks.</p>
 
@@ -132,7 +131,17 @@ export function MaintenancePage() {
             Remove orphan containers
           </label>
           <label className="flex items-center gap-2 text-xs text-amber-400">
-            <input type="checkbox" checked={pruneAfter} onChange={(e) => setPruneAfter(e.target.checked)} disabled={running} className="rounded" />
+            <input
+              type="checkbox"
+              checked={pruneAfter}
+              onChange={(e) => {
+                const checked = e.target.checked
+                setPruneAfter(checked)
+                if (!checked) setPruneVolumes(false)
+              }}
+              disabled={running}
+              className="rounded"
+            />
             Run prune after update
           </label>
           {pruneAfter && (
@@ -229,7 +238,7 @@ function StackCheckbox({ stack, checked, onChange, disabled }: {
   return (
     <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition hover:bg-[rgba(255,255,255,0.03)]">
       <input type="checkbox" checked={checked} onChange={onChange} disabled={disabled} className="rounded" />
-      <span className={cn('inline-block size-1.5 rounded-full', stateColors[stack.runtime_state] ? `bg-current ${stateColors[stack.runtime_state]}` : 'bg-zinc-600')} />
+      <span className={cn('inline-block size-1.5 rounded-full', stateColors[stack.runtime_state] ?? 'bg-zinc-600')} />
       <span className="text-[var(--text)]">{stack.name}</span>
       <span className="text-[var(--muted)]">{stack.service_count.running}/{stack.service_count.defined}</span>
     </label>
