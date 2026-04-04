@@ -79,7 +79,6 @@ jobs:
           STACKLAB_RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
           STACKLAB_RELEASE_COMMIT: ${{ github.sha }}
           STACKLAB_RELEASE_GOARCH: ${{ matrix.arch }}
-          STACKLAB_SKIP_FRONTEND_BUILD: ${{ matrix.arch == 'arm64' && '1' || '0' }}
         run: scripts/release/build-artifact.sh
 
       - name: Build Debian package
