@@ -105,10 +105,15 @@ export function MaintenancePage() {
         </div>
       </div>
 
-      {activeTab === 'images' && <MaintenanceImages />}
-      {activeTab === 'cleanup' && <MaintenanceCleanup />}
+      <div className={activeTab === 'images' ? '' : 'hidden'}>
+        <MaintenanceImages />
+      </div>
 
-      {activeTab === 'update' && (
+      <div className={activeTab === 'cleanup' ? '' : 'hidden'}>
+        <MaintenanceCleanup />
+      </div>
+
+      <div className={activeTab === 'update' ? '' : 'hidden'}>
     <div className="flex flex-col gap-4 lg:flex-row">
       {/* Left: workflow setup */}
       <div className="w-full shrink-0 rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)] lg:flex lg:w-80 lg:flex-col">
@@ -244,7 +249,7 @@ export function MaintenancePage() {
         )}
       </div>
     </div>
-      )}
+      </div>
     </div>
   )
 }

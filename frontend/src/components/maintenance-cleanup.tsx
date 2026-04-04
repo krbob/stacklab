@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { getMaintenancePrunePreview, runMaintenancePrune } from '@/lib/api-client'
 import { useApi } from '@/hooks/use-api'
 import { useJobStream } from '@/hooks/use-job-stream'
@@ -58,10 +58,11 @@ export function MaintenanceCleanup() {
     }
   }, [pruneImages, pruneBuildCache, pruneStopped, pruneVolumes])
 
-  // Refresh preview after prune completes
-  if (isTerminal && jobState === 'succeeded') {
-    refetchPreview()
-  }
+  useEffect(() => {
+    if (jobId && jobState === 'succeeded') {
+      refetchPreview()
+    }
+  }, [jobId, jobState, refetchPreview])
 
   const p = preview?.preview
 

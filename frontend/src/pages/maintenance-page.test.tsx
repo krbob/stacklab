@@ -4,12 +4,17 @@ import { MaintenancePage } from './maintenance-page'
 import type { StackListResponse } from '@/lib/api-types'
 
 const mockUpdateStacksMaintenance = vi.fn()
+const mockRunMaintenancePrune = vi.fn()
 const mockUseApi = vi.fn()
 const mockUseJobStream = vi.fn()
+const mockPruneRefetch = vi.fn()
 
 vi.mock('@/lib/api-client', () => ({
   getStacks: vi.fn(),
   updateStacksMaintenance: (...args: unknown[]) => mockUpdateStacksMaintenance(...args),
+  getMaintenanceImages: vi.fn(),
+  getMaintenancePrunePreview: vi.fn(),
+  runMaintenancePrune: (...args: unknown[]) => mockRunMaintenancePrune(...args),
 }))
 
 vi.mock('@/hooks/use-api', () => ({
@@ -67,12 +72,55 @@ describe('MaintenancePage', () => {
     mockUseApi.mockReset()
     mockUseJobStream.mockReset()
     mockUpdateStacksMaintenance.mockReset()
+    mockRunMaintenancePrune.mockReset()
+    mockPruneRefetch.mockReset()
 
-    mockUseApi.mockReturnValue({
-      data: stacksData,
-      error: null,
-      loading: false,
-      refetch: vi.fn(),
+    mockUseApi.mockImplementation((factory?: unknown) => {
+      const source = String(factory ?? '')
+
+      if (source.includes('getStacks')) {
+        return {
+          data: stacksData,
+          error: null,
+          loading: false,
+          refetch: vi.fn(),
+        }
+      }
+
+      if (source.includes('getMaintenanceImages')) {
+        return {
+          data: { items: [] },
+          error: null,
+          loading: false,
+          refetch: vi.fn(),
+        }
+      }
+
+      if (source.includes('getMaintenancePrunePreview')) {
+        return {
+          data: {
+            preview: {
+              images: { count: 2, reclaimable_bytes: 1024 },
+              build_cache: { count: 1, reclaimable_bytes: 2048 },
+              stopped_containers: { count: 0, reclaimable_bytes: 0 },
+              volumes: { count: 0, reclaimable_bytes: 0 },
+              total_reclaimable_bytes: 3072,
+            },
+          },
+          error: null,
+          loading: false,
+          refetch: mockPruneRefetch,
+        }
+      }
+
+      return {
+        data: {
+          items: [],
+        },
+        error: null,
+        loading: false,
+        refetch: vi.fn(),
+      }
     })
     mockUseJobStream.mockImplementation(({ jobId }: { jobId: string | null }) => (
       jobId
@@ -202,5 +250,32 @@ describe('MaintenancePage', () => {
 
     expect(screen.getByTestId('maintenance-start')).toBeDisabled()
     expect(screen.getByText('Running...')).toBeInTheDocument()
+  })
+
+  it('preserves cleanup job progress when switching tabs', async () => {
+    mockRunMaintenancePrune.mockResolvedValue({
+      job: { id: 'job_prune_123', stack_id: null, action: 'prune', state: 'running' },
+    })
+
+    render(<MaintenancePage />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cleanup' }))
+    fireEvent.click(screen.getByTestId('maintenance-prune'))
+
+    await waitFor(() => {
+      expect(mockRunMaintenancePrune).toHaveBeenCalledWith({
+        scope: {
+          images: true,
+          build_cache: true,
+          stopped_containers: false,
+          volumes: false,
+        },
+      })
+    })
+
+    expect(screen.getByText('Cleaning...')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Images' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cleanup' }))
+    expect(screen.getByText('Cleaning...')).toBeInTheDocument()
   })
 })
