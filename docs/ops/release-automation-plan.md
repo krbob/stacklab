@@ -318,6 +318,7 @@ Implement this in phases.
 - build `.deb` artifacts
 - keep stable releases manual
 - keep nightly disabled
+- treat `.deb` as a fresh-install path first; tarball-to-package migration comes later
 
 ### Phase 2
 

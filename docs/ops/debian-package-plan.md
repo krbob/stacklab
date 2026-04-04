@@ -82,6 +82,7 @@ Current implementation status:
   - `scripts/release/build-deb.sh`
   - `.github/workflows/release-build.yml`
 - publication to GitHub Releases and APT is still pending
+- migration from an existing tarball-based `/opt/stacklab` install to the package-managed layout is **not** implemented yet
 
 ### Phase 2: signed APT repository
 
