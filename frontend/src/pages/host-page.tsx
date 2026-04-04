@@ -91,6 +91,7 @@ function OverviewCards({ overview }: { overview: HostOverviewResponse }) {
           <div>{host.os_name}</div>
           <div>Kernel: {host.kernel_version}</div>
           <div>Uptime: {formatUptime(host.uptime_seconds)}</div>
+          <div>{host.architecture}</div>
         </div>
       </div>
 
@@ -264,7 +265,7 @@ function StacklabLogs() {
           </button>
 
           <button
-            onClick={() => { setEntries([]); cursorRef.current = null; fetchLogs(false) }}
+            onClick={() => { setEntries([]); cursorRef.current = null; setLoading(true); fetchLogs(false) }}
             className="rounded-full border border-[var(--panel-border)] px-2.5 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]"
           >
             Refresh
@@ -292,8 +293,8 @@ function StacklabLogs() {
           </div>
         )}
 
-        {filteredEntries.map((entry, i) => (
-          <div key={i} className="flex gap-2 hover:bg-[rgba(255,255,255,0.02)]">
+        {filteredEntries.map((entry) => (
+          <div key={entry.cursor || `${entry.timestamp}-${entry.message}`} className="flex gap-2 hover:bg-[rgba(255,255,255,0.02)]">
             <span className="shrink-0 text-zinc-600">
               {new Date(entry.timestamp).toLocaleTimeString()}
             </span>
