@@ -1,0 +1,290 @@
+# Config Workspace Contract Draft
+
+This document defines the proposed contract for Milestone 2:
+
+- safe browsing of `/opt/stacklab/config`
+- text editing of supported config files
+- read-only fallback for non-text files
+
+It is intentionally narrower than a generic file manager.
+
+## Goals
+
+- make `/opt/stacklab/config` a first-class workspace inside Stacklab
+- support common homelab config editing without leaving the product
+- keep the filesystem boundary explicit and safe
+- prepare the ground for later Git-aware workflows
+
+## Non-Goals
+
+- arbitrary host filesystem browsing
+- binary editing
+- full IDE-like file management
+- broad host file CRUD outside the Stacklab workspace
+
+## Workspace Boundary
+
+Root:
+
+```text
+/opt/stacklab/config
+```
+
+Rules:
+
+- all API paths are relative to this root
+- path traversal outside the root must be rejected
+- symlinks that resolve outside the root must be rejected
+- hidden files are allowed only if they still resolve under the root
+
+## Core Model
+
+## Entry Types
+
+Each workspace entry is either:
+
+- `directory`
+- `text_file`
+- `binary_file`
+- `unknown_file`
+
+The type is determined by backend inspection, not by file extension alone.
+
+## Relative Paths
+
+Paths in the API are workspace-relative.
+
+Examples:
+
+- `""` means the workspace root
+- `nextcloud`
+- `nextcloud/nginx.conf`
+- `traefik/dynamic/routers.yml`
+
+Paths always use forward slashes in the API.
+
+## REST Endpoints
+
+## `GET /api/config/workspace/tree`
+
+Purpose:
+
+- browse one directory level of the config workspace
+
+Query parameters:
+
+- `path` optional relative directory path, default root
+
+Response:
+
+```json
+{
+  "workspace_root": "/opt/stacklab/config",
+  "current_path": "nextcloud",
+  "parent_path": "",
+  "items": [
+    {
+      "name": "nginx.conf",
+      "path": "nextcloud/nginx.conf",
+      "type": "text_file",
+      "size_bytes": 1782,
+      "modified_at": "2026-04-04T12:00:00Z",
+      "stack_id": "nextcloud"
+    },
+    {
+      "name": "dynamic",
+      "path": "nextcloud/dynamic",
+      "type": "directory",
+      "size_bytes": 0,
+      "modified_at": "2026-04-04T11:55:00Z",
+      "stack_id": "nextcloud"
+    }
+  ]
+}
+```
+
+Notes:
+
+- the response is directory-scoped, not a full recursive tree
+- `stack_id` is derived from the first path segment when it matches a stack directory convention
+- sorting should be deterministic:
+  - directories first
+  - then files
+  - alphabetical within each group
+
+## `GET /api/config/workspace/file`
+
+Purpose:
+
+- fetch file content and metadata for one workspace file
+
+Query parameters:
+
+- `path` required relative file path
+
+Response for text file:
+
+```json
+{
+  "path": "nextcloud/nginx.conf",
+  "name": "nginx.conf",
+  "type": "text_file",
+  "stack_id": "nextcloud",
+  "content": "server {\\n  listen 80;\\n}\\n",
+  "encoding": "utf-8",
+  "size_bytes": 1782,
+  "modified_at": "2026-04-04T12:00:00Z",
+  "writable": true
+}
+```
+
+Response for non-text file:
+
+```json
+{
+  "path": "nextcloud/certificate.p12",
+  "name": "certificate.p12",
+  "type": "binary_file",
+  "stack_id": "nextcloud",
+  "content": null,
+  "encoding": null,
+  "size_bytes": 4096,
+  "modified_at": "2026-04-04T12:00:00Z",
+  "writable": false
+}
+```
+
+Notes:
+
+- text files include content
+- binary or unsupported files return metadata only
+- the first version does not need syntax-aware validation beyond text/binary detection
+
+## `PUT /api/config/workspace/file`
+
+Purpose:
+
+- save content for an existing or new text file under the workspace
+
+Request:
+
+```json
+{
+  "path": "nextcloud/nginx.conf",
+  "content": "server {\\n  listen 8080;\\n}\\n",
+  "create_parent_directories": false
+}
+```
+
+Response:
+
+```json
+{
+  "saved": true,
+  "path": "nextcloud/nginx.conf",
+  "modified_at": "2026-04-04T12:05:00Z",
+  "audit_action": "save_config_file"
+}
+```
+
+Rules:
+
+- text files may be overwritten
+- new files may be created
+- parent directory creation is optional and explicit
+- binary files must not be overwritten through this endpoint unless they are intentionally treated as text by backend policy
+
+## `POST /api/config/workspace/directory`
+
+Status:
+
+- optional for the first implementation
+
+Purpose:
+
+- create a new directory under the config workspace
+
+This can be deferred if UI starts with editing existing files and creating new files only in existing directories.
+
+## `DELETE /api/config/workspace/file`
+
+Status:
+
+- deferred
+
+Reason:
+
+- browsing and editing are higher-value than deletion for the first slice
+- destructive config deletion should come with stronger UX review
+
+## Error Handling
+
+Suggested error codes:
+
+- `validation_failed`
+- `not_found`
+- `conflict`
+- `binary_not_editable`
+- `path_outside_workspace`
+- `path_not_directory`
+- `path_not_file`
+- `internal_error`
+
+Examples:
+
+- trying to read `../etc/passwd` → `400 path_outside_workspace`
+- trying to open a directory through file endpoint → `400 path_not_file`
+- trying to save a binary file through text editor → `409 binary_not_editable`
+
+## Audit Expectations
+
+Mutating file saves should write audit entries.
+
+Suggested action names:
+
+- `save_config_file`
+- later: `create_config_directory`, `delete_config_file`
+
+Suggested audit details:
+
+- relative path
+- stack_id when derivable
+- file type
+
+## UI Expectations
+
+Expected first UI surface:
+
+- dedicated top-level route or global workspace route
+- tree on the left
+- file details/editor on the right
+- read-only preview for non-text files
+
+The contract intentionally supports both:
+
+- a focused stack-config view later
+- a broader config workspace view now
+
+## Suggested Backend Rules
+
+- maximum file size for text editing should be capped defensively
+- text/binary detection should be content-aware, not extension-only
+- save operations should use atomic write semantics where practical
+
+## Tests
+
+Recommended initial tests:
+
+- browse root and nested directories
+- reject path traversal
+- read text file
+- read binary file metadata without content
+- save existing text file
+- create new text file in existing directory
+- reject binary file writes through text endpoint
+
+Recommended later tests:
+
+- symlink escape rejection
+- directory creation
+- Git-aware integration after Milestone 3
