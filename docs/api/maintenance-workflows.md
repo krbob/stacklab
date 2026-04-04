@@ -87,6 +87,11 @@ Recommended later enrichment:
 3. richer rendering of `pull`, `build`, and `up` output
 4. optional structured image progress events for Docker pull/build operations
 
+Broader product implication:
+
+- this should feed a later global background activity UX, not only the `/maintenance` page
+- operators should still see meaningful progress after the triggering button becomes idle again
+
 ## Job Model Implication
 
 Milestone 4 is the first clear case of a workspace-scoped mutating job.

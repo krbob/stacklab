@@ -34,6 +34,7 @@ Single operator or a very small trusted household team managing one homelab mach
 - update images or rebuild services with predictable behavior
 - understand whether an issue is caused by the host, Docker, or the stack itself
 - perform selected maintenance workflows without turning Stacklab into a generic Docker control plane
+- manage a narrow set of Docker daemon settings and service operations through explicit, audited workflows
 - keep local workspace changes reviewable and easy to commit back to Git
 - selectively commit only the files relevant to one stack when needed, without forcing unrelated changes into the same commit
 
@@ -48,6 +49,7 @@ Single operator or a very small trusted household team managing one homelab mach
 - local-workspace-first Git integration over remote-reconciliation-first Git integration
 - host-native features should be used where they genuinely improve operations
 - dedicated non-root service account by default, with explicit privileged repair flows only where truly needed
+- privileged host actions must stay narrowly allowlisted and auditable rather than expanding into a general host shell
 
 ## Source Of Truth
 
@@ -77,6 +79,7 @@ Secondary application state:
 - security must assume terminal features are high-risk even on LAN
 - Docker objects outside Compose may be exposed selectively only when they directly support Compose operations or safe host maintenance
 - Stacklab should not run as `root` by default merely to work around container-created file ownership problems
+- Docker daemon configuration may be exposed selectively where it removes routine SSH needs for homelab operations, but only through explicit and constrained workflows
 
 ## Success Criteria
 

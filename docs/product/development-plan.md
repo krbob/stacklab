@@ -184,13 +184,108 @@ UI developer input needed:
 - early for `Images` vs `Cleanup` IA inside `/maintenance`
 - again after prune preview shape stabilizes
 
+## Milestone 8: Docker Administration Surface
+
+Goal:
+
+- remove routine SSH usage for common Docker daemon administration without turning Stacklab into a generic host shell
+
+Scope:
+
+- read-only Docker service status and daemon configuration visibility first
+- controlled editing of selected Docker daemon settings later
+- explicit apply workflow:
+  - validate config
+  - write backup
+  - save `daemon.json`
+  - restart Docker
+  - verify recovery
+  - roll back automatically if restart fails
+
+First concrete use case:
+
+- managing Docker DNS settings such as:
+  - `"dns": ["192.168.1.2"]`
+
+Non-goals in this milestone:
+
+- arbitrary host file editing outside the Docker admin surface
+- general-purpose shell access
+- editing every possible Docker daemon key in v1
+
+Backend work:
+
+- Docker service status endpoint(s)
+- read-only `daemon.json` endpoint
+- constrained write/apply endpoint(s) for daemon settings
+- backup/rollback model
+- privileged helper or tightly allowlisted `sudo` execution path
+- tests for config validation and Docker restart recovery behavior
+
+UI work:
+
+- Docker Admin area under host/maintenance-oriented navigation
+- read-only daemon config visibility
+- guided edit/apply UX with strong warnings
+- restart/rollback result surfacing
+
+UI developer input needed:
+
+- after the backend contract is sketched
+- the information architecture should decide whether this lives under `/host`, `/maintenance`, or a later dedicated Docker admin surface
+
+## Milestone 9: Global Background Activity UX
+
+Goal:
+
+- make long-running and background jobs visible across the whole application instead of only at the point where they were started
+
+Scope:
+
+- persistent global activity indicator while a job is running
+- visible state after the triggering button returns to idle
+- elapsed time for running jobs
+- current step and current target where the backend exposes them
+- clear completion, warning, and failure surfacing
+- later optional expansion into notifications or an activity center
+
+Initial product fit:
+
+- maintenance update and cleanup
+- stack actions such as `pull`, `build`, `up`, `restart`
+- save/deploy flows
+- Git push and other workspace-level jobs when they take longer than a quick request/response
+
+Non-goals in the first version:
+
+- full historical job browser replacing audit
+- desktop-style notification center
+- exact Dockge-style pull telemetry for every image layer
+
+Backend work:
+
+- expose enough job metadata for elapsed time and richer status chips
+- later consider structured progress events for pull/build-heavy flows
+
+UI work:
+
+- global activity affordance in app chrome
+- reusable background job presentation model
+- consistent post-start behavior so actions do not appear to "disappear" after button disable/enable transitions
+
+UI developer input needed:
+
+- early
+- this is primarily a cross-app interaction and information-architecture problem, not just a component styling task
+
 ## Packaging Track
 
-`.deb` packaging and later APT publication should start after Milestones 4-5 are substantially complete.
+`.deb` packaging and later APT publication should start after the next product-shaping operator milestones are substantially complete.
 
 Reason:
 
 - those milestones shape Git assumptions, maintenance workflows, and operator expectations
+- Docker administration may influence package dependencies, service privileges, and documentation
 - packaging too early would lock operational details before the product shape settles
 
 Suggested order:

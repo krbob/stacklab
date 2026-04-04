@@ -150,6 +150,11 @@ For now the correct mental model is:
 - reliable workflow visibility first
 - rich transfer telemetry later
 
+Longer-term UX direction:
+
+- maintenance progress should eventually also connect to a global activity affordance shared across the app
+- the page-local progress panel remains important, but it should not be the only place where a long-running background workflow is visible
+
 ## Required UI States
 
 - no stacks selected state

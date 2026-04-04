@@ -32,6 +32,11 @@ Implemented and already exercised on Linux staging hosts:
   - `up -d --remove-orphans`
 - optional prune step, never implicit by default
 - improve visibility of why maintenance actions succeeded, warned, or failed
+- improve global visibility of background jobs across the whole app:
+  - persistent activity indicator
+  - current step / current target
+  - elapsed time
+  - completion and failure states that remain visible after the triggering button stops being active
 - add optional job and maintenance notifications
 
 ### 2. Git-Aware Workspace Writes
@@ -53,6 +58,10 @@ Implemented and already exercised on Linux staging hosts:
 
 - manual prune workflows with explicit scope and preview
 - image inventory and selective image maintenance
+- Docker administration surface for daemon-level settings:
+  - read-only Docker service status and daemon config visibility first
+  - managed edits for selected `daemon.json` keys later
+  - explicit backup, restart, and rollback workflow
 - read-only visibility into Docker networks and volumes that affect Compose stacks
 - targeted create/delete actions for external networks or volumes when directly useful to stacks
 - scheduled maintenance jobs only as explicit opt-in policies
@@ -77,6 +86,7 @@ Implemented and already exercised on Linux staging hosts:
 - multi-host control plane
 - remote agents
 - full Portainer-style management of all Docker objects
+- generic root-equivalent host administration through the browser
 - deep GitOps reconciliation from remote repositories
 - enterprise auth, MFA, and RBAC as a near-term priority
 - registry management platform replacement

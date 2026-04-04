@@ -404,6 +404,8 @@ The following are the most worthwhile "borrowed" ideas for Stacklab:
    From: Arcane
 8. Limited image/network/volume maintenance surfaces
    From: Dockhand and Arcane, but constrained to Compose-first use cases
+9. Targeted Docker daemon administration
+   From: practical homelab needs rather than a direct product clone, constrained to explicit Docker service operations instead of generic host control
 
 ## Recommended Product Priorities
 
@@ -419,6 +421,8 @@ The following are the most worthwhile "borrowed" ideas for Stacklab:
 - selected/all stack update workflow replacing ad-hoc shell scripts
 - manual prune
 - image inventory
+- Docker daemon administration for common operator needs such as DNS, with explicit backup/restart/rollback
+- stronger background activity visibility for long-running operations across the whole app
 - read-only network and volume inventory
 - notifications
 

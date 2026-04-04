@@ -13,7 +13,7 @@ There is no deeper nesting. Every screen is reachable in at most two clicks from
 
 ```
 ┌─────────────────────────────────────────────┐
-│  STACKLAB              [search]   [user ▾]  │
+│  STACKLAB    [activity] [search]   [user ▾] │
 ├──────┬──────────────────────────────────────┤
 │      │                                      │
 │  ◉ Stacks    Main content area              │
@@ -34,6 +34,11 @@ There is no deeper nesting. Every screen is reachable in at most two clicks from
 | **Settings** | `/settings` | Application settings, auth, preferences, and later update schedules |
 
 The sidebar is collapsible on tablet widths (below 1024px) to a narrow icon bar.
+
+Future global chrome note:
+
+- long-running jobs should later surface in a persistent global activity affordance in the app chrome
+- this is intended for background job visibility, not as a replacement for audit or page-local progress panels
 
 ## Stack Context Navigation
 
