@@ -16,17 +16,16 @@ Today the repository already has:
 
 - backend unit tests
 - backend HTTP and WebSocket integration tests without Docker
-- opt-in backend Docker-backed integration tests for WebSocket flows
+- opt-in backend Docker-backed integration tests for WebSocket flows and core Compose lifecycle flows
 - frontend Vitest tests for selected components and API client behavior
+- frontend runtime hook tests for log, stats, job, and terminal streams
 - frontend typecheck, lint, and production build
 
 The biggest remaining quality gaps are:
 
-- no GitHub Actions workflows yet
-- no required PR quality gates
-- incomplete Docker-backed coverage for mutating Compose lifecycle flows
 - no OpenAPI contract validation layer
 - no browser-level E2E smoke
+- no advisory static-analysis workflow yet
 
 ## Rollout Principles
 
@@ -48,7 +47,9 @@ Required checks should become strict only after they prove reliable in normal de
 
 ## Step 1: Baseline PR CI
 
-Implement now.
+Status:
+
+- implemented
 
 Scope:
 
@@ -86,7 +87,9 @@ Success criteria:
 
 ## Step 2: Make baseline checks required
 
-Do shortly after Step 1 proves stable.
+Status:
+
+- implemented
 
 Scope:
 
@@ -100,7 +103,9 @@ Do not add heavier jobs as required yet.
 
 ## Step 3: Expand Docker-backed backend integration
 
-Implement after baseline CI is stable.
+Status:
+
+- implemented
 
 Primary target:
 
@@ -125,7 +130,9 @@ Recommendation:
 
 ## Step 4: Add `docker-integration.yml`
 
-Implement after Step 3 has enough stable tests to justify a dedicated workflow.
+Status:
+
+- implemented
 
 Scope:
 
@@ -240,19 +247,15 @@ Environment:
 
 The next concrete implementation order should be:
 
-1. land `pr-quality.yml`
-2. make sure it is green locally and on GitHub
-3. enable branch protection for baseline checks
-4. expand backend Docker-backed lifecycle tests
-5. add `docker-integration.yml`
-6. expand frontend hook/provider tests
-7. add API contract validation
-8. add advisory `staticcheck` and `govulncheck`
+1. expand API contract validation
+2. add advisory `staticcheck` and `govulncheck`
+3. add lightweight browser E2E smoke
+4. add pre-release environment validation
 
 ## What We Are Doing Now
 
 Current action:
 
-- implement Step 1 immediately
+- implement Step 6 next
 
-This is the highest-leverage move because it protects the repository today without waiting for the rest of the rollout.
+This is now the highest-leverage move because baseline CI and Docker-backed integration are already in place, and the next missing guardrail is contract drift between backend and UI.

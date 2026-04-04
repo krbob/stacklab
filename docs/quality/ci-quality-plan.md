@@ -20,6 +20,7 @@ This is a planning document for the current phase. It does not mean every check 
 Today, the repository already has parts of the quality stack:
 
 - frontend Vitest test suite
+- frontend hook tests for WebSocket-driven runtime behavior
 - frontend TypeScript typecheck
 - frontend ESLint
 - frontend production build
@@ -30,7 +31,8 @@ Current observations:
 - frontend lint is now green and ready for CI enforcement
 - backend does not yet have a proper static analysis layer beyond compiling and tests
 - backend test coverage exists but is still relatively low and should be treated as a trend, not a merge gate
-- Docker-backed integration tests already exist in parts of the backend and should become part of CI over time
+- Docker-backed integration tests now cover WebSocket flows and core Compose lifecycle behavior
+- a dedicated GitHub Actions workflow can now run that suite, but it should prove stable before becoming a required gate
 
 ## Quality Principles
 
