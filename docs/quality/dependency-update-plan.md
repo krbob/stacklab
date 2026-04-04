@@ -19,6 +19,7 @@ Recommendation:
 - enable it only after core PR validation is stable
 - start with manual merges for all Renovate PRs
 - add selective automerge only later, and only for low-risk dependency classes
+- keep a checked-in Renovate config ready before enablement, so activation later is operational rather than design work
 
 Reasoning:
 
@@ -63,6 +64,12 @@ Practical rule:
 - first stabilize CI
 - then enable Renovate
 
+Current repository status:
+
+- a conservative Renovate config can be checked in safely before enablement
+- the config alone does not activate Renovate
+- actual PR creation starts only after the Renovate GitHub app is enabled for the repository
+
 ## Initial Renovate Policy
 
 Start with a conservative rollout.
@@ -102,6 +109,17 @@ Recommended first-pass grouping:
 - one group for GitHub Actions updates
 
 Do not start with one PR per package unless update volume is very low.
+
+Recommended repository config:
+
+- `prConcurrentLimit = 2`
+- weekly Monday-morning schedule
+- grouped PRs for:
+  - frontend runtime dependencies
+  - frontend dev dependencies
+  - Go modules
+  - GitHub Actions
+- major updates kept separate
 
 ## Risk-Based Update Classes
 

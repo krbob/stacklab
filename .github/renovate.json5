@@ -1,0 +1,51 @@
+{
+  // Prepared but intentionally not active until Renovate is enabled for the repository.
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "timezone": "Europe/Warsaw",
+  "labels": ["dependencies"],
+  "dependencyDashboard": true,
+  "assigneesFromCodeOwners": false,
+  "automerge": false,
+  "platformAutomerge": false,
+  "prConcurrentLimit": 2,
+  "prHourlyLimit": 2,
+  "rebaseWhen": "conflicted",
+  "rangeStrategy": "bump",
+  "schedule": ["before 6am on Monday"],
+  "packageRules": [
+    {
+      "description": "Group frontend runtime dependencies into one reviewable PR.",
+      "matchManagers": ["npm"],
+      "matchFileNames": ["frontend/package.json"],
+      "matchDepTypes": ["dependencies"],
+      "groupName": "frontend runtime dependencies",
+      "groupSlug": "frontend-runtime"
+    },
+    {
+      "description": "Group frontend devDependencies into one tooling PR.",
+      "matchManagers": ["npm"],
+      "matchFileNames": ["frontend/package.json"],
+      "matchDepTypes": ["devDependencies"],
+      "groupName": "frontend dev dependencies",
+      "groupSlug": "frontend-dev"
+    },
+    {
+      "description": "Group Go module updates into a single PR.",
+      "matchManagers": ["gomod"],
+      "groupName": "go dependencies",
+      "groupSlug": "go-dependencies"
+    },
+    {
+      "description": "Group GitHub Actions updates into a single PR.",
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions",
+      "groupSlug": "github-actions"
+    },
+    {
+      "description": "Keep major updates separate for deliberate review.",
+      "matchUpdateTypes": ["major"],
+      "groupName": null
+    }
+  ]
+}
