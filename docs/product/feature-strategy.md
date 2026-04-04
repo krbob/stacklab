@@ -247,6 +247,7 @@ Suggested scope:
 
 - clearly surface unreadable or unwritable files in config and Git views
 - show ownership and mode information when access is blocked
+- base diagnostics on the current file metadata and effective access, not on assumed ACL inheritance
 - recommend aligning container `uid:gid` or `PUID/PGID` where possible
 - later add an explicit repair workflow restricted to managed roots
 

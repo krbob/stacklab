@@ -89,7 +89,16 @@ Response:
       "type": "text_file",
       "size_bytes": 1782,
       "modified_at": "2026-04-04T12:00:00Z",
-      "stack_id": "nextcloud"
+      "stack_id": "nextcloud",
+      "permissions": {
+        "owner_uid": 1000,
+        "owner_name": "bob",
+        "group_gid": 1000,
+        "group_name": "bob",
+        "mode": "0644",
+        "readable": true,
+        "writable": true
+      }
     },
     {
       "name": "dynamic",
@@ -97,7 +106,16 @@ Response:
       "type": "directory",
       "size_bytes": 0,
       "modified_at": "2026-04-04T11:55:00Z",
-      "stack_id": "nextcloud"
+      "stack_id": "nextcloud",
+      "permissions": {
+        "owner_uid": 1000,
+        "owner_name": "bob",
+        "group_gid": 1000,
+        "group_name": "bob",
+        "mode": "0755",
+        "readable": true,
+        "writable": true
+      }
     }
   ]
 }
@@ -107,6 +125,7 @@ Notes:
 
 - the response is directory-scoped, not a full recursive tree
 - `stack_id` is derived from the first path segment when it matches a stack directory convention
+- each item includes `permissions` for the current file or directory inode
 - sorting should be deterministic:
   - directories first
   - then files
@@ -134,7 +153,18 @@ Response for text file:
   "encoding": "utf-8",
   "size_bytes": 1782,
   "modified_at": "2026-04-04T12:00:00Z",
-  "writable": true
+  "readable": true,
+  "writable": true,
+  "blocked_reason": null,
+  "permissions": {
+    "owner_uid": 1000,
+    "owner_name": "bob",
+    "group_gid": 1000,
+    "group_name": "bob",
+    "mode": "0644",
+    "readable": true,
+    "writable": true
+  }
 }
 ```
 
@@ -150,7 +180,45 @@ Response for non-text file:
   "encoding": null,
   "size_bytes": 4096,
   "modified_at": "2026-04-04T12:00:00Z",
-  "writable": false
+  "readable": true,
+  "writable": false,
+  "blocked_reason": null,
+  "permissions": {
+    "owner_uid": 1000,
+    "owner_name": "bob",
+    "group_gid": 1000,
+    "group_name": "bob",
+    "mode": "0644",
+    "readable": true,
+    "writable": false
+  }
+}
+```
+
+Response for blocked file:
+
+```json
+{
+  "path": "nextcloud/secret.env",
+  "name": "secret.env",
+  "type": "unknown_file",
+  "stack_id": "nextcloud",
+  "content": null,
+  "encoding": null,
+  "size_bytes": 128,
+  "modified_at": "2026-04-04T12:00:00Z",
+  "readable": false,
+  "writable": false,
+  "blocked_reason": "not_readable",
+  "permissions": {
+    "owner_uid": 0,
+    "owner_name": "root",
+    "group_gid": 0,
+    "group_name": "root",
+    "mode": "0600",
+    "readable": false,
+    "writable": false
+  }
 }
 ```
 
@@ -158,6 +226,7 @@ Notes:
 
 - text files include content
 - binary or unsupported files return metadata only
+- unreadable files return metadata only with `blocked_reason`
 - the first version does not need syntax-aware validation beyond text/binary detection
 
 ## `PUT /api/config/workspace/file`
@@ -225,6 +294,7 @@ Suggested error codes:
 - `not_found`
 - `conflict`
 - `binary_not_editable`
+- `permission_denied`
 - `path_outside_workspace`
 - `path_not_directory`
 - `path_not_file`
@@ -235,6 +305,7 @@ Examples:
 - trying to read `../etc/passwd` → `400 path_outside_workspace`
 - trying to open a directory through file endpoint → `400 path_not_file`
 - trying to save a binary file through text editor → `409 binary_not_editable`
+- trying to save an unreadable or unwritable file → `409 permission_denied`
 
 ## Audit Expectations
 

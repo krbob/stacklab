@@ -28,6 +28,10 @@ The following milestones are already materially in place:
 - Local Git Workspace Visibility
   - read-only Git status and diff backend
   - UI integration in `/config`
+- Local Git Commit And Push
+  - per-file commit selection
+  - upstream-aware push flow
+  - audit integration
 - Safe Bulk Maintenance
   - selected/all stack update workflow
   - optional prune
@@ -123,6 +127,7 @@ Scope:
 
 - surface unreadable and unwritable files in config and Git views
 - show owner, group, and mode where possible
+- base diagnostics on the current file inode and effective access, not on assumed ACL inheritance
 - explain why some files cannot be diffed, edited, or committed
 - later add explicit repair workflows restricted to managed roots
 
@@ -195,10 +200,4 @@ Suggested order:
 
 ## Recommended Immediate Next Step
 
-Start Milestone 5.
-
-Concrete first deliverables:
-
-1. backend contract draft for selective commit/push
-2. UI handoff for per-file selection and stack quick-select
-3. backend implementation and tests for local commit + push
+Complete Milestone 6 UI blocked-file states on top of the stable backend semantics, then move to Milestone 7.

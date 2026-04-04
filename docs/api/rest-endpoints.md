@@ -244,7 +244,16 @@ Response:
       "type": "directory",
       "size_bytes": 0,
       "modified_at": "2026-04-04T11:55:00Z",
-      "stack_id": "nextcloud"
+      "stack_id": "nextcloud",
+      "permissions": {
+        "owner_uid": 1000,
+        "owner_name": "bob",
+        "group_gid": 1000,
+        "group_name": "bob",
+        "mode": "0755",
+        "readable": true,
+        "writable": true
+      }
     },
     {
       "name": "nginx.conf",
@@ -252,7 +261,16 @@ Response:
       "type": "text_file",
       "size_bytes": 1782,
       "modified_at": "2026-04-04T12:00:00Z",
-      "stack_id": "nextcloud"
+      "stack_id": "nextcloud",
+      "permissions": {
+        "owner_uid": 1000,
+        "owner_name": "bob",
+        "group_gid": 1000,
+        "group_name": "bob",
+        "mode": "0644",
+        "readable": true,
+        "writable": true
+      }
     }
   ]
 }
@@ -265,6 +283,7 @@ Notes:
   - directories first
   - then files
   - alphabetical within each group
+- each tree item includes `permissions` with current owner/group/mode plus effective `readable` / `writable`
 
 ## `GET /api/config/workspace/file`
 
@@ -288,7 +307,18 @@ Response for text file:
   "encoding": "utf-8",
   "size_bytes": 1782,
   "modified_at": "2026-04-04T12:00:00Z",
-  "writable": true
+  "readable": true,
+  "writable": true,
+  "blocked_reason": null,
+  "permissions": {
+    "owner_uid": 1000,
+    "owner_name": "bob",
+    "group_gid": 1000,
+    "group_name": "bob",
+    "mode": "0644",
+    "readable": true,
+    "writable": true
+  }
 }
 ```
 
@@ -304,9 +334,55 @@ Response for non-text file:
   "encoding": null,
   "size_bytes": 4096,
   "modified_at": "2026-04-04T12:00:00Z",
-  "writable": false
+  "readable": true,
+  "writable": false,
+  "blocked_reason": null,
+  "permissions": {
+    "owner_uid": 1000,
+    "owner_name": "bob",
+    "group_gid": 1000,
+    "group_name": "bob",
+    "mode": "0644",
+    "readable": true,
+    "writable": false
+  }
 }
 ```
+
+Response for blocked file:
+
+```json
+{
+  "path": "nextcloud/secret.env",
+  "name": "secret.env",
+  "type": "unknown_file",
+  "stack_id": "nextcloud",
+  "content": null,
+  "encoding": null,
+  "size_bytes": 128,
+  "modified_at": "2026-04-04T12:00:00Z",
+  "readable": false,
+  "writable": false,
+  "blocked_reason": "not_readable",
+  "permissions": {
+    "owner_uid": 0,
+    "owner_name": "root",
+    "group_gid": 0,
+    "group_name": "root",
+    "mode": "0600",
+    "readable": false,
+    "writable": false
+  }
+}
+```
+
+Notes:
+
+- `permissions` describe the current file inode, not assumed ACL inheritance
+- unreadable files return metadata only and set `blocked_reason`
+- blocked reasons currently include:
+  - `not_readable`
+  - `not_writable`
 
 ## `PUT /api/config/workspace/file`
 
@@ -368,14 +444,38 @@ Response when Git workspace is available:
       "scope": "config",
       "stack_id": "demo",
       "status": "modified",
-      "old_path": null
+      "old_path": null,
+      "permissions": {
+        "owner_uid": 1000,
+        "owner_name": "bob",
+        "group_gid": 1000,
+        "group_name": "bob",
+        "mode": "0644",
+        "readable": true,
+        "writable": true
+      },
+      "diff_available": true,
+      "commit_allowed": true,
+      "blocked_reason": null
     },
     {
       "path": "config/demo/new.env",
       "scope": "config",
       "stack_id": "demo",
       "status": "untracked",
-      "old_path": null
+      "old_path": null,
+      "permissions": {
+        "owner_uid": 1000,
+        "owner_name": "bob",
+        "group_gid": 1000,
+        "group_name": "bob",
+        "mode": "0644",
+        "readable": true,
+        "writable": true
+      },
+      "diff_available": true,
+      "commit_allowed": true,
+      "blocked_reason": null
     }
   ]
 }
@@ -397,6 +497,11 @@ Notes:
 - only changes under `stacks/` and `config/` are included
 - `clean` is scoped to those managed roots, not the whole repository
 - this endpoint is read-only and safe to poll on navigation
+- each changed item includes:
+  - `permissions`
+  - `diff_available`
+  - `commit_allowed`
+  - `blocked_reason`
 
 ## `GET /api/git/workspace/diff`
 
@@ -418,6 +523,17 @@ Response:
   "stack_id": "demo",
   "status": "modified",
   "old_path": null,
+  "permissions": {
+    "owner_uid": 1000,
+    "owner_name": "bob",
+    "group_gid": 1000,
+    "group_name": "bob",
+    "mode": "0644",
+    "readable": true,
+    "writable": true
+  },
+  "diff_available": true,
+  "blocked_reason": null,
   "is_binary": false,
   "diff": "diff --git a/config/demo/app.conf b/config/demo/app.conf\n@@ -1 +1 @@\n-server_name old.local;\n+server_name demo.local;\n",
   "truncated": false
@@ -434,7 +550,45 @@ Binary response:
   "stack_id": "demo",
   "status": "untracked",
   "old_path": null,
+  "permissions": {
+    "owner_uid": 1000,
+    "owner_name": "bob",
+    "group_gid": 1000,
+    "group_name": "bob",
+    "mode": "0644",
+    "readable": true,
+    "writable": true
+  },
+  "diff_available": false,
+  "blocked_reason": null,
   "is_binary": true,
+  "diff": null,
+  "truncated": false
+}
+```
+
+Blocked response:
+
+```json
+{
+  "available": true,
+  "path": "config/demo/secret.env",
+  "scope": "config",
+  "stack_id": "demo",
+  "status": "modified",
+  "old_path": null,
+  "permissions": {
+    "owner_uid": 0,
+    "owner_name": "root",
+    "group_gid": 0,
+    "group_name": "root",
+    "mode": "0600",
+    "readable": false,
+    "writable": false
+  },
+  "diff_available": false,
+  "blocked_reason": "not_readable",
+  "is_binary": false,
   "diff": null,
   "truncated": false
 }
@@ -487,6 +641,7 @@ Rules:
 - stack-level quick selection is a UI convenience only
 - selected files must currently be changed under `stacks/` or `config/`
 - conflicted files are rejected
+- unreadable selected files are rejected with `409 permission_denied`
 
 ## `POST /api/git/workspace/push`
 

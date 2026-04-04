@@ -969,7 +969,9 @@ components:
         stack_id:
           type: string
           nullable: true
-      required: [name, path, type, size_bytes, modified_at]
+        permissions:
+          $ref: '#/components/schemas/FilePermissions'
+      required: [name, path, type, size_bytes, modified_at, permissions]
     ConfigFileResponse:
       type: object
       properties:
@@ -993,9 +995,16 @@ components:
         modified_at:
           type: string
           format: date-time
+        readable:
+          type: boolean
         writable:
           type: boolean
-      required: [path, name, type, size_bytes, modified_at, writable]
+        blocked_reason:
+          type: string
+          nullable: true
+        permissions:
+          $ref: '#/components/schemas/FilePermissions'
+      required: [path, name, type, size_bytes, modified_at, readable, writable, permissions]
     ConfigFileSaveRequest:
       type: object
       properties:
@@ -1072,7 +1081,16 @@ components:
         old_path:
           type: string
           nullable: true
-      required: [path, scope, status]
+        permissions:
+          $ref: '#/components/schemas/FilePermissionsNullable'
+        diff_available:
+          type: boolean
+        commit_allowed:
+          type: boolean
+        blocked_reason:
+          type: string
+          nullable: true
+      required: [path, scope, status, diff_available, commit_allowed]
     GitDiffResponse:
       type: object
       properties:
@@ -1090,6 +1108,13 @@ components:
         old_path:
           type: string
           nullable: true
+        permissions:
+          $ref: '#/components/schemas/FilePermissionsNullable'
+        diff_available:
+          type: boolean
+        blocked_reason:
+          type: string
+          nullable: true
         is_binary:
           type: boolean
         diff:
@@ -1097,7 +1122,33 @@ components:
           nullable: true
         truncated:
           type: boolean
-      required: [available, path, scope, status, is_binary, truncated]
+      required: [available, path, scope, status, diff_available, is_binary, truncated]
+    FilePermissions:
+      type: object
+      properties:
+        owner_uid:
+          type: integer
+          nullable: true
+        owner_name:
+          type: string
+          nullable: true
+        group_gid:
+          type: integer
+          nullable: true
+        group_name:
+          type: string
+          nullable: true
+        mode:
+          type: string
+        readable:
+          type: boolean
+        writable:
+          type: boolean
+      required: [mode, readable, writable]
+    FilePermissionsNullable:
+      anyOf:
+        - $ref: '#/components/schemas/FilePermissions'
+        - type: 'null'
     GitCommitRequest:
       type: object
       properties:

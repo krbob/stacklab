@@ -115,21 +115,57 @@ Response when Git workspace is available:
       "scope": "config",
       "stack_id": "demo",
       "status": "modified",
-      "old_path": null
+      "old_path": null,
+      "permissions": {
+        "owner_uid": 1000,
+        "owner_name": "bob",
+        "group_gid": 1000,
+        "group_name": "bob",
+        "mode": "0644",
+        "readable": true,
+        "writable": true
+      },
+      "diff_available": true,
+      "commit_allowed": true,
+      "blocked_reason": null
     },
     {
       "path": "config/demo/new.env",
       "scope": "config",
       "stack_id": "demo",
       "status": "untracked",
-      "old_path": null
+      "old_path": null,
+      "permissions": {
+        "owner_uid": 1000,
+        "owner_name": "bob",
+        "group_gid": 1000,
+        "group_name": "bob",
+        "mode": "0644",
+        "readable": true,
+        "writable": true
+      },
+      "diff_available": true,
+      "commit_allowed": true,
+      "blocked_reason": null
     },
     {
       "path": "stacks/demo/compose.yaml",
       "scope": "stacks",
       "stack_id": "demo",
       "status": "modified",
-      "old_path": null
+      "old_path": null,
+      "permissions": {
+        "owner_uid": 1000,
+        "owner_name": "bob",
+        "group_gid": 1000,
+        "group_name": "bob",
+        "mode": "0644",
+        "readable": true,
+        "writable": true
+      },
+      "diff_available": true,
+      "commit_allowed": true,
+      "blocked_reason": null
     }
   ]
 }
@@ -150,6 +186,11 @@ Notes:
 
 - `items` should include only changed files under managed roots
 - unchanged files are excluded
+- each item should expose:
+  - `permissions`
+  - `diff_available`
+  - `commit_allowed`
+  - `blocked_reason`
 - sort should be deterministic:
   - by `scope`
   - then by `stack_id` / `path`
@@ -174,6 +215,17 @@ Response:
   "stack_id": "demo",
   "status": "modified",
   "old_path": null,
+  "permissions": {
+    "owner_uid": 1000,
+    "owner_name": "bob",
+    "group_gid": 1000,
+    "group_name": "bob",
+    "mode": "0644",
+    "readable": true,
+    "writable": true
+  },
+  "diff_available": true,
+  "blocked_reason": null,
   "is_binary": false,
   "diff": "@@ -1,2 +1,2 @@\n-server_name old.local;\n+server_name demo.local;\n",
   "truncated": false
@@ -190,7 +242,18 @@ For binary files:
   "stack_id": "demo",
   "status": "modified",
   "old_path": null,
-  "is_binary": true,
+  "permissions": {
+    "owner_uid": 0,
+    "owner_name": "root",
+    "group_gid": 0,
+    "group_name": "root",
+    "mode": "0600",
+    "readable": false,
+    "writable": false
+  },
+  "diff_available": false,
+  "blocked_reason": "not_readable",
+  "is_binary": false,
   "diff": null,
   "truncated": false
 }
@@ -201,6 +264,7 @@ Notes:
 - untracked files should diff against an empty file
 - deleted files should still return metadata and diff text when practical
 - binary files should not return inline content
+- unreadable files should return metadata with `diff_available: false`
 - large diffs may be truncated, but truncation must be explicit
 
 ## Error Handling
@@ -218,6 +282,7 @@ Examples:
 - asking for `path=../etc/passwd` → `400 path_outside_workspace`
 - asking for a path outside `stacks/` or `config/` → `400 validation_failed`
 - asking for a path with no current change entry → `404 not_found`
+- trying to commit an unreadable changed file → `409 permission_denied`
 
 ## UI Expectations
 
