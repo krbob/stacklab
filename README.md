@@ -5,7 +5,8 @@ Stacklab is a host-native, Compose-first control panel for Docker Compose stacks
 It is built for a homelab-style environment:
 
 - one managed host
-- Linux `amd64` as the target platform
+- Linux `amd64` as the primary target platform
+- Linux `arm64` also supported
 - LAN-only usage
 - Docker Compose as the source of truth
 - filesystem-first management instead of a database-owned stack model
@@ -25,7 +26,7 @@ Implemented today:
 - stack create/delete flows
 - audit history
 - backend and frontend automated tests
-- manual-on-demand Linux `amd64` release artifact build
+- manual-on-demand Linux `amd64` and `arm64` release artifact build
 - staging deployment trials on Linux `arm64`, Ubuntu `amd64`, and Debian `amd64`
 
 Not done yet:
@@ -128,7 +129,7 @@ Good entry points:
 
 ## Current Constraints
 
-- target platform is Linux `amd64`, even though development and much of integration testing can happen on macOS
+- primary production target is Linux `amd64`, with Linux `arm64` also supported
 - Stacklab currently assumes a single local operator model
 - host shell is intentionally deferred beyond the current MVP
 - `source=last_valid` for resolved config is not implemented yet

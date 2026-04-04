@@ -153,7 +153,8 @@ The reminder issue should include:
 1. review merged changes since the previous release
 2. review Renovate PRs that are already green and safe to merge
 3. ensure required CI checks are green on `main`
-4. run Linux `amd64` smoke validation
+4. run Linux smoke validation
+   `amd64` is primary; use `arm64` smoke too when shipping or validating that architecture
 5. build the release artifact
 6. publish release notes and tag
 7. optionally deploy to the homelab host
@@ -165,7 +166,7 @@ Publish the monthly release only if all of these are true:
 - required CI checks are green
 - no known critical regression is open
 - backend and frontend integration is stable for the intended scope
-- Linux `amd64` smoke validation passes
+- Linux smoke validation passes for the intended release architecture, with `amd64` as the primary baseline
 
 Do not publish just because the reminder fired.
 
@@ -190,7 +191,7 @@ The release process can become more automated later if all of these become true:
 
 - CI is strong and trustworthy
 - Docker-backed integration tests are stable
-- Linux `amd64` release smoke is routine
+- Linux release smoke is routine on the intended architecture set
 - production deployments are low-risk
 
 At that point, we may consider:

@@ -17,8 +17,14 @@ concurrency:
 
 jobs:
   release-build:
-    name: release-build
+    name: release-build-${{ matrix.arch }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - amd64
+          - arm64
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -44,12 +50,13 @@ jobs:
         env:
           STACKLAB_RELEASE_VERSION: ${{ inputs.version }}
           STACKLAB_RELEASE_COMMIT: ${{ github.sha }}
+          STACKLAB_RELEASE_GOARCH: ${{ matrix.arch }}
         run: scripts/release/build-artifact.sh
 
       - name: Upload release artifact
         uses: actions/upload-artifact@v4
         with:
-          name: stacklab-${{ inputs.version }}-linux-amd64
+          name: stacklab-${{ inputs.version }}-linux-${{ matrix.arch }}
           path: |
-            dist/release/stacklab-${{ inputs.version }}-linux-amd64.tar.gz
-            dist/release/stacklab-${{ inputs.version }}-linux-amd64.tar.gz.sha256
+            dist/release/stacklab-${{ inputs.version }}-linux-${{ matrix.arch }}.tar.gz
+            dist/release/stacklab-${{ inputs.version }}-linux-${{ matrix.arch }}.tar.gz.sha256

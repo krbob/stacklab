@@ -22,7 +22,9 @@ Stacklab MVP is acceptable when:
 
 These criteria assume:
 
-- one Linux `amd64` host
+- one Linux host
+- `amd64` as the primary deployment architecture
+- `arm64` also supported
 - Docker Engine installed and running
 - Compose v2 available through either `docker compose` or standalone `docker-compose`
 - Stacklab deployed host-natively via the documented model

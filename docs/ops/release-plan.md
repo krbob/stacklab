@@ -38,7 +38,7 @@ This is the right time to standardize the artifact shape, but not yet the right 
 
 Start the next phase of release work when at least one of these is true:
 
-- the first deployment to a real Linux `amd64` host is planned
+- the first deployment to a real Linux host is planned
 - the MVP user flows are stable enough that weekly upgrade churn is no longer extreme
 - UI and backend integration for editor, jobs, logs, stats, terminal, create/delete, and audit is functionally complete
 
@@ -49,7 +49,7 @@ Practical recommendation:
 
 ## Target Production Model
 
-Stacklab should be released as a host-native Linux `amd64` application, not as a Docker management container.
+Stacklab should be released as a host-native Linux application, with `amd64` as the primary release architecture and `arm64` also supported.
 
 Target release contents:
 
@@ -91,14 +91,14 @@ Why this layout:
 
 ## Target Artifact Format
 
-Preferred artifact:
+Preferred artifact set:
 
-- one `tar.gz` per release for `linux-amd64`
+- one `tar.gz` per supported architecture per release
 
 Suggested contents:
 
 ```text
-stacklab-<version>-linux-amd64/
+stacklab-<version>-linux-<arch>/
   bin/stacklab
   frontend/dist/...
   metadata/version.txt
@@ -145,7 +145,7 @@ The first implemented release workflow should stay small.
 
 Current responsibilities:
 
-- build a Linux `amd64` release artifact on demand
+- build Linux `amd64` and `arm64` release artifacts on demand
 - upload the artifact and checksum to the workflow run
 
 Planned later responsibilities:
@@ -210,7 +210,7 @@ What is **not** fully validated on macOS:
 
 - `systemd`
 - Linux service account and permission model
-- exact Linux `amd64` runtime behavior
+- exact Linux runtime behavior on the target architecture
 - final host deployment procedure
 
 Conclusion:
@@ -218,18 +218,18 @@ Conclusion:
 - macOS is good for daily development and most integration testing
 - it is not the final production-equivalent verification environment
 
-### Pre-release validation on Linux `amd64`
+### Pre-release validation on Linux
 
-Before the first real deployment, we should verify on a Linux `amd64` environment.
+Before the first real deployment, we should verify on a Linux environment matching the intended host architecture.
 
 Preferred options:
 
 - the real homelab host
-- a small staging VM or VPS running Linux `amd64`
+- a small staging VM or VPS running Linux `amd64` or `arm64`
 
 Acceptable fallback:
 
-- local Linux `amd64` VM on the MacBook
+- local Linux VM matching the target architecture
 
 This validation should cover:
 

@@ -2,7 +2,7 @@
 
 ## Product Statement
 
-Stacklab is a host-native, web-based control panel for managing Docker Compose stacks on a single Linux `amd64` host.
+Stacklab is a host-native, web-based control panel for managing Docker Compose stacks on a single Linux host, with `amd64` as the primary architecture and `arm64` also supported.
 
 The system is intentionally `Compose-first`:
 
@@ -51,7 +51,9 @@ Secondary application state:
 ## Design Constraints
 
 - Docker Compose only
-- Linux `amd64` only
+- Linux only
+- `amd64` is the primary supported architecture
+- `arm64` is also supported
 - host-native deployment preferred over running Stacklab as a privileged management container
 - filesystem remains user-readable and user-editable without Stacklab
 - security must assume terminal features are high-risk even on LAN

@@ -311,7 +311,7 @@ Promote only after:
 
 ## Purpose
 
-This workflow builds the distributable Linux `amd64` artifact described in the release plan.
+This workflow builds the distributable Linux release artifacts described in the release plan.
 
 It is not a normal PR gate at the beginning.
 
@@ -334,7 +334,7 @@ Later:
 
 ## Recommended jobs
 
-### `build-release-linux-amd64`
+### `release-build`
 
 Runner:
 
@@ -350,6 +350,7 @@ Commands:
 ```bash
 cd frontend && npm ci && npm run build
 GOOS=linux GOARCH=amd64 go build -o dist/bin/stacklab ./cmd/stacklab
+GOOS=linux GOARCH=arm64 go build -o dist/bin/stacklab ./cmd/stacklab
 ```
 
 Then package:
@@ -361,7 +362,7 @@ Then package:
 
 Output:
 
-- upload artifact
+- upload one artifact per supported architecture
 - later create GitHub Release asset
 
 ## Advisory check recommendation
@@ -460,7 +461,7 @@ Advisory or later-stage names:
 - `backend-static-analysis`
 - `backend-vulncheck`
 - `coverage-report`
-- `build-release-linux-amd64`
+- `release-build`
 - `pre-release-smoke`
 
 ## Suggested Static Analysis Expansion

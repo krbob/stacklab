@@ -327,7 +327,7 @@ Exact commands may evolve, but the target is:
 - publish coverage numbers in CI
 - do not enforce hard thresholds yet
 
-### Stage 6: Add pre-release Linux `amd64` validation
+### Stage 6: Add pre-release Linux validation
 
 - packaged build smoke
 - host-native runtime smoke
@@ -345,7 +345,7 @@ Suggested first CI job split:
 
 Later additions:
 
-- `release-build-linux-amd64`
+- `release-build`
 - `pre-release-smoke`
 
 ## What Not To Do
