@@ -4,6 +4,8 @@ import type {
   ConfigFileSaveResponse,
   ConfigTreeResponse,
   DefinitionResponse,
+  GitDiffResponse,
+  GitWorkspaceStatusResponse,
   HealthResponse,
   HostOverviewResponse,
   JobDetail,
@@ -93,6 +95,16 @@ export function getStacklabLogs(params?: { limit?: number; cursor?: string; leve
   if (params?.q) search.set('q', params.q)
   const qs = search.toString()
   return request(`/api/host/stacklab-logs${qs ? `?${qs}` : ''}`)
+}
+
+// --- Git workspace ---
+
+export function getGitWorkspaceStatus(): Promise<GitWorkspaceStatusResponse> {
+  return request('/api/git/workspace/status')
+}
+
+export function getGitWorkspaceDiff(path: string): Promise<GitDiffResponse> {
+  return request(`/api/git/workspace/diff?path=${encodeURIComponent(path)}`)
 }
 
 // --- Config workspace ---

@@ -345,6 +345,45 @@ export interface ConfigFileSaveResponse {
   audit_action: string
 }
 
+// --- Git workspace ---
+
+export type GitFileStatus = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflicted'
+
+export interface GitStatusItem {
+  path: string
+  scope: 'stacks' | 'config'
+  stack_id: string | null
+  status: GitFileStatus
+  old_path: string | null
+}
+
+export interface GitWorkspaceStatusResponse {
+  available: boolean
+  repo_root: string
+  managed_roots: string[]
+  branch?: string
+  head_commit?: string
+  has_upstream?: boolean
+  upstream_name?: string
+  ahead_count?: number
+  behind_count?: number
+  clean?: boolean
+  reason?: string
+  items?: GitStatusItem[]
+}
+
+export interface GitDiffResponse {
+  available: boolean
+  path: string
+  scope: string
+  stack_id: string | null
+  status: GitFileStatus
+  old_path: string | null
+  is_binary: boolean
+  diff: string | null
+  truncated: boolean
+}
+
 export interface ApiError {
   error: {
     code: string
