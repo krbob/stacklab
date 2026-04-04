@@ -36,7 +36,7 @@ export type StackAction =
   | 'create_stack'
   | 'remove_stack_definition'
 
-export type TerminalExitReason = 'process_exit' | 'idle_timeout' | 'server_cleanup' | 'connection_replaced'
+export type TerminalExitReason = 'process_exit' | 'idle_timeout' | 'server_cleanup' | 'connection_replaced' | 'client_close'
 
 // --- REST response shapes ---
 
@@ -217,22 +217,25 @@ export interface ResolvedConfigResponse {
 
 export interface JobRef {
   id: string
-  stack_id: string
+  stack_id: string | null
   action: string
   state: JobState
   workflow?: {
-    steps: { action: string; state: string }[]
+    steps: { action: string; state: string; target_stack_id?: string }[]
   }
 }
 
 export interface JobDetail {
   id: string
-  stack_id: string
+  stack_id: string | null
   action: string
   state: JobState
   requested_at: string
   started_at: string | null
   finished_at: string | null
+  workflow?: {
+    steps: { action: string; state: string; target_stack_id?: string }[]
+  } | null
 }
 
 export interface AuditEntry {
@@ -382,6 +385,24 @@ export interface GitDiffResponse {
   is_binary: boolean
   diff: string | null
   truncated: boolean
+}
+
+// --- Maintenance ---
+
+export interface MaintenanceUpdateStacksRequest {
+  target: {
+    mode: 'selected' | 'all'
+    stack_ids?: string[]
+  }
+  options?: {
+    pull_images?: boolean
+    build_images?: boolean
+    remove_orphans?: boolean
+    prune_after?: {
+      enabled?: boolean
+      include_volumes?: boolean
+    }
+  }
 }
 
 export interface ApiError {

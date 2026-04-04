@@ -69,7 +69,7 @@ export interface StatsFrame {
 
 export interface JobEvent {
   job_id: string
-  stack_id: string
+  stack_id: string | null
   action: string
   state: string
   event: string
@@ -79,6 +79,7 @@ export interface JobEvent {
     index: number
     total: number
     action: string
+    target_stack_id?: string
   } | null
   timestamp: string
 }

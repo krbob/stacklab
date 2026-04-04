@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { getStacks, getStack, login, ApiClientError } from './api-client'
+import { getStacks, getStack, login, updateStacksMaintenance, ApiClientError } from './api-client'
 
 const mockFetch = vi.fn()
 vi.stubGlobal('fetch', mockFetch)
@@ -66,6 +66,37 @@ describe('api-client', () => {
       const call = mockFetch.mock.calls[0]
       expect(call[1].method).toBe('POST')
       expect(JSON.parse(call[1].body)).toEqual({ password: 'secret' })
+    })
+  })
+
+  describe('updateStacksMaintenance', () => {
+    it('posts maintenance workflow payload', async () => {
+      mockFetch.mockReturnValueOnce(jsonResponse({
+        job: { id: 'job_123', stack_id: null, action: 'update_stacks', state: 'running' },
+      }))
+
+      await updateStacksMaintenance({
+        target: { mode: 'selected', stack_ids: ['demo'] },
+        options: {
+          pull_images: true,
+          build_images: true,
+          remove_orphans: true,
+          prune_after: { enabled: false, include_volumes: false },
+        },
+      })
+
+      const call = mockFetch.mock.calls[0]
+      expect(call[0]).toBe('/api/maintenance/update-stacks')
+      expect(call[1].method).toBe('POST')
+      expect(JSON.parse(call[1].body)).toEqual({
+        target: { mode: 'selected', stack_ids: ['demo'] },
+        options: {
+          pull_images: true,
+          build_images: true,
+          remove_orphans: true,
+          prune_after: { enabled: false, include_volumes: false },
+        },
+      })
     })
   })
 

@@ -10,6 +10,7 @@ import type {
   HostOverviewResponse,
   JobDetail,
   JobRef,
+  MaintenanceUpdateStacksRequest,
   MetaResponse,
   ResolvedConfigResponse,
   SessionResponse,
@@ -234,6 +235,13 @@ export function deleteStack(stackId: string, flags: {
   return request(`/api/stacks/${encodeURIComponent(stackId)}`, {
     method: 'DELETE',
     body: JSON.stringify(flags),
+  })
+}
+
+export function updateStacksMaintenance(payload: MaintenanceUpdateStacksRequest): Promise<{ job: JobRef }> {
+  return request('/api/maintenance/update-stacks', {
+    method: 'POST',
+    body: JSON.stringify(payload),
   })
 }
 
