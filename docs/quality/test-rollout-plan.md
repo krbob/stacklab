@@ -231,8 +231,7 @@ Promote only after:
 
 Status:
 
-- backend harness and fixture root prepared
-- browser scenarios not implemented yet
+- implemented as advisory browser smoke
 
 Implement later, after API/runtime coverage is healthier.
 
@@ -241,11 +240,19 @@ Keep it intentionally small.
 Recommended scenarios:
 
 1. login -> dashboard
-2. create stack -> deploy -> logs
-3. editor save -> progress -> audit
-4. terminal open -> close
+2. editor load -> preview -> save -> audit visibility
+3. create stack -> delete stack
+4. global audit page load and action visibility
 
 This should be smoke, not a giant browser test pyramid.
+
+Current workflow:
+
+- `.github/workflows/browser-e2e.yml`
+
+Current posture:
+
+- advisory, not required yet
 
 ## Step 9: Add pre-release environment validation
 
@@ -277,6 +284,6 @@ The next concrete implementation order should be:
 
 Current action:
 
-- implement Step 7 next
+- observe browser E2E stability before promoting it higher
 
-This is now the highest-leverage move because baseline CI, Docker-backed integration, and an initial contract suite are already in place, and the next missing guardrail is static analysis signal.
+The next high-leverage moves are Docker-backed stability and more precise runtime coverage, not a larger browser pyramid.

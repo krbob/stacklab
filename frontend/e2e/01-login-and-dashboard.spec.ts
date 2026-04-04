@@ -18,7 +18,7 @@ test.describe('Login and Dashboard', () => {
 
   test('logs in and shows dashboard with seeded stack', async ({ page }) => {
     await login(page)
-    await expect(page.getByText('Stacks')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Stacks' })).toBeVisible()
     await expect(page.getByTestId('stack-card-demo')).toBeVisible()
   })
 

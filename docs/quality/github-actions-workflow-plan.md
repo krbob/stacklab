@@ -13,7 +13,7 @@ It defines:
 - which checks should become required
 - rollout order
 
-This is still a planning document. It does not mean the workflows should be implemented immediately.
+This is now partly historical: several workflows in this document are already implemented, while later release-oriented workflows remain planned.
 
 ## Guiding Principles
 
@@ -29,11 +29,18 @@ Recommended future workflow files:
 - `.github/workflows/pr-quality.yml`
 - `.github/workflows/docker-integration.yml`
 - `.github/workflows/advisory-static-analysis.yml`
+- `.github/workflows/browser-e2e.yml`
 - `.github/workflows/release-build.yml`
 - `.github/workflows/pre-release-smoke.yml`
 
-The first two should matter for normal PR validation at the beginning.
-The advisory static-analysis workflow should run, but it should not become required yet.
+Currently implemented:
+
+- `.github/workflows/pr-quality.yml`
+- `.github/workflows/docker-integration.yml`
+- `.github/workflows/advisory-static-analysis.yml`
+- `.github/workflows/browser-e2e.yml`
+
+The advisory workflows should run, but they should not become required too early.
 
 ## 1. `pr-quality.yml`
 
@@ -211,8 +218,6 @@ Until then, it can exist as advisory or be run only on `main` and `workflow_disp
 - this is the workflow that most directly hardens Stacklab against Renovate regressions
 - for Stacklab, this job is more important than a high coverage percentage
 
-## 3. `release-build.yml`
-
 ## 2a. `advisory-static-analysis.yml`
 
 ## Purpose
@@ -251,6 +256,55 @@ Keep both advisory at first:
 - `backend-vulncheck`
 
 Promote only after they prove stable and useful over several normal PR cycles.
+
+## 2b. `browser-e2e.yml`
+
+## Purpose
+
+This workflow provides lightweight browser-level smoke against the real backend harness and built frontend.
+
+It should stay intentionally small and focus on critical end-user paths rather than deep runtime protocol coverage.
+
+## Recommended triggers
+
+- `pull_request`
+- `push` to `main`
+- `workflow_dispatch`
+
+## Recommended jobs
+
+### `browser-e2e`
+
+Setup:
+
+- Node `24`
+- Go from `go.mod`
+- Playwright Chromium installed on the runner
+
+Recommended validation scope:
+
+- login redirect and successful login
+- dashboard visibility and stack navigation
+- editor load, preview, and save flow
+- create and delete stack flow
+- global audit page visibility
+
+## Required check recommendation
+
+Keep this advisory at first:
+
+- `browser-e2e`
+
+Promote only after:
+
+- repeated green runs
+- no significant flakiness
+- selectors and fixture isolation prove stable over normal PR traffic
+
+## Notes
+
+- this workflow should complement, not replace, backend Docker-backed integration tests
+- on failure it should upload Playwright screenshots or traces and backend harness logs
 
 ## 3. `release-build.yml`
 

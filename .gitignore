@@ -17,6 +17,8 @@ node_modules/
 dist/
 .vite/
 coverage/
+frontend/test-results/
+frontend/playwright-report/
 
 # Go
 bin/

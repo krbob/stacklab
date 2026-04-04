@@ -1,0 +1,97 @@
+name: Browser E2E
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: browser-e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser-e2e:
+    name: browser-e2e
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Install Playwright browser
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Start E2E backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts/e2e/run-backend.sh >"${RUNNER_TEMP}/stacklab-e2e.log" 2>&1 &
+          echo $! > "${RUNNER_TEMP}/stacklab-e2e.pid"
+
+      - name: Wait for backend health
+        shell: bash
+        run: |
+          set -euo pipefail
+          for _ in {1..60}; do
+            if curl -fsS http://127.0.0.1:18081/api/health >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Backend did not become healthy in time" >&2
+          exit 1
+
+      - name: Run browser E2E
+        working-directory: frontend
+        env:
+          STACKLAB_E2E_URL: http://127.0.0.1:18081
+          STACKLAB_E2E_PASSWORD: stacklab-e2e
+        run: npm run test:e2e
+
+      - name: Stop E2E backend
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f "${RUNNER_TEMP}/stacklab-e2e.pid" ]]; then
+            pid="$(cat "${RUNNER_TEMP}/stacklab-e2e.pid")"
+            kill "${pid}" 2>/dev/null || true
+            wait "${pid}" 2>/dev/null || true
+          fi
+
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-e2e-artifacts
+          path: |
+            frontend/test-results
+            frontend/playwright-report
+            ${{ runner.temp }}/stacklab-e2e.log
+          if-no-files-found: ignore

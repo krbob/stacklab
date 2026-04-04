@@ -154,11 +154,7 @@ describe('useJobStream', () => {
     expect(unsubFrames).toHaveLength(1)
   })
 
-  it('appends new events from replay after reconnect', () => {
-    // After reconnect, seenRef resets, but streamState is NOT cleared for the same jobId.
-    // Replayed events that are identical to already-received ones will be added again.
-    // This is acceptable: the progress panel renders sequentially and the final state is correct.
-    // The important thing is that the NEW event (job_finished) is received.
+  it('does not duplicate replayed events after reconnect', () => {
     const { result } = renderHook(
       () => useJobStream({ jobId: 'job_replay' }),
       {
@@ -181,16 +177,16 @@ describe('useJobStream', () => {
     act(() => { controls.setConnected(false) })
     act(() => { controls.setConnected(true) })
 
-    // Backend sends only the new terminal event
+    // Backend replays old events plus the new terminal event.
     act(() => {
+      controls.emit(streamId, jobEvent('job_replay', 'job_started', 'running', 'Started', '2026-01-01T00:00:01Z'))
+      controls.emit(streamId, jobEvent('job_replay', 'job_progress', 'running', 'Pulling', '2026-01-01T00:00:02Z'))
       controls.emit(streamId, jobEvent('job_replay', 'job_finished', 'succeeded', 'Done', '2026-01-01T00:00:03Z'))
     })
 
-    // State should reflect the latest event
     expect(result.current.state).toBe('succeeded')
-    // New event is appended
-    const doneEvents = result.current.events.filter((e) => e.message === 'Done')
-    expect(doneEvents).toHaveLength(1)
+    expect(result.current.events).toHaveLength(3)
+    expect(result.current.events.map((event) => event.message)).toEqual(['Started', 'Pulling', 'Done'])
   })
 
   it('deduplicates within a single connection session', () => {

@@ -37,8 +37,9 @@ test.describe('Global Audit', () => {
 
       // Now verify it's visible in global audit UI
       await page.goto('/audit')
-      await expect(page.getByTestId('audit-row').first()).toBeVisible()
-      await expect(page.getByText('save_definition')).toBeVisible()
+      const row = page.getByTestId('audit-row').filter({ hasText: AUDIT_STACK }).first()
+      await expect(row).toBeVisible()
+      await expect(row.getByText('save_definition')).toBeVisible()
     } finally {
       await deleteStackViaApi(page, AUDIT_STACK)
     }

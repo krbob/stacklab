@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useWs } from '@/hooks/use-ws'
 import type { JobEvent, WsServerFrame } from '@/lib/ws-types'
 
@@ -17,10 +17,14 @@ export function useJobStream({ jobId, enabled = true }: UseJobStreamOptions) {
   const { connected, send, subscribe } = useWs()
   const [streamState, setStreamState] = useState<JobStreamState>({ events: [], jobState: null, forJobId: null })
   const seenRef = useRef<Set<string>>(new Set())
+  const activeJobIdRef = useRef<string | null>(jobId)
 
   useEffect(() => {
+    activeJobIdRef.current = jobId
     seenRef.current = new Set()
+  }, [jobId])
 
+  useEffect(() => {
     if (!jobId || !connected || !enabled) return
 
     const streamId = `job_${jobId}_progress`
@@ -36,16 +40,17 @@ export function useJobStream({ jobId, enabled = true }: UseJobStreamOptions) {
     const currentJobId = jobId
     const unsub = subscribe(streamId, (frame: WsServerFrame) => {
       if (frame.type === 'jobs.event' && frame.payload) {
+        if (activeJobIdRef.current !== currentJobId) return
+
         const event = frame.payload as unknown as JobEvent
         const dedup = `${event.event}:${event.timestamp}:${event.message ?? ''}`
         if (seenRef.current.has(dedup)) return
         seenRef.current.add(dedup)
 
         setStreamState((prev) => {
-          // If jobId changed between subscribe and event arrival, ignore
-          if (prev.forJobId !== null && prev.forJobId !== currentJobId) return prev
+          const sameJob = prev.forJobId === currentJobId
           return {
-            events: [...prev.events, event],
+            events: sameJob ? [...prev.events, event] : [event],
             jobState: event.state,
             forJobId: currentJobId,
           }
@@ -76,5 +81,5 @@ export function useJobStream({ jobId, enabled = true }: UseJobStreamOptions) {
     seenRef.current = new Set()
   }, [])
 
-  return useMemo(() => ({ events, state, clear }), [events, state, clear])
+  return { events, state, clear }
 }

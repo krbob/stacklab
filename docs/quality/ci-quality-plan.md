@@ -35,6 +35,7 @@ Current observations:
 - a dedicated GitHub Actions workflow can now run that suite, but it should prove stable before becoming a required gate
 - a representative OpenAPI-backed contract suite now exists for core success-path endpoints
 - advisory GitHub Actions checks now exist for `staticcheck` and `govulncheck`
+- an advisory browser E2E workflow now exists for lightweight Playwright smoke
 
 ## Quality Principles
 

@@ -117,7 +117,13 @@ Important:
 
 ## CI shape
 
-The browser E2E workflow is not implemented yet, but the intended CI sequence is:
+The browser E2E suite now runs in GitHub Actions through:
+
+```text
+.github/workflows/browser-e2e.yml
+```
+
+The implemented CI sequence is:
 
 ```bash
 cd frontend
@@ -138,7 +144,7 @@ npx playwright test
 kill "${STACKLAB_PID}"
 ```
 
-On failure, CI should upload:
+On failure, CI uploads:
 
 - Playwright trace/screenshots
 - `/tmp/stacklab-e2e.log`
