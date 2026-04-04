@@ -13,6 +13,7 @@ It is intentionally narrower than full GitOps or a generic Git client.
 - expose local Git state for `/opt/stacklab/stacks` and `/opt/stacklab/config`
 - make UI edits auditable in a Git-aware workflow
 - prepare the ground for later `commit + push`
+- preserve enough metadata for selective per-file commit flows later
 
 ## Non-Goals
 
@@ -244,4 +245,6 @@ This contract is intentionally compatible with Milestone 4:
 Meaning:
 
 - `status` response should already include enough metadata for file selection UX later
+- the primary write model later should be per-file selection
+- stack-aware grouping should support quick selection of one stack without forcing stack-only commits
 - but Milestone 3 itself remains read-only

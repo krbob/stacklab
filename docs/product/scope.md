@@ -29,11 +29,13 @@ Single operator or a very small trusted household team managing one homelab mach
 - edit stack definitions safely
 - edit supporting configuration under `/opt/stacklab/config` without leaving the product
 - run operational actions without dropping to a separate terminal for routine tasks
+- run safe bulk update workflows that replace ad-hoc host scripts for stack maintenance
 - inspect logs, stats, and container shell sessions when diagnosing problems
 - update images or rebuild services with predictable behavior
 - understand whether an issue is caused by the host, Docker, or the stack itself
 - perform selected maintenance workflows without turning Stacklab into a generic Docker control plane
 - keep local workspace changes reviewable and easy to commit back to Git
+- selectively commit only the files relevant to one stack when needed, without forcing unrelated changes into the same commit
 
 ## Product Principles
 
@@ -45,6 +47,7 @@ Single operator or a very small trusted household team managing one homelab mach
 - Git-aware, but not an always-on GitOps controller
 - local-workspace-first Git integration over remote-reconciliation-first Git integration
 - host-native features should be used where they genuinely improve operations
+- dedicated non-root service account by default, with explicit privileged repair flows only where truly needed
 
 ## Source Of Truth
 
@@ -73,12 +76,15 @@ Secondary application state:
 - filesystem remains user-readable and user-editable without Stacklab
 - security must assume terminal features are high-risk even on LAN
 - Docker objects outside Compose may be exposed selectively only when they directly support Compose operations or safe host maintenance
+- Stacklab should not run as `root` by default merely to work around container-created file ownership problems
 
 ## Success Criteria
 
 - operator can create, inspect, edit, deploy, and troubleshoot stacks without losing manual CLI compatibility
 - operator can inspect and edit relevant config files under `/opt/stacklab/config` without needing a separate host editor for common workflows
 - operator can understand what changed locally before committing or pushing Git changes
+- operator can stage a commit from selected files only, including a one-stack workflow when desired
 - stack state in UI matches actual Docker runtime state
 - failed operations are explicit and recoverable
+- permission problems caused by container-created files are visible and diagnosable without requiring Stacklab itself to run as `root`
 - UI developer can build screens against stable backend contracts

@@ -14,113 +14,59 @@ Reason:
 - the biggest product value still sits in operator workflows
 - package distribution is important, but currently lower leverage than the next feature set
 
+## Completed Foundations
+
+The following milestones are already materially in place:
+
+- Host Observability
+  - Stacklab version/build metadata in the UI
+  - host overview page
+  - Stacklab service log viewer
+- Config Workspace
+  - safe browse/read/write under `/opt/stacklab/config`
+  - audit integration
+- Local Git Workspace Visibility
+  - read-only Git status and diff backend
+  - UI integration remains the active follow-through
+
 ## Recommended Sequence
 
-## Milestone 1: Host Observability
+## Milestone 4: Safe Bulk Maintenance
 
 Goal:
 
-- make Stacklab itself and the managed host observable from the UI
+- replace ad-hoc host scripts such as `update_stacks.sh` with a first-class Stacklab workflow
 
 Scope:
 
-- show Stacklab version and build metadata in the UI
-- add host overview data:
-  - hostname
-  - OS / kernel
-  - uptime
-  - CPU
-  - memory
-  - disk
-  - Docker version
-  - Compose version
-- add Stacklab service log viewer backed by `journalctl -u stacklab`
+- update selected stacks or all stacks in one workflow
+- explicit step model:
+  - pull
+  - build when needed
+  - `up -d --remove-orphans`
+- optional prune step, never implicit by default
+- result visibility per step, including warnings and partial failures
 
 Backend work:
 
-- extend host/system read model
-- add REST endpoints for host overview and Stacklab service logs
-- support polling or lightweight streaming for service logs
-- add tests for host metadata and journald-backed reads
+- maintenance workflow endpoint(s)
+- step-oriented job model for bulk stack updates
+- target selection for one, many, or all stacks
+- tests for multi-stack pull/build/up flows
 
 UI work:
 
-- host overview page or dashboard section
-- version display in settings / footer / host page
-- Stacklab log viewer with basic filtering and refresh/stream mode
-
-UI developer input needed:
-
-- after backend contract draft exists
-- before implementing the host overview layout and log viewer UX
-
-## Milestone 2: Config Workspace
-
-Goal:
-
-- make `/opt/stacklab/config` a first-class, safe workspace inside Stacklab
-
-Scope:
-
-- config tree view limited to `/opt/stacklab/config`
-- file browser for directories and files
-- text editor for common text-based config files
-- read-only fallback for unknown/binary files
-- save + audit integration
-
-Backend work:
-
-- define safe filesystem boundary under `/opt/stacklab/config`
-- expose browse/read/write endpoints
-- content-type / binary detection
-- file validation rules and path traversal hardening
-- audit entries for config edits
-- tests for browse/read/write and path safety
-
-UI work:
-
-- information architecture for config workspace
-- tree + editor layout
-- save/discard flow
-- file-type handling states
+- maintenance entry point
+- stack selection UX
+- progress and result breakdown
+- optional prune confirmation
 
 UI developer input needed:
 
 - early
-- needed before finalizing IA and route structure
+- selection UX and bulk progress presentation should not be guessed by backend
 
-## Milestone 3: Local Git Workspace Visibility
-
-Goal:
-
-- expose what changed locally in `/opt/stacklab/stacks` and `/opt/stacklab/config`
-
-Scope:
-
-- workspace Git status
-- changed/untracked files
-- diff against working tree / HEAD
-- stack-oriented and file-oriented views
-
-Backend work:
-
-- define Git workspace root and safety assumptions
-- add read-only Git status and diff endpoints
-- map changed files to stack/config contexts
-- add tests for clean/dirty/untracked/diff scenarios
-
-UI work:
-
-- status badges and changed-files views
-- diff viewer
-- integration with stack detail and config workspace
-
-UI developer input needed:
-
-- after API and domain semantics are clear
-- before finalizing diff UX
-
-## Milestone 4: Local Git Commit And Push
+## Milestone 5: Local Git Commit And Push
 
 Goal:
 
@@ -129,7 +75,10 @@ Goal:
 Scope:
 
 - commit message flow
-- commit all or selected files
+- per-file selection as the primary write model
+- stack-scoped quick selection as a convenience:
+  - `stacks/<stack_id>/**`
+  - `config/<stack_id>/**`
 - push to configured remote
 - clear error reporting for auth / remote failures
 
@@ -143,6 +92,7 @@ Backend work:
 
 - commit endpoint(s)
 - push endpoint
+- selection model for files and stack-scoped presets
 - clear Git error mapping
 - audit integration
 - tests using temporary local/remote Git repos
@@ -150,24 +100,58 @@ Backend work:
 UI work:
 
 - changed-files selection
+- stack-level quick actions
 - commit modal
 - push result and error states
 
 UI developer input needed:
 
 - early in the milestone
-- commit/push UX is not something backend should guess
+- commit/push UX and selection affordances should be designed intentionally
 
-## Milestone 5: Safe Maintenance
+## Milestone 6: Workspace Permission Diagnostics And Repair
 
 Goal:
 
-- give operators safe maintenance tools without becoming a generic Docker console
+- make container-created ownership and permission problems visible and recoverable without running Stacklab as `root`
 
 Scope:
 
-- image inventory
-- manual prune workflows
+- surface unreadable and unwritable files in config and Git views
+- show owner, group, and mode where possible
+- explain why some files cannot be diffed, edited, or committed
+- later add explicit repair workflows restricted to managed roots
+
+Non-goal:
+
+- running the main Stacklab service as `root` by default
+
+Backend work:
+
+- enrich workspace and Git models with permission diagnostics
+- detect blocked reads and blocked writes cleanly
+- define a future repair interface that stays scoped to managed roots
+
+UI work:
+
+- blocked-file states
+- ownership/mode messaging
+- repair entry point later, once backend model exists
+
+UI developer input needed:
+
+- after backend exposes concrete blocked-file semantics
+
+## Milestone 7: Broader Maintenance Inventory
+
+Goal:
+
+- add maintenance-oriented visibility beyond stack lifecycle without becoming a generic Docker console
+
+Scope:
+
+- manual prune workflows with explicit scope and preview
+- image inventory and selective image maintenance
 - read-only networks and volumes inventory
 - limited actions only where they directly support Compose operations
 
@@ -191,11 +175,11 @@ UI developer input needed:
 
 ## Packaging Track
 
-`.deb` packaging and later APT publication should start after Milestones 1-3 are substantially complete.
+`.deb` packaging and later APT publication should start after Milestones 4-5 are substantially complete.
 
 Reason:
 
-- those milestones shape runtime metadata, workspace assumptions, and config surface
+- those milestones shape Git assumptions, maintenance workflows, and operator expectations
 - packaging too early would lock operational details before the product shape settles
 
 Suggested order:
@@ -207,10 +191,10 @@ Suggested order:
 
 ## Recommended Immediate Next Step
 
-Start Milestone 3.
+Start Milestone 4.
 
 Concrete first deliverables:
 
-1. backend contract draft for Git workspace status and diff
-2. UI handoff for `Changes` mode inside `/config`
-3. backend implementation and tests for read-only Git visibility
+1. backend contract draft for bulk maintenance/update workflows
+2. UI handoff for stack selection and bulk progress UX
+3. backend implementation and tests for selected/all stack update flow

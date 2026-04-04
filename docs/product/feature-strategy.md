@@ -20,6 +20,7 @@ Stacklab should remain:
 That means Stacklab should prefer:
 
 - safe operational workflows around Compose stacks
+- first-class replacements for ad-hoc shell scripts operators use today
 - strong visibility into stack, host, and Stacklab health
 - selective Docker maintenance features that directly support Compose operations
 
@@ -166,6 +167,13 @@ Why:
 
 Suggested scope:
 
+- first-class maintenance flows that replace ad-hoc scripts such as `update_stacks.sh`
+- update selected stacks or all stacks in one workflow
+- make the workflow explicit:
+  - pull
+  - build when needed
+  - `up -d --remove-orphans`
+- keep prune as an explicit optional step, not an unavoidable side effect
 - manual prune first
 - explicit scope selection: dangling images, unused images, build cache, stopped containers
 - show preview/impact where practical
@@ -188,7 +196,13 @@ Suggested scope:
 - read-only Git status and diff first
 - workspace-level status for `/opt/stacklab/stacks` and `/opt/stacklab/config`
 - commit and push workflow for local changes made through Stacklab
+- per-file selection as the primary write model
+- stack-scoped quick selection as a convenience:
+  - select all files under `stacks/<stack_id>/**`
+  - select all files under `config/<stack_id>/**`
+- allow operators to keep unrelated changes untouched
 - file-level diff for stack definitions and config files
+- do not require versioning of arbitrary top-level repo content if Stacklab replaces old maintenance scripts directly
 
 Not recommended yet:
 
@@ -218,6 +232,28 @@ Avoid:
 
 - turning Stacklab into a general-purpose host file manager
 - exposing arbitrary host paths outside the Stacklab workspace
+
+#### Workspace permissions diagnostics and repair
+
+Recommendation: `yes`
+
+Why:
+
+- containers sometimes create unreadable or root-owned files on bind mounts
+- that can block Git status, diff, and commit workflows for a non-root operator
+- running the whole web app as `root` would solve the symptom by widening the blast radius
+
+Suggested scope:
+
+- clearly surface unreadable or unwritable files in config and Git views
+- show ownership and mode information when access is blocked
+- recommend aligning container `uid:gid` or `PUID/PGID` where possible
+- later add an explicit repair workflow restricted to managed roots
+
+Avoid:
+
+- running Stacklab as `root` by default
+- turning permission repair into a generic unrestricted host administration surface
 
 #### Notifications
 
@@ -379,6 +415,7 @@ The following are the most worthwhile "borrowed" ideas for Stacklab:
 
 ### Priority B: Safe Maintenance
 
+- selected/all stack update workflow replacing ad-hoc shell scripts
 - manual prune
 - image inventory
 - read-only network and volume inventory
@@ -387,7 +424,9 @@ The following are the most worthwhile "borrowed" ideas for Stacklab:
 ### Priority C: Git And Templates
 
 - Git status, diff, commit, and push for the local workspace
+- per-file commit selection with stack-scoped quick selection
 - config browser/editor for `/opt/stacklab/config`
+- workspace permission diagnostics and later explicit repair flow
 - template library
 - custom metadata
 

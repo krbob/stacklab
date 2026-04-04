@@ -41,6 +41,7 @@ Reason:
 - the operator is already editing files in `/config`
 - changes are about the same local workspace
 - a dedicated `/git` page would create unnecessary context switching
+- this also prepares a later commit flow where selection starts from changed files, not from a separate Git page
 
 Recommended sidebar remains:
 
@@ -90,6 +91,7 @@ Recommended behavior:
   - grouped changed-files list
   - right panel shows unified diff
   - optional button to open the same path in the full editor
+  - later commit flow should start from per-file selection on this same surface
 
 Tablet fallback:
 
@@ -108,7 +110,7 @@ Why:
 
 - this matches how operators think about homelab changes
 - it aligns with both `stacks/` and `config/` structure
-- it prepares the later commit flow naturally
+- it prepares the later commit flow naturally without forcing commits to be stack-only
 
 ## Diff Recommendation
 
@@ -162,4 +164,4 @@ Confirmed by UI implementation planning:
 1. backend implements read-only Git status and diff endpoints
 2. UI adds `Changes` mode inside `/config`
 3. UI validates grouping and diff readability
-4. later Milestone 4 adds commit/push actions on top of the same surface
+4. later Milestone 4 adds per-file commit/push actions on top of the same surface, with stack-scoped quick selection as a convenience

@@ -164,12 +164,14 @@ Expected Debian dependency shape:
 - `systemd`
 - `docker.io | docker-ce`
 - `docker-compose-plugin | docker-compose`
+- `git` once Git workspace status/diff/commit/push are treated as first-class product features
 
 Notes:
 
 - stock Debian may provide Compose via standalone `docker-compose`
 - some hosts may use Docker CE packages instead of distro Docker
 - Stacklab already supports both `docker compose` and standalone `docker-compose`
+- Git can remain optional in development or minimal installs, but the production `.deb` should install it once Git workflows are part of the supported operator path
 
 ## Package Responsibilities
 

@@ -65,6 +65,8 @@ Recommended operational posture:
 - avoid running the service as `root`
 - prefer membership in the Docker socket-owning group if acceptable on the host
 - keep permissions explicit rather than broad `0777` directory access
+- treat container-created ownership drift as an operator problem to surface and repair explicitly, not as a reason to run the whole web app as `root`
+- prefer aligning container `uid:gid` or `PUID/PGID` with the managed workspace where practical
 
 ## Runtime Configuration
 

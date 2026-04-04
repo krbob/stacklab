@@ -17,36 +17,45 @@ Implemented and already exercised on Linux staging hosts:
 - lifecycle actions with progress streaming and audit log
 - live logs, stats, and container terminal
 - stack create/delete flows
+- host overview and Stacklab service log viewer
+- config workspace for `/opt/stacklab/config`
 - browser E2E, Docker-backed integration tests, and staging validation on Linux `amd64` and `arm64`
 
 ## Near-Term Product Goals
 
-### 1. Operator Trust And Self-Observability
+### 1. Safe Maintenance That Replaces Ad-Hoc Scripts
 
-- show Stacklab version and build metadata clearly in the UI
-- add a host overview page with CPU, memory, disk, uptime, OS, Docker version, and Compose version
-- expose Stacklab service logs from `journalctl -u stacklab` in the browser
-- improve visibility of why actions succeeded, warned, or failed
+- selected/all stack update workflow that replaces ad-hoc scripts such as `update_stacks.sh`
+- explicit step model:
+  - pull
+  - build when needed
+  - `up -d --remove-orphans`
+- optional prune step, never implicit by default
+- improve visibility of why maintenance actions succeeded, warned, or failed
 - add optional job and maintenance notifications
 
-### 2. Safe Maintenance Workflows
+### 2. Git-Aware Workspace Writes
+
+- read-only Git workspace status for `/opt/stacklab/stacks` and `/opt/stacklab/config`
+- diff against working tree / HEAD for stack definitions and config files
+- simple commit and push workflow for the local Stacklab workspace
+- per-file selection as the primary write model
+- stack-scoped quick selection as a convenience, not the only option
+
+### 3. Workspace Permission Diagnostics
+
+- surface unreadable or unwritable files created by containers
+- show ownership and mode details where access is blocked
+- add explicit repair workflows later, restricted to managed roots
+- keep Stacklab itself on a non-root service model by default
+
+## Mid-Term Product Goals
 
 - manual prune workflows with explicit scope and preview
 - image inventory and selective image maintenance
 - read-only visibility into Docker networks and volumes that affect Compose stacks
 - targeted create/delete actions for external networks or volumes when directly useful to stacks
 - scheduled maintenance jobs only as explicit opt-in policies
-
-### 3. Git-Aware Compose Operations
-
-- read-only Git workspace status for `/opt/stacklab/stacks` and `/opt/stacklab/config`
-- diff against working tree / HEAD for stack definitions and config files
-- simple commit and push workflow for the local Stacklab workspace
-- config browser/editor for `/opt/stacklab/config`
-- avoid turning Stacklab into an always-reconciling GitOps controller
-
-## Mid-Term Product Goals
-
 - theme toggle with system preference support
 - compose template library and starter catalog
 - custom project metadata such as icon and useful external links
