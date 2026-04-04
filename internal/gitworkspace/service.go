@@ -295,7 +295,7 @@ func (s *Service) aheadBehind(ctx context.Context) (int, int, error) {
 }
 
 func (s *Service) isBinaryDiff(ctx context.Context, item StatusItem) (bool, error) {
-	args := make([]string, 0, 8)
+	var args []string
 	if item.Status == FileStatusUntracked {
 		absolutePath := filepath.Join(s.workspaceRoot, filepath.FromSlash(item.Path))
 		args = []string{"diff", "--no-index", "--numstat", "--", "/dev/null", absolutePath}
