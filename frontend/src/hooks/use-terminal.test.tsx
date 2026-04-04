@@ -279,4 +279,88 @@ describe('useTerminal', () => {
     expect(result.current.state).toBe('idle')
     expect(controls.getSentFrames()).toHaveLength(0)
   })
+
+  it('auto-attaches after disconnect and reconnect with active session', async () => {
+    // Start disconnected
+    const { result } = renderHook(() => useTerminal(defaultOpts), {
+      wrapper: ({ children }) => <Provider initialConnected={false}>{children}</Provider>,
+    })
+
+    // Connect
+    act(() => { controls.setConnected(true) })
+
+    // Open terminal
+    act(() => { result.current.open() })
+
+    const openFrame = controls.getSentFrames().find((f) => f.type === 'terminal.open')!
+    const streamId = openFrame.stream_id as string
+
+    // Server confirms opened
+    act(() => {
+      controls.emit(streamId, {
+        type: 'terminal.opened',
+        stream_id: streamId,
+        payload: { session_id: 'term_reconnect', container_id: 'abc123', shell: '/bin/sh' },
+      })
+    })
+
+    expect(result.current.state).toBe('connected')
+    expect(result.current.sessionId).toBe('term_reconnect')
+
+    // Disconnect
+    act(() => { controls.setConnected(false) })
+
+    // Reconnect — should auto-attach via queueMicrotask
+    act(() => { controls.setConnected(true) })
+
+    // Flush microtask
+    await new Promise((r) => setTimeout(r, 10))
+
+    const attachFrames = controls.getSentFrames().filter((f) => f.type === 'terminal.attach')
+    expect(attachFrames.length).toBeGreaterThanOrEqual(1)
+    expect(attachFrames[attachFrames.length - 1]).toMatchObject({
+      payload: expect.objectContaining({ session_id: 'term_reconnect' }),
+    })
+  })
+
+  it('shows ended state when attach fails after reconnect', async () => {
+    const { result } = renderHook(() => useTerminal(defaultOpts), {
+      wrapper: ({ children }) => <Provider initialConnected={false}>{children}</Provider>,
+    })
+
+    // Connect + open + confirm
+    act(() => { controls.setConnected(true) })
+    act(() => { result.current.open() })
+
+    const openFrame = controls.getSentFrames().find((f) => f.type === 'terminal.open')!
+    const streamId = openFrame.stream_id as string
+
+    act(() => {
+      controls.emit(streamId, {
+        type: 'terminal.opened',
+        stream_id: streamId,
+        payload: { session_id: 'term_gone', container_id: 'abc123', shell: '/bin/sh' },
+      })
+    })
+
+    expect(result.current.state).toBe('connected')
+
+    // Disconnect + reconnect
+    act(() => { controls.setConnected(false) })
+    act(() => { controls.setConnected(true) })
+    await new Promise((r) => setTimeout(r, 10))
+
+    // Backend says PTY is gone
+    act(() => {
+      controls.emit(streamId, {
+        type: 'error',
+        stream_id: streamId,
+        error: { code: 'terminal_session_not_found', message: 'Gone' },
+      } as WsServerFrame)
+    })
+
+    expect(result.current.state).toBe('ended')
+    expect(result.current.sessionId).toBeNull()
+    expect(result.current.errorMessage).toBe('Session ended. Start a new session?')
+  })
 })

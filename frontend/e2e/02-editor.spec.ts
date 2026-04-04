@@ -1,16 +1,25 @@
 import { test, expect } from '@playwright/test'
-import { login } from './helpers'
+import { login, createStackViaApi, deleteStackViaApi, waitForAuditEntry } from './helpers'
+
+const EDITOR_STACK = 'e2e-editor'
+const COMPOSE = `services:
+  web:
+    image: nginx:alpine
+`
 
 test.describe('Editor', () => {
   test.beforeEach(async ({ page }) => {
     await login(page)
-    await page.getByTestId('stack-card-demo').click()
-    await page.getByRole('link', { name: 'Editor' }).click()
-    await expect(page).toHaveURL(/\/stacks\/demo\/editor/)
+    // Create a dedicated stack for editor tests via API
+    await createStackViaApi(page, EDITOR_STACK, COMPOSE)
+    await page.goto(`/stacks/${EDITOR_STACK}/editor`)
+  })
+
+  test.afterEach(async ({ page }) => {
+    await deleteStackViaApi(page, EDITOR_STACK)
   })
 
   test('loads compose.yaml in editor', async ({ page }) => {
-    // CodeMirror renders the content — look for service name from fixture
     await expect(page.locator('.cm-content')).toBeVisible()
     await expect(page.locator('.cm-content')).toContainText('nginx')
   })
@@ -27,11 +36,11 @@ test.describe('Editor', () => {
   test('saving creates audit entry', async ({ page }) => {
     await page.getByTestId('editor-save').click()
 
-    // Navigate to stack history
-    await page.getByRole('link', { name: 'History' }).click()
-    await expect(page).toHaveURL(/\/stacks\/demo\/audit/)
+    // Wait for audit entry via API — deterministic, no timing guesswork
+    await waitForAuditEntry(page, EDITOR_STACK, 'save_definition')
 
-    // Should see save_definition action in audit
-    await expect(page.getByText('save_definition')).toBeVisible({ timeout: 10_000 })
+    // Now verify it's visible in the UI
+    await page.goto(`/stacks/${EDITOR_STACK}/audit`)
+    await expect(page.getByText('save_definition')).toBeVisible()
   })
 })

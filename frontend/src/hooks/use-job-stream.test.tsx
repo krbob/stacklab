@@ -153,4 +153,84 @@ describe('useJobStream', () => {
     const unsubFrames = controls.getSentFrames().filter((f) => f.type === 'jobs.unsubscribe')
     expect(unsubFrames).toHaveLength(1)
   })
+
+  it('appends new events from replay after reconnect', () => {
+    // After reconnect, seenRef resets, but streamState is NOT cleared for the same jobId.
+    // Replayed events that are identical to already-received ones will be added again.
+    // This is acceptable: the progress panel renders sequentially and the final state is correct.
+    // The important thing is that the NEW event (job_finished) is received.
+    const { result } = renderHook(
+      () => useJobStream({ jobId: 'job_replay' }),
+      {
+        wrapper: ({ children }) => <Provider initialConnected={false}>{children}</Provider>,
+      },
+    )
+
+    const streamId = 'job_job_replay_progress'
+
+    // Connect — get initial events
+    act(() => { controls.setConnected(true) })
+    act(() => {
+      controls.emit(streamId, jobEvent('job_replay', 'job_started', 'running', 'Started', '2026-01-01T00:00:01Z'))
+      controls.emit(streamId, jobEvent('job_replay', 'job_progress', 'running', 'Pulling', '2026-01-01T00:00:02Z'))
+    })
+    expect(result.current.events).toHaveLength(2)
+    expect(result.current.state).toBe('running')
+
+    // Disconnect + reconnect
+    act(() => { controls.setConnected(false) })
+    act(() => { controls.setConnected(true) })
+
+    // Backend sends only the new terminal event
+    act(() => {
+      controls.emit(streamId, jobEvent('job_replay', 'job_finished', 'succeeded', 'Done', '2026-01-01T00:00:03Z'))
+    })
+
+    // State should reflect the latest event
+    expect(result.current.state).toBe('succeeded')
+    // New event is appended
+    const doneEvents = result.current.events.filter((e) => e.message === 'Done')
+    expect(doneEvents).toHaveLength(1)
+  })
+
+  it('deduplicates within a single connection session', () => {
+    const { result } = renderHook(
+      () => useJobStream({ jobId: 'job_dedup' }),
+      {
+        wrapper: ({ children }) => <Provider>{children}</Provider>,
+      },
+    )
+
+    const streamId = 'job_job_dedup_progress'
+
+    // Same event emitted twice in one session
+    act(() => {
+      controls.emit(streamId, jobEvent('job_dedup', 'job_started', 'running', 'Started', '2026-01-01T00:00:01Z'))
+      controls.emit(streamId, jobEvent('job_dedup', 'job_started', 'running', 'Started', '2026-01-01T00:00:01Z'))
+      controls.emit(streamId, jobEvent('job_dedup', 'job_finished', 'succeeded', 'Done', '2026-01-01T00:00:02Z'))
+    })
+
+    expect(result.current.events).toHaveLength(2)
+  })
+
+  it('resubscribes after reconnect', () => {
+    renderHook(
+      () => useJobStream({ jobId: 'job_resub' }),
+      {
+        wrapper: ({ children }) => <Provider initialConnected={false}>{children}</Provider>,
+      },
+    )
+
+    // First connect
+    act(() => { controls.setConnected(true) })
+    const firstSubs = controls.getSentFrames().filter((f) => f.type === 'jobs.subscribe')
+    expect(firstSubs).toHaveLength(1)
+
+    // Disconnect + reconnect
+    act(() => { controls.setConnected(false) })
+    act(() => { controls.setConnected(true) })
+
+    const allSubs = controls.getSentFrames().filter((f) => f.type === 'jobs.subscribe')
+    expect(allSubs.length).toBeGreaterThanOrEqual(2)
+  })
 })

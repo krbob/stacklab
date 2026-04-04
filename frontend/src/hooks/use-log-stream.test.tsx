@@ -170,4 +170,40 @@ describe('useLogStream', () => {
     // Should keep the latest, drop the earliest
     expect(result.current.entries[0].line).toBe('Line 1')
   })
+
+  it('preserves existing entries after reconnect without duplicating', () => {
+    const { result } = renderHook(
+      () => useLogStream({ stackId: 'test', tail: 50 }),
+      {
+        wrapper: ({ children }) => <Provider initialConnected={false}>{children}</Provider>,
+      },
+    )
+
+    const streamId = 'logs_test_all'
+
+    // Connect and receive initial entries
+    act(() => { controls.setConnected(true) })
+    act(() => {
+      controls.emit(streamId, logEvent(streamId, 'app', 'Line A', '2026-01-01T00:00:01Z'))
+      controls.emit(streamId, logEvent(streamId, 'app', 'Line B', '2026-01-01T00:00:02Z'))
+    })
+    expect(result.current.entries).toHaveLength(2)
+
+    // Disconnect
+    act(() => { controls.setConnected(false) })
+
+    // Reconnect — tail=0 sent, so backend sends only new lines
+    act(() => { controls.setConnected(true) })
+
+    // Backend sends only new line (not replaying A and B)
+    act(() => {
+      controls.emit(streamId, logEvent(streamId, 'app', 'Line C', '2026-01-01T00:00:03Z'))
+    })
+
+    // Should have all 3 entries, no duplicates
+    expect(result.current.entries).toHaveLength(3)
+    expect(result.current.entries[0].line).toBe('Line A')
+    expect(result.current.entries[1].line).toBe('Line B')
+    expect(result.current.entries[2].line).toBe('Line C')
+  })
 })
