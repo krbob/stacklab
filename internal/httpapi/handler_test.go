@@ -717,11 +717,23 @@ append_log() {
 }
 
 if [ "$1" = "ps" ]; then
-  exit 0
+  shift
+  case "$*" in
+    *"--filter"*)
+      exit 0
+      ;;
+    "-aq")
+      echo "container-used"
+      exit 0
+      ;;
+    *)
+      exit 0
+      ;;
+  esac
 fi
 
 if [ "$1" = "inspect" ]; then
-  echo '[]'
+  echo '[{"Image":"sha256:used","Config":{"Image":"ghcr.io/example/app:latest","Labels":{"com.docker.compose.project":"demo","com.docker.compose.service":"app"}}}]'
   exit 0
 fi
 
@@ -734,6 +746,53 @@ if [ "$1" = "system" ] && [ "$2" = "prune" ]; then
   shift 2
   append_log "docker system prune $*"
   echo "Deleted Objects:"
+  exit 0
+fi
+
+if [ "$1" = "system" ] && [ "$2" = "df" ]; then
+  echo '{"Active":"1","Reclaimable":"123MB (100%)","Size":"123MB","TotalCount":"2","Type":"Images"}'
+  echo '{"Active":"1","Reclaimable":"0B (0%)","Size":"81.9kB","TotalCount":"1","Type":"Containers"}'
+  echo '{"Active":"0","Reclaimable":"0B","Size":"0B","TotalCount":"0","Type":"Local Volumes"}'
+  echo '{"Active":"0","Reclaimable":"5MB","Size":"5MB","TotalCount":"3","Type":"Build Cache"}'
+  exit 0
+fi
+
+if [ "$1" = "image" ] && [ "$2" = "ls" ]; then
+  echo '{"ID":"sha256:used","Repository":"ghcr.io/example/app","Tag":"latest"}'
+  echo '{"ID":"sha256:unused","Repository":"ghcr.io/example/old","Tag":"1.0.0"}'
+  exit 0
+fi
+
+if [ "$1" = "image" ] && [ "$2" = "inspect" ]; then
+  echo '[{"Id":"sha256:used","Created":"2026-04-04T12:11:00Z","Size":1000},{"Id":"sha256:unused","Created":"2026-04-03T12:11:00Z","Size":2000}]'
+  exit 0
+fi
+
+if [ "$1" = "image" ] && [ "$2" = "prune" ]; then
+  shift 2
+  append_log "docker image prune $*"
+  echo "Deleted Images:"
+  exit 0
+fi
+
+if [ "$1" = "builder" ] && [ "$2" = "prune" ]; then
+  shift 2
+  append_log "docker builder prune $*"
+  echo "Deleted build cache"
+  exit 0
+fi
+
+if [ "$1" = "container" ] && [ "$2" = "prune" ]; then
+  shift 2
+  append_log "docker container prune $*"
+  echo "Deleted Containers:"
+  exit 0
+fi
+
+if [ "$1" = "volume" ] && [ "$2" = "prune" ]; then
+  shift 2
+  append_log "docker volume prune $*"
+  echo "Deleted Volumes:"
   exit 0
 fi
 

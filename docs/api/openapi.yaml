@@ -340,6 +340,112 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /maintenance/images:
+    get:
+      tags: [Maintenance]
+      operationId: getMaintenanceImages
+      parameters:
+        - in: query
+          name: q
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: usage
+          required: false
+          schema:
+            type: string
+            enum: [all, used, unused]
+        - in: query
+          name: origin
+          required: false
+          schema:
+            type: string
+            enum: [all, stack_managed, external]
+      responses:
+        '200':
+          description: Maintenance image inventory.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceImagesResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '503':
+          description: Docker maintenance inventory is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /maintenance/prune-preview:
+    get:
+      tags: [Maintenance]
+      operationId: getMaintenancePrunePreview
+      parameters:
+        - in: query
+          name: images
+          required: false
+          schema:
+            type: boolean
+        - in: query
+          name: build_cache
+          required: false
+          schema:
+            type: boolean
+        - in: query
+          name: stopped_containers
+          required: false
+          schema:
+            type: boolean
+        - in: query
+          name: volumes
+          required: false
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Prune preview summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenancePrunePreviewResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '503':
+          description: Docker prune preview is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /maintenance/prune:
+    post:
+      tags: [Maintenance]
+      operationId: runMaintenancePrune
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MaintenancePruneRequest'
+      responses:
+        '200':
+          description: Prune job accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobEnvelopeResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '409':
+          description: Another global or stack maintenance job is already running.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /auth/login:
     post:
       tags: [Auth]
@@ -1748,6 +1854,128 @@ components:
                   type: boolean
                   default: false
       required: [target]
+    MaintenanceImagesResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MaintenanceImageItem'
+      required: [items]
+    MaintenanceImageItem:
+      type: object
+      properties:
+        id:
+          type: string
+        repository:
+          type: string
+        tag:
+          type: string
+        reference:
+          type: string
+        size_bytes:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        containers_using:
+          type: integer
+        stacks_using:
+          type: array
+          items:
+            $ref: '#/components/schemas/MaintenanceImageStackUsage'
+        is_dangling:
+          type: boolean
+        is_unused:
+          type: boolean
+        source:
+          type: string
+          enum: [stack_managed, external]
+      required:
+        - id
+        - repository
+        - tag
+        - reference
+        - size_bytes
+        - created_at
+        - containers_using
+        - stacks_using
+        - is_dangling
+        - is_unused
+        - source
+    MaintenanceImageStackUsage:
+      type: object
+      properties:
+        stack_id:
+          type: string
+        service_names:
+          type: array
+          items:
+            type: string
+      required: [stack_id, service_names]
+    MaintenancePrunePreviewResponse:
+      type: object
+      properties:
+        preview:
+          $ref: '#/components/schemas/MaintenancePrunePreview'
+      required: [preview]
+    MaintenancePrunePreview:
+      type: object
+      properties:
+        images:
+          $ref: '#/components/schemas/MaintenancePrunePreviewCategory'
+        build_cache:
+          $ref: '#/components/schemas/MaintenancePrunePreviewCategory'
+        stopped_containers:
+          $ref: '#/components/schemas/MaintenancePrunePreviewCategory'
+        volumes:
+          $ref: '#/components/schemas/MaintenancePrunePreviewCategory'
+        total_reclaimable_bytes:
+          type: integer
+      required:
+        - images
+        - build_cache
+        - stopped_containers
+        - volumes
+        - total_reclaimable_bytes
+    MaintenancePrunePreviewCategory:
+      type: object
+      properties:
+        count:
+          type: integer
+        reclaimable_bytes:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MaintenancePrunePreviewItem'
+      required: [count, reclaimable_bytes]
+    MaintenancePrunePreviewItem:
+      type: object
+      properties:
+        reference:
+          type: string
+        size_bytes:
+          type: integer
+        reason:
+          type: string
+      required: [reference, size_bytes, reason]
+    MaintenancePruneRequest:
+      type: object
+      properties:
+        scope:
+          type: object
+          properties:
+            images:
+              type: boolean
+            build_cache:
+              type: boolean
+            stopped_containers:
+              type: boolean
+            volumes:
+              type: boolean
+          required: [images, build_cache, stopped_containers, volumes]
+      required: [scope]
     ErrorResponse:
       type: object
       properties:

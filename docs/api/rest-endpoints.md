@@ -743,6 +743,162 @@ Rules:
 - `prune_after.include_volumes = true` requires `prune_after.enabled = true`
 - returns `409 stack_locked` if another mutating job already owns one of the selected stacks
 
+## `GET /api/maintenance/images`
+
+Purpose:
+
+- list host images in a maintenance-oriented shape
+- show which ones are currently mapped to managed stacks
+
+Query parameters:
+
+- `q` optional text filter
+- `usage` optional: `all`, `used`, `unused`
+- `origin` optional: `all`, `stack_managed`, `external`
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "id": "sha256:abc123...",
+      "repository": "ghcr.io/example/app",
+      "tag": "latest",
+      "reference": "ghcr.io/example/app:latest",
+      "size_bytes": 483183820,
+      "created_at": "2026-04-04T12:11:00Z",
+      "containers_using": 2,
+      "stacks_using": [
+        {
+          "stack_id": "demo",
+          "service_names": ["app"]
+        }
+      ],
+      "is_dangling": false,
+      "is_unused": false,
+      "source": "stack_managed"
+    }
+  ]
+}
+```
+
+Rules:
+
+- `source = stack_managed` means Stacklab could map the image back to at least one managed stack
+- `source = external` means the image exists on the host but is not mapped back to a managed stack
+- `is_unused = true` means no container currently uses the image
+- inventory is read-only in this slice
+
+## `GET /api/maintenance/prune-preview`
+
+Purpose:
+
+- preview likely cleanup impact before the operator starts prune
+
+Query parameters:
+
+- `images` optional boolean, default `true`
+- `build_cache` optional boolean, default `true`
+- `stopped_containers` optional boolean, default `true`
+- `volumes` optional boolean, default `false`
+
+Response:
+
+```json
+{
+  "preview": {
+    "images": {
+      "count": 1,
+      "reclaimable_bytes": 483183820,
+      "items": [
+        {
+          "reference": "ghcr.io/example/old-web:1.0.0",
+          "size_bytes": 483183820,
+          "reason": "unused_image"
+        }
+      ]
+    },
+    "build_cache": {
+      "count": 3,
+      "reclaimable_bytes": 312475648
+    },
+    "stopped_containers": {
+      "count": 2,
+      "reclaimable_bytes": 0
+    },
+    "volumes": {
+      "count": 0,
+      "reclaimable_bytes": 0
+    },
+    "total_reclaimable_bytes": 795659468
+  }
+}
+```
+
+Rules:
+
+- preview may be approximate for some Docker categories
+- `volumes` remains opt-in and higher risk than the other cleanup scopes
+
+## `POST /api/maintenance/prune`
+
+Purpose:
+
+- run a global cleanup workflow with explicit scope
+
+Request:
+
+```json
+{
+  "scope": {
+    "images": true,
+    "build_cache": true,
+    "stopped_containers": true,
+    "volumes": false
+  }
+}
+```
+
+Success response:
+
+```json
+{
+  "job": {
+    "id": "job_01hr...",
+    "stack_id": null,
+    "action": "prune",
+    "state": "running",
+    "workflow": {
+      "steps": [
+        {
+          "action": "prune_images",
+          "state": "running"
+        },
+        {
+          "action": "prune_build_cache",
+          "state": "queued"
+        },
+        {
+          "action": "prune_stopped_containers",
+          "state": "queued"
+        }
+      ]
+    }
+  }
+}
+```
+
+Rules:
+
+- at least one prune scope must be enabled
+- prune is a global workspace-scoped job
+- the job should reuse the existing progress stream model:
+  - `job_step_started`
+  - `job_log`
+  - `job_step_finished`
+- returns `409 conflict` if another global or stack maintenance workflow already holds the relevant locks
+
 ## `GET /api/stacks`
 
 Purpose:

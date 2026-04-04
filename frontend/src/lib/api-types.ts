@@ -449,6 +449,64 @@ export interface MaintenanceUpdateStacksRequest {
   }
 }
 
+export type MaintenanceImageUsage = 'all' | 'used' | 'unused'
+export type MaintenanceImageOrigin = 'all' | 'stack_managed' | 'external'
+export type MaintenanceImageSource = 'stack_managed' | 'external'
+
+export interface MaintenanceImageStackUsage {
+  stack_id: string
+  service_names: string[]
+}
+
+export interface MaintenanceImageItem {
+  id: string
+  repository: string
+  tag: string
+  reference: string
+  size_bytes: number
+  created_at: string
+  containers_using: number
+  stacks_using: MaintenanceImageStackUsage[]
+  is_dangling: boolean
+  is_unused: boolean
+  source: MaintenanceImageSource
+}
+
+export interface MaintenanceImagesResponse {
+  items: MaintenanceImageItem[]
+}
+
+export interface MaintenancePrunePreviewItem {
+  reference: string
+  size_bytes: number
+  reason: string
+}
+
+export interface MaintenancePrunePreviewCategory {
+  count: number
+  reclaimable_bytes: number
+  items?: MaintenancePrunePreviewItem[]
+}
+
+export interface MaintenancePrunePreviewResponse {
+  preview: {
+    images: MaintenancePrunePreviewCategory
+    build_cache: MaintenancePrunePreviewCategory
+    stopped_containers: MaintenancePrunePreviewCategory
+    volumes: MaintenancePrunePreviewCategory
+    total_reclaimable_bytes: number
+  }
+}
+
+export interface MaintenancePruneRequest {
+  scope: {
+    images: boolean
+    build_cache: boolean
+    stopped_containers: boolean
+    volumes: boolean
+  }
+}
+
 export interface ApiError {
   error: {
     code: string

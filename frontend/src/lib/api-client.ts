@@ -14,6 +14,9 @@ import type {
   JobDetail,
   JobRef,
   MaintenanceUpdateStacksRequest,
+  MaintenanceImagesResponse,
+  MaintenancePrunePreviewResponse,
+  MaintenancePruneRequest,
   MetaResponse,
   ResolvedConfigResponse,
   SessionResponse,
@@ -256,6 +259,32 @@ export function deleteStack(stackId: string, flags: {
 
 export function updateStacksMaintenance(payload: MaintenanceUpdateStacksRequest): Promise<{ job: JobRef }> {
   return request('/api/maintenance/update-stacks', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function getMaintenanceImages(params?: { q?: string; usage?: 'all' | 'used' | 'unused'; origin?: 'all' | 'stack_managed' | 'external' }): Promise<MaintenanceImagesResponse> {
+  const search = new URLSearchParams()
+  if (params?.q) search.set('q', params.q)
+  if (params?.usage) search.set('usage', params.usage)
+  if (params?.origin) search.set('origin', params.origin)
+  const qs = search.toString()
+  return request(`/api/maintenance/images${qs ? `?${qs}` : ''}`)
+}
+
+export function getMaintenancePrunePreview(params?: { images?: boolean; build_cache?: boolean; stopped_containers?: boolean; volumes?: boolean }): Promise<MaintenancePrunePreviewResponse> {
+  const search = new URLSearchParams()
+  if (params?.images !== undefined) search.set('images', String(params.images))
+  if (params?.build_cache !== undefined) search.set('build_cache', String(params.build_cache))
+  if (params?.stopped_containers !== undefined) search.set('stopped_containers', String(params.stopped_containers))
+  if (params?.volumes !== undefined) search.set('volumes', String(params.volumes))
+  const qs = search.toString()
+  return request(`/api/maintenance/prune-preview${qs ? `?${qs}` : ''}`)
+}
+
+export function runMaintenancePrune(payload: MaintenancePruneRequest): Promise<{ job: JobRef }> {
+  return request('/api/maintenance/prune', {
     method: 'POST',
     body: JSON.stringify(payload),
   })

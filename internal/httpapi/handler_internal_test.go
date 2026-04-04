@@ -22,6 +22,7 @@ import (
 	"stacklab/internal/gitworkspace"
 	"stacklab/internal/hostinfo"
 	"stacklab/internal/jobs"
+	"stacklab/internal/maintenance"
 	"stacklab/internal/stacks"
 	"stacklab/internal/store"
 	"stacklab/internal/terminal"
@@ -691,6 +692,125 @@ func TestHandlerMaintenanceUpdateStacksWorkflow(t *testing.T) {
 	}
 }
 
+func TestHandlerMaintenanceInventoryAndPrune(t *testing.T) {
+	stacks.ResetComposeCLICacheForTests()
+	t.Cleanup(stacks.ResetComposeCLICacheForTests)
+
+	shimDir := t.TempDir()
+	logPath := filepath.Join(shimDir, "docker.log")
+	writeInternalDockerShim(t, filepath.Join(shimDir, "docker"))
+	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("STACKLAB_MAINTENANCE_LOG", logPath)
+
+	_, served, cfg := newInternalTestHandler(t)
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	stackRoot := filepath.Join(cfg.RootDir, "stacks", "demo")
+	if err := os.MkdirAll(stackRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(stacks demo) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stackRoot, "compose.yaml"), []byte(strings.Join([]string{
+		"services:",
+		"  app:",
+		"    image: ghcr.io/example/app:latest",
+		"",
+	}, "\n")), 0o644); err != nil {
+		t.Fatalf("WriteFile(compose.yaml) error = %v", err)
+	}
+
+	imagesResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/maintenance/images?usage=all&origin=all", nil, cookies)
+	if imagesResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/maintenance/images status = %d, want %d; body=%s", imagesResponse.Code, http.StatusOK, imagesResponse.Body.String())
+	}
+	var imagesPayload maintenance.ImagesResponse
+	decodeInternalResponse(t, imagesResponse, &imagesPayload)
+	if len(imagesPayload.Items) != 2 {
+		t.Fatalf("unexpected maintenance images payload: %#v", imagesPayload)
+	}
+	if imagesPayload.Items[0].ID != "sha256:unused" && imagesPayload.Items[1].ID != "sha256:unused" {
+		t.Fatalf("expected unused image in payload: %#v", imagesPayload.Items)
+	}
+
+	previewResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/maintenance/prune-preview?images=true&build_cache=true&stopped_containers=true&volumes=false", nil, cookies)
+	if previewResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/maintenance/prune-preview status = %d, want %d; body=%s", previewResponse.Code, http.StatusOK, previewResponse.Body.String())
+	}
+	var previewPayload maintenance.PrunePreviewResponse
+	decodeInternalResponse(t, previewResponse, &previewPayload)
+	if previewPayload.Preview.Images.Count != 1 || previewPayload.Preview.BuildCache.Count != 3 {
+		t.Fatalf("unexpected prune preview payload: %#v", previewPayload.Preview)
+	}
+
+	pruneResponse := performInternalJSONRequest(t, served, http.MethodPost, "/api/maintenance/prune", map[string]any{
+		"scope": map[string]any{
+			"images":             true,
+			"build_cache":        true,
+			"stopped_containers": true,
+			"volumes":            false,
+		},
+	}, cookies)
+	if pruneResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/maintenance/prune status = %d, want %d; body=%s", pruneResponse.Code, http.StatusOK, pruneResponse.Body.String())
+	}
+	var prunePayload struct {
+		Job struct {
+			StackID  *string `json:"stack_id"`
+			Action   string  `json:"action"`
+			State    string  `json:"state"`
+			Workflow *struct {
+				Steps []struct {
+					Action string `json:"action"`
+					State  string `json:"state"`
+				} `json:"steps"`
+			} `json:"workflow"`
+		} `json:"job"`
+	}
+	decodeInternalResponse(t, pruneResponse, &prunePayload)
+	if prunePayload.Job.Action != "prune" || prunePayload.Job.State != "succeeded" || prunePayload.Job.StackID != nil {
+		t.Fatalf("unexpected prune job payload: %#v", prunePayload.Job)
+	}
+	if prunePayload.Job.Workflow == nil || len(prunePayload.Job.Workflow.Steps) != 3 {
+		t.Fatalf("unexpected prune workflow payload: %#v", prunePayload.Job.Workflow)
+	}
+	if prunePayload.Job.Workflow.Steps[0].Action != "prune_images" || prunePayload.Job.Workflow.Steps[1].Action != "prune_build_cache" || prunePayload.Job.Workflow.Steps[2].Action != "prune_stopped_containers" {
+		t.Fatalf("unexpected prune steps: %#v", prunePayload.Job.Workflow.Steps)
+	}
+
+	auditResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/audit", nil, cookies)
+	if auditResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/audit(after prune) status = %d, want %d; body=%s", auditResponse.Code, http.StatusOK, auditResponse.Body.String())
+	}
+	var auditPayload store.AuditListResult
+	decodeInternalResponse(t, auditResponse, &auditPayload)
+	foundPrune := false
+	for _, item := range auditPayload.Items {
+		if item.Action == "prune" {
+			foundPrune = true
+			if item.StackID != nil {
+				t.Fatalf("expected prune audit stack_id to be null, got %#v", item.StackID)
+			}
+		}
+	}
+	if !foundPrune {
+		t.Fatalf("expected prune audit action, got %#v", auditPayload.Items)
+	}
+
+	recorded, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("ReadFile(docker log) error = %v", err)
+	}
+	recordedText := string(recorded)
+	for _, expected := range []string{
+		"docker image prune -af",
+		"docker builder prune -af",
+		"docker container prune -f",
+	} {
+		if !strings.Contains(recordedText, expected) {
+			t.Fatalf("expected docker log to contain %q, got %q", expected, recordedText)
+		}
+	}
+}
+
 func newInternalTestHandler(t *testing.T) (*Handler, http.Handler, config.Config) {
 	t.Helper()
 
@@ -744,6 +864,7 @@ func newInternalTestHandler(t *testing.T) (*Handler, http.Handler, config.Config
 		hostInfo:    hostinfo.NewService(cfg, time.Unix(1_712_598_000, 0).UTC()),
 		configFiles: configworkspace.NewService(cfg),
 		gitStatus:   gitworkspace.NewService(cfg),
+		maintenance: maintenance.NewService(),
 	}
 	handler.registerRoutes()
 
@@ -776,11 +897,23 @@ append_log() {
 }
 
 if [ "$1" = "ps" ]; then
-  exit 0
+  shift
+  case "$*" in
+    *"--filter"*)
+      exit 0
+      ;;
+    "-aq")
+      echo "container-used"
+      exit 0
+      ;;
+    *)
+      exit 0
+      ;;
+  esac
 fi
 
 if [ "$1" = "inspect" ]; then
-  echo '[]'
+  echo '[{"Image":"sha256:used","Config":{"Image":"ghcr.io/example/app:latest","Labels":{"com.docker.compose.project":"demo","com.docker.compose.service":"app"}}}]'
   exit 0
 fi
 
@@ -793,6 +926,53 @@ if [ "$1" = "system" ] && [ "$2" = "prune" ]; then
   shift 2
   append_log "docker system prune $*"
   echo "Deleted Objects:"
+  exit 0
+fi
+
+if [ "$1" = "system" ] && [ "$2" = "df" ]; then
+  echo '{"Active":"1","Reclaimable":"123MB (100%)","Size":"123MB","TotalCount":"2","Type":"Images"}'
+  echo '{"Active":"1","Reclaimable":"0B (0%)","Size":"81.9kB","TotalCount":"1","Type":"Containers"}'
+  echo '{"Active":"0","Reclaimable":"0B","Size":"0B","TotalCount":"0","Type":"Local Volumes"}'
+  echo '{"Active":"0","Reclaimable":"5MB","Size":"5MB","TotalCount":"3","Type":"Build Cache"}'
+  exit 0
+fi
+
+if [ "$1" = "image" ] && [ "$2" = "ls" ]; then
+  echo '{"ID":"sha256:used","Repository":"ghcr.io/example/app","Tag":"latest"}'
+  echo '{"ID":"sha256:unused","Repository":"ghcr.io/example/old","Tag":"1.0.0"}'
+  exit 0
+fi
+
+if [ "$1" = "image" ] && [ "$2" = "inspect" ]; then
+  echo '[{"Id":"sha256:used","Created":"2026-04-04T12:11:00Z","Size":1000},{"Id":"sha256:unused","Created":"2026-04-03T12:11:00Z","Size":2000}]'
+  exit 0
+fi
+
+if [ "$1" = "image" ] && [ "$2" = "prune" ]; then
+  shift 2
+  append_log "docker image prune $*"
+  echo "Deleted Images:"
+  exit 0
+fi
+
+if [ "$1" = "builder" ] && [ "$2" = "prune" ]; then
+  shift 2
+  append_log "docker builder prune $*"
+  echo "Deleted build cache"
+  exit 0
+fi
+
+if [ "$1" = "container" ] && [ "$2" = "prune" ]; then
+  shift 2
+  append_log "docker container prune $*"
+  echo "Deleted Containers:"
+  exit 0
+fi
+
+if [ "$1" = "volume" ] && [ "$2" = "prune" ]; then
+  shift 2
+  append_log "docker volume prune $*"
+  echo "Deleted Volumes:"
   exit 0
 fi
 

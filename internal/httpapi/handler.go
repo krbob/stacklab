@@ -20,6 +20,7 @@ import (
 	"stacklab/internal/gitworkspace"
 	"stacklab/internal/hostinfo"
 	"stacklab/internal/jobs"
+	"stacklab/internal/maintenance"
 	"stacklab/internal/stacks"
 	"stacklab/internal/store"
 	"stacklab/internal/terminal"
@@ -40,6 +41,7 @@ type Handler struct {
 	hostInfo    hostInfoReader
 	configFiles configWorkspaceReader
 	gitStatus   gitWorkspaceReader
+	maintenance maintenanceReader
 }
 
 type hostInfoReader interface {
@@ -58,6 +60,12 @@ type gitWorkspaceReader interface {
 	Diff(ctx context.Context, requestedPath string) (gitworkspace.DiffResponse, error)
 	Commit(ctx context.Context, request gitworkspace.CommitRequest) (gitworkspace.CommitResponse, error)
 	Push(ctx context.Context) (gitworkspace.PushResponse, error)
+}
+
+type maintenanceReader interface {
+	Images(ctx context.Context, query maintenance.ImagesQuery) (maintenance.ImagesResponse, error)
+	PrunePreview(ctx context.Context, query maintenance.PrunePreviewQuery) (maintenance.PrunePreviewResponse, error)
+	RunPruneStep(ctx context.Context, action string) (string, error)
 }
 
 func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Service, auditService *audit.Service, jobService *jobs.Service) (http.Handler, error) {
@@ -87,6 +95,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Servic
 		hostInfo:    hostinfo.NewService(cfg, time.Now().UTC()),
 		configFiles: configworkspace.NewService(cfg),
 		gitStatus:   gitworkspace.NewService(cfg),
+		maintenance: maintenance.NewService(),
 	}
 
 	handler.registerRoutes()
@@ -111,6 +120,9 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("POST /api/git/workspace/commit", h.withAuth(h.handleGitWorkspaceCommit))
 	h.mux.HandleFunc("POST /api/git/workspace/push", h.withAuth(h.handleGitWorkspacePush))
 	h.mux.HandleFunc("POST /api/maintenance/update-stacks", h.withAuth(h.handleUpdateStacksMaintenance))
+	h.mux.HandleFunc("GET /api/maintenance/images", h.withAuth(h.handleMaintenanceImages))
+	h.mux.HandleFunc("GET /api/maintenance/prune-preview", h.withAuth(h.handleMaintenancePrunePreview))
+	h.mux.HandleFunc("POST /api/maintenance/prune", h.withAuth(h.handleMaintenancePrune))
 	h.mux.HandleFunc("GET /api/stacks", h.withAuth(h.handleListStacks))
 	h.mux.HandleFunc("POST /api/stacks", h.withAuth(h.handleCreateStack))
 	h.mux.HandleFunc("GET /api/stacks/{stackId}", h.withAuth(h.handleGetStack))
@@ -486,6 +498,10 @@ type maintenanceUpdateStacksRequest struct {
 	} `json:"options"`
 }
 
+type maintenancePruneRequest struct {
+	Scope maintenance.PruneScope `json:"scope"`
+}
+
 func (h *Handler) handleUpdateStacksMaintenance(w http.ResponseWriter, r *http.Request) {
 	if !auth.SameOrigin(r) {
 		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
@@ -602,6 +618,171 @@ func (h *Handler) handleUpdateStacksMaintenance(w http.ResponseWriter, r *http.R
 	}
 	if err := h.audit.RecordJob(r.Context(), job, maintenanceAuditDetails(request.Target.Mode, targetStackIDs, options)); err != nil {
 		h.logger.Warn("record maintenance audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"job": job})
+}
+
+func (h *Handler) handleMaintenanceImages(w http.ResponseWriter, r *http.Request) {
+	managedStackIDs, err := h.listManagedStackIDs(r.Context())
+	if err != nil {
+		h.logger.Error("list managed stacks for maintenance images failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load maintenance images.", nil)
+		return
+	}
+
+	query := maintenance.ImagesQuery{
+		Search:          strings.TrimSpace(r.URL.Query().Get("q")),
+		Usage:           maintenance.ImageUsage(strings.TrimSpace(r.URL.Query().Get("usage"))),
+		Origin:          maintenance.ImageOrigin(strings.TrimSpace(r.URL.Query().Get("origin"))),
+		ManagedStackIDs: managedStackIDs,
+	}
+	if query.Usage == "" {
+		query.Usage = maintenance.ImageUsageAll
+	}
+	if query.Origin == "" {
+		query.Origin = maintenance.ImageOriginAll
+	}
+	if query.Usage != maintenance.ImageUsageAll && query.Usage != maintenance.ImageUsageUsed && query.Usage != maintenance.ImageUsageUnused {
+		writeError(w, http.StatusBadRequest, "validation_failed", "usage must be one of: all, used, unused.", nil)
+		return
+	}
+	if query.Origin != maintenance.ImageOriginAll && query.Origin != maintenance.ImageOriginStackManaged && query.Origin != maintenance.ImageOriginExternal {
+		writeError(w, http.StatusBadRequest, "validation_failed", "origin must be one of: all, stack_managed, external.", nil)
+		return
+	}
+
+	response, err := h.maintenance.Images(r.Context(), query)
+	if err != nil {
+		if errors.Is(err, maintenance.ErrDockerUnavailable) {
+			writeError(w, http.StatusServiceUnavailable, "docker_unavailable", "Docker maintenance inventory is unavailable.", nil)
+			return
+		}
+		h.logger.Error("maintenance images failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load maintenance images.", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleMaintenancePrunePreview(w http.ResponseWriter, r *http.Request) {
+	managedStackIDs, err := h.listManagedStackIDs(r.Context())
+	if err != nil {
+		h.logger.Error("list managed stacks for prune preview failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load prune preview.", nil)
+		return
+	}
+
+	response, err := h.maintenance.PrunePreview(r.Context(), maintenance.PrunePreviewQuery{
+		Images:            parseOptionalBool(r.URL.Query().Get("images"), true),
+		BuildCache:        parseOptionalBool(r.URL.Query().Get("build_cache"), true),
+		StoppedContainers: parseOptionalBool(r.URL.Query().Get("stopped_containers"), true),
+		Volumes:           parseOptionalBool(r.URL.Query().Get("volumes"), false),
+		ManagedStackIDs:   managedStackIDs,
+	})
+	if err != nil {
+		if errors.Is(err, maintenance.ErrDockerUnavailable) {
+			writeError(w, http.StatusServiceUnavailable, "docker_unavailable", "Docker prune preview is unavailable.", nil)
+			return
+		}
+		h.logger.Error("maintenance prune preview failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load prune preview.", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleMaintenancePrune(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request maintenancePruneRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+	if !request.Scope.Images && !request.Scope.BuildCache && !request.Scope.StoppedContainers && !request.Scope.Volumes {
+		writeError(w, http.StatusBadRequest, "validation_failed", "At least one prune scope must be enabled.", nil)
+		return
+	}
+
+	lockStackIDs, err := h.listManagedStackIDs(r.Context())
+	if err != nil {
+		h.logger.Error("list managed stacks for prune failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to prepare prune workflow.", nil)
+		return
+	}
+
+	workflow := buildPruneWorkflow(request.Scope)
+	job, err := h.jobs.StartWithLocks(r.Context(), "", "prune", "local", lockStackIDs)
+	if err != nil {
+		switch {
+		case errors.Is(err, jobs.ErrStackLocked):
+			writeError(w, http.StatusConflict, "conflict", "Another global or stack maintenance job is already running.", nil)
+		default:
+			h.logger.Error("start prune job failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create job.", nil)
+		}
+		return
+	}
+
+	if len(workflow) > 0 {
+		workflow = markWorkflowRunning(workflow, 0)
+		updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow)
+		if updateErr != nil {
+			h.logger.Error("initialize prune workflow failed", slog.String("job_id", job.ID), slog.String("err", updateErr.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to initialize prune workflow.", nil)
+			return
+		}
+		job = updatedJob
+		_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", pruneStepMessage("Starting", workflow[0]), "", workflowStepRef(workflow, 0))
+	}
+
+	for index, step := range workflow {
+		output, runErr := h.maintenance.RunPruneStep(r.Context(), step.Action)
+		if trimmed := strings.TrimSpace(output); trimmed != "" {
+			_ = h.jobs.PublishEvent(r.Context(), job, "job_log", pruneStepMessage("Output", step), trimmed, workflowStepRef(workflow, index))
+		}
+		if runErr != nil {
+			workflow = markWorkflowFailed(workflow, index)
+			if updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow); updateErr == nil {
+				job = updatedJob
+			}
+			job, _ = h.jobs.FinishFailed(r.Context(), job, "prune_failed", runErr.Error())
+			if err := h.audit.RecordJob(r.Context(), job, pruneAuditDetails(request.Scope)); err != nil {
+				h.logger.Warn("record prune audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"job": job})
+			return
+		}
+
+		workflow = markWorkflowSucceeded(workflow, index)
+		_ = h.jobs.PublishEvent(r.Context(), job, "job_step_finished", pruneStepMessage("Finished", step), "", workflowStepRef(workflow, index))
+		if index+1 < len(workflow) {
+			workflow = markWorkflowRunning(workflow, index+1)
+			_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", pruneStepMessage("Starting", workflow[index+1]), "", workflowStepRef(workflow, index+1))
+		}
+		updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow)
+		if updateErr != nil {
+			h.logger.Error("update prune workflow failed", slog.String("job_id", job.ID), slog.String("err", updateErr.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to update prune workflow.", nil)
+			return
+		}
+		job = updatedJob
+	}
+
+	job, err = h.jobs.FinishSucceeded(r.Context(), job)
+	if err != nil {
+		h.logger.Error("finish prune job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to finalize job.", nil)
+		return
+	}
+	if err := h.audit.RecordJob(r.Context(), job, pruneAuditDetails(request.Scope)); err != nil {
+		h.logger.Warn("record prune audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"job": job})
@@ -1440,6 +1621,19 @@ func boolOrDefault(value *bool, fallback bool) bool {
 	return *value
 }
 
+func parseOptionalBool(value string, fallback bool) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "":
+		return fallback
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
+}
+
 func (h *Handler) resolveMaintenanceTargetStacks(ctx context.Context, mode string, stackIDs []string) ([]string, error) {
 	switch mode {
 	case "selected":
@@ -1502,6 +1696,19 @@ func dedupeSortedStackIDs(stackIDs []string) []string {
 	return result
 }
 
+func (h *Handler) listManagedStackIDs(ctx context.Context) ([]string, error) {
+	list, err := h.stackReader.List(ctx, stacks.ListQuery{})
+	if err != nil {
+		return nil, err
+	}
+	result := make([]string, 0, len(list.Items))
+	for _, item := range list.Items {
+		result = append(result, item.ID)
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
 func (h *Handler) buildMaintenanceWorkflow(ctx context.Context, stackIDs []string, options resolvedMaintenanceOptions) ([]store.JobWorkflowStep, error) {
 	steps := make([]store.JobWorkflowStep, 0, len(stackIDs)*3+1)
 	for _, stackID := range stackIDs {
@@ -1551,6 +1758,38 @@ func runDockerSystemPrune(ctx context.Context, includeVolumes bool) (string, err
 	return strings.TrimSpace(string(output)), nil
 }
 
+func buildPruneWorkflow(scope maintenance.PruneScope) []store.JobWorkflowStep {
+	steps := []store.JobWorkflowStep{}
+	if scope.Images {
+		steps = append(steps, store.JobWorkflowStep{Action: "prune_images", State: "queued"})
+	}
+	if scope.BuildCache {
+		steps = append(steps, store.JobWorkflowStep{Action: "prune_build_cache", State: "queued"})
+	}
+	if scope.StoppedContainers {
+		steps = append(steps, store.JobWorkflowStep{Action: "prune_stopped_containers", State: "queued"})
+	}
+	if scope.Volumes {
+		steps = append(steps, store.JobWorkflowStep{Action: "prune_volumes", State: "queued"})
+	}
+	return steps
+}
+
+func pruneStepMessage(prefix string, step store.JobWorkflowStep) string {
+	return prefix + " " + strings.ToLower(maintenanceActionLabel(step.Action)) + "."
+}
+
+func pruneAuditDetails(scope maintenance.PruneScope) map[string]any {
+	return map[string]any{
+		"scope": map[string]any{
+			"images":             scope.Images,
+			"build_cache":        scope.BuildCache,
+			"stopped_containers": scope.StoppedContainers,
+			"volumes":            scope.Volumes,
+		},
+	}
+}
+
 func maintenanceStepMessage(prefix string, step store.JobWorkflowStep) string {
 	label := maintenanceActionLabel(step.Action)
 	if step.TargetStackID == "" {
@@ -1583,6 +1822,14 @@ func maintenanceActionLabel(action string) string {
 		return "Up"
 	case "prune":
 		return "Prune"
+	case "prune_images":
+		return "Prune images"
+	case "prune_build_cache":
+		return "Prune build cache"
+	case "prune_stopped_containers":
+		return "Prune stopped containers"
+	case "prune_volumes":
+		return "Prune volumes"
 	default:
 		return action
 	}

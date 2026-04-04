@@ -177,8 +177,25 @@ func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
 			},
 		},
 	}
+	maintenanceImagesResponse := performJSONRequest(t, handler, http.MethodGet, "/api/maintenance/images?usage=all&origin=all", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/maintenance/images?usage=all&origin=all", nil, cookies, maintenanceImagesResponse)
+
+	prunePreviewResponse := performJSONRequest(t, handler, http.MethodGet, "/api/maintenance/prune-preview?images=true&build_cache=true&stopped_containers=true&volumes=false", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/maintenance/prune-preview?images=true&build_cache=true&stopped_containers=true&volumes=false", nil, cookies, prunePreviewResponse)
+
 	maintenanceResponse := performJSONRequest(t, handler, http.MethodPost, "/api/maintenance/update-stacks", maintenanceBody, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodPost, "/api/maintenance/update-stacks", maintenanceBody, cookies, maintenanceResponse)
+
+	pruneBody := map[string]any{
+		"scope": map[string]any{
+			"images":             true,
+			"build_cache":        true,
+			"stopped_containers": true,
+			"volumes":            false,
+		},
+	}
+	pruneResponse := performJSONRequest(t, handler, http.MethodPost, "/api/maintenance/prune", pruneBody, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodPost, "/api/maintenance/prune", pruneBody, cookies, pruneResponse)
 
 	deleteBody := map[string]any{
 		"remove_runtime":    false,
