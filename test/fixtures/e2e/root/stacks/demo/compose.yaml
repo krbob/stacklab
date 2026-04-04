@@ -1,0 +1,5 @@
+services:
+  app:
+    image: nginx:${TAG}
+    environment:
+      APP_MODE: ${APP_MODE}

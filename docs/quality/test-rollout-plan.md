@@ -229,6 +229,11 @@ Promote only after:
 
 ## Step 8: Add lightweight browser E2E smoke
 
+Status:
+
+- backend harness and fixture root prepared
+- browser scenarios not implemented yet
+
 Implement later, after API/runtime coverage is healthier.
 
 Keep it intentionally small.
