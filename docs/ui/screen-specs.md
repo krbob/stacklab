@@ -500,7 +500,49 @@ Purpose: Create a new stack with directory scaffolding.
 - check for name collision with existing stacks
 - initial compose.yaml must pass `docker compose config` for "Create & Deploy"
 
-## 11. Settings
+## 11. Host
+
+Route: `/host`
+
+Purpose: Operational view of the managed host and Stacklab itself.
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  Host                                                                │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  ┌─ Stacklab ───────┐ ┌─ System ─────────┐ ┌─ Docker ─────────────┐ │
+│  │ v2026.04.0       │ │ debian-homelab   │ │ Engine 28.5.1        │ │
+│  │ commit abc12345  │ │ Debian GNU/Linux │ │ Compose 2.39.2       │ │
+│  │ started 14:10    │ │ kernel 6.12      │ │                      │ │
+│  └──────────────────┘ │ uptime 3d 5h     │ └──────────────────────┘ │
+│                       └───────────────────┘                          │
+│                                                                      │
+│  ┌─ Resources ────────────────────────────────────────────────────┐  │
+│  │ CPU   12.4%  [████░░░░░░]  4 cores                            │  │
+│  │ RAM   3.1 GB / 8.0 GB [█████░░░░░]                            │  │
+│  │ Disk  83 GB / 274 GB  [███░░░░░░░]                            │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+│                                                                      │
+│  Stacklab logs                                          [Refresh]   │
+│  [All ▾] [follow on/off] [text filter...]                           │
+│  ┌────────────────────────────────────────────────────────────────┐  │
+│  │ 14:13:22  info   HTTP server listening                        │  │
+│  │ 14:13:24  warn   Stacklab logs unavailable                    │  │
+│  │ 14:13:27  error  Failed to read journal                       │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+Notes:
+
+- dedicated top-level page in the sidebar
+- cards are optimized for quick host-health scanning, not dense reporting
+- Stacklab logs are stacked under the overview, not a separate tab
+- logs use polling follow mode in the first version
+
+## 12. Settings
 
 Route: `/settings`
 
@@ -532,7 +574,7 @@ Purpose: Application configuration.
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-## 12. Operation Progress Panel
+## 13. Operation Progress Panel
 
 Not a standalone screen but an inline/overlay panel shown during mutating operations.
 

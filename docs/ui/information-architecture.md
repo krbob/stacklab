@@ -17,6 +17,7 @@ There is no deeper nesting. Every screen is reachable in at most two clicks from
 ├──────┬──────────────────────────────────────┤
 │      │                                      │
 │  ◉ Stacks    Main content area              │
+│  ◎ Host                                     │
 │  ◎ Audit                                    │
 │  ◎ Settings                                 │
 │      │                                      │
@@ -28,8 +29,9 @@ There is no deeper nesting. Every screen is reachable in at most two clicks from
 | Section | Route | Purpose |
 |---|---|---|
 | **Stacks** | `/stacks` | Stack list dashboard. Default landing page. |
+| **Host** | `/host` | Host overview, Stacklab version, and Stacklab service logs |
 | **Audit** | `/audit` | Global audit log of all mutating actions |
-| **Settings** | `/settings` | Application settings, auth, update schedules (post-MVP) |
+| **Settings** | `/settings` | Application settings, auth, preferences, and later update schedules |
 
 The sidebar is collapsible on tablet widths (below 1024px) to a narrow icon bar.
 
@@ -64,6 +66,7 @@ Entering a stack opens a detail view with tabbed sub-navigation:
 | Screen | Description | MVP |
 |---|---|---|
 | Stack List | Dashboard with all stacks, their states, quick actions | Yes |
+| Host | Host overview, Stacklab version/build info, Stacklab service logs | Post-MVP / Next milestone |
 | Global Audit | Chronological log of all mutating operations | Yes |
 | Settings | App configuration, password change | Yes |
 | Login | Authentication screen | Yes |
@@ -117,6 +120,12 @@ Global Audit → filter by stack → Stack History
 Stack Overview → History tab
 ```
 
+### Host diagnostics flow
+
+```
+Stacks → Host → inspect host health → inspect Stacklab logs
+```
+
 ## Responsive Breakpoints
 
 | Breakpoint | Name | Behavior |
@@ -132,6 +141,7 @@ All routes are client-side (SPA with history mode):
 ```
 /login
 /stacks
+/host
 /stacks/new
 /stacks/:stackId
 /stacks/:stackId/editor

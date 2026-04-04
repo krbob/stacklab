@@ -10,27 +10,27 @@ Backend contract draft:
 
 - `docs/api/host-observability.md`
 
-## Proposed Information Architecture
+## Confirmed Information Architecture
 
-Recommended routes:
+Confirmed route:
 
 - `/host`
 - keep `/settings` for app settings and password only
 
-Recommended nav model:
+Confirmed nav model:
 
 - add **Host** to the global sidebar between `Stacks` and `Audit`
 
-Reason:
+Rationale:
 
 - host overview and Stacklab logs are operational surfaces, not merely app preferences
 - putting them into `Settings` would make troubleshooting harder to discover
 
-## Screen Shape
+## Confirmed Screen Shape
 
 ## Host Overview Page
 
-Recommended sections:
+Confirmed sections:
 
 1. Stacklab
    - version
@@ -56,10 +56,10 @@ Optional later:
 
 ## Stacklab Logs Panel
 
-Recommended placement:
+Confirmed placement:
 
 - second section on the same `/host` page
-- tabbed or stacked below the overview, whichever fits better
+- stacked vertically below the overview cards
 
 Required capabilities:
 
@@ -83,13 +83,11 @@ Need to define:
 - permission/unavailable state when `journald` is not readable
 - degraded state if host metrics load but logs do not
 
-## Questions For UI Developer
+## UI Decisions Captured
 
-Please propose:
-
-1. whether `/host` should be a dedicated page or a section inside `/settings`
-2. whether logs should live on the same page or as a nested tab
-3. whether host resource cards should be compact dashboard-style widgets or denser operator tables
+1. `/host` is a dedicated page in the main sidebar
+2. Stacklab logs are stacked under the overview on the same page
+3. host resource presentation uses compact dashboard-style cards, not a dense operator table
 
 ## Expected Backend/UI Sequence
 
