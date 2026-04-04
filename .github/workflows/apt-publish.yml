@@ -1,0 +1,73 @@
+name: Publish APT Channel
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: GitHub release tag to download packages from
+        required: true
+        type: string
+      channel:
+        description: Target APT channel
+        required: true
+        type: choice
+        options:
+          - stable
+          - nightly
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apt-publish-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  apt-publish:
+    name: apt-publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install packaging tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev apt-utils gnupg
+
+      - name: Download release packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/apt-input
+          gh release download "${{ github.event.inputs.tag }}" \
+            --pattern '*.deb' \
+            --dir dist/apt-input
+
+      - name: Prepare Pages worktree
+        run: scripts/release/prepare-pages-worktree.sh "${RUNNER_TEMP}/gh-pages" gh-pages
+
+      - name: Publish APT channel
+        env:
+          APT_GPG_PRIVATE_KEY_BASE64: ${{ secrets.APT_GPG_PRIVATE_KEY_BASE64 }}
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+          APT_GPG_KEY_ID: ${{ secrets.APT_GPG_KEY_ID }}
+        run: scripts/release/publish-apt-repo.sh --channel "${{ github.event.inputs.channel }}" --pages-dir "${RUNNER_TEMP}/gh-pages" --debs-dir dist/apt-input
+
+      - name: Commit and push Pages changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${RUNNER_TEMP}/gh-pages"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Publish apt ${{ github.event.inputs.channel }} for ${{ github.event.inputs.tag }}"
+          git push origin HEAD:gh-pages

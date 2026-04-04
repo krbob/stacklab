@@ -1,0 +1,188 @@
+name: Hotfix Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Hotfix version, for example 2026.05.1
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hotfix-release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: prepare-hotfix
+    runs-on: ubuntu-latest
+    outputs:
+      release_version: ${{ steps.vars.outputs.release_version }}
+      previous_tag: ${{ steps.vars.outputs.previous_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Fetch tags
+        run: git fetch --tags --force
+
+      - name: Validate hotfix version
+        id: vars
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_version="${{ github.event.inputs.version }}"
+          if git rev-parse -q --verify "refs/tags/${release_version}" >/dev/null; then
+            echo "tag already exists: ${release_version}" >&2
+            exit 1
+          fi
+          previous_tag="$(git tag --list '[0-9][0-9][0-9][0-9].[0-9][0-9].*' --sort=-version:refname | head -n1 || true)"
+          echo "release_version=${release_version}" >> "$GITHUB_OUTPUT"
+          echo "previous_tag=${previous_tag}" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: build-hotfix-${{ matrix.arch }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.14.1
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build release artifact
+        env:
+          STACKLAB_RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+          STACKLAB_RELEASE_COMMIT: ${{ github.sha }}
+          STACKLAB_RELEASE_GOARCH: ${{ matrix.arch }}
+          STACKLAB_SKIP_FRONTEND_BUILD: ${{ matrix.arch == 'arm64' && '1' || '0' }}
+        run: scripts/release/build-artifact.sh
+
+      - name: Build Debian package
+        env:
+          STACKLAB_RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+          STACKLAB_RELEASE_GOARCH: ${{ matrix.arch }}
+        run: scripts/release/build-deb.sh
+
+      - name: Upload hotfix artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: hotfix-${{ matrix.arch }}
+          path: |
+            dist/release/stacklab-${{ needs.prepare.outputs.release_version }}-linux-${{ matrix.arch }}.tar.gz
+            dist/release/stacklab-${{ needs.prepare.outputs.release_version }}-linux-${{ matrix.arch }}.tar.gz.sha256
+            dist/release/stacklab_${{ needs.prepare.outputs.release_version }}_${{ matrix.arch }}.deb
+            dist/release/stacklab_${{ needs.prepare.outputs.release_version }}_${{ matrix.arch }}.deb.sha256
+
+  smoke-package:
+    name: smoke-hotfix-package
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download amd64 hotfix artifacts
+        uses: actions/download-artifact@v7
+        with:
+          name: hotfix-amd64
+          path: dist/release
+
+      - name: Smoke install package on Debian
+        run: scripts/release/smoke-deb-install.sh dist/release/stacklab_${{ needs.prepare.outputs.release_version }}_amd64.deb
+
+  publish:
+    name: publish-hotfix
+    needs: [prepare, build, smoke-package]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Fetch tags
+        run: git fetch --tags --force
+
+      - name: Download hotfix artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: hotfix-*
+          path: dist/hotfix
+          merge-multiple: true
+
+      - name: Install APT publishing tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev apt-utils gnupg
+
+      - name: Generate release notes
+        env:
+          PREVIOUS_TAG: ${{ needs.prepare.outputs.previous_tag }}
+        run: |
+          set -euo pipefail
+          args=(--version "${{ needs.prepare.outputs.release_version }}" --channel hotfix --repo "https://github.com/${GITHUB_REPOSITORY}")
+          if [[ -n "${PREVIOUS_TAG}" ]]; then
+            args+=(--from "${PREVIOUS_TAG}")
+          fi
+          scripts/release/generate-release-notes.sh "${args[@]}" > dist/hotfix/release-notes.md
+
+      - name: Create hotfix release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "${{ needs.prepare.outputs.release_version }}" \
+            dist/hotfix/* \
+            --target "${GITHUB_SHA}" \
+            --title "Stacklab ${{ needs.prepare.outputs.release_version }}" \
+            --notes-file dist/hotfix/release-notes.md
+
+      - name: Prepare Pages worktree
+        run: scripts/release/prepare-pages-worktree.sh "${RUNNER_TEMP}/gh-pages" gh-pages
+
+      - name: Publish APT stable channel
+        env:
+          APT_GPG_PRIVATE_KEY_BASE64: ${{ secrets.APT_GPG_PRIVATE_KEY_BASE64 }}
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+          APT_GPG_KEY_ID: ${{ secrets.APT_GPG_KEY_ID }}
+        run: scripts/release/publish-apt-repo.sh --channel stable --pages-dir "${RUNNER_TEMP}/gh-pages" --debs-dir dist/hotfix
+
+      - name: Commit and push Pages changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${RUNNER_TEMP}/gh-pages"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Publish apt stable for ${{ needs.prepare.outputs.release_version }}"
+          git push origin HEAD:gh-pages

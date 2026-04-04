@@ -1,0 +1,215 @@
+name: Nightly Release
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly-release-${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: prepare-nightly
+    runs-on: ubuntu-latest
+    outputs:
+      should_publish: ${{ steps.vars.outputs.should_publish }}
+      nightly_tag: ${{ steps.vars.outputs.nightly_tag }}
+      release_version: ${{ steps.vars.outputs.release_version }}
+      previous_tag: ${{ steps.vars.outputs.previous_tag }}
+      release_title: ${{ steps.vars.outputs.release_title }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Fetch tags
+        run: git fetch --tags --force
+
+      - name: Compute nightly release vars
+        id: vars
+        shell: bash
+        run: |
+          set -euo pipefail
+          short_sha="$(git rev-parse --short=7 HEAD)"
+          today="$(date -u +%Y%m%d)"
+          next_base="$(python3 - <<'PY'
+          from datetime import datetime
+          today = datetime.utcnow()
+          year = today.year
+          month = today.month + 1
+          if month == 13:
+              month = 1
+              year += 1
+          print(f"{year:04d}.{month:02d}.0")
+          PY
+          )"
+          nightly_tag="nightly-${today}-${short_sha}"
+          release_version="${next_base}~nightly${today}+g${short_sha}"
+          latest_nightly="$(git for-each-ref --sort=-creatordate --format='%(refname:short)' 'refs/tags/nightly-*' | head -n1 || true)"
+          previous_tag="${latest_nightly}"
+          should_publish=true
+          if [[ -n "${latest_nightly}" ]]; then
+            latest_commit="$(git rev-list -n1 "${latest_nightly}")"
+            if [[ "${latest_commit}" == "${GITHUB_SHA}" ]]; then
+              should_publish=false
+            fi
+          fi
+          {
+            echo "should_publish=${should_publish}"
+            echo "nightly_tag=${nightly_tag}"
+            echo "release_version=${release_version}"
+            echo "previous_tag=${previous_tag}"
+            echo "release_title=Stacklab nightly ${today} (${short_sha})"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    name: build-nightly-${{ matrix.arch }}
+    needs: prepare
+    if: needs.prepare.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.14.1
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build release artifact
+        env:
+          STACKLAB_RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+          STACKLAB_RELEASE_COMMIT: ${{ github.sha }}
+          STACKLAB_RELEASE_GOARCH: ${{ matrix.arch }}
+          STACKLAB_SKIP_FRONTEND_BUILD: ${{ matrix.arch == 'arm64' && '1' || '0' }}
+        run: scripts/release/build-artifact.sh
+
+      - name: Build Debian package
+        env:
+          STACKLAB_RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+          STACKLAB_RELEASE_GOARCH: ${{ matrix.arch }}
+        run: scripts/release/build-deb.sh
+
+      - name: Upload nightly artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-${{ matrix.arch }}
+          path: |
+            dist/release/stacklab-${{ needs.prepare.outputs.release_version }}-linux-${{ matrix.arch }}.tar.gz
+            dist/release/stacklab-${{ needs.prepare.outputs.release_version }}-linux-${{ matrix.arch }}.tar.gz.sha256
+            dist/release/stacklab_${{ needs.prepare.outputs.release_version }}_${{ matrix.arch }}.deb
+            dist/release/stacklab_${{ needs.prepare.outputs.release_version }}_${{ matrix.arch }}.deb.sha256
+
+  smoke-package:
+    name: smoke-nightly-package
+    needs: [prepare, build]
+    if: needs.prepare.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download amd64 nightly artifacts
+        uses: actions/download-artifact@v7
+        with:
+          name: nightly-amd64
+          path: dist/release
+
+      - name: Smoke install package on Debian
+        run: scripts/release/smoke-deb-install.sh dist/release/stacklab_${{ needs.prepare.outputs.release_version }}_amd64.deb
+
+  publish:
+    name: publish-nightly
+    needs: [prepare, build, smoke-package]
+    if: needs.prepare.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Fetch tags
+        run: git fetch --tags --force
+
+      - name: Download nightly artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: nightly-*
+          path: dist/nightly
+          merge-multiple: true
+
+      - name: Install APT publishing tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev apt-utils gnupg
+
+      - name: Generate release notes
+        env:
+          PREVIOUS_TAG: ${{ needs.prepare.outputs.previous_tag }}
+        run: |
+          set -euo pipefail
+          args=(--version "${{ needs.prepare.outputs.release_version }}" --channel nightly --repo "https://github.com/${GITHUB_REPOSITORY}")
+          if [[ -n "${PREVIOUS_TAG}" ]]; then
+            args+=(--from "${PREVIOUS_TAG}")
+          fi
+          scripts/release/generate-release-notes.sh "${args[@]}" > dist/nightly/release-notes.md
+
+      - name: Create nightly prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "${{ needs.prepare.outputs.nightly_tag }}" \
+            dist/nightly/* \
+            --target "${GITHUB_SHA}" \
+            --title "${{ needs.prepare.outputs.release_title }}" \
+            --notes-file dist/nightly/release-notes.md \
+            --prerelease
+
+      - name: Prepare Pages worktree
+        run: scripts/release/prepare-pages-worktree.sh "${RUNNER_TEMP}/gh-pages" gh-pages
+
+      - name: Publish APT nightly channel
+        env:
+          APT_GPG_PRIVATE_KEY_BASE64: ${{ secrets.APT_GPG_PRIVATE_KEY_BASE64 }}
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+          APT_GPG_KEY_ID: ${{ secrets.APT_GPG_KEY_ID }}
+        run: scripts/release/publish-apt-repo.sh --channel nightly --pages-dir "${RUNNER_TEMP}/gh-pages" --debs-dir dist/nightly
+
+      - name: Commit and push Pages changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${RUNNER_TEMP}/gh-pages"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Publish apt nightly for ${{ needs.prepare.outputs.nightly_tag }}"
+          git push origin HEAD:gh-pages

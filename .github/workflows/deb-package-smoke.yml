@@ -1,0 +1,69 @@
+name: Debian Package Smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/deb-package-smoke.yml'
+      - '.github/workflows/release-build.yml'
+      - 'packaging/debian/**'
+      - 'scripts/release/build-artifact.sh'
+      - 'scripts/release/build-deb.sh'
+      - 'scripts/release/smoke-deb-install.sh'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/deb-package-smoke.yml'
+      - '.github/workflows/release-build.yml'
+      - 'packaging/debian/**'
+      - 'scripts/release/build-artifact.sh'
+      - 'scripts/release/build-deb.sh'
+      - 'scripts/release/smoke-deb-install.sh'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deb-package-smoke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deb-package-smoke:
+    name: deb-package-smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.14.1
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build release artifact
+        env:
+          STACKLAB_RELEASE_VERSION: 0.0.0-ci
+          STACKLAB_RELEASE_GOARCH: amd64
+        run: scripts/release/build-artifact.sh
+
+      - name: Build Debian package
+        env:
+          STACKLAB_RELEASE_VERSION: 0.0.0-ci
+          STACKLAB_RELEASE_GOARCH: amd64
+        run: scripts/release/build-deb.sh
+
+      - name: Smoke install package on Debian
+        run: scripts/release/smoke-deb-install.sh dist/release/stacklab_0.0.0-ci_amd64.deb
