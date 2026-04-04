@@ -11,6 +11,8 @@ tags:
   - name: Health
   - name: Auth
   - name: Meta
+  - name: Host
+  - name: Config
   - name: Stacks
   - name: Audit
   - name: Jobs
@@ -54,6 +56,145 @@ paths:
                 $ref: '#/components/schemas/MetaResponse'
         '401':
           $ref: '#/components/responses/ErrorUnauthorized'
+  /host/overview:
+    get:
+      tags: [Host]
+      operationId: getHostOverview
+      responses:
+        '200':
+          description: Host and Stacklab runtime metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HostOverviewResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+  /host/stacklab-logs:
+    get:
+      tags: [Host]
+      operationId: getStacklabLogs
+      parameters:
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 200
+        - in: query
+          name: cursor
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: level
+          required: false
+          schema:
+            type: string
+            enum: [debug, info, warn, error]
+        - in: query
+          name: q
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Recent Stacklab service logs from journald.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StacklabLogsResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+  /config/workspace/tree:
+    get:
+      tags: [Config]
+      operationId: getConfigWorkspaceTree
+      parameters:
+        - in: query
+          name: path
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Directory-scoped config workspace listing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigTreeResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '400':
+          description: Invalid path or path is not a directory.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+  /config/workspace/file:
+    get:
+      tags: [Config]
+      operationId: getConfigWorkspaceFile
+      parameters:
+        - in: query
+          name: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Config workspace file metadata and optional content.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigFileResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '400':
+          description: Invalid path or path is not a file.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+    put:
+      tags: [Config]
+      operationId: saveConfigWorkspaceFile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigFileSaveRequest'
+      responses:
+        '200':
+          description: Config workspace file saved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigFileSaveResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '400':
+          description: Invalid path or parent directory shape.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          description: Binary files are not editable in-browser.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /auth/login:
     post:
       tags: [Auth]
@@ -524,6 +665,215 @@ components:
         features:
           $ref: '#/components/schemas/FeatureFlags'
       required: [app, environment, docker, features]
+    HostOverviewResponse:
+      type: object
+      properties:
+        host:
+          $ref: '#/components/schemas/HostMeta'
+        stacklab:
+          $ref: '#/components/schemas/StacklabMeta'
+        docker:
+          $ref: '#/components/schemas/DockerMeta'
+        resources:
+          $ref: '#/components/schemas/HostResources'
+      required: [host, stacklab, docker, resources]
+    HostMeta:
+      type: object
+      properties:
+        hostname:
+          type: string
+        os_name:
+          type: string
+        kernel_version:
+          type: string
+        architecture:
+          type: string
+        uptime_seconds:
+          type: integer
+      required: [hostname, os_name, kernel_version, architecture, uptime_seconds]
+    StacklabMeta:
+      type: object
+      properties:
+        version:
+          type: string
+        commit:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+      required: [version, commit, started_at]
+    DockerMeta:
+      type: object
+      properties:
+        engine_version:
+          type: string
+        compose_version:
+          type: string
+      required: [engine_version, compose_version]
+    HostResources:
+      type: object
+      properties:
+        cpu:
+          $ref: '#/components/schemas/HostCPU'
+        memory:
+          $ref: '#/components/schemas/HostMemory'
+        disk:
+          $ref: '#/components/schemas/HostDisk'
+      required: [cpu, memory, disk]
+    HostCPU:
+      type: object
+      properties:
+        core_count:
+          type: integer
+        load_average:
+          type: array
+          items:
+            type: number
+            format: double
+        usage_percent:
+          type: number
+          format: double
+      required: [core_count, load_average, usage_percent]
+    HostMemory:
+      type: object
+      properties:
+        total_bytes:
+          type: integer
+        used_bytes:
+          type: integer
+        available_bytes:
+          type: integer
+        usage_percent:
+          type: number
+          format: double
+      required: [total_bytes, used_bytes, available_bytes, usage_percent]
+    HostDisk:
+      type: object
+      properties:
+        path:
+          type: string
+        total_bytes:
+          type: integer
+        used_bytes:
+          type: integer
+        available_bytes:
+          type: integer
+        usage_percent:
+          type: number
+          format: double
+      required: [path, total_bytes, used_bytes, available_bytes, usage_percent]
+    StacklabLogsResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/StacklabLogEntry'
+        next_cursor:
+          type: string
+          nullable: true
+        has_more:
+          type: boolean
+      required: [items, has_more]
+    StacklabLogEntry:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        level:
+          type: string
+          enum: [debug, info, warn, error]
+        message:
+          type: string
+        cursor:
+          type: string
+      required: [timestamp, level, message, cursor]
+    ConfigEntryType:
+      type: string
+      enum: [directory, text_file, binary_file, unknown_file]
+    ConfigTreeResponse:
+      type: object
+      properties:
+        workspace_root:
+          type: string
+        current_path:
+          type: string
+        parent_path:
+          type: string
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConfigTreeEntry'
+      required: [workspace_root, current_path, items]
+    ConfigTreeEntry:
+      type: object
+      properties:
+        name:
+          type: string
+        path:
+          type: string
+        type:
+          $ref: '#/components/schemas/ConfigEntryType'
+        size_bytes:
+          type: integer
+        modified_at:
+          type: string
+          format: date-time
+        stack_id:
+          type: string
+          nullable: true
+      required: [name, path, type, size_bytes, modified_at]
+    ConfigFileResponse:
+      type: object
+      properties:
+        path:
+          type: string
+        name:
+          type: string
+        type:
+          $ref: '#/components/schemas/ConfigEntryType'
+        stack_id:
+          type: string
+          nullable: true
+        content:
+          type: string
+          nullable: true
+        encoding:
+          type: string
+          nullable: true
+        size_bytes:
+          type: integer
+        modified_at:
+          type: string
+          format: date-time
+        writable:
+          type: boolean
+      required: [path, name, type, size_bytes, modified_at, writable]
+    ConfigFileSaveRequest:
+      type: object
+      properties:
+        path:
+          type: string
+        content:
+          type: string
+        create_parent_directories:
+          type: boolean
+      required: [path, content, create_parent_directories]
+    ConfigFileSaveResponse:
+      type: object
+      properties:
+        saved:
+          type: boolean
+        path:
+          type: string
+        modified_at:
+          type: string
+          format: date-time
+        audit_action:
+          type: string
+      required: [saved, path, modified_at, audit_action]
     StackListResponse:
       type: object
       properties:

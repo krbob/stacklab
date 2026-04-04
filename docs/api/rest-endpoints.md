@@ -141,6 +141,207 @@ Response:
 }
 ```
 
+## `GET /api/host/overview`
+
+Purpose:
+
+- fetch host-level runtime metadata for the dedicated host page
+
+Response:
+
+```json
+{
+  "host": {
+    "hostname": "debian-homelab",
+    "os_name": "Debian GNU/Linux 13",
+    "kernel_version": "6.12.19-amd64",
+    "architecture": "linux-amd64",
+    "uptime_seconds": 86400
+  },
+  "stacklab": {
+    "version": "2026.04.0",
+    "commit": "abc1234",
+    "started_at": "2026-04-04T14:10:00Z"
+  },
+  "docker": {
+    "engine_version": "28.5.1",
+    "compose_version": "2.39.2"
+  },
+  "resources": {
+    "cpu": {
+      "core_count": 4,
+      "load_average": [0.31, 0.22, 0.18],
+      "usage_percent": 12.4
+    },
+    "memory": {
+      "total_bytes": 8589934592,
+      "used_bytes": 3145728000,
+      "available_bytes": 5444206592,
+      "usage_percent": 36.6
+    },
+    "disk": {
+      "path": "/opt/stacklab",
+      "total_bytes": 274877906944,
+      "used_bytes": 83437182976,
+      "available_bytes": 191440723968,
+      "usage_percent": 30.4
+    }
+  }
+}
+```
+
+## `GET /api/host/stacklab-logs`
+
+Purpose:
+
+- fetch recent Stacklab service logs from `journalctl -u stacklab`
+
+Query parameters:
+
+- `limit` optional, default `200`, max `1000`
+- `cursor` optional opaque follow cursor
+- `level` optional: `debug`, `info`, `warn`, `error`
+- `q` optional text filter
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "timestamp": "2026-04-04T14:13:22Z",
+      "level": "info",
+      "message": "HTTP server listening",
+      "cursor": "s=8f2..."
+    }
+  ],
+  "next_cursor": "s=8f3...",
+  "has_more": true
+}
+```
+
+## `GET /api/config/workspace/tree`
+
+Purpose:
+
+- browse one directory level of the Stacklab config workspace
+
+Query parameters:
+
+- `path` optional relative directory path, default root
+
+Response:
+
+```json
+{
+  "workspace_root": "/opt/stacklab/config",
+  "current_path": "nextcloud",
+  "parent_path": "",
+  "items": [
+    {
+      "name": "dynamic",
+      "path": "nextcloud/dynamic",
+      "type": "directory",
+      "size_bytes": 0,
+      "modified_at": "2026-04-04T11:55:00Z",
+      "stack_id": "nextcloud"
+    },
+    {
+      "name": "nginx.conf",
+      "path": "nextcloud/nginx.conf",
+      "type": "text_file",
+      "size_bytes": 1782,
+      "modified_at": "2026-04-04T12:00:00Z",
+      "stack_id": "nextcloud"
+    }
+  ]
+}
+```
+
+Notes:
+
+- workspace is limited to `/opt/stacklab/config`
+- sorting is deterministic:
+  - directories first
+  - then files
+  - alphabetical within each group
+
+## `GET /api/config/workspace/file`
+
+Purpose:
+
+- fetch file metadata and content for one config workspace file
+
+Query parameters:
+
+- `path` required relative file path
+
+Response for text file:
+
+```json
+{
+  "path": "nextcloud/nginx.conf",
+  "name": "nginx.conf",
+  "type": "text_file",
+  "stack_id": "nextcloud",
+  "content": "server {\\n  listen 80;\\n}\\n",
+  "encoding": "utf-8",
+  "size_bytes": 1782,
+  "modified_at": "2026-04-04T12:00:00Z",
+  "writable": true
+}
+```
+
+Response for non-text file:
+
+```json
+{
+  "path": "nextcloud/certificate.p12",
+  "name": "certificate.p12",
+  "type": "binary_file",
+  "stack_id": "nextcloud",
+  "content": null,
+  "encoding": null,
+  "size_bytes": 4096,
+  "modified_at": "2026-04-04T12:00:00Z",
+  "writable": false
+}
+```
+
+## `PUT /api/config/workspace/file`
+
+Purpose:
+
+- save content for an existing or new text file under the config workspace
+
+Request:
+
+```json
+{
+  "path": "nextcloud/nginx.conf",
+  "content": "server {\\n  listen 8080;\\n}\\n",
+  "create_parent_directories": false
+}
+```
+
+Response:
+
+```json
+{
+  "saved": true,
+  "path": "nextcloud/nginx.conf",
+  "modified_at": "2026-04-04T12:05:00Z",
+  "audit_action": "save_config_file"
+}
+```
+
+Rules:
+
+- all paths are relative to `/opt/stacklab/config`
+- path traversal outside the workspace is rejected
+- binary files are not editable through this endpoint
+- successful saves create audit entries with action `save_config_file`
+
 ## `GET /api/stacks`
 
 Purpose:

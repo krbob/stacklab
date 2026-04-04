@@ -14,6 +14,7 @@ import (
 	"stacklab/internal/audit"
 	"stacklab/internal/auth"
 	"stacklab/internal/config"
+	"stacklab/internal/configworkspace"
 	"stacklab/internal/hostinfo"
 	"stacklab/internal/jobs"
 	"stacklab/internal/stacks"
@@ -34,11 +35,18 @@ type Handler struct {
 	terminals   *terminal.Service
 	stackReader *stacks.ServiceReader
 	hostInfo    hostInfoReader
+	configFiles configWorkspaceReader
 }
 
 type hostInfoReader interface {
 	Overview(ctx context.Context) (hostinfo.OverviewResponse, error)
 	StacklabLogs(ctx context.Context, query hostinfo.LogsQuery) (hostinfo.StacklabLogsResponse, error)
+}
+
+type configWorkspaceReader interface {
+	Tree(ctx context.Context, currentPath string) (configworkspace.TreeResponse, error)
+	File(ctx context.Context, filePath string) (configworkspace.FileResponse, error)
+	SaveFile(ctx context.Context, request configworkspace.SaveFileRequest) (configworkspace.SaveFileResponse, error)
 }
 
 func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Service, auditService *audit.Service, jobService *jobs.Service) (http.Handler, error) {
@@ -66,6 +74,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Servic
 		}),
 		stackReader: stacks.NewServiceReader(cfg, logger),
 		hostInfo:    hostinfo.NewService(cfg, time.Now().UTC()),
+		configFiles: configworkspace.NewService(cfg),
 	}
 
 	handler.registerRoutes()
@@ -82,6 +91,9 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/meta", h.withAuth(h.handleMeta))
 	h.mux.HandleFunc("GET /api/host/overview", h.withAuth(h.handleHostOverview))
 	h.mux.HandleFunc("GET /api/host/stacklab-logs", h.withAuth(h.handleStacklabLogs))
+	h.mux.HandleFunc("GET /api/config/workspace/tree", h.withAuth(h.handleConfigWorkspaceTree))
+	h.mux.HandleFunc("GET /api/config/workspace/file", h.withAuth(h.handleConfigWorkspaceFile))
+	h.mux.HandleFunc("PUT /api/config/workspace/file", h.withAuth(h.handlePutConfigWorkspaceFile))
 	h.mux.HandleFunc("GET /api/stacks", h.withAuth(h.handleListStacks))
 	h.mux.HandleFunc("POST /api/stacks", h.withAuth(h.handleCreateStack))
 	h.mux.HandleFunc("GET /api/stacks/{stackId}", h.withAuth(h.handleGetStack))
@@ -221,6 +233,92 @@ func (h *Handler) handleStacklabLogs(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("stacklab logs failed", slog.String("err", err.Error()))
 		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load Stacklab service logs.", nil)
 		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleConfigWorkspaceTree(w http.ResponseWriter, r *http.Request) {
+	response, err := h.configFiles.Tree(r.Context(), strings.TrimSpace(r.URL.Query().Get("path")))
+	if err != nil {
+		switch {
+		case errors.Is(err, configworkspace.ErrPathOutsideWorkspace):
+			writeError(w, http.StatusBadRequest, "path_outside_workspace", "Path escapes the config workspace.", nil)
+		case errors.Is(err, configworkspace.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Workspace path was not found.", nil)
+		case errors.Is(err, configworkspace.ErrPathNotDirectory):
+			writeError(w, http.StatusBadRequest, "path_not_directory", "Path is not a directory.", nil)
+		default:
+			h.logger.Error("config workspace tree failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load config workspace tree.", nil)
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleConfigWorkspaceFile(w http.ResponseWriter, r *http.Request) {
+	response, err := h.configFiles.File(r.Context(), strings.TrimSpace(r.URL.Query().Get("path")))
+	if err != nil {
+		switch {
+		case errors.Is(err, configworkspace.ErrPathOutsideWorkspace):
+			writeError(w, http.StatusBadRequest, "path_outside_workspace", "Path escapes the config workspace.", nil)
+		case errors.Is(err, configworkspace.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Workspace file was not found.", nil)
+		case errors.Is(err, configworkspace.ErrPathNotFile):
+			writeError(w, http.StatusBadRequest, "path_not_file", "Path is not a file.", nil)
+		default:
+			h.logger.Error("config workspace file failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load config workspace file.", nil)
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handlePutConfigWorkspaceFile(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request configworkspace.SaveFileRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	response, err := h.configFiles.SaveFile(r.Context(), request)
+	if err != nil {
+		switch {
+		case errors.Is(err, configworkspace.ErrPathOutsideWorkspace):
+			writeError(w, http.StatusBadRequest, "path_outside_workspace", "Path escapes the config workspace.", nil)
+		case errors.Is(err, configworkspace.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Workspace path was not found.", nil)
+		case errors.Is(err, configworkspace.ErrPathNotDirectory):
+			writeError(w, http.StatusBadRequest, "path_not_directory", "Parent path is not a directory.", nil)
+		case errors.Is(err, configworkspace.ErrPathNotFile):
+			writeError(w, http.StatusBadRequest, "path_not_file", "Path is not a file.", nil)
+		case errors.Is(err, configworkspace.ErrBinaryNotEditable):
+			writeError(w, http.StatusConflict, "binary_not_editable", "Binary files cannot be edited in the browser.", nil)
+		default:
+			h.logger.Error("save config workspace file failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to save config workspace file.", nil)
+		}
+		return
+	}
+
+	details := map[string]any{
+		"path": response.Path,
+		"type": "text_file",
+	}
+	if stackID := deriveConfigWorkspaceStackID(response.Path); stackID != nil {
+		details["stack_id"] = *stackID
+	}
+	if err := h.audit.RecordConfigFileSave(r.Context(), response.Path, deriveConfigWorkspaceStackID(response.Path), "local", details); err != nil {
+		h.logger.Warn("record save_config_file audit failed", slog.String("path", response.Path), slog.String("err", err.Error()))
 	}
 
 	writeJSON(w, http.StatusOK, response)
@@ -943,6 +1041,15 @@ func parseOptionalPositiveInt(value string, fallback, max int) (int, error) {
 		return max, nil
 	}
 	return parsed, nil
+}
+
+func deriveConfigWorkspaceStackID(relativePath string) *string {
+	firstSegment := strings.Split(strings.TrimSpace(relativePath), "/")[0]
+	if !stacks.IsValidStackID(firstSegment) {
+		return nil
+	}
+	stackID := firstSegment
+	return &stackID
 }
 
 func createWorkflowSteps(deployAfterCreate bool) []store.JobWorkflowStep {

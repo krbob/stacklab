@@ -16,6 +16,7 @@ import (
 	"stacklab/internal/audit"
 	"stacklab/internal/auth"
 	"stacklab/internal/config"
+	"stacklab/internal/configworkspace"
 	"stacklab/internal/hostinfo"
 	"stacklab/internal/jobs"
 	"stacklab/internal/stacks"
@@ -170,6 +171,133 @@ func TestHandlerStacklabLogsRejectsInvalidLimit(t *testing.T) {
 	}
 }
 
+func TestHandlerConfigWorkspaceTreeFileAndSave(t *testing.T) {
+	t.Parallel()
+
+	handler, served, cfg := newInternalTestHandler(t)
+	cookies := loginInternalTestUser(t, served, "secret")
+	configRoot := filepath.Join(cfg.RootDir, "config")
+	if err := os.MkdirAll(filepath.Join(configRoot, "nextcloud"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(config nextcloud) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configRoot, "nextcloud", "app.conf"), []byte("PORT=8080\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(app.conf) error = %v", err)
+	}
+
+	treeResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/config/workspace/tree", nil, cookies)
+	if treeResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/config/workspace/tree status = %d, want %d; body=%s", treeResponse.Code, http.StatusOK, treeResponse.Body.String())
+	}
+	var treePayload configworkspace.TreeResponse
+	decodeInternalResponse(t, treeResponse, &treePayload)
+	if len(treePayload.Items) != 1 || treePayload.Items[0].Name != "nextcloud" {
+		t.Fatalf("unexpected config tree payload: %#v", treePayload)
+	}
+
+	fileResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/config/workspace/file?path=nextcloud%2Fapp.conf", nil, cookies)
+	if fileResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/config/workspace/file status = %d, want %d; body=%s", fileResponse.Code, http.StatusOK, fileResponse.Body.String())
+	}
+	var filePayload configworkspace.FileResponse
+	decodeInternalResponse(t, fileResponse, &filePayload)
+	if filePayload.Content == nil || *filePayload.Content != "PORT=8080\n" || filePayload.Type != configworkspace.EntryTypeTextFile {
+		t.Fatalf("unexpected config file payload: %#v", filePayload)
+	}
+
+	saveResponse := performInternalJSONRequest(t, served, http.MethodPut, "/api/config/workspace/file", map[string]any{
+		"path":                      "nextcloud/app.conf",
+		"content":                   "PORT=9090\n",
+		"create_parent_directories": false,
+	}, cookies)
+	if saveResponse.Code != http.StatusOK {
+		t.Fatalf("PUT /api/config/workspace/file status = %d, want %d; body=%s", saveResponse.Code, http.StatusOK, saveResponse.Body.String())
+	}
+	var savePayload configworkspace.SaveFileResponse
+	decodeInternalResponse(t, saveResponse, &savePayload)
+	if !savePayload.Saved || savePayload.AuditAction != "save_config_file" {
+		t.Fatalf("unexpected save payload: %#v", savePayload)
+	}
+
+	updatedContent, err := os.ReadFile(filepath.Join(configRoot, "nextcloud", "app.conf"))
+	if err != nil {
+		t.Fatalf("ReadFile(updated app.conf) error = %v", err)
+	}
+	if string(updatedContent) != "PORT=9090\n" {
+		t.Fatalf("saved app.conf = %q, want %q", string(updatedContent), "PORT=9090\n")
+	}
+
+	auditResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/audit", nil, cookies)
+	if auditResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/audit status = %d, want %d; body=%s", auditResponse.Code, http.StatusOK, auditResponse.Body.String())
+	}
+	var auditPayload struct {
+		Items []struct {
+			Action  string  `json:"action"`
+			StackID *string `json:"stack_id"`
+		} `json:"items"`
+	}
+	decodeInternalResponse(t, auditResponse, &auditPayload)
+	if len(auditPayload.Items) == 0 || auditPayload.Items[0].Action != "save_config_file" {
+		t.Fatalf("unexpected audit entries after config save: %#v", auditPayload.Items)
+	}
+	if auditPayload.Items[0].StackID == nil || *auditPayload.Items[0].StackID != "nextcloud" {
+		t.Fatalf("expected config save audit stack id, got %#v", auditPayload.Items[0].StackID)
+	}
+
+	_ = handler
+}
+
+func TestHandlerConfigWorkspaceErrors(t *testing.T) {
+	t.Parallel()
+
+	_, served, cfg := newInternalTestHandler(t)
+	cookies := loginInternalTestUser(t, served, "secret")
+	configRoot := filepath.Join(cfg.RootDir, "config")
+	if err := os.MkdirAll(filepath.Join(configRoot, "nextcloud"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(config nextcloud) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configRoot, "nextcloud", "blob.bin"), []byte{0x00, 0x01}, 0o644); err != nil {
+		t.Fatalf("WriteFile(blob.bin) error = %v", err)
+	}
+
+	treeTraversal := performInternalJSONRequest(t, served, http.MethodGet, "/api/config/workspace/tree?path=..%2Fetc", nil, cookies)
+	if treeTraversal.Code != http.StatusBadRequest {
+		t.Fatalf("GET /api/config/workspace/tree traversal status = %d, want %d; body=%s", treeTraversal.Code, http.StatusBadRequest, treeTraversal.Body.String())
+	}
+	var treeError struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	decodeInternalResponse(t, treeTraversal, &treeError)
+	if treeError.Error.Code != "path_outside_workspace" {
+		t.Fatalf("unexpected tree traversal error payload: %#v", treeError)
+	}
+
+	fileDirectory := performInternalJSONRequest(t, served, http.MethodGet, "/api/config/workspace/file?path=nextcloud", nil, cookies)
+	if fileDirectory.Code != http.StatusBadRequest {
+		t.Fatalf("GET /api/config/workspace/file(directory) status = %d, want %d; body=%s", fileDirectory.Code, http.StatusBadRequest, fileDirectory.Body.String())
+	}
+
+	saveBinary := performInternalJSONRequest(t, served, http.MethodPut, "/api/config/workspace/file", map[string]any{
+		"path":                      "nextcloud/blob.bin",
+		"content":                   "text\n",
+		"create_parent_directories": false,
+	}, cookies)
+	if saveBinary.Code != http.StatusConflict {
+		t.Fatalf("PUT /api/config/workspace/file(binary) status = %d, want %d; body=%s", saveBinary.Code, http.StatusConflict, saveBinary.Body.String())
+	}
+	var saveBinaryError struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	decodeInternalResponse(t, saveBinary, &saveBinaryError)
+	if saveBinaryError.Error.Code != "binary_not_editable" {
+		t.Fatalf("unexpected binary save error payload: %#v", saveBinaryError)
+	}
+}
+
 func newInternalTestHandler(t *testing.T) (*Handler, http.Handler, config.Config) {
 	t.Helper()
 
@@ -221,6 +349,7 @@ func newInternalTestHandler(t *testing.T) (*Handler, http.Handler, config.Config
 		}, func(event terminal.LifecycleEvent) {}),
 		stackReader: stacks.NewServiceReader(cfg, logger),
 		hostInfo:    hostinfo.NewService(cfg, time.Unix(1_712_598_000, 0).UTC()),
+		configFiles: configworkspace.NewService(cfg),
 	}
 	handler.registerRoutes()
 

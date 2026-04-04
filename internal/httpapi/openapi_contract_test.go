@@ -33,7 +33,7 @@ func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
 	t.Parallel()
 
 	contract := loadOpenAPIContract(t)
-	handler, _ := newTestHandler(t)
+	handler, cfg := newTestHandler(t)
 
 	loginBody := map[string]any{
 		"password": "secret",
@@ -47,6 +47,28 @@ func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
 
 	metaResponse := performJSONRequest(t, handler, http.MethodGet, "/api/meta", nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/meta", nil, cookies, metaResponse)
+
+	configRoot := filepath.Join(cfg.RootDir, "config")
+	if err := os.MkdirAll(filepath.Join(configRoot, "nextcloud"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(config nextcloud) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configRoot, "nextcloud", "app.conf"), []byte("PORT=8080\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(config app.conf) error = %v", err)
+	}
+
+	configTreeResponse := performJSONRequest(t, handler, http.MethodGet, "/api/config/workspace/tree", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/config/workspace/tree", nil, cookies, configTreeResponse)
+
+	configFileResponse := performJSONRequest(t, handler, http.MethodGet, "/api/config/workspace/file?path=nextcloud%2Fapp.conf", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/config/workspace/file?path=nextcloud%2Fapp.conf", nil, cookies, configFileResponse)
+
+	configSaveBody := map[string]any{
+		"path":                      "nextcloud/app.conf",
+		"content":                   "PORT=9090\n",
+		"create_parent_directories": false,
+	}
+	configSaveResponse := performJSONRequest(t, handler, http.MethodPut, "/api/config/workspace/file", configSaveBody, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodPut, "/api/config/workspace/file", configSaveBody, cookies, configSaveResponse)
 
 	stackID := "contract-stack"
 	createBody := map[string]any{

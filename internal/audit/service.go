@@ -112,6 +112,30 @@ func (s *Service) RecordTerminalEvent(ctx context.Context, stackID, sessionID, c
 	})
 }
 
+func (s *Service) RecordConfigFileSave(ctx context.Context, relativePath string, stackID *string, requestedBy string, details map[string]any) error {
+	detailJSON, err := marshalDetails(details)
+	if err != nil {
+		return err
+	}
+
+	requestedAt := time.Now().UTC()
+	targetType := "config_file"
+	targetID := relativePath
+
+	return s.store.CreateAuditEntry(ctx, store.AuditEntry{
+		ID:          "audit_" + randomToken(18),
+		StackID:     stackID,
+		Action:      "save_config_file",
+		RequestedBy: fallback(requestedBy, "local"),
+		Result:      "succeeded",
+		RequestedAt: requestedAt,
+		FinishedAt:  &requestedAt,
+		TargetType:  targetType,
+		TargetID:    &targetID,
+		DetailJSON:  detailJSON,
+	})
+}
+
 func (s *Service) List(ctx context.Context, stackID, cursor string, limit int) (store.AuditListResult, error) {
 	return s.store.ListAuditEntries(ctx, store.AuditQuery{
 		StackID: stackID,
