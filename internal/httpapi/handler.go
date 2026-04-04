@@ -14,6 +14,7 @@ import (
 	"stacklab/internal/audit"
 	"stacklab/internal/auth"
 	"stacklab/internal/config"
+	"stacklab/internal/hostinfo"
 	"stacklab/internal/jobs"
 	"stacklab/internal/stacks"
 	"stacklab/internal/store"
@@ -32,6 +33,12 @@ type Handler struct {
 	jobs        *jobs.Service
 	terminals   *terminal.Service
 	stackReader *stacks.ServiceReader
+	hostInfo    hostInfoReader
+}
+
+type hostInfoReader interface {
+	Overview(ctx context.Context) (hostinfo.OverviewResponse, error)
+	StacklabLogs(ctx context.Context, query hostinfo.LogsQuery) (hostinfo.StacklabLogsResponse, error)
 }
 
 func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Service, auditService *audit.Service, jobService *jobs.Service) (http.Handler, error) {
@@ -58,6 +65,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Servic
 			_ = auditService.RecordTerminalEvent(context.Background(), event.StackID, event.SessionID, event.ContainerID, "local", action, result, details)
 		}),
 		stackReader: stacks.NewServiceReader(cfg, logger),
+		hostInfo:    hostinfo.NewService(cfg, time.Now().UTC()),
 	}
 
 	handler.registerRoutes()
@@ -72,6 +80,8 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("POST /api/auth/login", h.handleLogin)
 	h.mux.HandleFunc("POST /api/auth/logout", h.withAuth(h.handleLogout))
 	h.mux.HandleFunc("GET /api/meta", h.withAuth(h.handleMeta))
+	h.mux.HandleFunc("GET /api/host/overview", h.withAuth(h.handleHostOverview))
+	h.mux.HandleFunc("GET /api/host/stacklab-logs", h.withAuth(h.handleStacklabLogs))
 	h.mux.HandleFunc("GET /api/stacks", h.withAuth(h.handleListStacks))
 	h.mux.HandleFunc("POST /api/stacks", h.withAuth(h.handleCreateStack))
 	h.mux.HandleFunc("GET /api/stacks/{stackId}", h.withAuth(h.handleGetStack))
@@ -177,6 +187,43 @@ func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleMeta(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, h.stackReader.Meta(r.Context()))
+}
+
+func (h *Handler) handleHostOverview(w http.ResponseWriter, r *http.Request) {
+	response, err := h.hostInfo.Overview(r.Context())
+	if err != nil {
+		h.logger.Error("host overview failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load host overview.", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleStacklabLogs(w http.ResponseWriter, r *http.Request) {
+	limit, err := parseOptionalPositiveInt(r.URL.Query().Get("limit"), 200, 1000)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "limit must be a positive integer.", nil)
+		return
+	}
+
+	response, err := h.hostInfo.StacklabLogs(r.Context(), hostinfo.LogsQuery{
+		Limit:  limit,
+		Cursor: strings.TrimSpace(r.URL.Query().Get("cursor")),
+		Level:  strings.TrimSpace(r.URL.Query().Get("level")),
+		Search: strings.TrimSpace(r.URL.Query().Get("q")),
+	})
+	if err != nil {
+		if errors.Is(err, hostinfo.ErrLogsUnavailable) {
+			writeError(w, http.StatusServiceUnavailable, "unavailable", "Stacklab service logs are unavailable.", nil)
+			return
+		}
+		h.logger.Error("stacklab logs failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load Stacklab service logs.", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (h *Handler) handleListStacks(w http.ResponseWriter, r *http.Request) {
@@ -881,6 +928,21 @@ func parseLimit(value string) int {
 		return 50
 	}
 	return parsed
+}
+
+func parseOptionalPositiveInt(value string, fallback, max int) (int, error) {
+	if strings.TrimSpace(value) == "" {
+		return fallback, nil
+	}
+
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return 0, errors.New("invalid integer")
+	}
+	if parsed > max {
+		return max, nil
+	}
+	return parsed, nil
 }
 
 func createWorkflowSteps(deployAfterCreate bool) []store.JobWorkflowStep {

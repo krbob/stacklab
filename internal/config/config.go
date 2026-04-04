@@ -15,6 +15,7 @@ type Config struct {
 	LogLevel                slog.Level
 	FrontendDistDir         string
 	BootstrapPassword       string
+	SystemdUnitName         string
 	SessionCookieName       string
 	SessionIdleTimeout      time.Duration
 	SessionAbsoluteLifetime time.Duration
@@ -32,6 +33,7 @@ func Load() Config {
 		LogLevel:                parseLogLevel(getenv("STACKLAB_LOG_LEVEL", "info")),
 		FrontendDistDir:         getenv("STACKLAB_FRONTEND_DIST", filepath.Join("frontend", "dist")),
 		BootstrapPassword:       getenv("STACKLAB_BOOTSTRAP_PASSWORD", ""),
+		SystemdUnitName:         getenv("STACKLAB_SYSTEMD_UNIT", "stacklab"),
 		SessionCookieName:       getenv("STACKLAB_SESSION_COOKIE_NAME", "stacklab_session"),
 		SessionIdleTimeout:      parseDuration(getenv("STACKLAB_SESSION_IDLE_TIMEOUT", "12h"), 12*time.Hour),
 		SessionAbsoluteLifetime: parseDuration(getenv("STACKLAB_SESSION_ABSOLUTE_LIFETIME", "168h"), 7*24*time.Hour),
