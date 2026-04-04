@@ -376,7 +376,8 @@ For workflow jobs:
     "step": {
       "index": 2,
       "total": 2,
-      "action": "up"
+      "action": "up",
+      "target_stack_id": "my-new-app"
     },
     "timestamp": "2026-04-03T18:42:05Z"
   }
@@ -403,6 +404,8 @@ Rules:
   - `cancelled`
   - `timed_out`
 - `step` is `null` for non-workflow jobs
+- `stack_id` may be `null` for workspace-scoped jobs such as bulk maintenance
+- `step.target_stack_id` may be present for workspace-scoped workflow jobs
 
 ### Job Log Event Semantics
 

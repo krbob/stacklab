@@ -19,6 +19,7 @@ type Service struct {
 	store      *store.Store
 	mu         sync.Mutex
 	lockedByID map[string]string
+	locksByJob map[string][]string
 	subsByJob  map[string]map[chan store.JobEvent]struct{}
 }
 
@@ -26,11 +27,16 @@ func NewService(jobStore *store.Store) *Service {
 	return &Service{
 		store:      jobStore,
 		lockedByID: map[string]string{},
+		locksByJob: map[string][]string{},
 		subsByJob:  map[string]map[chan store.JobEvent]struct{}{},
 	}
 }
 
 func (s *Service) Start(ctx context.Context, stackID, action, requestedBy string) (store.Job, error) {
+	return s.StartWithLocks(ctx, stackID, action, requestedBy, nil)
+}
+
+func (s *Service) StartWithLocks(ctx context.Context, stackID, action, requestedBy string, lockStackIDs []string) (store.Job, error) {
 	now := time.Now().UTC()
 	job := store.Job{
 		ID:          "job_" + randomToken(18),
@@ -41,28 +47,26 @@ func (s *Service) Start(ctx context.Context, stackID, action, requestedBy string
 		RequestedAt: now,
 		StartedAt:   &now,
 	}
-	if stackID != "" {
-		if err := s.lockStack(stackID, job.ID); err != nil {
+
+	locks := normalizeLockTargets(stackID, lockStackIDs)
+	if len(locks) > 0 {
+		if err := s.lockMany(job.ID, locks); err != nil {
 			return store.Job{}, err
 		}
-		defer func() {
-			if job.State == "" {
-				s.unlockStack(stackID, job.ID)
-			}
-		}()
 	}
 	if err := s.store.CreateJob(ctx, job); err != nil {
+		s.unlockAll(job.ID)
 		return store.Job{}, err
 	}
 	if err := s.PublishEvent(ctx, job, "job_started", "Job started.", "", nil); err != nil {
-		s.unlockStack(stackID, job.ID)
+		s.unlockAll(job.ID)
 		return store.Job{}, err
 	}
 	return job, nil
 }
 
 func (s *Service) FinishSucceeded(ctx context.Context, job store.Job) (store.Job, error) {
-	defer s.unlockStack(job.StackID, job.ID)
+	defer s.unlockAll(job.ID)
 
 	now := time.Now().UTC()
 	job.State = "succeeded"
@@ -77,7 +81,7 @@ func (s *Service) FinishSucceeded(ctx context.Context, job store.Job) (store.Job
 }
 
 func (s *Service) FinishFailed(ctx context.Context, job store.Job, errorCode, errorMessage string) (store.Job, error) {
-	defer s.unlockStack(job.StackID, job.ID)
+	defer s.unlockAll(job.ID)
 
 	now := time.Now().UTC()
 	job.State = "failed"
@@ -195,30 +199,62 @@ func (s *Service) publishLive(event store.JobEvent) {
 	}
 }
 
-func (s *Service) lockStack(stackID, jobID string) error {
+func normalizeLockTargets(primaryStackID string, additional []string) []string {
+	unique := map[string]struct{}{}
+	if primaryStackID != "" {
+		unique[primaryStackID] = struct{}{}
+	}
+	for _, stackID := range additional {
+		if stackID == "" {
+			continue
+		}
+		unique[stackID] = struct{}{}
+	}
+	if len(unique) == 0 {
+		return nil
+	}
+
+	locks := make([]string, 0, len(unique))
+	for stackID := range unique {
+		locks = append(locks, stackID)
+	}
+	return locks
+}
+
+func (s *Service) lockMany(jobID string, stackIDs []string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if currentJobID, ok := s.lockedByID[stackID]; ok && currentJobID != "" {
-		return ErrStackLocked
+	acquired := make([]string, 0, len(stackIDs))
+	for _, stackID := range stackIDs {
+		if currentJobID, ok := s.lockedByID[stackID]; ok && currentJobID != "" && currentJobID != jobID {
+			for _, acquiredID := range acquired {
+				delete(s.lockedByID, acquiredID)
+			}
+			return ErrStackLocked
+		}
+		s.lockedByID[stackID] = jobID
+		acquired = append(acquired, stackID)
 	}
 
-	s.lockedByID[stackID] = jobID
+	s.locksByJob[jobID] = acquired
 	return nil
 }
 
-func (s *Service) unlockStack(stackID, jobID string) {
-	if stackID == "" {
-		return
-	}
-
+func (s *Service) unlockAll(jobID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	currentJobID, ok := s.lockedByID[stackID]
-	if !ok || currentJobID != jobID {
+	stackIDs, ok := s.locksByJob[jobID]
+	if !ok {
 		return
 	}
-
-	delete(s.lockedByID, stackID)
+	for _, stackID := range stackIDs {
+		currentJobID, ok := s.lockedByID[stackID]
+		if !ok || currentJobID != jobID {
+			continue
+		}
+		delete(s.lockedByID, stackID)
+	}
+	delete(s.locksByJob, jobID)
 }

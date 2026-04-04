@@ -382,6 +382,118 @@ func TestHandlerGitWorkspaceUnavailableAndValidation(t *testing.T) {
 	}
 }
 
+func TestHandlerMaintenanceUpdateStacksWorkflow(t *testing.T) {
+	stacks.ResetComposeCLICacheForTests()
+	t.Cleanup(stacks.ResetComposeCLICacheForTests)
+
+	shimDir := t.TempDir()
+	logPath := filepath.Join(shimDir, "docker.log")
+	writeInternalDockerShim(t, filepath.Join(shimDir, "docker"))
+	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("STACKLAB_MAINTENANCE_LOG", logPath)
+
+	_, served, cfg := newInternalTestHandler(t)
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	stackRoot := filepath.Join(cfg.RootDir, "stacks", "demo")
+	if err := os.MkdirAll(stackRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(stacks demo) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stackRoot, "compose.yaml"), []byte(strings.Join([]string{
+		"services:",
+		"  app:",
+		"    image: demo:latest",
+		"    build: .",
+		"",
+	}, "\n")), 0o644); err != nil {
+		t.Fatalf("WriteFile(compose.yaml) error = %v", err)
+	}
+
+	response := performInternalJSONRequest(t, served, http.MethodPost, "/api/maintenance/update-stacks", map[string]any{
+		"target": map[string]any{
+			"mode":      "selected",
+			"stack_ids": []string{"demo"},
+		},
+		"options": map[string]any{
+			"pull_images":    true,
+			"build_images":   true,
+			"remove_orphans": true,
+			"prune_after": map[string]any{
+				"enabled":         true,
+				"include_volumes": true,
+			},
+		},
+	}, cookies)
+	if response.Code != http.StatusOK {
+		t.Fatalf("POST /api/maintenance/update-stacks status = %d, want %d; body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+
+	var payload struct {
+		Job struct {
+			StackID  *string `json:"stack_id"`
+			Action   string  `json:"action"`
+			State    string  `json:"state"`
+			Workflow *struct {
+				Steps []struct {
+					Action        string `json:"action"`
+					State         string `json:"state"`
+					TargetStackID string `json:"target_stack_id"`
+				} `json:"steps"`
+			} `json:"workflow"`
+		} `json:"job"`
+	}
+	decodeInternalResponse(t, response, &payload)
+	if payload.Job.Action != "update_stacks" || payload.Job.State != "succeeded" {
+		t.Fatalf("unexpected maintenance job payload: %#v", payload.Job)
+	}
+	if payload.Job.StackID != nil {
+		t.Fatalf("expected maintenance job stack_id to be null, got %#v", payload.Job.StackID)
+	}
+	if payload.Job.Workflow == nil || len(payload.Job.Workflow.Steps) != 4 {
+		t.Fatalf("unexpected maintenance workflow: %#v", payload.Job.Workflow)
+	}
+	if payload.Job.Workflow.Steps[0].Action != "pull" || payload.Job.Workflow.Steps[0].TargetStackID != "demo" {
+		t.Fatalf("unexpected first maintenance step: %#v", payload.Job.Workflow.Steps[0])
+	}
+	if payload.Job.Workflow.Steps[3].Action != "prune" || payload.Job.Workflow.Steps[3].TargetStackID != "" {
+		t.Fatalf("unexpected prune maintenance step: %#v", payload.Job.Workflow.Steps[3])
+	}
+
+	auditResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/audit", nil, cookies)
+	if auditResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/audit status = %d, want %d; body=%s", auditResponse.Code, http.StatusOK, auditResponse.Body.String())
+	}
+	var auditPayload struct {
+		Items []struct {
+			Action  string  `json:"action"`
+			StackID *string `json:"stack_id"`
+		} `json:"items"`
+	}
+	decodeInternalResponse(t, auditResponse, &auditPayload)
+	if len(auditPayload.Items) == 0 || auditPayload.Items[0].Action != "update_stacks" {
+		t.Fatalf("unexpected audit payload after maintenance: %#v", auditPayload.Items)
+	}
+	if auditPayload.Items[0].StackID != nil {
+		t.Fatalf("expected maintenance audit stack_id to be null, got %#v", auditPayload.Items[0].StackID)
+	}
+
+	recorded, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("ReadFile(docker log) error = %v", err)
+	}
+	recordedText := string(recorded)
+	for _, expected := range []string{
+		"compose pull",
+		"compose build",
+		"compose up -d --remove-orphans",
+		"docker system prune -af --volumes",
+	} {
+		if !strings.Contains(recordedText, expected) {
+			t.Fatalf("expected docker log to contain %q, got %q", expected, recordedText)
+		}
+	}
+}
+
 func newInternalTestHandler(t *testing.T) (*Handler, http.Handler, config.Config) {
 	t.Helper()
 
@@ -449,6 +561,94 @@ func runInternalGit(t *testing.T, dir string, args ...string) {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(output))
+	}
+}
+
+func writeInternalDockerShim(t *testing.T, path string) {
+	t.Helper()
+
+	script := `#!/bin/sh
+set -eu
+
+log_file="${STACKLAB_MAINTENANCE_LOG:-}"
+
+append_log() {
+  if [ -n "$log_file" ]; then
+    printf '%s\n' "$1" >> "$log_file"
+  fi
+}
+
+if [ "$1" = "ps" ]; then
+  exit 0
+fi
+
+if [ "$1" = "inspect" ]; then
+  echo '[]'
+  exit 0
+fi
+
+if [ "$1" = "version" ]; then
+  echo "28.5.1"
+  exit 0
+fi
+
+if [ "$1" = "system" ] && [ "$2" = "prune" ]; then
+  shift 2
+  append_log "docker system prune $*"
+  echo "Deleted Objects:"
+  exit 0
+fi
+
+if [ "$1" = "compose" ]; then
+  shift
+  if [ "$1" = "version" ]; then
+    echo "2.39.2"
+    exit 0
+  fi
+
+  sub=""
+  args=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --project-directory|-f|--env-file)
+        shift 2
+        ;;
+      pull|build|up|down|restart|stop)
+        sub="$1"
+        shift
+        args="$*"
+        break
+        ;;
+      *)
+        shift
+        ;;
+    esac
+  done
+
+  append_log "compose $sub $args"
+  case "$sub" in
+    pull)
+      echo "Pulled images"
+      ;;
+    build)
+      echo "Built images"
+      ;;
+    up)
+      echo "Started services"
+      ;;
+    *)
+      echo "OK"
+      ;;
+  esac
+  exit 0
+fi
+
+echo "unsupported docker invocation: $*" >&2
+exit 1
+`
+
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("WriteFile(docker shim) error = %v", err)
 	}
 }
 

@@ -38,6 +38,12 @@ var (
 	AppCommit  = "dev"
 )
 
+func ResetComposeCLICacheForTests() {
+	composeCLIMu.Lock()
+	defer composeCLIMu.Unlock()
+	composeCLICached = nil
+}
+
 type composeCLI struct {
 	command string
 	prefix  []string
@@ -47,6 +53,10 @@ type ServiceReader struct {
 	cfg       config.Config
 	logger    *slog.Logger
 	hostShell bool
+}
+
+type MaintenanceStepOptions struct {
+	RemoveOrphans bool
 }
 
 func NewServiceReader(cfg config.Config, logger *slog.Logger) *ServiceReader {
@@ -417,51 +427,94 @@ func (s *ServiceReader) RemoveDataDir(stackID string) error {
 }
 
 func (s *ServiceReader) RunAction(ctx context.Context, stackID, action string) error {
+	_, err := s.RunActionWithOutput(ctx, stackID, action)
+	return err
+}
+
+func (s *ServiceReader) RunActionWithOutput(ctx context.Context, stackID, action string) (string, error) {
 	stack, err := s.findStack(ctx, stackID)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	switch action {
 	case "validate", "up", "down", "stop", "restart", "pull", "build", "recreate":
 	default:
-		return ErrUnsupportedAction
+		return "", ErrUnsupportedAction
 	}
 
 	if !containsString(stack.availableActions(), action) {
-		return ErrInvalidState
+		return "", ErrInvalidState
 	}
 
 	switch action {
 	case "validate":
 		resolved := s.resolveCurrent(ctx, stack)
 		if !resolved.Valid {
-			return fmt.Errorf("validate current config: %s", resolved.Error.Message)
+			return "", fmt.Errorf("validate current config: %s", resolved.Error.Message)
 		}
-		return nil
+		return "", nil
 	case "up":
-		return s.runComposeAction(ctx, stack, "up", "-d")
+		return s.runComposeActionOutput(ctx, stack, "up", "-d")
 	case "down":
-		return s.removeRuntime(ctx, stack)
+		return s.removeRuntimeOutput(ctx, stack)
 	case "stop":
 		if stack.ConfigState == ConfigStateInvalid {
-			return s.runContainerAction(ctx, stack, "stop")
+			return s.runContainerActionOutput(ctx, stack, "stop")
 		}
-		return s.runComposeAction(ctx, stack, "stop")
+		return s.runComposeActionOutput(ctx, stack, "stop")
 	case "restart":
 		if stack.ConfigState == ConfigStateInvalid {
-			return s.runContainerAction(ctx, stack, "restart")
+			return s.runContainerActionOutput(ctx, stack, "restart")
 		}
-		return s.runComposeAction(ctx, stack, "restart")
+		return s.runComposeActionOutput(ctx, stack, "restart")
 	case "pull":
-		return s.runComposeAction(ctx, stack, "pull")
+		return s.runComposeActionOutput(ctx, stack, "pull")
 	case "build":
-		return s.runComposeAction(ctx, stack, "build")
+		return s.runComposeActionOutput(ctx, stack, "build")
 	case "recreate":
-		return s.runComposeAction(ctx, stack, "up", "-d", "--force-recreate")
+		return s.runComposeActionOutput(ctx, stack, "up", "-d", "--force-recreate")
 	default:
-		return ErrUnsupportedAction
+		return "", ErrUnsupportedAction
 	}
+}
+
+func (s *ServiceReader) RunMaintenanceStep(ctx context.Context, stackID, action string, options MaintenanceStepOptions) (string, error) {
+	stack, err := s.findStack(ctx, stackID)
+	if err != nil {
+		return "", err
+	}
+	if !containsString(stack.availableActions(), "up") {
+		return "", ErrInvalidState
+	}
+
+	switch action {
+	case "pull":
+		return s.runComposeActionOutput(ctx, stack, "pull")
+	case "build":
+		return s.runComposeActionOutput(ctx, stack, "build")
+	case "up":
+		args := []string{"-d"}
+		if options.RemoveOrphans {
+			args = append(args, "--remove-orphans")
+		}
+		return s.runComposeActionOutput(ctx, stack, "up", args...)
+	default:
+		return "", ErrUnsupportedAction
+	}
+}
+
+func (s *ServiceReader) MaintenanceNeedsBuild(ctx context.Context, stackID string) (bool, error) {
+	stack, err := s.findStack(ctx, stackID)
+	if err != nil {
+		return false, err
+	}
+	for _, service := range stack.Services {
+		if service.Mode == ServiceModeBuild || service.Mode == ServiceModeHybrid {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func IsValidStackID(value string) bool {
@@ -1346,7 +1399,7 @@ func runComposeConfig(ctx context.Context, projectDir, composeArg, envPath, stdi
 	return string(output), nil
 }
 
-func (s *ServiceReader) runComposeAction(ctx context.Context, stack discoveredStack, action string, extraArgs ...string) error {
+func (s *ServiceReader) runComposeActionOutput(ctx context.Context, stack discoveredStack, action string, extraArgs ...string) (string, error) {
 	command, args := composeCommand(ctx, stack.RootPath, stack.ComposeFilePath, stack.EnvFilePath)
 	args = append(args, action)
 	args = append(args, extraArgs...)
@@ -1360,29 +1413,34 @@ func (s *ServiceReader) runComposeAction(ctx context.Context, stack discoveredSt
 		if message == "" {
 			message = err.Error()
 		}
-		return errors.New(message)
+		return strings.TrimSpace(string(output)), errors.New(message)
 	}
 
-	return nil
+	return strings.TrimSpace(string(output)), nil
 }
 
 func (s *ServiceReader) removeRuntime(ctx context.Context, stack discoveredStack) error {
-	if len(stack.Containers) == 0 {
-		return nil
-	}
-	if stack.RuntimeState == RuntimeStateOrphaned || stack.ConfigState == ConfigStateInvalid {
-		return s.runContainerAction(ctx, stack, "rm", "-f")
-	}
-	return s.runComposeAction(ctx, stack, "down")
+	_, err := s.removeRuntimeOutput(ctx, stack)
+	return err
 }
 
-func (s *ServiceReader) runContainerAction(ctx context.Context, stack discoveredStack, action string, extraArgs ...string) error {
+func (s *ServiceReader) removeRuntimeOutput(ctx context.Context, stack discoveredStack) (string, error) {
+	if len(stack.Containers) == 0 {
+		return "", nil
+	}
+	if stack.RuntimeState == RuntimeStateOrphaned || stack.ConfigState == ConfigStateInvalid {
+		return s.runContainerActionOutput(ctx, stack, "rm", "-f")
+	}
+	return s.runComposeActionOutput(ctx, stack, "down")
+}
+
+func (s *ServiceReader) runContainerActionOutput(ctx context.Context, stack discoveredStack, action string, extraArgs ...string) (string, error) {
 	containerIDs := make([]string, 0, len(stack.Containers))
 	for _, container := range stack.Containers {
 		containerIDs = append(containerIDs, container.ID)
 	}
 	if len(containerIDs) == 0 {
-		return nil
+		return "", nil
 	}
 
 	args := []string{action}
@@ -1395,10 +1453,10 @@ func (s *ServiceReader) runContainerAction(ctx context.Context, stack discovered
 		if message == "" {
 			message = err.Error()
 		}
-		return errors.New(message)
+		return strings.TrimSpace(string(output)), errors.New(message)
 	}
 
-	return nil
+	return strings.TrimSpace(string(output)), nil
 }
 
 func composeCommand(ctx context.Context, projectDir, composePath, envPath string) (string, []string) {

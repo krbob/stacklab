@@ -14,6 +14,7 @@ tags:
   - name: Host
   - name: Config
   - name: Git
+  - name: Maintenance
   - name: Stacks
   - name: Audit
   - name: Jobs
@@ -238,6 +239,33 @@ paths:
           $ref: '#/components/responses/ErrorNotFound'
         '503':
           description: Git workspace is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /maintenance/update-stacks:
+    post:
+      tags: [Maintenance]
+      operationId: updateStacks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MaintenanceUpdateStacksRequest'
+      responses:
+        '200':
+          description: Maintenance update job accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobEnvelopeResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          description: One of the selected stacks is locked or invalid for update.
           content:
             application/json:
               schema:
@@ -1481,6 +1509,7 @@ components:
           type: string
         stack_id:
           type: string
+          nullable: true
         action:
           type: string
         state:
@@ -1508,6 +1537,8 @@ components:
                     type: string
                   state:
                     $ref: '#/components/schemas/JobState'
+                  target_stack_id:
+                    type: string
                 required: [action, state]
           required: [steps]
           nullable: true
@@ -1516,6 +1547,42 @@ components:
         - stack_id
         - action
         - state
+    MaintenanceUpdateStacksRequest:
+      type: object
+      properties:
+        target:
+          type: object
+          properties:
+            mode:
+              type: string
+              enum: [selected, all]
+            stack_ids:
+              type: array
+              items:
+                type: string
+          required: [mode]
+        options:
+          type: object
+          properties:
+            pull_images:
+              type: boolean
+              default: true
+            build_images:
+              type: boolean
+              default: true
+            remove_orphans:
+              type: boolean
+              default: true
+            prune_after:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+                  default: false
+                include_volumes:
+                  type: boolean
+                  default: false
+      required: [target]
     ErrorResponse:
       type: object
       properties:

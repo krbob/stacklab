@@ -46,13 +46,51 @@ type Job struct {
 	ErrorMessage string       `json:"-"`
 }
 
+func (j Job) MarshalJSON() ([]byte, error) {
+	type workflowJSON struct {
+		Steps []JobWorkflowStep `json:"steps"`
+	}
+	type jobJSON struct {
+		ID          string        `json:"id"`
+		StackID     *string       `json:"stack_id"`
+		Action      string        `json:"action"`
+		State       string        `json:"state"`
+		RequestedAt time.Time     `json:"requested_at"`
+		StartedAt   *time.Time    `json:"started_at,omitempty"`
+		FinishedAt  *time.Time    `json:"finished_at,omitempty"`
+		Workflow    *workflowJSON `json:"workflow,omitempty"`
+	}
+
+	var stackID *string
+	if j.StackID != "" {
+		stackID = &j.StackID
+	}
+
+	var workflow *workflowJSON
+	if j.Workflow != nil {
+		workflow = &workflowJSON{Steps: j.Workflow.Steps}
+	}
+
+	return json.Marshal(jobJSON{
+		ID:          j.ID,
+		StackID:     stackID,
+		Action:      j.Action,
+		State:       j.State,
+		RequestedAt: j.RequestedAt,
+		StartedAt:   j.StartedAt,
+		FinishedAt:  j.FinishedAt,
+		Workflow:    workflow,
+	})
+}
+
 type JobWorkflow struct {
 	Steps []JobWorkflowStep `json:"steps"`
 }
 
 type JobWorkflowStep struct {
-	Action string `json:"action"`
-	State  string `json:"state"`
+	Action        string `json:"action"`
+	State         string `json:"state"`
+	TargetStackID string `json:"target_stack_id,omitempty"`
 }
 
 type JobEvent struct {
@@ -67,9 +105,10 @@ type JobEvent struct {
 }
 
 type JobEventStep struct {
-	Index  int    `json:"index"`
-	Total  int    `json:"total"`
-	Action string `json:"action"`
+	Index         int    `json:"index"`
+	Total         int    `json:"total"`
+	Action        string `json:"action"`
+	TargetStackID string `json:"target_stack_id,omitempty"`
 }
 
 type AuditEntry struct {

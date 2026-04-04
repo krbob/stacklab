@@ -448,6 +448,80 @@ Rules:
 - untracked files diff against an empty file
 - large diffs may be truncated, but truncation is explicit
 
+## `POST /api/maintenance/update-stacks`
+
+Purpose:
+
+- replace ad-hoc host update scripts with one explicit browser-driven workflow
+- update selected or all managed stacks in deterministic order
+
+Request:
+
+```json
+{
+  "target": {
+    "mode": "selected",
+    "stack_ids": ["demo", "traefik"]
+  },
+  "options": {
+    "pull_images": true,
+    "build_images": true,
+    "remove_orphans": true,
+    "prune_after": {
+      "enabled": false,
+      "include_volumes": false
+    }
+  }
+}
+```
+
+Success response:
+
+```json
+{
+  "job": {
+    "id": "job_01hr...",
+    "stack_id": null,
+    "action": "update_stacks",
+    "state": "running",
+    "workflow": {
+      "steps": [
+        {
+          "action": "pull",
+          "state": "running",
+          "target_stack_id": "demo"
+        },
+        {
+          "action": "build",
+          "state": "queued",
+          "target_stack_id": "demo"
+        },
+        {
+          "action": "up",
+          "state": "queued",
+          "target_stack_id": "demo"
+        },
+        {
+          "action": "prune",
+          "state": "queued"
+        }
+      ]
+    }
+  }
+}
+```
+
+Rules:
+
+- `target.mode`:
+  - `selected`
+  - `all`
+- `target.stack_ids` must be non-empty when `mode = selected`
+- update order is alphabetical by `stack_id`
+- v1 is fail-fast: the first failed stack step stops the remaining workflow
+- `prune_after.include_volumes = true` requires `prune_after.enabled = true`
+- returns `409 stack_locked` if another mutating job already owns one of the selected stacks
+
 ## `GET /api/stacks`
 
 Purpose:
@@ -856,6 +930,7 @@ Rules:
 - when `deploy_after_create = true`, backend still returns a single job with top-level `action = create_stack`
 - that job becomes a workflow job whose steps are `create_stack` followed by `up`
 - the UI should present this as one progress flow, not as two unrelated jobs
+- workflow steps may optionally carry `target_stack_id` for global jobs such as bulk maintenance
 
 ## `PUT /api/stacks/{stackId}/definition`
 

@@ -701,3 +701,91 @@ func containsString(values []string, candidate string) bool {
 	}
 	return false
 }
+
+func writeTestDockerShim(t *testing.T, path string) {
+	t.Helper()
+
+	script := `#!/bin/sh
+set -eu
+
+log_file="${STACKLAB_MAINTENANCE_LOG:-}"
+
+append_log() {
+  if [ -n "$log_file" ]; then
+    printf '%s\n' "$1" >> "$log_file"
+  fi
+}
+
+if [ "$1" = "ps" ]; then
+  exit 0
+fi
+
+if [ "$1" = "inspect" ]; then
+  echo '[]'
+  exit 0
+fi
+
+if [ "$1" = "version" ]; then
+  echo "28.5.1"
+  exit 0
+fi
+
+if [ "$1" = "system" ] && [ "$2" = "prune" ]; then
+  shift 2
+  append_log "docker system prune $*"
+  echo "Deleted Objects:"
+  exit 0
+fi
+
+if [ "$1" = "compose" ]; then
+  shift
+  if [ "$1" = "version" ]; then
+    echo "2.39.2"
+    exit 0
+  fi
+
+  sub=""
+  args=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --project-directory|-f|--env-file)
+        shift 2
+        ;;
+      pull|build|up|down|restart|stop)
+        sub="$1"
+        shift
+        args="$*"
+        break
+        ;;
+      *)
+        shift
+        ;;
+    esac
+  done
+
+  append_log "compose $sub $args"
+  case "$sub" in
+    pull)
+      echo "Pulled images"
+      ;;
+    build)
+      echo "Built images"
+      ;;
+    up)
+      echo "Started services"
+      ;;
+    *)
+      echo "OK"
+      ;;
+  esac
+  exit 0
+fi
+
+echo "unsupported docker invocation: $*" >&2
+exit 1
+`
+
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("WriteFile(docker shim) error = %v", err)
+	}
+}

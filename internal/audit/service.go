@@ -21,6 +21,10 @@ func NewService(auditStore *store.Store) *Service {
 }
 
 func (s *Service) RecordStackJob(ctx context.Context, job store.Job) error {
+	return s.RecordJob(ctx, job, nil)
+}
+
+func (s *Service) RecordJob(ctx context.Context, job store.Job, extraDetails map[string]any) error {
 	var durationMS *int
 	if job.StartedAt != nil && job.FinishedAt != nil {
 		duration := int(job.FinishedAt.Sub(*job.StartedAt).Milliseconds())
@@ -34,20 +38,30 @@ func (s *Service) RecordStackJob(ctx context.Context, job store.Job) error {
 	if job.ErrorMessage != "" {
 		details["error_message"] = job.ErrorMessage
 	}
+	for key, value := range extraDetails {
+		details[key] = value
+	}
 
 	detailJSON, err := marshalDetails(details)
 	if err != nil {
 		return err
 	}
 
-	stackID := job.StackID
 	jobID := job.ID
 	targetType := "stack"
-	targetID := job.StackID
+	var stackID *string
+	var targetID *string
+	if job.StackID != "" {
+		stackIDValue := job.StackID
+		stackID = &stackIDValue
+		targetID = &stackIDValue
+	} else {
+		targetType = "workspace"
+	}
 
 	return s.store.CreateAuditEntry(ctx, store.AuditEntry{
 		ID:          "audit_" + randomToken(18),
-		StackID:     &stackID,
+		StackID:     stackID,
 		JobID:       &jobID,
 		Action:      job.Action,
 		RequestedBy: fallback(job.RequestedBy, "local"),
@@ -56,7 +70,7 @@ func (s *Service) RecordStackJob(ctx context.Context, job store.Job) error {
 		FinishedAt:  job.FinishedAt,
 		DurationMS:  durationMS,
 		TargetType:  targetType,
-		TargetID:    &targetID,
+		TargetID:    targetID,
 		DetailJSON:  detailJSON,
 	})
 }

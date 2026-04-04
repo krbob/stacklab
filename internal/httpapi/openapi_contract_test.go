@@ -13,6 +13,8 @@ import (
 	"sync"
 	"testing"
 
+	"stacklab/internal/stacks"
+
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/getkin/kin-openapi/routers"
@@ -31,8 +33,6 @@ var (
 )
 
 func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
-	t.Parallel()
-
 	contract := loadOpenAPIContract(t)
 	handler, cfg := newTestHandler(t)
 
@@ -137,6 +137,30 @@ func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
 
 	auditResponse := performJSONRequest(t, handler, http.MethodGet, "/api/audit", nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/audit", nil, cookies, auditResponse)
+
+	stacks.ResetComposeCLICacheForTests()
+	t.Cleanup(stacks.ResetComposeCLICacheForTests)
+	shimDir := t.TempDir()
+	writeTestDockerShim(t, filepath.Join(shimDir, "docker"))
+	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	maintenanceBody := map[string]any{
+		"target": map[string]any{
+			"mode":      "selected",
+			"stack_ids": []string{stackID},
+		},
+		"options": map[string]any{
+			"pull_images":    true,
+			"build_images":   true,
+			"remove_orphans": true,
+			"prune_after": map[string]any{
+				"enabled":         false,
+				"include_volumes": false,
+			},
+		},
+	}
+	maintenanceResponse := performJSONRequest(t, handler, http.MethodPost, "/api/maintenance/update-stacks", maintenanceBody, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodPost, "/api/maintenance/update-stacks", maintenanceBody, cookies, maintenanceResponse)
 
 	deleteBody := map[string]any{
 		"remove_runtime":    false,

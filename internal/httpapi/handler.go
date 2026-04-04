@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"stacklab/internal/audit"
@@ -104,6 +106,7 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("PUT /api/config/workspace/file", h.withAuth(h.handlePutConfigWorkspaceFile))
 	h.mux.HandleFunc("GET /api/git/workspace/status", h.withAuth(h.handleGitWorkspaceStatus))
 	h.mux.HandleFunc("GET /api/git/workspace/diff", h.withAuth(h.handleGitWorkspaceDiff))
+	h.mux.HandleFunc("POST /api/maintenance/update-stacks", h.withAuth(h.handleUpdateStacksMaintenance))
 	h.mux.HandleFunc("GET /api/stacks", h.withAuth(h.handleListStacks))
 	h.mux.HandleFunc("POST /api/stacks", h.withAuth(h.handleCreateStack))
 	h.mux.HandleFunc("GET /api/stacks/{stackId}", h.withAuth(h.handleGetStack))
@@ -365,6 +368,143 @@ func (h *Handler) handleGitWorkspaceDiff(w http.ResponseWriter, r *http.Request)
 	}
 
 	writeJSON(w, http.StatusOK, response)
+}
+
+type maintenanceUpdateStacksRequest struct {
+	Target struct {
+		Mode     string   `json:"mode"`
+		StackIDs []string `json:"stack_ids"`
+	} `json:"target"`
+	Options struct {
+		PullImages    *bool `json:"pull_images"`
+		BuildImages   *bool `json:"build_images"`
+		RemoveOrphans *bool `json:"remove_orphans"`
+		PruneAfter    struct {
+			Enabled        *bool `json:"enabled"`
+			IncludeVolumes *bool `json:"include_volumes"`
+		} `json:"prune_after"`
+	} `json:"options"`
+}
+
+func (h *Handler) handleUpdateStacksMaintenance(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request maintenanceUpdateStacksRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	options := resolvedMaintenanceOptions{
+		PullImages:     boolOrDefault(request.Options.PullImages, true),
+		BuildImages:    boolOrDefault(request.Options.BuildImages, true),
+		RemoveOrphans:  boolOrDefault(request.Options.RemoveOrphans, true),
+		PruneAfter:     boolOrDefault(request.Options.PruneAfter.Enabled, false),
+		IncludeVolumes: boolOrDefault(request.Options.PruneAfter.IncludeVolumes, false),
+	}
+	if options.IncludeVolumes && !options.PruneAfter {
+		writeError(w, http.StatusBadRequest, "validation_failed", "include_volumes requires prune_after.enabled = true.", nil)
+		return
+	}
+
+	targetStackIDs, err := h.resolveMaintenanceTargetStacks(r.Context(), request.Target.Mode, request.Target.StackIDs)
+	if err != nil {
+		switch {
+		case errors.Is(err, stacks.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", err.Error(), nil)
+		case errors.Is(err, stacks.ErrInvalidState):
+			writeError(w, http.StatusConflict, "invalid_state", err.Error(), nil)
+		default:
+			writeError(w, http.StatusBadRequest, "validation_failed", err.Error(), nil)
+		}
+		return
+	}
+
+	workflow, err := h.buildMaintenanceWorkflow(r.Context(), targetStackIDs, options)
+	if err != nil {
+		switch {
+		case errors.Is(err, stacks.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", err.Error(), nil)
+		case errors.Is(err, stacks.ErrInvalidState):
+			writeError(w, http.StatusConflict, "invalid_state", err.Error(), nil)
+		default:
+			h.logger.Error("build maintenance workflow failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to prepare maintenance workflow.", nil)
+		}
+		return
+	}
+
+	job, err := h.jobs.StartWithLocks(r.Context(), "", "update_stacks", "local", targetStackIDs)
+	if err != nil {
+		switch {
+		case errors.Is(err, jobs.ErrStackLocked):
+			writeError(w, http.StatusConflict, "stack_locked", "Another job is already mutating one of the selected stacks.", nil)
+		default:
+			h.logger.Error("start maintenance job failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create job.", nil)
+		}
+		return
+	}
+
+	if len(workflow) > 0 {
+		workflow = markWorkflowRunning(workflow, 0)
+		updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow)
+		if updateErr != nil {
+			h.logger.Error("update maintenance workflow failed", slog.String("job_id", job.ID), slog.String("err", updateErr.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to initialize maintenance workflow.", nil)
+			return
+		}
+		job = updatedJob
+		_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", maintenanceStepMessage("Starting", workflow[0]), "", workflowStepRef(workflow, 0))
+	}
+
+	for index, step := range workflow {
+		output, runErr := h.runMaintenanceWorkflowStep(r.Context(), step, options)
+		if trimmed := strings.TrimSpace(output); trimmed != "" {
+			_ = h.jobs.PublishEvent(r.Context(), job, "job_log", maintenanceStepMessage("Output", step), trimmed, workflowStepRef(workflow, index))
+		}
+		if runErr != nil {
+			workflow = markWorkflowFailed(workflow, index)
+			if updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow); updateErr == nil {
+				job = updatedJob
+			}
+			job, _ = h.jobs.FinishFailed(r.Context(), job, "update_stacks_failed", runErr.Error())
+			if err := h.audit.RecordJob(r.Context(), job, maintenanceAuditDetails(request.Target.Mode, targetStackIDs, options)); err != nil {
+				h.logger.Warn("record maintenance audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"job": job})
+			return
+		}
+
+		workflow = markWorkflowSucceeded(workflow, index)
+		_ = h.jobs.PublishEvent(r.Context(), job, "job_step_finished", maintenanceStepMessage("Finished", step), "", workflowStepRef(workflow, index))
+		if index+1 < len(workflow) {
+			workflow = markWorkflowRunning(workflow, index+1)
+			_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", maintenanceStepMessage("Starting", workflow[index+1]), "", workflowStepRef(workflow, index+1))
+		}
+		updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow)
+		if updateErr != nil {
+			h.logger.Error("update maintenance workflow progress failed", slog.String("job_id", job.ID), slog.String("err", updateErr.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to update maintenance workflow.", nil)
+			return
+		}
+		job = updatedJob
+	}
+
+	job, err = h.jobs.FinishSucceeded(r.Context(), job)
+	if err != nil {
+		h.logger.Error("finish maintenance job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to finalize job.", nil)
+		return
+	}
+	if err := h.audit.RecordJob(r.Context(), job, maintenanceAuditDetails(request.Target.Mode, targetStackIDs, options)); err != nil {
+		h.logger.Warn("record maintenance audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"job": job})
 }
 
 func (h *Handler) handleListStacks(w http.ResponseWriter, r *http.Request) {
@@ -1178,8 +1318,181 @@ func workflowStepRef(steps []store.JobWorkflowStep, index int) *store.JobEventSt
 	}
 
 	return &store.JobEventStep{
-		Index:  index + 1,
-		Total:  len(steps),
-		Action: steps[index].Action,
+		Index:         index + 1,
+		Total:         len(steps),
+		Action:        steps[index].Action,
+		TargetStackID: steps[index].TargetStackID,
 	}
+}
+
+type resolvedMaintenanceOptions struct {
+	PullImages     bool
+	BuildImages    bool
+	RemoveOrphans  bool
+	PruneAfter     bool
+	IncludeVolumes bool
+}
+
+func boolOrDefault(value *bool, fallback bool) bool {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
+func (h *Handler) resolveMaintenanceTargetStacks(ctx context.Context, mode string, stackIDs []string) ([]string, error) {
+	switch mode {
+	case "selected":
+		if len(stackIDs) == 0 {
+			return nil, errors.New("target.stack_ids must be non-empty when mode = selected")
+		}
+		deduped := dedupeSortedStackIDs(stackIDs)
+		for _, stackID := range deduped {
+			detail, err := h.stackReader.Get(ctx, stackID)
+			if err != nil {
+				if errors.Is(err, stacks.ErrNotFound) {
+					return nil, fmt.Errorf("%w: stack %q was not found", stacks.ErrNotFound, stackID)
+				}
+				return nil, err
+			}
+			if !containsString(detail.Stack.AvailableActions, "up") {
+				return nil, fmt.Errorf("%w: stack %q cannot be updated in its current state", stacks.ErrInvalidState, stackID)
+			}
+		}
+		return deduped, nil
+	case "all":
+		list, err := h.stackReader.List(ctx, stacks.ListQuery{})
+		if err != nil {
+			return nil, err
+		}
+		candidates := make([]string, 0, len(list.Items))
+		for _, item := range list.Items {
+			detail, err := h.stackReader.Get(ctx, item.ID)
+			if err != nil {
+				return nil, err
+			}
+			if containsString(detail.Stack.AvailableActions, "up") {
+				candidates = append(candidates, item.ID)
+			}
+		}
+		if len(candidates) == 0 {
+			return nil, errors.New("no updatable stacks found")
+		}
+		sort.Strings(candidates)
+		return candidates, nil
+	default:
+		return nil, errors.New("target.mode must be one of: selected, all")
+	}
+}
+
+func dedupeSortedStackIDs(stackIDs []string) []string {
+	unique := map[string]struct{}{}
+	for _, stackID := range stackIDs {
+		stackID = strings.TrimSpace(stackID)
+		if stackID == "" {
+			continue
+		}
+		unique[stackID] = struct{}{}
+	}
+	result := make([]string, 0, len(unique))
+	for stackID := range unique {
+		result = append(result, stackID)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func (h *Handler) buildMaintenanceWorkflow(ctx context.Context, stackIDs []string, options resolvedMaintenanceOptions) ([]store.JobWorkflowStep, error) {
+	steps := make([]store.JobWorkflowStep, 0, len(stackIDs)*3+1)
+	for _, stackID := range stackIDs {
+		if options.PullImages {
+			steps = append(steps, store.JobWorkflowStep{Action: "pull", State: "queued", TargetStackID: stackID})
+		}
+		if options.BuildImages {
+			needsBuild, err := h.stackReader.MaintenanceNeedsBuild(ctx, stackID)
+			if err != nil {
+				return nil, err
+			}
+			if needsBuild {
+				steps = append(steps, store.JobWorkflowStep{Action: "build", State: "queued", TargetStackID: stackID})
+			}
+		}
+		steps = append(steps, store.JobWorkflowStep{Action: "up", State: "queued", TargetStackID: stackID})
+	}
+	if options.PruneAfter {
+		steps = append(steps, store.JobWorkflowStep{Action: "prune", State: "queued"})
+	}
+	return steps, nil
+}
+
+func (h *Handler) runMaintenanceWorkflowStep(ctx context.Context, step store.JobWorkflowStep, options resolvedMaintenanceOptions) (string, error) {
+	if step.Action == "prune" {
+		return runDockerSystemPrune(ctx, options.IncludeVolumes)
+	}
+	return h.stackReader.RunMaintenanceStep(ctx, step.TargetStackID, step.Action, stacks.MaintenanceStepOptions{
+		RemoveOrphans: options.RemoveOrphans,
+	})
+}
+
+func runDockerSystemPrune(ctx context.Context, includeVolumes bool) (string, error) {
+	args := []string{"system", "prune", "-af"}
+	if includeVolumes {
+		args = append(args, "--volumes")
+	}
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		message := strings.TrimSpace(string(output))
+		if message == "" {
+			message = err.Error()
+		}
+		return strings.TrimSpace(string(output)), errors.New(message)
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+func maintenanceStepMessage(prefix string, step store.JobWorkflowStep) string {
+	label := maintenanceActionLabel(step.Action)
+	if step.TargetStackID == "" {
+		return prefix + " " + strings.ToLower(label) + "."
+	}
+	return prefix + " " + strings.ToLower(label) + " for " + step.TargetStackID + "."
+}
+
+func maintenanceAuditDetails(mode string, stackIDs []string, options resolvedMaintenanceOptions) map[string]any {
+	return map[string]any{
+		"target_mode": mode,
+		"stack_ids":   stackIDs,
+		"options": map[string]any{
+			"pull_images":     options.PullImages,
+			"build_images":    options.BuildImages,
+			"remove_orphans":  options.RemoveOrphans,
+			"prune_after":     options.PruneAfter,
+			"include_volumes": options.IncludeVolumes,
+		},
+	}
+}
+
+func maintenanceActionLabel(action string) string {
+	switch action {
+	case "pull":
+		return "Pull"
+	case "build":
+		return "Build"
+	case "up":
+		return "Up"
+	case "prune":
+		return "Prune"
+	default:
+		return action
+	}
+}
+
+func containsString(values []string, candidate string) bool {
+	for _, value := range values {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
 }

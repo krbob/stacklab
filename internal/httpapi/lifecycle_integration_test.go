@@ -202,6 +202,79 @@ func TestIntegrationComposeLifecycleActionsWithRealDocker(t *testing.T) {
 	waitForIntegrationStackRuntimeState(t, handler, cookies, stackID, "defined")
 }
 
+func TestIntegrationMaintenanceUpdateStacksWithRealDocker(t *testing.T) {
+	requireDockerComposeRuntime(t)
+
+	handler, _ := newTestHandler(t)
+	cookies := loginTestUser(t, handler, "secret")
+	stackID := uniqueIntegrationStackID("maint")
+	t.Cleanup(func() {
+		cleanupIntegrationStack(t, handler, cookies, stackID)
+	})
+
+	createResponse := performJSONRequest(t, handler, http.MethodPost, "/api/stacks", map[string]any{
+		"stack_id": stackID,
+		"compose_yaml": strings.Join([]string{
+			"services:",
+			"  app:",
+			"    image: busybox:1.36",
+			"    command: [\"sh\", \"-c\", \"while true; do echo maintenance; sleep 2; done\"]",
+			"",
+		}, "\n"),
+		"env":                 "",
+		"create_config_dir":   false,
+		"create_data_dir":     false,
+		"deploy_after_create": false,
+	}, cookies)
+	if createResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/stacks status = %d, want %d; body=%s", createResponse.Code, http.StatusOK, createResponse.Body.String())
+	}
+
+	maintenanceResponse := performJSONRequest(t, handler, http.MethodPost, "/api/maintenance/update-stacks", map[string]any{
+		"target": map[string]any{
+			"mode":      "selected",
+			"stack_ids": []string{stackID},
+		},
+		"options": map[string]any{
+			"pull_images":    true,
+			"build_images":   true,
+			"remove_orphans": true,
+			"prune_after": map[string]any{
+				"enabled":         false,
+				"include_volumes": false,
+			},
+		},
+	}, cookies)
+	if maintenanceResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/maintenance/update-stacks status = %d, want %d; body=%s", maintenanceResponse.Code, http.StatusOK, maintenanceResponse.Body.String())
+	}
+
+	var payload struct {
+		Job struct {
+			StackID  *string `json:"stack_id"`
+			Action   string  `json:"action"`
+			State    string  `json:"state"`
+			Workflow *struct {
+				Steps []struct {
+					Action        string `json:"action"`
+					TargetStackID string `json:"target_stack_id"`
+				} `json:"steps"`
+			} `json:"workflow"`
+		} `json:"job"`
+	}
+	decodeResponse(t, maintenanceResponse, &payload)
+	if payload.Job.StackID != nil || payload.Job.Action != "update_stacks" || payload.Job.State != "succeeded" {
+		t.Fatalf("unexpected maintenance job payload: %#v", payload.Job)
+	}
+	if payload.Job.Workflow == nil || len(payload.Job.Workflow.Steps) != 2 {
+		t.Fatalf("unexpected maintenance workflow: %#v", payload.Job.Workflow)
+	}
+	if payload.Job.Workflow.Steps[0].Action != "pull" || payload.Job.Workflow.Steps[0].TargetStackID != stackID {
+		t.Fatalf("unexpected first maintenance step: %#v", payload.Job.Workflow.Steps[0])
+	}
+	waitForIntegrationStackRuntimeState(t, handler, cookies, stackID, "running")
+}
+
 func TestIntegrationCreateDeployAndOrphanedLifecycleWithRealDocker(t *testing.T) {
 	requireDockerComposeRuntime(t)
 
