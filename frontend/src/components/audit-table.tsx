@@ -23,7 +23,7 @@ export function AuditTable({ entries, showStack = false, onLoadMore, hasMore, lo
 
   if (entries.length === 0 && !loading) {
     return (
-      <div className="rounded-[20px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-10 text-center">
+      <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-10 text-center">
         <p className="text-[var(--text)]">No operations recorded yet</p>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Actions like deploy, stop, pull, and remove will appear here.
@@ -39,7 +39,7 @@ export function AuditTable({ entries, showStack = false, onLoadMore, hasMore, lo
 
         return (
           <div key={entry.id} data-testid="audit-row">
-            <div className="flex min-w-0 items-center gap-3 overflow-hidden rounded-[16px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-4 py-3 text-sm">
+            <div className="flex min-w-0 items-center gap-3 overflow-hidden rounded border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-4 py-3 text-sm">
               <span className="shrink-0 text-xs text-[var(--muted)]" style={{ width: '140px' }}>
                 {new Date(entry.requested_at).toLocaleString()}
               </span>
@@ -75,7 +75,7 @@ export function AuditTable({ entries, showStack = false, onLoadMore, hasMore, lo
       })}
 
       {loading && (
-        <div className="h-12 animate-pulse rounded-[16px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)]" />
+        <div className="h-12 animate-pulse rounded border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)]" />
       )}
 
       {hasMore && !loading && (
@@ -96,7 +96,7 @@ function AuditJobDetail({ auditEntry }: { auditEntry: AuditEntry }) {
 
   if (!jobId) {
     return (
-      <div className="ml-4 mt-1 rounded-[16px] border border-[var(--panel-border)] bg-[rgba(0,0,0,0.15)] px-4 py-3 text-xs text-[var(--muted)]">
+      <div className="ml-4 mt-1 rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.15)] px-4 py-3 text-xs text-[var(--muted)]">
         Detailed output is no longer retained
       </div>
     )

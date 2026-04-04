@@ -51,7 +51,7 @@ export function CreateStackPage() {
   }, [navigate, stackId])
 
   return (
-    <section className="rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+    <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
       <div className="text-xs uppercase tracking-[0.28em] text-[var(--accent)]">New stack</div>
       <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-[var(--text)]">Create stack</h2>
 
@@ -65,7 +65,7 @@ export function CreateStackPage() {
             onChange={(e) => setStackId(e.target.value.toLowerCase())}
             placeholder="my-new-app"
             disabled={creating}
-            className="w-full max-w-md rounded-2xl border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-3 font-mono text-[var(--text)] outline-none transition focus:border-[rgba(79,209,197,0.35)] disabled:opacity-50"
+            className="w-full max-w-md rounded-2xl border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-3 font-mono text-[var(--text)] outline-none transition focus:border-[rgba(34,197,94,0.35)] disabled:opacity-50"
           />
           {stackId.length > 0 && !idValid && (
             <p className="mt-1 text-xs text-red-400">Lowercase letters, numbers, and dashes only.</p>
@@ -115,7 +115,7 @@ export function CreateStackPage() {
             data-testid="create-stack-submit"
             type="submit"
             disabled={!idValid || creating}
-            className="rounded-full border border-[rgba(79,209,197,0.35)] bg-[rgba(79,209,197,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(79,209,197,0.2)] disabled:opacity-40"
+            className="rounded-full border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(34,197,94,0.2)] disabled:opacity-40"
           >
             {creating ? 'Creating...' : deployAfter ? 'Create & Deploy' : 'Create'}
           </button>

@@ -147,7 +147,7 @@ export function StackEditorPage() {
     return (
       <div className="animate-pulse space-y-3">
         <div className="h-8 w-40 rounded bg-[rgba(255,255,255,0.05)]" />
-        <div className="h-96 rounded-[16px] bg-[rgba(255,255,255,0.03)]" />
+        <div className="h-96 rounded bg-[rgba(255,255,255,0.03)]" />
       </div>
     )
   }
@@ -168,7 +168,7 @@ export function StackEditorPage() {
             className={cn(
               'rounded-full border px-3 py-1 text-xs transition',
               activeTab === 'compose'
-                ? 'border-[rgba(79,209,197,0.35)] bg-[rgba(79,209,197,0.14)] text-[var(--text)]'
+                ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]'
                 : 'border-[var(--panel-border)] text-[var(--muted)]',
             )}
           >
@@ -179,7 +179,7 @@ export function StackEditorPage() {
             className={cn(
               'rounded-full border px-3 py-1 text-xs transition',
               activeTab === 'env'
-                ? 'border-[rgba(79,209,197,0.35)] bg-[rgba(79,209,197,0.14)] text-[var(--text)]'
+                ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]'
                 : 'border-[var(--panel-border)] text-[var(--muted)]',
             )}
           >
@@ -206,7 +206,7 @@ export function StackEditorPage() {
             data-testid="editor-save"
             onClick={() => handleSave(false)}
             disabled={saving || stack.activity_state === 'locked'}
-            className="rounded-full border border-[rgba(79,209,197,0.35)] bg-[rgba(79,209,197,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40"
+            className="rounded-full border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40"
           >
             {saving ? 'Saving...' : 'Save'}
           </button>
@@ -214,7 +214,7 @@ export function StackEditorPage() {
             data-testid="editor-save-deploy"
             onClick={() => handleSave(true)}
             disabled={saving || !resolvedValid || stack.activity_state === 'locked'}
-            className="rounded-full border border-[rgba(79,209,197,0.35)] bg-[rgba(79,209,197,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40"
+            className="rounded-full border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40"
           >
             Save & Deploy
           </button>
@@ -246,7 +246,7 @@ export function StackEditorPage() {
             />
           )}
         </div>
-        <div className="min-h-0 overflow-auto rounded-[16px] border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs text-[var(--muted)]">
+        <div className="min-h-0 overflow-auto rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs text-[var(--muted)]">
           <div className="mb-2 text-[var(--accent)] text-xs uppercase tracking-wider">
             Resolved config
           </div>

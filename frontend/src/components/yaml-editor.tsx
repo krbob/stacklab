@@ -67,7 +67,7 @@ export function YamlEditor({ value, onChange, readOnly = false }: YamlEditorProp
   return (
     <div
       ref={containerRef}
-      className="h-full overflow-hidden rounded-[16px] border border-[var(--panel-border)]"
+      className="h-full overflow-hidden rounded border border-[var(--panel-border)]"
     />
   )
 }

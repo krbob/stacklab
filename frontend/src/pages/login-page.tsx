@@ -29,7 +29,7 @@ export function LoginPage() {
 
   return (
     <main className="flex min-h-screen items-center justify-center px-4 py-10">
-      <section className="w-full max-w-xl rounded-[32px] border border-[var(--panel-border)] bg-[var(--panel)] p-8 shadow-[var(--shadow)]">
+      <section className="w-full max-w-xl rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-8 shadow-[var(--shadow)]">
         <div className="text-xs uppercase tracking-[0.32em] text-[var(--accent)]">Stacklab</div>
         <h1 className="mt-4 text-4xl font-semibold tracking-[-0.05em] text-[var(--text)]">Log in</h1>
         <p className="mt-4 max-w-lg text-sm leading-6 text-[var(--muted)]">
@@ -47,7 +47,7 @@ export function LoginPage() {
               placeholder="••••••••"
               autoFocus
               disabled={loading}
-              className="w-full rounded-2xl border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-3 text-[var(--text)] outline-none transition focus:border-[rgba(79,209,197,0.35)] disabled:opacity-50"
+              className="w-full rounded-2xl border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-3 text-[var(--text)] outline-none transition focus:border-[rgba(34,197,94,0.35)] disabled:opacity-50"
             />
           </label>
 
@@ -59,7 +59,7 @@ export function LoginPage() {
             data-testid="login-submit"
             type="submit"
             disabled={loading || !password.trim()}
-            className="w-full rounded-2xl bg-[linear-gradient(135deg,rgba(79,209,197,0.9),rgba(20,184,166,0.95))] px-4 py-3 text-sm font-medium text-[#042328] transition hover:brightness-105 disabled:opacity-50"
+            className="w-full rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-medium text-black transition hover:brightness-105 disabled:opacity-50"
           >
             {loading ? 'Logging in...' : 'Log in'}
           </button>

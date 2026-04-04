@@ -253,7 +253,7 @@ export function ConfigPage() {
   return (
     <div className="flex gap-4" style={{ minHeight: 'calc(100vh - 120px)' }}>
       {/* Left panel */}
-      <div className="hidden w-64 shrink-0 flex-col rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-[var(--shadow)] lg:flex">
+      <div className="hidden w-64 shrink-0 flex-col rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-[var(--shadow)] lg:flex">
         <div className="mb-3 text-xs uppercase tracking-wider text-[var(--accent)]">Config workspace</div>
 
         {/* Mode toggle */}
@@ -263,7 +263,7 @@ export function ConfigPage() {
             className={cn(
               'flex-1 rounded-full border px-3 py-1.5 text-xs transition',
               mode === 'files'
-                ? 'border-[rgba(79,209,197,0.35)] bg-[rgba(79,209,197,0.14)] text-[var(--text)]'
+                ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]'
                 : 'border-[var(--panel-border)] text-[var(--muted)]',
             )}
           >
@@ -276,7 +276,7 @@ export function ConfigPage() {
             className={cn(
               'flex-1 rounded-full border px-3 py-1.5 text-xs transition disabled:opacity-40',
               mode === 'changes'
-                ? 'border-[rgba(79,209,197,0.35)] bg-[rgba(79,209,197,0.14)] text-[var(--text)]'
+                ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]'
                 : 'border-[var(--panel-border)] text-[var(--muted)]',
             )}
           >
@@ -307,7 +307,7 @@ export function ConfigPage() {
                   const isDir = entry.type === 'directory'
                   const isSelected = selectedFile?.path === entry.path
                   return (
-                    <button key={entry.path} onClick={() => isDir ? navigateDir(entry.path) : openFile(entry.path)} className={cn('flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition', isSelected ? 'bg-[rgba(79,209,197,0.14)] text-[var(--text)]' : 'text-[var(--muted)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]')}>
+                    <button key={entry.path} onClick={() => isDir ? navigateDir(entry.path) : openFile(entry.path)} className={cn('flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition', isSelected ? 'bg-[rgba(34,197,94,0.14)] text-[var(--text)]' : 'text-[var(--muted)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]')}>
                       {entry.stack_id && isDir && treePath === '' ? <FolderKanban className="size-3.5 text-[var(--accent)]" /> : <Icon className="size-3.5" />}
                       <span className="truncate">{entry.name}</span>
                     </button>
@@ -321,7 +321,7 @@ export function ConfigPage() {
                 )}
                 {creatingFile && (
                   <div className="flex items-center gap-1 px-2 py-1">
-                    <input type="text" value={newFileName} onChange={(e) => setNewFileName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFile(); if (e.key === 'Escape') setCreatingFile(false) }} placeholder="filename" autoFocus className="w-full rounded border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(79,209,197,0.35)]" />
+                    <input type="text" value={newFileName} onChange={(e) => setNewFileName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFile(); if (e.key === 'Escape') setCreatingFile(false) }} placeholder="filename" autoFocus className="w-full rounded border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)]" />
                   </div>
                 )}
               </nav>
@@ -368,7 +368,7 @@ export function ConfigPage() {
                         const isChecked = selectedGitPaths.has(item.path)
                         const isBlocked = !item.commit_allowed
                         return (
-                          <div key={item.path} className={cn('flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition', isDiffSelected ? 'bg-[rgba(79,209,197,0.14)] text-[var(--text)]' : 'text-[var(--muted)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]')}>
+                          <div key={item.path} className={cn('flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition', isDiffSelected ? 'bg-[rgba(34,197,94,0.14)] text-[var(--text)]' : 'text-[var(--muted)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]')}>
                             <input type="checkbox" checked={isChecked} onChange={() => toggleGitPath(item.path)} disabled={isBlocked} title={isBlocked ? 'File cannot be committed — permissions blocked' : undefined} className="rounded shrink-0 disabled:opacity-30" />
                             <button onClick={() => openDiff(item.path)} className="flex min-w-0 flex-1 items-center gap-1">
                               {prefix && <span className={cn('w-3 shrink-0 font-mono font-bold', prefix.color)}>{prefix.letter}</span>}
@@ -407,7 +407,7 @@ export function ConfigPage() {
       </div>
 
       {/* Right panel */}
-      <div className="flex min-w-0 flex-1 flex-col rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+      <div className="flex min-w-0 flex-1 flex-col rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
         {/* Files mode - editor */}
         {mode === 'files' && (
           <>
@@ -443,7 +443,7 @@ export function ConfigPage() {
                     <div className="flex items-center gap-2">
                       {isDirty && <span className="text-xs text-amber-400">Unsaved changes</span>}
                       {isDirty && <button onClick={handleDiscard} className="rounded-full border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]">Discard</button>}
-                      <button data-testid="config-save" onClick={handleSave} disabled={saving || !isDirty} className="rounded-full border border-[rgba(79,209,197,0.35)] bg-[rgba(79,209,197,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40">
+                      <button data-testid="config-save" onClick={handleSave} disabled={saving || !isDirty} className="rounded-full border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40">
                         {saving ? 'Saving...' : 'Save'}
                       </button>
                     </div>
@@ -456,7 +456,7 @@ export function ConfigPage() {
                   ) : selectedFile.type === 'text_file' ? (
                     <YamlEditor value={editContent} onChange={setEditContent} readOnly={!selectedFile.writable} />
                   ) : (
-                    <div className="flex h-full items-center justify-center rounded-[16px] border border-[var(--panel-border)] bg-[rgba(0,0,0,0.2)]">
+                    <div className="flex h-full items-center justify-center rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.2)]">
                       <div className="text-center">
                         <FileWarning className="mx-auto size-8 text-[var(--muted)]" />
                         <p className="mt-2 text-sm text-[var(--text)]">{selectedFile.type === 'binary_file' ? 'Binary file' : 'Unknown file type'}</p>
@@ -526,7 +526,7 @@ export function ConfigPage() {
                   {selectedDiff.blocked_reason ? (
                     <BlockedFileCard blockedReason={selectedDiff.blocked_reason} permissions={selectedDiff.permissions} />
                   ) : selectedDiff.is_binary ? (
-                    <div className="flex h-full items-center justify-center rounded-[16px] border border-[var(--panel-border)] bg-[rgba(0,0,0,0.2)]">
+                    <div className="flex h-full items-center justify-center rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.2)]">
                       <div className="text-center">
                         <FileWarning className="mx-auto size-8 text-[var(--muted)]" />
                         <p className="mt-2 text-sm text-[var(--text)]">Binary file changed</p>
@@ -536,7 +536,7 @@ export function ConfigPage() {
                   ) : selectedDiff.diff ? (
                     <DiffView diff={selectedDiff.diff} truncated={selectedDiff.truncated} />
                   ) : (
-                    <div className="flex h-full items-center justify-center rounded-[16px] border border-[var(--panel-border)] bg-[rgba(0,0,0,0.2)]">
+                    <div className="flex h-full items-center justify-center rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.2)]">
                       <p className="text-sm text-[var(--muted)]">No diff content available.</p>
                     </div>
                   )}

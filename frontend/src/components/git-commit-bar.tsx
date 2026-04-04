@@ -77,13 +77,13 @@ export function GitCommitBar({ selectedPaths, hasUpstream, aheadCount, onCommitt
             autoFocus
             disabled={committing}
             data-testid="git-commit-message"
-            className="flex-1 rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-2 py-1.5 text-xs text-[var(--text)] outline-none focus:border-[rgba(79,209,197,0.35)] disabled:opacity-50"
+            className="flex-1 rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-2 py-1.5 text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)] disabled:opacity-50"
           />
           <button
             type="submit"
             disabled={committing || !commitMessage.trim() || selectedPaths.size === 0}
             data-testid="git-commit-submit"
-            className="rounded-lg border border-[rgba(79,209,197,0.35)] bg-[rgba(79,209,197,0.14)] px-3 py-1.5 text-xs text-[var(--text)] disabled:opacity-40"
+            className="rounded-lg border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] px-3 py-1.5 text-xs text-[var(--text)] disabled:opacity-40"
           >
             {committing ? '...' : 'Commit'}
           </button>
@@ -107,7 +107,7 @@ export function GitCommitBar({ selectedPaths, hasUpstream, aheadCount, onCommitt
           <button
             onClick={() => setShowCommitInput(true)}
             disabled={selectedPaths.size === 0 || committing}
-            className="ml-auto rounded-full border border-[rgba(79,209,197,0.35)] bg-[rgba(79,209,197,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40"
+            className="ml-auto rounded-full border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40"
           >
             Commit
           </button>

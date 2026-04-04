@@ -9,7 +9,7 @@ export function DiffView({ diff, truncated = false }: DiffViewProps) {
   const lines = diff.split('\n')
 
   return (
-    <div className="overflow-auto rounded-[16px] border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs leading-5">
+    <div className="overflow-auto rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs leading-5">
       {lines.map((line, i) => {
         let color = 'text-[var(--muted)]'
         let bg = ''

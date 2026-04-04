@@ -25,7 +25,7 @@ export function MaintenanceImages() {
   const unusedCount = images.filter((img) => img.is_unused).length
 
   return (
-    <section className="rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+    <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="text-lg font-medium text-[var(--text)]">Images</h3>
@@ -40,7 +40,7 @@ export function MaintenanceImages() {
             <button
               key={v}
               onClick={() => setUsage(v)}
-              className={cn('rounded-full border px-2.5 py-1 text-xs transition', usage === v ? 'border-[rgba(79,209,197,0.35)] bg-[rgba(79,209,197,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
+              className={cn('rounded-full border px-2.5 py-1 text-xs transition', usage === v ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
             >
               {v}
             </button>
@@ -53,7 +53,7 @@ export function MaintenanceImages() {
             <button
               key={v}
               onClick={() => setOrigin(v)}
-              className={cn('rounded-full border px-2.5 py-1 text-xs transition', origin === v ? 'border-[rgba(79,209,197,0.35)] bg-[rgba(79,209,197,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
+              className={cn('rounded-full border px-2.5 py-1 text-xs transition', origin === v ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
             >
               {v.replace('_', ' ')}
             </button>
@@ -64,7 +64,7 @@ export function MaintenanceImages() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search..."
-            className="rounded-full border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(79,209,197,0.35)]"
+            className="rounded-full border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)]"
           />
 
           <button onClick={refetch} className="rounded-full border border-[var(--panel-border)] px-2.5 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]">

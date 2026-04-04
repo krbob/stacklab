@@ -50,7 +50,7 @@ export function DeleteStackDialog({ stackId, stackName, onClose }: DeleteStackDi
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
       <div
-        className="w-full max-w-lg rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel)] p-6 shadow-[var(--shadow)]"
+        className="w-full max-w-lg rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-6 shadow-[var(--shadow)]"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-lg font-semibold text-[var(--text)]">Remove stack "{stackName}"?</h3>

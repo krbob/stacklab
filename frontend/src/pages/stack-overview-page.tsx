@@ -60,7 +60,7 @@ export function StackOverviewPage() {
           return (
             <div
               key={svc.name}
-              className="rounded-[20px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4"
+              className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4"
             >
               <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                 <div className="flex-1">
@@ -121,7 +121,7 @@ export function StackOverviewPage() {
         })}
 
         {stack.services.length === 0 && stack.runtime_state !== 'orphaned' && (
-          <div className="rounded-[20px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-8 text-center">
+          <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-8 text-center">
             <p className="text-[var(--text)]">Stack is defined but not running</p>
             <p className="mt-1 text-sm text-[var(--muted)]">compose.yaml found. No containers exist.</p>
           </div>

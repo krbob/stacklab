@@ -68,7 +68,7 @@ export function StackLogsPage() {
 
   if (noRunning) {
     return (
-      <div className="rounded-[20px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-10 text-center">
+      <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-10 text-center">
         <p className="text-[var(--text)]">No logs available</p>
         <p className="mt-1 text-sm text-[var(--muted)]">
           {selectedServices.length > 0
@@ -89,7 +89,7 @@ export function StackLogsPage() {
             className={cn(
               'rounded-full border px-3 py-1 text-xs transition',
               selectedServices.length === 0
-                ? 'border-[rgba(79,209,197,0.35)] bg-[rgba(79,209,197,0.14)] text-[var(--text)]'
+                ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]'
                 : 'border-[var(--panel-border)] text-[var(--muted)] hover:text-[var(--text)]',
             )}
           >
@@ -106,7 +106,7 @@ export function StackLogsPage() {
               className={cn(
                 'rounded-full border px-3 py-1 text-xs transition',
                 selectedServices.includes(name)
-                  ? 'border-[rgba(79,209,197,0.35)] bg-[rgba(79,209,197,0.14)] text-[var(--text)]'
+                  ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]'
                   : 'border-[var(--panel-border)] text-[var(--muted)] hover:text-[var(--text)]',
               )}
             >
@@ -120,7 +120,7 @@ export function StackLogsPage() {
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           placeholder="Filter..."
-          className="ml-auto rounded-full border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(79,209,197,0.35)]"
+          className="ml-auto rounded-full border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)]"
         />
 
         <button
@@ -150,7 +150,7 @@ export function StackLogsPage() {
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="h-[500px] overflow-y-auto rounded-[16px] border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs leading-5"
+        className="h-[500px] overflow-y-auto rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs leading-5"
       >
         {filteredEntries.length === 0 && (
           <div className="py-8 text-center text-[var(--muted)]">Waiting for logs...</div>

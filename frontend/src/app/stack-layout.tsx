@@ -26,7 +26,7 @@ export function StackLayout() {
 
   if (loading) {
     return (
-      <section className="rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+      <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
         <div className="animate-pulse space-y-4">
           <div className="h-8 w-48 rounded bg-[rgba(255,255,255,0.05)]" />
           <div className="h-4 w-80 rounded bg-[rgba(255,255,255,0.03)]" />
@@ -42,7 +42,7 @@ export function StackLayout() {
 
   if (error || !data) {
     return (
-      <section className="rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+      <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
         <p className="text-sm text-red-400">
           Failed to load stack: {error?.message ?? 'Unknown error'}
         </p>
@@ -53,7 +53,7 @@ export function StackLayout() {
   const stack = data.stack
 
   return (
-    <section className="rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+    <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
@@ -93,8 +93,8 @@ export function StackLayout() {
                   cn(
                     'rounded-full border px-4 py-2 text-sm transition',
                     isActive
-                      ? 'border-[rgba(79,209,197,0.35)] bg-[rgba(79,209,197,0.14)] text-[var(--text)]'
-                      : 'border-[var(--panel-border)] text-[var(--muted)] hover:border-[rgba(79,209,197,0.25)] hover:text-[var(--text)]',
+                      ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]'
+                      : 'border-[var(--panel-border)] text-[var(--muted)] hover:border-[rgba(34,197,94,0.25)] hover:text-[var(--text)]',
                   )
                 }
               >

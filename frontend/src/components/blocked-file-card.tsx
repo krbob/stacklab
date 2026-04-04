@@ -13,7 +13,7 @@ const reasonMessages: Record<string, string> = {
 
 export function BlockedFileCard({ blockedReason, permissions }: BlockedFileCardProps) {
   return (
-    <div className="flex h-full items-center justify-center rounded-[16px] border border-amber-400/20 bg-amber-400/5">
+    <div className="flex h-full items-center justify-center rounded border border-amber-400/20 bg-amber-400/5">
       <div className="max-w-md p-8 text-center">
         <ShieldAlert className="mx-auto size-10 text-amber-400" />
         <h4 className="mt-3 text-base font-medium text-[var(--text)]">File access blocked</h4>

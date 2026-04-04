@@ -57,7 +57,7 @@ export function ProgressPanel({ jobId, onDone }: ProgressPanelProps) {
   const hasWarning = events.some((e) => e.event === 'job_warning')
 
   return (
-    <div className="rounded-[20px] border border-[var(--panel-border)] bg-[rgba(0,0,0,0.2)] p-4">
+    <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(0,0,0,0.2)] p-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">

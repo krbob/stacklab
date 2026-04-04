@@ -97,7 +97,7 @@ export function MaintenancePage() {
             <button
               key={key}
               onClick={() => setActiveTab(key)}
-              className={cn('rounded-full border px-3 py-1.5 text-xs transition', activeTab === key ? 'border-[rgba(79,209,197,0.35)] bg-[rgba(79,209,197,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
+              className={cn('rounded-full border px-3 py-1.5 text-xs transition', activeTab === key ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
             >
               {label}
             </button>
@@ -116,7 +116,7 @@ export function MaintenancePage() {
       <div className={activeTab === 'update' ? '' : 'hidden'}>
     <div className="flex flex-col gap-4 lg:flex-row">
       {/* Left: workflow setup */}
-      <div className="w-full shrink-0 rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)] lg:flex lg:w-80 lg:flex-col">
+      <div className="w-full shrink-0 rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)] lg:flex lg:w-80 lg:flex-col">
         <h3 className="text-lg font-medium text-[var(--text)]">Update stacks</h3>
         <p className="mt-2 text-xs text-[var(--muted)]">Pull images, build, and restart selected stacks.</p>
 
@@ -188,7 +188,7 @@ export function MaintenancePage() {
           data-testid="maintenance-start"
           onClick={handleStart}
           disabled={running || !canStart}
-          className="mt-5 w-full rounded-2xl bg-[linear-gradient(135deg,rgba(79,209,197,0.9),rgba(20,184,166,0.95))] px-4 py-3 text-sm font-medium text-[#042328] transition hover:brightness-105 disabled:opacity-40"
+          className="mt-5 w-full rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-medium text-black transition hover:brightness-105 disabled:opacity-40"
         >
           {running ? 'Running...' : 'Start update'}
         </button>
@@ -197,7 +197,7 @@ export function MaintenancePage() {
       </div>
 
       {/* Right: progress */}
-      <div className="flex min-w-0 flex-1 flex-col rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+      <div className="flex min-w-0 flex-1 flex-col rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
         <h3 className="text-lg font-medium text-[var(--text)]">Progress</h3>
 
         {!jobId && (
@@ -229,7 +229,7 @@ export function MaintenancePage() {
             </div>
 
             {/* Raw output */}
-            <div className="max-h-64 overflow-y-auto rounded-[16px] border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs leading-5">
+            <div className="max-h-64 overflow-y-auto rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs leading-5">
               {events.map((event, i) => {
                 if (event.event === 'job_step_started' || event.event === 'job_step_finished') return null
                 return (

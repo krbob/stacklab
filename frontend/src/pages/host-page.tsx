@@ -40,13 +40,13 @@ export function HostPage() {
   return (
     <div className="flex flex-col gap-4">
       {/* Overview cards */}
-      <section className="rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+      <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
         <h2 className="text-3xl font-semibold tracking-[-0.04em] text-[var(--text)]">Host</h2>
 
         {overviewLoading && !overview && (
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-32 animate-pulse rounded-[20px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)]" />
+              <div key={i} className="h-32 animate-pulse rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)]" />
             ))}
           </div>
         )}
@@ -61,7 +61,7 @@ export function HostPage() {
       </section>
 
       {/* Stacklab logs */}
-      <section className="rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+      <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
         <StacklabLogs />
       </section>
     </div>
@@ -74,7 +74,7 @@ function OverviewCards({ overview }: { overview: HostOverviewResponse }) {
   return (
     <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
       {/* Stacklab */}
-      <div className="rounded-[20px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4">
+      <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4">
         <div className="text-xs uppercase tracking-wider text-[var(--accent)]">Stacklab</div>
         <div className="mt-2 text-lg font-medium text-[var(--text)]">{stacklab.version}</div>
         <div className="mt-1 space-y-0.5 text-xs text-[var(--muted)]">
@@ -84,7 +84,7 @@ function OverviewCards({ overview }: { overview: HostOverviewResponse }) {
       </div>
 
       {/* Host */}
-      <div className="rounded-[20px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4">
+      <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4">
         <div className="text-xs uppercase tracking-wider text-[var(--accent)]">System</div>
         <div className="mt-2 text-lg font-medium text-[var(--text)]">{host.hostname}</div>
         <div className="mt-1 space-y-0.5 text-xs text-[var(--muted)]">
@@ -96,14 +96,14 @@ function OverviewCards({ overview }: { overview: HostOverviewResponse }) {
       </div>
 
       {/* Docker */}
-      <div className="rounded-[20px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4">
+      <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4">
         <div className="text-xs uppercase tracking-wider text-[var(--accent)]">Docker</div>
         <div className="mt-2 text-lg font-medium text-[var(--text)]">Engine {docker.engine_version}</div>
         <div className="mt-1 text-xs text-[var(--muted)]">Compose {docker.compose_version}</div>
       </div>
 
       {/* Resources */}
-      <div className="rounded-[20px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4">
+      <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4">
         <div className="text-xs uppercase tracking-wider text-[var(--accent)]">Resources</div>
         <div className="mt-3 space-y-2">
           <div>
@@ -222,7 +222,7 @@ function StacklabLogs() {
               className={cn(
                 'rounded-full border px-2.5 py-1 text-xs transition',
                 !level
-                  ? 'border-[rgba(79,209,197,0.35)] bg-[rgba(79,209,197,0.14)] text-[var(--text)]'
+                  ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]'
                   : 'border-[var(--panel-border)] text-[var(--muted)]',
               )}
             >
@@ -235,7 +235,7 @@ function StacklabLogs() {
                 className={cn(
                   'rounded-full border px-2.5 py-1 text-xs transition',
                   level === l
-                    ? 'border-[rgba(79,209,197,0.35)] bg-[rgba(79,209,197,0.14)] text-[var(--text)]'
+                    ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]'
                     : 'border-[var(--panel-border)] text-[var(--muted)]',
                 )}
               >
@@ -249,7 +249,7 @@ function StacklabLogs() {
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Filter..."
-            className="rounded-full border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(79,209,197,0.35)]"
+            className="rounded-full border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)]"
           />
 
           <button
@@ -257,7 +257,7 @@ function StacklabLogs() {
             className={cn(
               'rounded-full border px-2.5 py-1 text-xs transition',
               following
-                ? 'border-[rgba(79,209,197,0.35)] bg-[rgba(79,209,197,0.14)] text-[var(--text)]'
+                ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]'
                 : 'border-[var(--panel-border)] text-[var(--muted)]',
             )}
           >
@@ -281,7 +281,7 @@ function StacklabLogs() {
 
       <div
         ref={scrollRef}
-        className="h-[400px] overflow-y-auto rounded-[16px] border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs leading-5"
+        className="h-[400px] overflow-y-auto rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs leading-5"
       >
         {loading && entries.length === 0 && (
           <div className="py-8 text-center text-[var(--muted)]">Loading logs...</div>

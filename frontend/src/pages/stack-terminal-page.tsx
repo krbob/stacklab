@@ -50,7 +50,7 @@ export function StackTerminalPage() {
 
   if (runningContainers.length === 0) {
     return (
-      <div className="rounded-[20px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-10 text-center">
+      <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-10 text-center">
         <p className="text-[var(--text)]">No containers available for shell access</p>
         <p className="mt-1 text-sm text-[var(--muted)]">Start the stack to open a shell session.</p>
       </div>
@@ -92,7 +92,7 @@ export function StackTerminalPage() {
           <button
             onClick={terminal.open}
             disabled={!connected || !selectedContainerId}
-            className="rounded-full border border-[rgba(79,209,197,0.35)] bg-[rgba(79,209,197,0.14)] px-3 py-1 text-xs text-[var(--text)] transition hover:bg-[rgba(79,209,197,0.2)] disabled:opacity-40"
+            className="rounded-full border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] px-3 py-1 text-xs text-[var(--text)] transition hover:bg-[rgba(34,197,94,0.2)] disabled:opacity-40"
           >
             {terminal.state === 'ended' || terminal.state === 'error' ? 'New session' : 'Connect'}
           </button>

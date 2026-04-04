@@ -64,7 +64,7 @@ export function StackStatsPage() {
 
   if (noRunning) {
     return (
-      <div className="rounded-[20px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-10 text-center">
+      <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-10 text-center">
         <p className="text-[var(--text)]">No stats available</p>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Stats require at least one running container in this stack.
@@ -79,7 +79,7 @@ export function StackStatsPage() {
         {!connected && (
           <div className="text-xs text-amber-400">Stream disconnected. Reconnecting...</div>
         )}
-        <div className="rounded-[20px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-8 text-center">
+        <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-8 text-center">
           <div className="text-sm text-[var(--muted)]">Waiting for stats...</div>
         </div>
       </div>
@@ -95,7 +95,7 @@ export function StackStatsPage() {
       )}
 
       {/* Stack totals */}
-      <div className="flex flex-wrap gap-6 rounded-[20px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-4 text-sm">
+      <div className="flex flex-wrap gap-6 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-4 text-sm">
         <div>
           <span className="text-[var(--muted)]">CPU </span>
           <span className="text-[var(--text)]">{totals.cpu_percent.toFixed(1)}%</span>
@@ -130,7 +130,7 @@ export function StackStatsPage() {
           return (
             <div
               key={c.container_id}
-              className="rounded-[20px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4"
+              className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4"
             >
               <div className="mb-3 text-base font-medium text-[var(--text)]">{c.service_name}</div>
 

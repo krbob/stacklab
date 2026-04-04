@@ -66,7 +66,7 @@ export function TerminalView({ onData, onResize, writeRef }: TerminalViewProps) 
   return (
     <div
       ref={containerRef}
-      className="h-[500px] overflow-hidden rounded-[16px] border border-[var(--panel-border)]"
+      className="h-[500px] overflow-hidden rounded border border-[var(--panel-border)]"
     />
   )
 }

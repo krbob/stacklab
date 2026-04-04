@@ -43,7 +43,7 @@ export function SettingsPage() {
   }, [currentPassword, newPassword, confirmPassword])
 
   return (
-    <section className="rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+    <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
       <h2 className="text-3xl font-semibold tracking-[-0.04em] text-[var(--text)]">Settings</h2>
 
       <div className="mt-6 space-y-8">
@@ -57,7 +57,7 @@ export function SettingsPage() {
               onChange={(e) => setCurrentPassword(e.target.value)}
               placeholder="Current password"
               disabled={saving}
-              className="w-full rounded-2xl border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(79,209,197,0.35)] disabled:opacity-50"
+              className="w-full rounded-2xl border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(34,197,94,0.35)] disabled:opacity-50"
             />
             <input
               type="password"
@@ -65,7 +65,7 @@ export function SettingsPage() {
               onChange={(e) => setNewPassword(e.target.value)}
               placeholder="New password"
               disabled={saving}
-              className="w-full rounded-2xl border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(79,209,197,0.35)] disabled:opacity-50"
+              className="w-full rounded-2xl border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(34,197,94,0.35)] disabled:opacity-50"
             />
             <input
               type="password"
@@ -73,7 +73,7 @@ export function SettingsPage() {
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="Confirm new password"
               disabled={saving}
-              className="w-full rounded-2xl border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(79,209,197,0.35)] disabled:opacity-50"
+              className="w-full rounded-2xl border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(34,197,94,0.35)] disabled:opacity-50"
             />
 
             {passwordError && <p className="text-sm text-red-400">{passwordError}</p>}
@@ -82,7 +82,7 @@ export function SettingsPage() {
             <button
               type="submit"
               disabled={saving || !currentPassword || !newPassword || !confirmPassword}
-              className="rounded-full border border-[rgba(79,209,197,0.35)] bg-[rgba(79,209,197,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(79,209,197,0.2)] disabled:opacity-40"
+              className="rounded-full border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(34,197,94,0.2)] disabled:opacity-40"
             >
               {saving ? 'Updating...' : 'Update password'}
             </button>
