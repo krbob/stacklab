@@ -44,12 +44,25 @@ Currently implemented:
 - `.github/workflows/advisory-static-analysis.yml`
 - `.github/workflows/browser-e2e.yml`
 - `.github/workflows/release-build.yml`
+- `.github/workflows/deb-package-smoke.yml`
+- `.github/workflows/nightly-release.yml`
+- `.github/workflows/stable-release.yml`
+- `.github/workflows/hotfix-release.yml`
+- `.github/workflows/apt-publish.yml`
 
 Current `release-build.yml` scope:
 
 - tarball artifacts for `amd64` and `arm64`
 - `.deb` artifacts for `amd64` and `arm64`
 - manual invocation only
+
+Current release automation direction:
+
+- `deb-package-smoke.yml` validates fresh-install package behavior on Debian
+- `nightly-release.yml` is the target prerelease workflow
+- `stable-release.yml` is the target monthly stable workflow
+- `hotfix-release.yml` is the target manual patch-release workflow
+- `apt-publish.yml` is the manual repair and republish path for APT channels
 
 The advisory workflows should run, but they should not become required too early.
 

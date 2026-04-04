@@ -187,6 +187,17 @@ Recommended model:
 - keep nightly as prereleases
 - keep stable and hotfix as normal releases
 
+Current implementation direction:
+
+- Stacklab now includes a commit-message-based release notes generator:
+  - `scripts/release/generate-release-notes.sh`
+- the same generator is intended to be used by:
+  - automatic nightly releases
+  - automatic monthly stable releases later
+  - manual hotfix releases
+
+This keeps release notes consistent across both automated and manual publication flows.
+
 ## APT Channel Model
 
 The future APT repository should expose at least two channels:
@@ -213,6 +224,30 @@ Recommended publication behavior:
 - stable workflow publishes to GitHub Release and APT `stable`
 - nightly workflow publishes to GitHub prerelease and APT `nightly`
 - hotfix workflow publishes to GitHub Release and APT `stable`
+
+## Required Secrets And Repository Setup
+
+To make the automated release path work, the repository will need:
+
+- branch protection that keeps `main` releasable
+- GitHub Actions enabled for scheduled workflows
+- a `gh-pages` branch or permission to create it
+- GitHub Pages configured to serve the publication branch
+
+APT publication requires these repository secrets:
+
+- `APT_GPG_PRIVATE_KEY_BASE64`
+  - base64-encoded ASCII-armored private key used to sign repository metadata
+- `APT_GPG_PASSPHRASE`
+  - optional passphrase for that key
+- `APT_GPG_KEY_ID`
+  - optional explicit key id used for signing
+
+Nightly and stable workflows use the built-in `GITHUB_TOKEN` for:
+
+- creating tags
+- creating GitHub Releases
+- pushing APT repository updates to `gh-pages`
 
 ## Workflow Set
 
@@ -248,6 +283,7 @@ Recommended behavior:
 6. create nightly tag
 7. create GitHub prerelease
 8. publish to APT `nightly`
+9. generate release notes from commit messages since the previous nightly
 
 ### `stable-release.yml`
 
@@ -267,6 +303,10 @@ Recommended behavior:
 8. create GitHub Release with notes
 9. publish to APT `stable`
 
+Release notes source:
+
+- commit messages since the previous stable or hotfix tag
+
 ### `hotfix-release.yml`
 
 Purpose:
@@ -282,6 +322,10 @@ Recommended behavior:
 5. create GitHub Release
 6. publish to APT `stable`
 
+Release notes source:
+
+- commit messages since the previous stable or hotfix tag
+
 ### `apt-publish.yml`
 
 Purpose:
@@ -294,6 +338,10 @@ Recommended behavior:
 - updates the selected channel
 - signs repository metadata
 - publishes static files
+
+Practical role:
+
+- manual repair or re-publication path if APT channel state needs to be rebuilt from an existing release tag
 
 ## Scheduling Notes
 
