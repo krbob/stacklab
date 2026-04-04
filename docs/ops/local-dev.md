@@ -24,7 +24,7 @@ Recommended local tools:
 - Node.js `22 LTS+`
 - npm `10+`
 - Docker Engine
-- Docker Compose plugin
+- Compose v2 available as either `docker compose` or standalone `docker-compose`
 
 Helpful but optional:
 
@@ -38,6 +38,7 @@ Local development assumes:
 
 - Linux or macOS workstation
 - Docker available locally
+- Compose v2 command available locally
 - ability to create temporary test stacks
 
 ## Backend Development

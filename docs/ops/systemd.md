@@ -10,6 +10,12 @@ It is the operational consequence of:
 - Compose-first filesystem model
 - single-host Linux `amd64` target
 
+The runtime model in this document has been validated in staging on:
+
+- Ubuntu `arm64`
+- Ubuntu `amd64`
+- Debian `amd64`
+
 ## Deployment Model
 
 Stacklab runs as:
@@ -70,6 +76,8 @@ Recommended environment variables:
 | `STACKLAB_DATA_DIR` | `/var/lib/stacklab` | SQLite and runtime files |
 | `STACKLAB_HTTP_ADDR` | `127.0.0.1:8080` | Bind address |
 | `STACKLAB_LOG_LEVEL` | `info` | Log level |
+| `HOME` | `/var/lib/stacklab/home` | Stable writable home for Compose and service runtime |
+| `DOCKER_CONFIG` | `/var/lib/stacklab/docker` | Writable Docker config path when `ProtectHome=true` |
 
 Recommended default binding:
 
@@ -94,12 +102,15 @@ Requires=docker.service
 Type=simple
 User=stacklab
 Group=stacklab
-WorkingDirectory=/opt/stacklab/app
+SupplementaryGroups=docker
+WorkingDirectory=/opt/stacklab/app/current
 Environment=STACKLAB_ROOT=/opt/stacklab
 Environment=STACKLAB_DATA_DIR=/var/lib/stacklab
 Environment=STACKLAB_HTTP_ADDR=127.0.0.1:8080
 Environment=STACKLAB_LOG_LEVEL=info
-ExecStart=/opt/stacklab/app/bin/stacklab
+Environment=HOME=/var/lib/stacklab/home
+Environment=DOCKER_CONFIG=/var/lib/stacklab/docker
+ExecStart=/opt/stacklab/app/current/bin/stacklab
 Restart=on-failure
 RestartSec=5
 TimeoutStartSec=30
@@ -139,7 +150,14 @@ Potential adjustments:
 Stacklab depends on:
 
 - Docker Engine
-- Docker Compose plugin availability in the host environment
+- Compose v2 availability in the host environment, through either:
+  - `docker compose`
+  - standalone `docker-compose`
+
+Practical packaging note:
+
+- stock Debian may provide Compose through the standalone `docker-compose` package instead of the `docker compose` plugin path
+- Stacklab supports both command shapes
 
 Startup behavior recommendation:
 
@@ -201,10 +219,16 @@ Operational caution:
 Recommended upgrade flow:
 
 1. stop the service
-2. replace backend binary and frontend assets
-3. run any schema migrations
-4. start the service
-5. verify `GET /api/health`
+2. unpack the new build into a versioned directory under `/opt/stacklab/app/releases/`
+3. repoint `/opt/stacklab/app/current`
+4. run any schema migrations
+5. start the service
+6. verify `GET /api/health`
+
+Observed staging note:
+
+- if `ProtectHome=true` is enabled, set explicit writable `HOME` and `DOCKER_CONFIG` paths for the service
+- ensure the service account is in the Docker socket-owning group, typically `docker`
 
 Rules:
 
@@ -274,4 +298,3 @@ Implementation should later decide:
 - whether frontend assets are embedded or separate
 - whether the service account uses Docker group membership or another access pattern
 - whether systemd socket activation provides any value for this service
-

@@ -19,6 +19,11 @@ Reasoning:
 - release automation created too early would add maintenance cost during rapid changes
 - we already know enough to choose the operational shape without building it yet
 
+Current validation status:
+
+- host-native staging deployments have been exercised successfully on Ubuntu `arm64`, Ubuntu `amd64`, and Debian `amd64`
+- the remaining gap is packaging and repeatable upgrade automation, not basic host-native viability
+
 ## What We Should Do Now
 
 At the current stage:
@@ -52,6 +57,12 @@ Target release contents:
 - frontend static bundle
 - version metadata
 - optional example `systemd` unit and environment file template
+
+Packaging note:
+
+- the current baseline release shape is still a host-native artifact plus `systemd`
+- a future Debian-first `.deb` package may become the preferred installation method on Debian hosts
+- if that happens, tarball artifacts should remain available at least as a fallback and for non-Debian validation
 
 Target runtime layout:
 
@@ -239,6 +250,7 @@ Do not do this yet:
 - GitHub Actions release pipeline
 - production upgrade script
 - automatic deployment to the homelab server
+- Debian APT repository publication
 
 ## Recommended Future Implementation Order
 
@@ -251,3 +263,7 @@ When release work starts, implement in this order:
 5. add host-side `upgrade.sh`
 6. test upgrade and rollback on Linux `amd64`
 7. only then use it on the real homelab host
+
+Related future work:
+
+- see [`debian-package-plan.md`](debian-package-plan.md) for the Debian package and APT repository option

@@ -158,7 +158,7 @@ Recommended CI environment:
 
 - GitHub Actions Linux `x64` runner
 - Docker Engine available on the runner
-- Docker Compose plugin available
+- Compose v2 available on the runner through either `docker compose` or standalone `docker-compose`
 
 Recommended integration coverage:
 

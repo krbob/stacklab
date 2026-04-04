@@ -24,7 +24,7 @@ These criteria assume:
 
 - one Linux `amd64` host
 - Docker Engine installed and running
-- Docker Compose plugin available
+- Compose v2 available through either `docker compose` or standalone `docker-compose`
 - Stacklab deployed host-natively via the documented model
 - managed root is `/opt/stacklab`
 
@@ -168,4 +168,3 @@ MVP is not acceptable if any of the following remain:
 - a failed or locked stack can still accept conflicting mutating actions
 - audit history cannot identify what action occurred on what stack
 - UI cannot recover gracefully from session expiry or WebSocket reconnect
-

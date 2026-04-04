@@ -25,12 +25,13 @@ Implemented today:
 - stack create/delete flows
 - audit history
 - backend and frontend automated tests
+- staging deployment trials on Linux `arm64`, Ubuntu `amd64`, and Debian `amd64`
 
 Not done yet:
 
 - production release automation
 - scheduled dependency maintenance workflows
-- first real Linux `amd64` deployment trial
+- packaged distribution (`.deb`) and APT repository
 - final hardening for long-term production use
 
 ## Architecture
@@ -55,7 +56,8 @@ Canonical host layout:
 
 - Go
 - Node.js + npm
-- Docker Engine + Docker Compose
+- Docker Engine
+- Compose v2 available as either `docker compose` or standalone `docker-compose`
 
 ### Local development
 
@@ -121,6 +123,7 @@ Good entry points:
 - [`docs/architecture/system-overview.md`](docs/architecture/system-overview.md)
 - [`docs/ops/systemd.md`](docs/ops/systemd.md)
 - [`docs/ops/release-plan.md`](docs/ops/release-plan.md)
+- [`docs/ops/debian-package-plan.md`](docs/ops/debian-package-plan.md)
 
 ## Current Constraints
 

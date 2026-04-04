@@ -16,4 +16,4 @@ This directory contains project documentation for Stacklab.
 
 ## Status
 
-Documentation started contract-first and is now being updated alongside implementation.
+Documentation started contract-first and is now being updated alongside implementation and staging validation.

@@ -115,7 +115,7 @@ Recommended environment:
 
 - GitHub Actions Linux `x64` runner
 - Docker Engine available
-- Docker Compose plugin available
+- Compose v2 available through either `docker compose` or standalone `docker-compose`
 
 Recommended coverage:
 
