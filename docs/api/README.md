@@ -7,3 +7,4 @@ Current focused additions:
 - `host-observability.md`
 - `config-workspace.md`
 - `git-workspace.md`
+- `maintenance-workflows.md`

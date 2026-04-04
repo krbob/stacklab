@@ -11,6 +11,7 @@ This section contains information architecture, screens, and UI-facing contracts
 - [host-observability-handoff.md](host-observability-handoff.md) — route and screen guidance for host overview and Stacklab service logs
 - [config-workspace-handoff.md](config-workspace-handoff.md) — route and screen guidance for `/opt/stacklab/config` browsing and editing
 - [git-workspace-handoff.md](git-workspace-handoff.md) — route and screen guidance for local Git change visibility inside `/config`
+- [maintenance-workflows-handoff.md](maintenance-workflows-handoff.md) — route and screen guidance for bulk stack update workflows
 - [browser-e2e-handoff.md](browser-e2e-handoff.md) — backend harness, fixture root, and CI shape for browser E2E smoke
 
 ## Frontend Stack
