@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 	"stacklab/internal/auth"
 	"stacklab/internal/config"
 	"stacklab/internal/configworkspace"
+	"stacklab/internal/gitworkspace"
 	"stacklab/internal/hostinfo"
 	"stacklab/internal/jobs"
 	"stacklab/internal/stacks"
@@ -298,6 +301,87 @@ func TestHandlerConfigWorkspaceErrors(t *testing.T) {
 	}
 }
 
+func TestHandlerGitWorkspaceStatusAndDiff(t *testing.T) {
+	t.Parallel()
+
+	_, served, cfg := newInternalTestHandler(t)
+	cookies := loginInternalTestUser(t, served, "secret")
+	if err := os.MkdirAll(filepath.Join(cfg.RootDir, "config", "demo"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(config demo) error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(cfg.RootDir, "stacks", "demo"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(stacks demo) error = %v", err)
+	}
+
+	runInternalGit(t, cfg.RootDir, "init", "-b", "main")
+	runInternalGit(t, cfg.RootDir, "config", "user.name", "Stacklab Test")
+	runInternalGit(t, cfg.RootDir, "config", "user.email", "stacklab@example.com")
+	if err := os.WriteFile(filepath.Join(cfg.RootDir, "config", "demo", "app.conf"), []byte("server_name old.local;\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(config demo app.conf) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.RootDir, "stacks", "demo", "compose.yaml"), []byte("services:\n  app:\n    image: nginx:alpine\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(stacks demo compose.yaml) error = %v", err)
+	}
+	runInternalGit(t, cfg.RootDir, "add", ".")
+	runInternalGit(t, cfg.RootDir, "commit", "-m", "initial")
+	if err := os.WriteFile(filepath.Join(cfg.RootDir, "config", "demo", "app.conf"), []byte("server_name demo.local;\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(updated config demo app.conf) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.RootDir, "config", "demo", "new.env"), []byte("FEATURE_FLAG=true\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(config demo new.env) error = %v", err)
+	}
+
+	statusResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/git/workspace/status", nil, cookies)
+	if statusResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/git/workspace/status status = %d, want %d; body=%s", statusResponse.Code, http.StatusOK, statusResponse.Body.String())
+	}
+	var statusPayload gitworkspace.StatusResponse
+	decodeInternalResponse(t, statusResponse, &statusPayload)
+	if !statusPayload.Available || statusPayload.Branch != "main" || statusPayload.Clean {
+		t.Fatalf("unexpected git workspace status payload: %#v", statusPayload)
+	}
+	if len(statusPayload.Items) != 2 {
+		t.Fatalf("unexpected git workspace items: %#v", statusPayload.Items)
+	}
+
+	diffResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/git/workspace/diff?path=config%2Fdemo%2Fapp.conf", nil, cookies)
+	if diffResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/git/workspace/diff status = %d, want %d; body=%s", diffResponse.Code, http.StatusOK, diffResponse.Body.String())
+	}
+	var diffPayload gitworkspace.DiffResponse
+	decodeInternalResponse(t, diffResponse, &diffPayload)
+	if diffPayload.Diff == nil || !strings.Contains(*diffPayload.Diff, "+server_name demo.local;") {
+		t.Fatalf("unexpected git diff payload: %#v", diffPayload)
+	}
+}
+
+func TestHandlerGitWorkspaceUnavailableAndValidation(t *testing.T) {
+	t.Parallel()
+
+	_, served, _ := newInternalTestHandler(t)
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	statusResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/git/workspace/status", nil, cookies)
+	if statusResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/git/workspace/status(non-repo) status = %d, want %d; body=%s", statusResponse.Code, http.StatusOK, statusResponse.Body.String())
+	}
+	var statusPayload gitworkspace.StatusResponse
+	decodeInternalResponse(t, statusResponse, &statusPayload)
+	if statusPayload.Available {
+		t.Fatalf("expected git workspace to be unavailable, got %#v", statusPayload)
+	}
+
+	diffUnavailable := performInternalJSONRequest(t, served, http.MethodGet, "/api/git/workspace/diff?path=config%2Fdemo%2Fapp.conf", nil, cookies)
+	if diffUnavailable.Code != http.StatusServiceUnavailable {
+		t.Fatalf("GET /api/git/workspace/diff(non-repo) status = %d, want %d; body=%s", diffUnavailable.Code, http.StatusServiceUnavailable, diffUnavailable.Body.String())
+	}
+
+	diffTraversal := performInternalJSONRequest(t, served, http.MethodGet, "/api/git/workspace/diff?path=..%2Fetc%2Fpasswd", nil, cookies)
+	if diffTraversal.Code != http.StatusBadRequest {
+		t.Fatalf("GET /api/git/workspace/diff(traversal) status = %d, want %d; body=%s", diffTraversal.Code, http.StatusBadRequest, diffTraversal.Body.String())
+	}
+}
+
 func newInternalTestHandler(t *testing.T) (*Handler, http.Handler, config.Config) {
 	t.Helper()
 
@@ -350,10 +434,22 @@ func newInternalTestHandler(t *testing.T) (*Handler, http.Handler, config.Config
 		stackReader: stacks.NewServiceReader(cfg, logger),
 		hostInfo:    hostinfo.NewService(cfg, time.Unix(1_712_598_000, 0).UTC()),
 		configFiles: configworkspace.NewService(cfg),
+		gitStatus:   gitworkspace.NewService(cfg),
 	}
 	handler.registerRoutes()
 
 	return handler, handler.withLogging(handler.mux), cfg
+}
+
+func runInternalGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+
+	cmd := exec.CommandContext(context.Background(), "git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(cmd.Environ(), "GIT_PAGER=cat", "TERM=dumb")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(output))
+	}
 }
 
 func loginInternalTestUser(t *testing.T, served http.Handler, password string) []*http.Cookie {

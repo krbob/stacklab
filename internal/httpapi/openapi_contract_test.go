@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -69,6 +70,21 @@ func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
 	}
 	configSaveResponse := performJSONRequest(t, handler, http.MethodPut, "/api/config/workspace/file", configSaveBody, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodPut, "/api/config/workspace/file", configSaveBody, cookies, configSaveResponse)
+
+	runGit(t, cfg.RootDir, "init", "-b", "main")
+	runGit(t, cfg.RootDir, "config", "user.name", "Stacklab Test")
+	runGit(t, cfg.RootDir, "config", "user.email", "stacklab@example.com")
+	runGit(t, cfg.RootDir, "add", ".")
+	runGit(t, cfg.RootDir, "commit", "-m", "initial")
+	if err := os.WriteFile(filepath.Join(configRoot, "nextcloud", "app.conf"), []byte("PORT=9091\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(updated config app.conf) error = %v", err)
+	}
+
+	gitStatusResponse := performJSONRequest(t, handler, http.MethodGet, "/api/git/workspace/status", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/git/workspace/status", nil, cookies, gitStatusResponse)
+
+	gitDiffResponse := performJSONRequest(t, handler, http.MethodGet, "/api/git/workspace/diff?path=config%2Fnextcloud%2Fapp.conf", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/git/workspace/diff?path=config%2Fnextcloud%2Fapp.conf", nil, cookies, gitDiffResponse)
 
 	stackID := "contract-stack"
 	createBody := map[string]any{
@@ -233,4 +249,15 @@ func contractPath(path string) string {
 		return "/"
 	}
 	return path
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+
+	cmd := exec.CommandContext(context.Background(), "git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(cmd.Environ(), "GIT_PAGER=cat", "TERM=dumb")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(output))
+	}
 }

@@ -142,16 +142,20 @@ Nice-to-have later:
 - path no longer changed state:
   - diff target disappeared or became clean
 
-## Open UI Questions For Implementation
+## Confirmed UI Decisions
 
-Please propose:
+Confirmed by UI implementation planning:
 
-1. exact visual form of the `Files / Changes` toggle
-2. whether changed files show:
-   - compact status prefix only
-   - or also badges per item
-3. whether the diff header should include a direct action:
-   - `Open in editor`
+1. `Files / Changes` uses pill-style buttons at the top of the tree panel
+   - `Changes` shows a counter badge
+   - when Git is unavailable, `Changes` is disabled with tooltip
+2. changed files use compact colored status prefixes:
+   - `M`, `A`, `D`, `R`, `U`, `C`
+   - no separate per-row badges
+3. diff header includes context action:
+   - `Open in editor` for `config/*`
+   - link to stack editor for `stacks/*`
+   - disabled state for deleted files
 
 ## Expected Backend/UI Sequence
 

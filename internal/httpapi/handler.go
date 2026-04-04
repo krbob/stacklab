@@ -15,6 +15,7 @@ import (
 	"stacklab/internal/auth"
 	"stacklab/internal/config"
 	"stacklab/internal/configworkspace"
+	"stacklab/internal/gitworkspace"
 	"stacklab/internal/hostinfo"
 	"stacklab/internal/jobs"
 	"stacklab/internal/stacks"
@@ -36,6 +37,7 @@ type Handler struct {
 	stackReader *stacks.ServiceReader
 	hostInfo    hostInfoReader
 	configFiles configWorkspaceReader
+	gitStatus   gitWorkspaceReader
 }
 
 type hostInfoReader interface {
@@ -47,6 +49,11 @@ type configWorkspaceReader interface {
 	Tree(ctx context.Context, currentPath string) (configworkspace.TreeResponse, error)
 	File(ctx context.Context, filePath string) (configworkspace.FileResponse, error)
 	SaveFile(ctx context.Context, request configworkspace.SaveFileRequest) (configworkspace.SaveFileResponse, error)
+}
+
+type gitWorkspaceReader interface {
+	Status(ctx context.Context) (gitworkspace.StatusResponse, error)
+	Diff(ctx context.Context, requestedPath string) (gitworkspace.DiffResponse, error)
 }
 
 func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Service, auditService *audit.Service, jobService *jobs.Service) (http.Handler, error) {
@@ -75,6 +82,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Servic
 		stackReader: stacks.NewServiceReader(cfg, logger),
 		hostInfo:    hostinfo.NewService(cfg, time.Now().UTC()),
 		configFiles: configworkspace.NewService(cfg),
+		gitStatus:   gitworkspace.NewService(cfg),
 	}
 
 	handler.registerRoutes()
@@ -94,6 +102,8 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/config/workspace/tree", h.withAuth(h.handleConfigWorkspaceTree))
 	h.mux.HandleFunc("GET /api/config/workspace/file", h.withAuth(h.handleConfigWorkspaceFile))
 	h.mux.HandleFunc("PUT /api/config/workspace/file", h.withAuth(h.handlePutConfigWorkspaceFile))
+	h.mux.HandleFunc("GET /api/git/workspace/status", h.withAuth(h.handleGitWorkspaceStatus))
+	h.mux.HandleFunc("GET /api/git/workspace/diff", h.withAuth(h.handleGitWorkspaceDiff))
 	h.mux.HandleFunc("GET /api/stacks", h.withAuth(h.handleListStacks))
 	h.mux.HandleFunc("POST /api/stacks", h.withAuth(h.handleCreateStack))
 	h.mux.HandleFunc("GET /api/stacks/{stackId}", h.withAuth(h.handleGetStack))
@@ -319,6 +329,39 @@ func (h *Handler) handlePutConfigWorkspaceFile(w http.ResponseWriter, r *http.Re
 	}
 	if err := h.audit.RecordConfigFileSave(r.Context(), response.Path, deriveConfigWorkspaceStackID(response.Path), "local", details); err != nil {
 		h.logger.Warn("record save_config_file audit failed", slog.String("path", response.Path), slog.String("err", err.Error()))
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleGitWorkspaceStatus(w http.ResponseWriter, r *http.Request) {
+	response, err := h.gitStatus.Status(r.Context())
+	if err != nil {
+		h.logger.Error("git workspace status failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load Git workspace status.", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleGitWorkspaceDiff(w http.ResponseWriter, r *http.Request) {
+	response, err := h.gitStatus.Diff(r.Context(), strings.TrimSpace(r.URL.Query().Get("path")))
+	if err != nil {
+		switch {
+		case errors.Is(err, gitworkspace.ErrUnavailable):
+			writeError(w, http.StatusServiceUnavailable, "git_unavailable", "Git workspace is unavailable.", nil)
+		case errors.Is(err, gitworkspace.ErrPathOutsideWorkspace):
+			writeError(w, http.StatusBadRequest, "path_outside_workspace", "Path escapes the Git workspace.", nil)
+		case errors.Is(err, gitworkspace.ErrInvalidManagedPath):
+			writeError(w, http.StatusBadRequest, "validation_failed", "Path must be under stacks/ or config/.", nil)
+		case errors.Is(err, gitworkspace.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Changed file was not found.", nil)
+		default:
+			h.logger.Error("git workspace diff failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load Git diff.", nil)
+		}
+		return
 	}
 
 	writeJSON(w, http.StatusOK, response)

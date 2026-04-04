@@ -342,6 +342,112 @@ Rules:
 - binary files are not editable through this endpoint
 - successful saves create audit entries with action `save_config_file`
 
+## `GET /api/git/workspace/status`
+
+Purpose:
+
+- fetch current Git status for the managed Stacklab workspace
+
+Response when Git workspace is available:
+
+```json
+{
+  "available": true,
+  "repo_root": "/opt/stacklab",
+  "managed_roots": ["stacks", "config"],
+  "branch": "main",
+  "head_commit": "abc1234def5678",
+  "has_upstream": true,
+  "upstream_name": "origin/main",
+  "ahead_count": 1,
+  "behind_count": 0,
+  "clean": false,
+  "items": [
+    {
+      "path": "config/demo/app.conf",
+      "scope": "config",
+      "stack_id": "demo",
+      "status": "modified",
+      "old_path": null
+    },
+    {
+      "path": "config/demo/new.env",
+      "scope": "config",
+      "stack_id": "demo",
+      "status": "untracked",
+      "old_path": null
+    }
+  ]
+}
+```
+
+Response when Git is not available for the workspace:
+
+```json
+{
+  "available": false,
+  "repo_root": "/opt/stacklab",
+  "managed_roots": ["stacks", "config"],
+  "reason": "not_a_git_repository"
+}
+```
+
+Notes:
+
+- only changes under `stacks/` and `config/` are included
+- `clean` is scoped to those managed roots, not the whole repository
+- this endpoint is read-only and safe to poll on navigation
+
+## `GET /api/git/workspace/diff`
+
+Purpose:
+
+- fetch unified diff for one changed managed file
+
+Query parameters:
+
+- `path` required managed path such as `config/demo/app.conf`
+
+Response:
+
+```json
+{
+  "available": true,
+  "path": "config/demo/app.conf",
+  "scope": "config",
+  "stack_id": "demo",
+  "status": "modified",
+  "old_path": null,
+  "is_binary": false,
+  "diff": "diff --git a/config/demo/app.conf b/config/demo/app.conf\n@@ -1 +1 @@\n-server_name old.local;\n+server_name demo.local;\n",
+  "truncated": false
+}
+```
+
+Binary response:
+
+```json
+{
+  "available": true,
+  "path": "config/demo/blob.bin",
+  "scope": "config",
+  "stack_id": "demo",
+  "status": "untracked",
+  "old_path": null,
+  "is_binary": true,
+  "diff": null,
+  "truncated": false
+}
+```
+
+Rules:
+
+- only files under `stacks/` and `config/` are allowed
+- path traversal is rejected
+- if the workspace is not a Git repository, this endpoint returns `git_unavailable`
+- untracked files diff against an empty file
+- large diffs may be truncated, but truncation is explicit
+
 ## `GET /api/stacks`
 
 Purpose:

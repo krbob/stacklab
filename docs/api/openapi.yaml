@@ -13,6 +13,7 @@ tags:
   - name: Meta
   - name: Host
   - name: Config
+  - name: Git
   - name: Stacks
   - name: Audit
   - name: Jobs
@@ -191,6 +192,52 @@ paths:
           $ref: '#/components/responses/ErrorNotFound'
         '409':
           description: Binary files are not editable in-browser.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /git/workspace/status:
+    get:
+      tags: [Git]
+      operationId: getGitWorkspaceStatus
+      responses:
+        '200':
+          description: Read-only Git status for the managed Stacklab workspace.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitWorkspaceStatusResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+  /git/workspace/diff:
+    get:
+      tags: [Git]
+      operationId: getGitWorkspaceDiff
+      parameters:
+        - in: query
+          name: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Unified diff for one changed managed file.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitDiffResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '400':
+          description: Invalid path or path outside managed roots.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '503':
+          description: Git workspace is unavailable.
           content:
             application/json:
               schema:
@@ -874,6 +921,85 @@ components:
         audit_action:
           type: string
       required: [saved, path, modified_at, audit_action]
+    GitFileStatus:
+      type: string
+      enum: [modified, added, deleted, renamed, untracked, conflicted]
+    GitScope:
+      type: string
+      enum: [stacks, config]
+    GitWorkspaceStatusResponse:
+      type: object
+      properties:
+        available:
+          type: boolean
+        repo_root:
+          type: string
+        managed_roots:
+          type: array
+          items:
+            type: string
+        branch:
+          type: string
+        head_commit:
+          type: string
+        has_upstream:
+          type: boolean
+        upstream_name:
+          type: string
+        ahead_count:
+          type: integer
+        behind_count:
+          type: integer
+        clean:
+          type: boolean
+        reason:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/GitStatusItem'
+      required: [available, repo_root, managed_roots]
+    GitStatusItem:
+      type: object
+      properties:
+        path:
+          type: string
+        scope:
+          $ref: '#/components/schemas/GitScope'
+        stack_id:
+          type: string
+          nullable: true
+        status:
+          $ref: '#/components/schemas/GitFileStatus'
+        old_path:
+          type: string
+          nullable: true
+      required: [path, scope, status]
+    GitDiffResponse:
+      type: object
+      properties:
+        available:
+          type: boolean
+        path:
+          type: string
+        scope:
+          $ref: '#/components/schemas/GitScope'
+        stack_id:
+          type: string
+          nullable: true
+        status:
+          $ref: '#/components/schemas/GitFileStatus'
+        old_path:
+          type: string
+          nullable: true
+        is_binary:
+          type: boolean
+        diff:
+          type: string
+          nullable: true
+        truncated:
+          type: boolean
+      required: [available, path, scope, status, is_binary, truncated]
     StackListResponse:
       type: object
       properties:
