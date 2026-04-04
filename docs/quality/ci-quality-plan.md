@@ -19,14 +19,15 @@ This is a planning document for the current phase. It does not mean every check 
 
 Today, the repository already has parts of the quality stack:
 
+- frontend Vitest test suite
 - frontend TypeScript typecheck
 - frontend ESLint
 - frontend production build
-- backend unit and integration tests via `go test ./...`
+- backend unit and integration tests via Go test commands scoped to `cmd/` and `internal/`
 
 Current observations:
 
-- frontend lint exists and is valuable, but the codebase is not yet consistently lint-clean
+- frontend lint is now green and ready for CI enforcement
 - backend does not yet have a proper static analysis layer beyond compiling and tests
 - backend test coverage exists but is still relatively low and should be treated as a trend, not a merge gate
 - Docker-backed integration tests already exist in parts of the backend and should become part of CI over time
@@ -62,15 +63,16 @@ These should run on every PR and complete quickly.
 ### Frontend
 
 - `npm ci`
+- `npm test`
 - `npm run typecheck`
 - `npm run lint`
 - `npm run build`
 
 ### Backend
 
-- `go test ./...`
-- `go vet ./...`
-- `gofmt -l` with failure on unformatted files
+- `go test ./cmd/... ./internal/...`
+- `go vet ./cmd/... ./internal/...`
+- `gofmt -l cmd internal` with failure on unformatted files
 
 Purpose:
 
@@ -257,6 +259,7 @@ Recommendation:
 ```bash
 cd frontend
 npm ci
+npm test
 npm run typecheck
 npm run lint
 npm run build
@@ -265,9 +268,9 @@ npm run build
 ## Backend
 
 ```bash
-go test ./...
-go vet ./...
-gofmt -l .
+go test ./cmd/... ./internal/...
+go vet ./cmd/... ./internal/...
+gofmt -l cmd internal
 staticcheck ./...
 govulncheck ./...
 ```
@@ -275,7 +278,7 @@ govulncheck ./...
 ## Coverage
 
 ```bash
-go test ./... -coverprofile=coverage.out
+go test ./cmd/... ./internal/... -coverprofile=coverage.out
 go tool cover -func=coverage.out
 ```
 
@@ -291,9 +294,8 @@ Exact commands may evolve, but the target is:
 
 ### Stage 1: Make existing checks green
 
-- get frontend lint consistently green
-- keep frontend typecheck and build green
-- keep `go test ./...` green
+- keep frontend tests, typecheck, lint, and build green
+- keep `go test ./cmd/... ./internal/...` green
 
 ### Stage 2: Add backend hygiene checks
 
@@ -317,8 +319,9 @@ Exact commands may evolve, but the target is:
 
 ### Stage 6: Add pre-release Linux `amd64` validation
 
-- release build smoke
-- environment-specific checks
+- packaged build smoke
+- host-native runtime smoke
+- reverse proxy and upgrade/rollback smoke later
 
 ## Recommended CI Job Shape
 

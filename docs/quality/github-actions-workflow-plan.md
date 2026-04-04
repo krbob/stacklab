@@ -90,7 +90,7 @@ Setup:
 Commands:
 
 ```bash
-go test ./...
+go test ./cmd/... ./internal/...
 ```
 
 Purpose:
@@ -106,8 +106,8 @@ Runner:
 Commands:
 
 ```bash
-test -z "$(gofmt -l .)"
-go vet ./...
+test -z "$(gofmt -l cmd internal)"
+go vet ./cmd/... ./internal/...
 ```
 
 Purpose:
