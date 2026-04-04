@@ -100,8 +100,13 @@ Tablet fallback:
 - file save success state
 - file save error state
 - non-text file read-only state
+- blocked file state with ownership/mode details
 - path not found state
 - path outside workspace should never be reachable through normal UI, but error screen still needed
+
+Blocked-file semantics are defined in:
+
+- `docs/ui/workspace-permissions-handoff.md`
 
 ## Questions For UI Developer
 

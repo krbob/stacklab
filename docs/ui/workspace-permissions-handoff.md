@@ -75,12 +75,100 @@ For Files mode:
 - show read-only blocked state when `blocked_reason != null`
 - show owner, group, mode, and a short explanation
 - do not render save affordances when `writable` is false
+- keep the normal file header visible so operator still sees:
+  - path
+  - stack link when available
+  - modified time
+  - file type
 
 For Changes mode:
 
 - show blocked changed files in the list normally
 - disable commit selection for files with `commit_allowed: false`
 - allow opening blocked diff entries, but render metadata/blocked state instead of diff text
+- keep status grouping and stack grouping unchanged; blocked files are not hidden
+- do not silently auto-select blocked files in group-level quick select
+
+## Concrete Milestone 6 UI Slice
+
+The first UI slice should stay narrow.
+
+### Files mode
+
+When a selected file has `blocked_reason != null`:
+
+- replace editor/read-only preview with a blocked-file card
+- show:
+  - filename
+  - path
+  - owner
+  - group
+  - mode
+  - whether the service user can read or write
+- show a short explanation based on `blocked_reason`
+- hide `Save`
+- keep `Discard` hidden as well because there is no editable draft
+
+Recommended blocked card title:
+
+- `File access blocked`
+
+Recommended detail rows:
+
+- `Owner`
+- `Group`
+- `Mode`
+- `Readable by Stacklab`
+- `Writable by Stacklab`
+
+### Changes mode
+
+For `commit_allowed: false`:
+
+- render the row normally
+- disable the row checkbox
+- keep the diff row clickable
+- show a small blocked indicator in the row subtitle or tooltip
+
+For `diff_available: false`:
+
+- right panel should render a blocked diff state, not an error
+- show the same permission metadata as in Files mode
+- `Open in editor` stays disabled for blocked config files
+- `Open stack editor` remains available for stack-scoped files only when that action still makes sense
+
+### Group-level selection behavior
+
+When a group checkbox is used:
+
+- select only items with `commit_allowed: true`
+- do not fail the whole interaction because one file is blocked
+- if useful, show lightweight helper text such as:
+  - `2 files selected, 1 blocked`
+
+## Copy Guidance
+
+Preferred user-facing explanations:
+
+- `This file is currently not readable by the Stacklab service user.`
+- `This file cannot be included in a Git commit until permissions are fixed.`
+- `The container may have recreated this file with different ownership or mode.`
+- `Prefer aligning container UID:GID or PUID/PGID with the Stacklab workspace owner.`
+
+Avoid:
+
+- vague messages like `Permission error`
+- implying Stacklab can repair this automatically today
+- telling the user ACLs should have solved it
+
+## Not In This Slice
+
+Do not implement yet:
+
+- inline chmod/chown actions
+- automatic retry buttons that mutate ownership
+- privileged repair dialogs
+- generic host filesystem troubleshooting UI
 
 Recommended operator messaging:
 

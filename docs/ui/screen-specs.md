@@ -243,6 +243,32 @@ Purpose: Edit `compose.yaml` and `.env`, validate, preview resolved config, depl
 - `.env` — shown if file exists or user creates one
 - future: additional compose override files
 
+## 7. Config Workspace
+
+Route: `/config`
+
+Purpose: browse, edit, diff, commit, and push managed config files, while clearly surfacing blocked files caused by ownership or mode drift.
+
+### Files mode blocked-file variant
+
+When `blocked_reason != null` for the selected file:
+
+- keep the normal header visible
+- replace the editor pane with a blocked-file card
+- show owner, group, mode, and effective read/write state
+- do not render editable controls
+
+### Changes mode blocked-file variant
+
+When a changed file has:
+
+- `commit_allowed = false`
+  - row checkbox is disabled
+- `diff_available = false`
+  - right pane shows blocked-file card instead of diff text
+
+The row should still stay visible in the normal stack grouping so the operator understands that Git sees the change even though Stacklab cannot safely act on it.
+
 ## 5. Log Viewer
 
 Route: `/stacks/:stackId/logs`

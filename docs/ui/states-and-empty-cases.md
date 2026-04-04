@@ -258,6 +258,55 @@ For terminal: WebSocket reconnect restores the transport connection, but does **
 
 Inline error in the operation progress panel:
 
+## Config Workspace Blocked File
+
+When a file is inside the workspace boundary but current permissions prevent Stacklab from reading or editing it, this is not a generic error screen. It is a first-class blocked-file state.
+
+Expected trigger examples:
+
+- container recreated a config file owned by `root`
+- file mode changed to `0600`
+- Git sees a changed file but Stacklab cannot read it
+
+### Files mode
+
+```text
+┌──────────────────────────────────────────────┐
+│  File access blocked                         │
+│                                              │
+│  Stacklab cannot read this file with the     │
+│  current service user.                       │
+│                                              │
+│  Owner: root                                 │
+│  Group: root                                 │
+│  Mode: 0600                                  │
+│  Readable by Stacklab: No                    │
+│  Writable by Stacklab: No                    │
+│                                              │
+│  The container may have recreated this file  │
+│  with different ownership or permissions.    │
+│                                              │
+└──────────────────────────────────────────────┘
+```
+
+Rules:
+
+- this is not an API error banner
+- file header remains visible
+- editor is not rendered
+- save/discard actions are hidden
+
+### Changes mode
+
+Blocked changed files remain visible in the list.
+
+Rules:
+
+- diff entry remains clickable
+- diff panel shows blocked-file state instead of unified diff
+- commit checkbox is disabled when `commit_allowed = false`
+- group selection skips blocked files rather than failing entirely
+
 ```
 ┌──────────────────────────────────────────────┐
 │ ✗ pull failed for service "app"              │
