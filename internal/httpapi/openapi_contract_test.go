@@ -14,8 +14,8 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
-	legacyrouter "github.com/getkin/kin-openapi/routers/legacy"
 	"github.com/getkin/kin-openapi/routers"
+	legacyrouter "github.com/getkin/kin-openapi/routers/legacy"
 )
 
 type openAPIContract struct {
