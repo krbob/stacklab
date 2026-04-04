@@ -10,12 +10,12 @@ import (
 func TestParseDockerStatsLine(t *testing.T) {
 	t.Parallel()
 
-	record, err := parseDockerStatsLine(`{"ID":"abc123","Name":"demo-app-1","CPUPerc":"12.50%","MemUsage":"256.5MiB / 1.0GiB","NetIO":"12.3kB / 4.5MB"}`)
+	record, err := parseDockerStatsLine(`{"ID":"abc123","Container":"abc123def456","Name":"demo-app-1","CPUPerc":"12.50%","MemUsage":"256.5MiB / 1.0GiB","NetIO":"12.3kB / 4.5MB"}`)
 	if err != nil {
 		t.Fatalf("parseDockerStatsLine error = %v", err)
 	}
-	if record.ID != "abc123" {
-		t.Fatalf("record.ID = %q, want %q", record.ID, "abc123")
+	if record.ID != "abc123def456" {
+		t.Fatalf("record.ID = %q, want %q", record.ID, "abc123def456")
 	}
 	if record.CPU != 12.5 {
 		t.Fatalf("record.CPU = %v, want %v", record.CPU, 12.5)

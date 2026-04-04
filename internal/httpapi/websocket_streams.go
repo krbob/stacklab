@@ -375,9 +375,9 @@ func parseDockerStatsLine(line string) (dockerStatsRecord, error) {
 		return dockerStatsRecord{}, fmt.Errorf("decode docker stats line: %w", err)
 	}
 
-	containerID := strings.TrimSpace(payload.ID)
+	containerID := strings.TrimSpace(payload.Container)
 	if containerID == "" {
-		containerID = strings.TrimSpace(payload.Container)
+		containerID = strings.TrimSpace(payload.ID)
 	}
 	if containerID == "" {
 		return dockerStatsRecord{}, errors.New("docker stats line is missing container id")
