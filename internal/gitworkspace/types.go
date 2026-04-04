@@ -52,3 +52,26 @@ type DiffResponse struct {
 	Diff      *string    `json:"diff"`
 	Truncated bool       `json:"truncated"`
 }
+
+type CommitRequest struct {
+	Message string   `json:"message"`
+	Paths   []string `json:"paths"`
+}
+
+type CommitResponse struct {
+	Committed        bool     `json:"committed"`
+	Commit           string   `json:"commit"`
+	Summary          string   `json:"summary"`
+	Paths            []string `json:"paths"`
+	RemainingChanges int      `json:"remaining_changes"`
+}
+
+type PushResponse struct {
+	Pushed       bool   `json:"pushed"`
+	Remote       string `json:"remote"`
+	Branch       string `json:"branch"`
+	UpstreamName string `json:"upstream_name"`
+	HeadCommit   string `json:"head_commit"`
+	AheadCount   int    `json:"ahead_count"`
+	BehindCount  int    `json:"behind_count"`
+}

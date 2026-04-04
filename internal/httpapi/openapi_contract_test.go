@@ -86,6 +86,24 @@ func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
 	gitDiffResponse := performJSONRequest(t, handler, http.MethodGet, "/api/git/workspace/diff?path=config%2Fnextcloud%2Fapp.conf", nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/git/workspace/diff?path=config%2Fnextcloud%2Fapp.conf", nil, cookies, gitDiffResponse)
 
+	remoteDir := filepath.Join(t.TempDir(), "origin.git")
+	cmd := exec.CommandContext(context.Background(), "git", "init", "--bare", remoteDir)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init --bare failed: %v\n%s", err, string(output))
+	}
+	runGit(t, cfg.RootDir, "remote", "add", "origin", remoteDir)
+	runGit(t, cfg.RootDir, "push", "-u", "origin", "main")
+
+	gitCommitBody := map[string]any{
+		"message": "Update nextcloud config",
+		"paths":   []string{"config/nextcloud/app.conf"},
+	}
+	gitCommitResponse := performJSONRequest(t, handler, http.MethodPost, "/api/git/workspace/commit", gitCommitBody, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodPost, "/api/git/workspace/commit", gitCommitBody, cookies, gitCommitResponse)
+
+	gitPushResponse := performJSONRequest(t, handler, http.MethodPost, "/api/git/workspace/push", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodPost, "/api/git/workspace/push", nil, cookies, gitPushResponse)
+
 	stackID := "contract-stack"
 	createBody := map[string]any{
 		"stack_id":            stackID,

@@ -448,6 +448,72 @@ Rules:
 - untracked files diff against an empty file
 - large diffs may be truncated, but truncation is explicit
 
+## `POST /api/git/workspace/commit`
+
+Purpose:
+
+- create one local Git commit from an explicit set of changed managed files
+
+Request:
+
+```json
+{
+  "message": "Update demo stack settings",
+  "paths": [
+    "config/demo/app.conf",
+    "stacks/demo/compose.yaml"
+  ]
+}
+```
+
+Response:
+
+```json
+{
+  "committed": true,
+  "commit": "abc1234def5678",
+  "summary": "Update demo stack settings",
+  "paths": [
+    "config/demo/app.conf",
+    "stacks/demo/compose.yaml"
+  ],
+  "remaining_changes": 2
+}
+```
+
+Rules:
+
+- selection is always explicit per-file
+- stack-level quick selection is a UI convenience only
+- selected files must currently be changed under `stacks/` or `config/`
+- conflicted files are rejected
+
+## `POST /api/git/workspace/push`
+
+Purpose:
+
+- push current branch `HEAD` to its configured upstream
+
+Response:
+
+```json
+{
+  "pushed": true,
+  "remote": "origin",
+  "branch": "main",
+  "upstream_name": "origin/main",
+  "head_commit": "abc1234def5678",
+  "ahead_count": 0,
+  "behind_count": 0
+}
+```
+
+Rules:
+
+- this milestone supports only push to the current upstream
+- no pull, merge, rebase, branch switching, or force push
+- when there is nothing ahead to push, backend may return `pushed: false`
+
 ## `POST /api/maintenance/update-stacks`
 
 Purpose:

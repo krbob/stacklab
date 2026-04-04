@@ -17,10 +17,17 @@ import (
 )
 
 var (
-	ErrUnavailable          = errors.New("git workspace unavailable")
-	ErrNotFound             = errors.New("git workspace path not found")
-	ErrPathOutsideWorkspace = errors.New("path outside git workspace")
-	ErrInvalidManagedPath   = errors.New("path is outside managed roots")
+	ErrUnavailable           = errors.New("git workspace unavailable")
+	ErrNotFound              = errors.New("git workspace path not found")
+	ErrPathOutsideWorkspace  = errors.New("path outside git workspace")
+	ErrInvalidManagedPath    = errors.New("path is outside managed roots")
+	ErrValidation            = errors.New("git workspace validation failed")
+	ErrNothingToCommit       = errors.New("nothing to commit")
+	ErrConflictedSelection   = errors.New("conflicted files selected")
+	ErrPermissionDenied      = errors.New("git workspace permission denied")
+	ErrUpstreamNotConfigured = errors.New("git upstream not configured")
+	ErrPushRejected          = errors.New("git push rejected")
+	ErrAuthFailed            = errors.New("git auth failed")
 )
 
 const diffSizeLimit = 256 * 1024
@@ -143,6 +150,109 @@ func (s *Service) Diff(ctx context.Context, requestedPath string) (DiffResponse,
 	return response, nil
 }
 
+func (s *Service) Commit(ctx context.Context, request CommitRequest) (CommitResponse, error) {
+	message := strings.TrimSpace(request.Message)
+	if message == "" {
+		return CommitResponse{}, ErrValidation
+	}
+
+	status, selectedItems, normalizedPaths, err := s.selectedItems(ctx, request.Paths)
+	if err != nil {
+		return CommitResponse{}, err
+	}
+	if !status.Available {
+		return CommitResponse{}, ErrUnavailable
+	}
+	for _, item := range selectedItems {
+		if item.Status == FileStatusConflicted {
+			return CommitResponse{}, ErrConflictedSelection
+		}
+	}
+
+	addArgs := append([]string{"add", "-A", "--"}, normalizedPaths...)
+	if _, stderr, err := s.runGit(ctx, addArgs...); err != nil {
+		return CommitResponse{}, classifyGitMutationError(stderr, err)
+	}
+
+	diffArgs := append([]string{"diff", "--cached", "--quiet", "--"}, normalizedPaths...)
+	if _, stderr, err := s.runGit(ctx, diffArgs...); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			commitArgs := append([]string{"commit", "-m", message, "--only", "--"}, normalizedPaths...)
+			if _, stderr, err := s.runGit(ctx, commitArgs...); err != nil {
+				return CommitResponse{}, classifyGitCommitError(stderr, err)
+			}
+		} else {
+			return CommitResponse{}, classifyGitMutationError(stderr, err)
+		}
+	} else {
+		return CommitResponse{}, ErrNothingToCommit
+	}
+
+	headCommit, err := s.headCommit(ctx)
+	if err != nil {
+		return CommitResponse{}, err
+	}
+	updatedStatus, err := s.Status(ctx)
+	if err != nil {
+		return CommitResponse{}, err
+	}
+
+	return CommitResponse{
+		Committed:        true,
+		Commit:           headCommit,
+		Summary:          commitSummary(message),
+		Paths:            normalizedPaths,
+		RemainingChanges: len(updatedStatus.Items),
+	}, nil
+}
+
+func (s *Service) Push(ctx context.Context) (PushResponse, error) {
+	status, err := s.Status(ctx)
+	if err != nil {
+		return PushResponse{}, err
+	}
+	if !status.Available {
+		return PushResponse{}, ErrUnavailable
+	}
+	if !status.HasUpstream || strings.TrimSpace(status.UpstreamName) == "" {
+		return PushResponse{}, ErrUpstreamNotConfigured
+	}
+
+	remote := upstreamRemote(status.UpstreamName)
+	response := PushResponse{
+		Pushed:       false,
+		Remote:       remote,
+		Branch:       status.Branch,
+		UpstreamName: status.UpstreamName,
+		HeadCommit:   status.HeadCommit,
+		AheadCount:   status.AheadCount,
+		BehindCount:  status.BehindCount,
+	}
+	if status.AheadCount == 0 {
+		return response, nil
+	}
+
+	if stdout, stderr, err := s.runGit(ctx, "push", "--porcelain"); err != nil {
+		return PushResponse{}, classifyGitPushError(stdout, stderr, err)
+	}
+
+	updatedStatus, err := s.Status(ctx)
+	if err != nil {
+		return PushResponse{}, err
+	}
+
+	return PushResponse{
+		Pushed:       true,
+		Remote:       remote,
+		Branch:       updatedStatus.Branch,
+		UpstreamName: updatedStatus.UpstreamName,
+		HeadCommit:   updatedStatus.HeadCommit,
+		AheadCount:   updatedStatus.AheadCount,
+		BehindCount:  updatedStatus.BehindCount,
+	}, nil
+}
+
 func (s *Service) statusItems(ctx context.Context) ([]StatusItem, error) {
 	output, _, err := s.runGit(ctx, "status", "--porcelain=v2", "-z", "--untracked-files=all", "--", string(ScopeStacks), string(ScopeConfig))
 	if err != nil {
@@ -210,6 +320,54 @@ func (s *Service) statusItems(ctx context.Context) ([]StatusItem, error) {
 	})
 
 	return items, nil
+}
+
+func (s *Service) selectedItems(ctx context.Context, requestedPaths []string) (StatusResponse, []StatusItem, []string, error) {
+	status, err := s.Status(ctx)
+	if err != nil {
+		return StatusResponse{}, nil, nil, err
+	}
+	if !status.Available {
+		return status, nil, nil, nil
+	}
+	if len(requestedPaths) == 0 {
+		return StatusResponse{}, nil, nil, ErrValidation
+	}
+
+	statusByPath := make(map[string]StatusItem, len(status.Items))
+	for _, item := range status.Items {
+		statusByPath[item.Path] = item
+	}
+
+	seen := make(map[string]struct{}, len(requestedPaths))
+	selectedItems := make([]StatusItem, 0, len(requestedPaths))
+	normalizedPaths := make([]string, 0, len(requestedPaths))
+	for _, rawPath := range requestedPaths {
+		normalizedPath, err := normalizeManagedPath(rawPath)
+		if err != nil {
+			return StatusResponse{}, nil, nil, err
+		}
+		if _, duplicate := seen[normalizedPath]; duplicate {
+			continue
+		}
+		item, ok := statusByPath[normalizedPath]
+		if !ok {
+			return StatusResponse{}, nil, nil, ErrNotFound
+		}
+		seen[normalizedPath] = struct{}{}
+		selectedItems = append(selectedItems, item)
+		normalizedPaths = append(normalizedPaths, normalizedPath)
+	}
+	if len(normalizedPaths) == 0 {
+		return StatusResponse{}, nil, nil, ErrValidation
+	}
+
+	sort.Strings(normalizedPaths)
+	sort.Slice(selectedItems, func(i, j int) bool {
+		return selectedItems[i].Path < selectedItems[j].Path
+	})
+
+	return status, selectedItems, normalizedPaths, nil
 }
 
 func (s *Service) repoRoot(ctx context.Context) (string, bool, string, error) {
@@ -513,4 +671,59 @@ func groupingKey(item StatusItem) string {
 func isNotGitRepository(stderr []byte) bool {
 	text := string(stderr)
 	return strings.Contains(text, "not a git repository")
+}
+
+func classifyGitMutationError(stderr []byte, err error) error {
+	text := strings.ToLower(string(stderr))
+	switch {
+	case strings.Contains(text, "permission denied"), strings.Contains(text, "operation not permitted"):
+		return ErrPermissionDenied
+	default:
+		return err
+	}
+}
+
+func classifyGitCommitError(stderr []byte, err error) error {
+	text := strings.ToLower(string(stderr))
+	switch {
+	case strings.Contains(text, "nothing to commit"):
+		return ErrNothingToCommit
+	case strings.Contains(text, "permission denied"), strings.Contains(text, "operation not permitted"):
+		return ErrPermissionDenied
+	default:
+		return err
+	}
+}
+
+func classifyGitPushError(stdout, stderr []byte, err error) error {
+	text := strings.ToLower(string(stdout) + "\n" + string(stderr))
+	switch {
+	case strings.Contains(text, "authentication failed"),
+		strings.Contains(text, "permission denied"),
+		strings.Contains(text, "could not read username"),
+		strings.Contains(text, "repository not found"):
+		return ErrAuthFailed
+	case strings.Contains(text, "non-fast-forward"),
+		strings.Contains(text, "[rejected]"),
+		strings.Contains(text, "failed to push some refs"):
+		return ErrPushRejected
+	default:
+		return err
+	}
+}
+
+func commitSummary(message string) string {
+	trimmed := strings.TrimSpace(message)
+	if trimmed == "" {
+		return ""
+	}
+	return strings.SplitN(trimmed, "\n", 2)[0]
+}
+
+func upstreamRemote(upstreamName string) string {
+	parts := strings.SplitN(strings.TrimSpace(upstreamName), "/", 2)
+	if len(parts) == 0 || parts[0] == "" {
+		return "origin"
+	}
+	return parts[0]
 }

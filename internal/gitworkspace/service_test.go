@@ -126,6 +126,90 @@ func TestServiceDiffRejectsInvalidPaths(t *testing.T) {
 	}
 }
 
+func TestServiceCommitAndPushSelectedPaths(t *testing.T) {
+	t.Parallel()
+
+	service, root := newTestService(t)
+	runGit(t, root, "init", "-b", "main")
+	runGit(t, root, "config", "user.name", "Stacklab Test")
+	runGit(t, root, "config", "user.email", "stacklab@example.com")
+
+	mustWriteFile(t, filepath.Join(root, "config", "demo", "app.conf"), "server_name old.local;\n")
+	mustWriteFile(t, filepath.Join(root, "config", "demo", "other.env"), "FEATURE_FLAG=false\n")
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "initial")
+
+	remoteDir := filepath.Join(t.TempDir(), "origin.git")
+	runGit(t, root, "init", "--bare", remoteDir)
+	runGit(t, root, "remote", "add", "origin", remoteDir)
+	runGit(t, root, "push", "-u", "origin", "main")
+
+	mustWriteFile(t, filepath.Join(root, "config", "demo", "app.conf"), "server_name new.local;\n")
+	mustWriteFile(t, filepath.Join(root, "config", "demo", "other.env"), "FEATURE_FLAG=true\n")
+
+	commitResponse, err := service.Commit(context.Background(), CommitRequest{
+		Message: "Update app config",
+		Paths:   []string{"config/demo/app.conf"},
+	})
+	if err != nil {
+		t.Fatalf("Commit() error = %v", err)
+	}
+	if !commitResponse.Committed || commitResponse.Commit == "" || commitResponse.RemainingChanges != 1 {
+		t.Fatalf("unexpected Commit() payload: %#v", commitResponse)
+	}
+
+	status, err := service.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status() after commit error = %v", err)
+	}
+	if !status.Available || len(status.Items) != 1 || status.Items[0].Path != "config/demo/other.env" {
+		t.Fatalf("unexpected status after commit: %#v", status)
+	}
+	if status.AheadCount != 1 {
+		t.Fatalf("Status().AheadCount after commit = %d, want 1", status.AheadCount)
+	}
+
+	pushResponse, err := service.Push(context.Background())
+	if err != nil {
+		t.Fatalf("Push() error = %v", err)
+	}
+	if !pushResponse.Pushed || pushResponse.Remote != "origin" || pushResponse.UpstreamName != "origin/main" {
+		t.Fatalf("unexpected Push() payload: %#v", pushResponse)
+	}
+	if pushResponse.AheadCount != 0 {
+		t.Fatalf("Push().AheadCount = %d, want 0", pushResponse.AheadCount)
+	}
+}
+
+func TestServiceCommitAndPushValidation(t *testing.T) {
+	t.Parallel()
+
+	service, root := newTestService(t)
+	runGit(t, root, "init", "-b", "main")
+	runGit(t, root, "config", "user.name", "Stacklab Test")
+	runGit(t, root, "config", "user.email", "stacklab@example.com")
+	mustWriteFile(t, filepath.Join(root, "config", "demo", "app.conf"), "server_name old.local;\n")
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "initial")
+	mustWriteFile(t, filepath.Join(root, "config", "demo", "app.conf"), "server_name changed.local;\n")
+
+	if _, err := service.Commit(context.Background(), CommitRequest{Message: "", Paths: []string{"config/demo/app.conf"}}); err != ErrValidation {
+		t.Fatalf("Commit(empty message) error = %v, want %v", err, ErrValidation)
+	}
+	if _, err := service.Commit(context.Background(), CommitRequest{Message: "Update", Paths: nil}); err != ErrValidation {
+		t.Fatalf("Commit(empty paths) error = %v, want %v", err, ErrValidation)
+	}
+	if _, err := service.Commit(context.Background(), CommitRequest{Message: "Update", Paths: []string{"../etc/passwd"}}); err != ErrPathOutsideWorkspace {
+		t.Fatalf("Commit(path traversal) error = %v, want %v", err, ErrPathOutsideWorkspace)
+	}
+	if _, err := service.Commit(context.Background(), CommitRequest{Message: "Update", Paths: []string{"config/demo/missing.conf"}}); err != ErrNotFound {
+		t.Fatalf("Commit(missing path) error = %v, want %v", err, ErrNotFound)
+	}
+	if _, err := service.Push(context.Background()); err != ErrUpstreamNotConfigured {
+		t.Fatalf("Push(no upstream) error = %v, want %v", err, ErrUpstreamNotConfigured)
+	}
+}
+
 func newTestService(t *testing.T) (*Service, string) {
 	t.Helper()
 

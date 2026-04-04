@@ -382,6 +382,98 @@ func TestHandlerGitWorkspaceUnavailableAndValidation(t *testing.T) {
 	}
 }
 
+func TestHandlerGitWorkspaceCommitAndPush(t *testing.T) {
+	t.Parallel()
+
+	_, served, cfg := newInternalTestHandler(t)
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	if err := os.MkdirAll(filepath.Join(cfg.RootDir, "config", "demo"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(config demo) error = %v", err)
+	}
+
+	runInternalGit(t, cfg.RootDir, "init", "-b", "main")
+	runInternalGit(t, cfg.RootDir, "config", "user.name", "Stacklab Test")
+	runInternalGit(t, cfg.RootDir, "config", "user.email", "stacklab@example.com")
+	if err := os.WriteFile(filepath.Join(cfg.RootDir, "config", "demo", "app.conf"), []byte("server_name old.local;\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(config demo app.conf) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.RootDir, "config", "demo", "other.env"), []byte("FEATURE_FLAG=false\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(config demo other.env) error = %v", err)
+	}
+	runInternalGit(t, cfg.RootDir, "add", ".")
+	runInternalGit(t, cfg.RootDir, "commit", "-m", "initial")
+
+	remoteDir := filepath.Join(t.TempDir(), "origin.git")
+	cmd := exec.CommandContext(context.Background(), "git", "init", "--bare", remoteDir)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git init --bare failed: %v\n%s", err, string(output))
+	}
+	runInternalGit(t, cfg.RootDir, "remote", "add", "origin", remoteDir)
+	runInternalGit(t, cfg.RootDir, "push", "-u", "origin", "main")
+
+	if err := os.WriteFile(filepath.Join(cfg.RootDir, "config", "demo", "app.conf"), []byte("server_name changed.local;\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(updated config demo app.conf) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.RootDir, "config", "demo", "other.env"), []byte("FEATURE_FLAG=true\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(updated config demo other.env) error = %v", err)
+	}
+
+	commitResponse := performInternalJSONRequest(t, served, http.MethodPost, "/api/git/workspace/commit", map[string]any{
+		"message": "Update app config",
+		"paths":   []string{"config/demo/app.conf"},
+	}, cookies)
+	if commitResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/git/workspace/commit status = %d, want %d; body=%s", commitResponse.Code, http.StatusOK, commitResponse.Body.String())
+	}
+	var commitPayload gitworkspace.CommitResponse
+	decodeInternalResponse(t, commitResponse, &commitPayload)
+	if !commitPayload.Committed || commitPayload.Commit == "" || commitPayload.RemainingChanges != 1 {
+		t.Fatalf("unexpected git commit payload: %#v", commitPayload)
+	}
+
+	statusResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/git/workspace/status", nil, cookies)
+	if statusResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/git/workspace/status(after commit) status = %d, want %d; body=%s", statusResponse.Code, http.StatusOK, statusResponse.Body.String())
+	}
+	var statusPayload gitworkspace.StatusResponse
+	decodeInternalResponse(t, statusResponse, &statusPayload)
+	if statusPayload.AheadCount != 1 || len(statusPayload.Items) != 1 || statusPayload.Items[0].Path != "config/demo/other.env" {
+		t.Fatalf("unexpected git workspace status after commit: %#v", statusPayload)
+	}
+
+	pushResponse := performInternalJSONRequest(t, served, http.MethodPost, "/api/git/workspace/push", nil, cookies)
+	if pushResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/git/workspace/push status = %d, want %d; body=%s", pushResponse.Code, http.StatusOK, pushResponse.Body.String())
+	}
+	var pushPayload gitworkspace.PushResponse
+	decodeInternalResponse(t, pushResponse, &pushPayload)
+	if !pushPayload.Pushed || pushPayload.Remote != "origin" || pushPayload.UpstreamName != "origin/main" || pushPayload.AheadCount != 0 {
+		t.Fatalf("unexpected git push payload: %#v", pushPayload)
+	}
+
+	auditResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/audit", nil, cookies)
+	if auditResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/audit(after git commit/push) status = %d, want %d; body=%s", auditResponse.Code, http.StatusOK, auditResponse.Body.String())
+	}
+	var auditPayload store.AuditListResult
+	decodeInternalResponse(t, auditResponse, &auditPayload)
+	foundCommit := false
+	foundPush := false
+	for _, item := range auditPayload.Items {
+		if item.Action == "git_commit" {
+			foundCommit = true
+		}
+		if item.Action == "git_push" {
+			foundPush = true
+		}
+	}
+	if !foundCommit || !foundPush {
+		t.Fatalf("expected git audit actions, got %#v", auditPayload.Items)
+	}
+}
+
 func TestHandlerMaintenanceUpdateStacksWorkflow(t *testing.T) {
 	stacks.ResetComposeCLICacheForTests()
 	t.Cleanup(stacks.ResetComposeCLICacheForTests)

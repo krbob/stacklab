@@ -150,6 +150,76 @@ func (s *Service) RecordConfigFileSave(ctx context.Context, relativePath string,
 	})
 }
 
+func (s *Service) RecordGitCommit(ctx context.Context, requestedBy, commitID, summary string, paths []string, remainingChanges int, details map[string]any) error {
+	requestedAt := time.Now().UTC()
+	targetType := "git_workspace"
+	targetID := "stacks+config"
+	if details == nil {
+		details = map[string]any{}
+	}
+	if commitID != "" {
+		details["commit"] = commitID
+	}
+	if summary != "" {
+		details["summary"] = summary
+	}
+	if len(paths) > 0 {
+		details["paths"] = paths
+		details["path_count"] = len(paths)
+	}
+	details["remaining_changes"] = remainingChanges
+
+	detailJSON, err := marshalDetails(details)
+	if err != nil {
+		return err
+	}
+
+	return s.store.CreateAuditEntry(ctx, store.AuditEntry{
+		ID:          "audit_" + randomToken(18),
+		Action:      "git_commit",
+		RequestedBy: fallback(requestedBy, "local"),
+		Result:      "succeeded",
+		RequestedAt: requestedAt,
+		FinishedAt:  &requestedAt,
+		TargetType:  targetType,
+		TargetID:    &targetID,
+		DetailJSON:  detailJSON,
+	})
+}
+
+func (s *Service) RecordGitPush(ctx context.Context, requestedBy, remote, branch, upstreamName, headCommit string, pushed bool, aheadCount, behindCount int, details map[string]any) error {
+	requestedAt := time.Now().UTC()
+	targetType := "git_workspace"
+	targetID := "stacks+config"
+	if details == nil {
+		details = map[string]any{}
+	}
+	details["remote"] = remote
+	details["branch"] = branch
+	details["upstream_name"] = upstreamName
+	details["head_commit"] = headCommit
+	details["pushed"] = pushed
+	details["ahead_count"] = aheadCount
+	details["behind_count"] = behindCount
+
+	detailJSON, err := marshalDetails(details)
+	if err != nil {
+		return err
+	}
+
+	return s.store.CreateAuditEntry(ctx, store.AuditEntry{
+		ID:          "audit_" + randomToken(18),
+		Action:      "git_push",
+		RequestedBy: fallback(requestedBy, "local"),
+		Result:      "succeeded",
+		RequestedAt: requestedAt,
+		FinishedAt:  &requestedAt,
+		TargetType:  targetType,
+		TargetID:    &targetID,
+		DetailJSON:  detailJSON,
+	})
+}
+
 func (s *Service) List(ctx context.Context, stackID, cursor string, limit int) (store.AuditListResult, error) {
 	return s.store.ListAuditEntries(ctx, store.AuditQuery{
 		StackID: stackID,

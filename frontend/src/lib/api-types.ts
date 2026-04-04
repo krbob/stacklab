@@ -387,6 +387,29 @@ export interface GitDiffResponse {
   truncated: boolean
 }
 
+export interface GitCommitRequest {
+  message: string
+  paths: string[]
+}
+
+export interface GitCommitResponse {
+  committed: boolean
+  commit: string
+  summary: string
+  paths: string[]
+  remaining_changes: number
+}
+
+export interface GitPushResponse {
+  pushed: boolean
+  remote: string
+  branch: string
+  upstream_name: string
+  head_commit: string
+  ahead_count: number
+  behind_count: number
+}
+
 // --- Maintenance ---
 
 export interface MaintenanceUpdateStacksRequest {

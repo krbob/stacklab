@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { getStacks, getStack, login, updateStacksMaintenance, ApiClientError } from './api-client'
+import { getStacks, getStack, login, updateStacksMaintenance, commitGitWorkspace, pushGitWorkspace, ApiClientError } from './api-client'
 
 const mockFetch = vi.fn()
 vi.stubGlobal('fetch', mockFetch)
@@ -97,6 +97,50 @@ describe('api-client', () => {
           prune_after: { enabled: false, include_volumes: false },
         },
       })
+    })
+  })
+
+  describe('git workspace write flow', () => {
+    it('posts commit payload for selected paths', async () => {
+      mockFetch.mockReturnValueOnce(jsonResponse({
+        committed: true,
+        commit: 'abc1234',
+        summary: 'Update demo stack',
+        paths: ['config/demo/app.conf'],
+        remaining_changes: 1,
+      }))
+
+      await commitGitWorkspace({
+        message: 'Update demo stack',
+        paths: ['config/demo/app.conf'],
+      })
+
+      const call = mockFetch.mock.calls[0]
+      expect(call[0]).toBe('/api/git/workspace/commit')
+      expect(call[1].method).toBe('POST')
+      expect(JSON.parse(call[1].body)).toEqual({
+        message: 'Update demo stack',
+        paths: ['config/demo/app.conf'],
+      })
+    })
+
+    it('posts push request without body', async () => {
+      mockFetch.mockReturnValueOnce(jsonResponse({
+        pushed: true,
+        remote: 'origin',
+        branch: 'main',
+        upstream_name: 'origin/main',
+        head_commit: 'abc1234',
+        ahead_count: 0,
+        behind_count: 0,
+      }))
+
+      await pushGitWorkspace()
+
+      const call = mockFetch.mock.calls[0]
+      expect(call[0]).toBe('/api/git/workspace/push')
+      expect(call[1].method).toBe('POST')
+      expect(call[1].body).toBeUndefined()
     })
   })
 

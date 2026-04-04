@@ -4,7 +4,10 @@ import type {
   ConfigFileSaveResponse,
   ConfigTreeResponse,
   DefinitionResponse,
+  GitCommitRequest,
+  GitCommitResponse,
   GitDiffResponse,
+  GitPushResponse,
   GitWorkspaceStatusResponse,
   HealthResponse,
   HostOverviewResponse,
@@ -106,6 +109,19 @@ export function getGitWorkspaceStatus(): Promise<GitWorkspaceStatusResponse> {
 
 export function getGitWorkspaceDiff(path: string): Promise<GitDiffResponse> {
   return request(`/api/git/workspace/diff?path=${encodeURIComponent(path)}`)
+}
+
+export function commitGitWorkspace(requestBody: GitCommitRequest): Promise<GitCommitResponse> {
+  return request('/api/git/workspace/commit', {
+    method: 'POST',
+    body: JSON.stringify(requestBody),
+  })
+}
+
+export function pushGitWorkspace(): Promise<GitPushResponse> {
+  return request('/api/git/workspace/push', {
+    method: 'POST',
+  })
 }
 
 // --- Config workspace ---
