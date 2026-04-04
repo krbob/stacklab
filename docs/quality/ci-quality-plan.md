@@ -34,6 +34,7 @@ Current observations:
 - Docker-backed integration tests now cover WebSocket flows and core Compose lifecycle behavior
 - a dedicated GitHub Actions workflow can now run that suite, but it should prove stable before becoming a required gate
 - a representative OpenAPI-backed contract suite now exists for core success-path endpoints
+- advisory GitHub Actions checks now exist for `staticcheck` and `govulncheck`
 
 ## Quality Principles
 
@@ -194,6 +195,11 @@ These can start as non-blocking or informational:
 - `staticcheck`
 - `govulncheck`
 - Linux `amd64` release build
+
+Current status:
+
+- `staticcheck` and `govulncheck` are now implemented as advisory GitHub Actions jobs
+- they should remain non-required until they prove stable and useful over normal PR traffic
 
 Once they prove stable and high-signal, some can be promoted to required.
 

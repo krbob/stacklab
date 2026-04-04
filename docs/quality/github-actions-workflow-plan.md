@@ -28,10 +28,12 @@ Recommended future workflow files:
 
 - `.github/workflows/pr-quality.yml`
 - `.github/workflows/docker-integration.yml`
+- `.github/workflows/advisory-static-analysis.yml`
 - `.github/workflows/release-build.yml`
 - `.github/workflows/pre-release-smoke.yml`
 
-Only the first two should matter for normal PR validation at the beginning.
+The first two should matter for normal PR validation at the beginning.
+The advisory static-analysis workflow should run, but it should not become required yet.
 
 ## 1. `pr-quality.yml`
 
@@ -208,6 +210,47 @@ Until then, it can exist as advisory or be run only on `main` and `workflow_disp
 
 - this is the workflow that most directly hardens Stacklab against Renovate regressions
 - for Stacklab, this job is more important than a high coverage percentage
+
+## 3. `release-build.yml`
+
+## 2a. `advisory-static-analysis.yml`
+
+## Purpose
+
+This workflow provides extra backend code-quality and vulnerability signal without blocking merges.
+
+## Recommended triggers
+
+- `pull_request`
+- `push` to `main`
+- `workflow_dispatch`
+
+## Recommended jobs
+
+### `backend-staticcheck`
+
+Commands:
+
+```bash
+go run honnef.co/go/tools/cmd/staticcheck@latest ./cmd/... ./internal/...
+```
+
+### `backend-vulncheck`
+
+Commands:
+
+```bash
+go run golang.org/x/vuln/cmd/govulncheck@latest ./cmd/... ./internal/...
+```
+
+## Required check recommendation
+
+Keep both advisory at first:
+
+- `backend-staticcheck`
+- `backend-vulncheck`
+
+Promote only after they prove stable and useful over several normal PR cycles.
 
 ## 3. `release-build.yml`
 

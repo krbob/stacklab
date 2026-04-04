@@ -23,9 +23,8 @@ Today the repository already has:
 
 The biggest remaining quality gaps are:
 
-- no OpenAPI contract validation layer
 - no browser-level E2E smoke
-- no advisory static-analysis workflow yet
+- no browser-level E2E coverage
 
 ## Rollout Principles
 
@@ -210,7 +209,9 @@ Current implemented scope:
 
 ## Step 7: Add static analysis advisory checks
 
-Implement after Step 1 or in parallel if low-friction.
+Status:
+
+- implemented
 
 Recommended checks:
 

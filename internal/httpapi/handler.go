@@ -929,18 +929,6 @@ func markWorkflowFailed(steps []store.JobWorkflowStep, index int) []store.JobWor
 	return steps
 }
 
-func firstNonSucceededWorkflowIndex(steps []store.JobWorkflowStep) int {
-	for i, step := range steps {
-		if step.State != "succeeded" {
-			return i
-		}
-	}
-	if len(steps) == 0 {
-		return -1
-	}
-	return len(steps) - 1
-}
-
 func (h *Handler) runDeleteStep(ctx context.Context, job *store.Job, workflow *[]store.JobWorkflowStep, index int, run func(context.Context) error) bool {
 	if err := run(ctx); err != nil {
 		if len(*workflow) > 0 {
