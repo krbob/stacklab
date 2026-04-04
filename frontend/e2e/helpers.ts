@@ -15,8 +15,7 @@ export async function login(page: Page) {
  * Uses the REST API directly to avoid depending on UI for setup.
  */
 export async function createStackViaApi(page: Page, stackId: string, composeYaml: string): Promise<void> {
-  const cookies = await page.context().cookies()
-  const sessionCookie = cookies.find((c) => c.name.startsWith('stacklab'))
+  const headers = await getAuthHeaders(page)
 
   const res = await page.request.post(`${BASE_URL}/api/stacks`, {
     data: {
@@ -27,18 +26,19 @@ export async function createStackViaApi(page: Page, stackId: string, composeYaml
       create_data_dir: true,
       deploy_after_create: false,
     },
-    headers: sessionCookie ? { Cookie: `${sessionCookie.name}=${sessionCookie.value}` } : {},
+    headers,
   })
 
   expect(res.ok()).toBeTruthy()
+  const body = await res.json()
+  await waitForJob(page, body.job.id)
 }
 
 /**
  * Delete a stack via API (runtime + definition).
  */
 export async function deleteStackViaApi(page: Page, stackId: string): Promise<void> {
-  const cookies = await page.context().cookies()
-  const sessionCookie = cookies.find((c) => c.name.startsWith('stacklab'))
+  const headers = await getAuthHeaders(page)
 
   const res = await page.request.delete(`${BASE_URL}/api/stacks/${stackId}`, {
     data: {
@@ -47,13 +47,28 @@ export async function deleteStackViaApi(page: Page, stackId: string): Promise<vo
       remove_config: true,
       remove_data: true,
     },
-    headers: sessionCookie ? { Cookie: `${sessionCookie.name}=${sessionCookie.value}` } : {},
+    headers,
   })
 
   // Ignore 404 — stack may already be gone
   if (res.status() !== 404) {
     expect(res.ok()).toBeTruthy()
+    const body = await res.json()
+    await waitForJob(page, body.job.id)
   }
+}
+
+export async function invokeStackActionViaApi(page: Page, stackId: string, action: string): Promise<void> {
+  const headers = await getAuthHeaders(page)
+
+  const res = await page.request.post(`${BASE_URL}/api/stacks/${stackId}/actions/${action}`, {
+    data: {},
+    headers,
+  })
+
+  expect(res.ok()).toBeTruthy()
+  const body = await res.json()
+  await waitForJob(page, body.job.id)
 }
 
 /**
@@ -81,4 +96,29 @@ export async function waitForAuditEntry(
     await page.waitForTimeout(500)
   }
   throw new Error(`Audit entry "${action}" for stack "${stackId}" not found within ${timeoutMs}ms`)
+}
+
+async function getAuthHeaders(page: Page): Promise<Record<string, string>> {
+  const cookies = await page.context().cookies()
+  const sessionCookie = cookies.find((c) => c.name.startsWith('stacklab'))
+  return sessionCookie ? { Cookie: `${sessionCookie.name}=${sessionCookie.value}` } : {}
+}
+
+async function waitForJob(page: Page, jobId: string, timeoutMs = 20_000): Promise<void> {
+  const headers = await getAuthHeaders(page)
+  const deadline = Date.now() + timeoutMs
+
+  while (Date.now() < deadline) {
+    const res = await page.request.get(`${BASE_URL}/api/jobs/${jobId}`, { headers })
+    expect(res.ok()).toBeTruthy()
+    const body = await res.json()
+    const state = body.job?.state
+    if (state === 'succeeded') return
+    if (state === 'failed' || state === 'cancelled' || state === 'timed_out') {
+      throw new Error(`Job ${jobId} ended in unexpected state: ${state}`)
+    }
+    await page.waitForTimeout(250)
+  }
+
+  throw new Error(`Job ${jobId} did not complete within ${timeoutMs}ms`)
 }
