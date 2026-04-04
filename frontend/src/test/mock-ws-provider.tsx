@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { WsContext, type WsContextValue } from '@/contexts/ws-context'
 import type { WsServerFrame } from '@/lib/ws-types'
 
@@ -13,7 +13,7 @@ export interface MockWsControls {
 export function createMockWsProvider() {
   const sentFrames: Record<string, unknown>[] = []
   const handlers = new Map<string, Set<FrameHandler>>()
-  let setConnectedFn: ((v: boolean) => void) | null = null
+  const connectedRef: { current: ((v: boolean) => void) | null } = { current: null }
 
   const controls: MockWsControls = {
     emit(streamId, frame) {
@@ -26,13 +26,17 @@ export function createMockWsProvider() {
       return sentFrames
     },
     setConnected(value) {
-      setConnectedFn?.(value)
+      connectedRef.current?.(value)
     },
   }
 
   function Provider({ children, initialConnected = true }: { children: ReactNode; initialConnected?: boolean }) {
     const [connected, setConnected] = useState(initialConnected)
-    setConnectedFn = setConnected
+
+    useEffect(() => {
+      connectedRef.current = setConnected
+      return () => { connectedRef.current = null }
+    }, [])
 
     const handlersRef = useRef(handlers)
 

@@ -93,7 +93,7 @@ describe('useLogStream', () => {
 
   it('sends tail=0 on resubscribe after reconnect', () => {
     // Start disconnected so we control the connect sequence
-    const { result } = renderHook(
+    renderHook(
       () => useLogStream({ stackId: 'test', tail: 200 }),
       {
         wrapper: ({ children }) => <Provider initialConnected={false}>{children}</Provider>,
