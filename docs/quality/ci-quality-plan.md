@@ -33,6 +33,7 @@ Current observations:
 - backend test coverage exists but is still relatively low and should be treated as a trend, not a merge gate
 - Docker-backed integration tests now cover WebSocket flows and core Compose lifecycle behavior
 - a dedicated GitHub Actions workflow can now run that suite, but it should prove stable before becoming a required gate
+- a representative OpenAPI-backed contract suite now exists for core success-path endpoints
 
 ## Quality Principles
 

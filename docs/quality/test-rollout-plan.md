@@ -172,7 +172,9 @@ These are more valuable than adding many low-signal visual component tests.
 
 ## Step 6: Add API contract validation
 
-Implement after baseline CI and broader runtime tests.
+Status:
+
+- initial representative success-path suite implemented
 
 Goal:
 
@@ -192,6 +194,19 @@ Recommendation:
 
 - start with a narrow contract suite
 - do not try to validate every endpoint in one pass
+
+Current implemented scope:
+
+- login
+- session
+- meta
+- stack list and detail
+- definition read
+- resolved-config draft preview
+- definition save
+- job fetch
+- per-stack and global audit
+- stack create and delete responses
 
 ## Step 7: Add static analysis advisory checks
 
@@ -256,6 +271,6 @@ The next concrete implementation order should be:
 
 Current action:
 
-- implement Step 6 next
+- implement Step 7 next
 
-This is now the highest-leverage move because baseline CI and Docker-backed integration are already in place, and the next missing guardrail is contract drift between backend and UI.
+This is now the highest-leverage move because baseline CI, Docker-backed integration, and an initial contract suite are already in place, and the next missing guardrail is static analysis signal.
