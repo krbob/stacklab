@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -28,9 +29,16 @@ var (
 	ErrConflict          = errors.New("conflict")
 	ErrUnsupportedAction = errors.New("unsupported action")
 	stackIDRegexp        = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+	composeCLIMu         sync.Mutex
+	composeCLICached     *composeCLI
 )
 
 const AppVersion = "0.1.0-dev"
+
+type composeCLI struct {
+	command string
+	prefix  []string
+}
 
 type ServiceReader struct {
 	cfg       config.Config
@@ -1188,12 +1196,48 @@ func sortStackListItems(items []StackListItem, sortBy string) {
 }
 
 func detectComposeVersion(ctx context.Context) string {
-	cmd := exec.CommandContext(ctx, "docker", "compose", "version", "--short")
+	command, args := composeVersionCommand(ctx)
+	cmd := exec.CommandContext(ctx, command, args...)
 	output, err := cmd.Output()
 	if err != nil {
 		return "unavailable"
 	}
 	return strings.TrimSpace(string(output))
+}
+
+func composeVersionCommand(ctx context.Context) (string, []string) {
+	cli := detectComposeCLI(ctx)
+	args := append([]string{}, cli.prefix...)
+	args = append(args, "version", "--short")
+	return cli.command, args
+}
+
+func detectComposeCLI(ctx context.Context) composeCLI {
+	composeCLIMu.Lock()
+	defer composeCLIMu.Unlock()
+
+	if composeCLICached != nil {
+		return *composeCLICached
+	}
+
+	candidates := []composeCLI{
+		{command: "docker", prefix: []string{"compose"}},
+		{command: "docker-compose"},
+	}
+	for _, candidate := range candidates {
+		args := append([]string{}, candidate.prefix...)
+		args = append(args, "version")
+		cmd := exec.CommandContext(ctx, candidate.command, args...)
+		if err := cmd.Run(); err == nil {
+			resolved := candidate
+			composeCLICached = &resolved
+			return resolved
+		}
+	}
+
+	fallback := composeCLI{command: "docker", prefix: []string{"compose"}}
+	composeCLICached = &fallback
+	return fallback
 }
 
 func detectDockerEngineVersion(ctx context.Context) string {
@@ -1278,13 +1322,10 @@ func writeEnvFile(path, content string) error {
 }
 
 func runComposeConfig(ctx context.Context, projectDir, composeArg, envPath, stdinContent string) (string, error) {
-	args := []string{"compose", "--project-directory", projectDir, "-f", composeArg}
-	if envPath != "" {
-		args = append(args, "--env-file", envPath)
-	}
+	command, args := composeCommand(ctx, projectDir, composeArg, envPath)
 	args = append(args, "config")
 
-	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.Dir = projectDir
 	if composeArg == "-" {
 		cmd.Stdin = strings.NewReader(stdinContent)
@@ -1303,11 +1344,11 @@ func runComposeConfig(ctx context.Context, projectDir, composeArg, envPath, stdi
 }
 
 func (s *ServiceReader) runComposeAction(ctx context.Context, stack discoveredStack, action string, extraArgs ...string) error {
-	args := composeCommandArgs(stack.RootPath, stack.ComposeFilePath, stack.EnvFilePath)
+	command, args := composeCommand(ctx, stack.RootPath, stack.ComposeFilePath, stack.EnvFilePath)
 	args = append(args, action)
 	args = append(args, extraArgs...)
 
-	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.Dir = stack.RootPath
 
 	output, err := cmd.CombinedOutput()
@@ -1357,12 +1398,14 @@ func (s *ServiceReader) runContainerAction(ctx context.Context, stack discovered
 	return nil
 }
 
-func composeCommandArgs(projectDir, composePath, envPath string) []string {
-	args := []string{"compose", "--project-directory", projectDir, "-f", composePath}
+func composeCommand(ctx context.Context, projectDir, composePath, envPath string) (string, []string) {
+	cli := detectComposeCLI(ctx)
+	args := append([]string{}, cli.prefix...)
+	args = append(args, "--project-directory", projectDir, "-f", composePath)
 	if fileExists(envPath) {
 		args = append(args, "--env-file", envPath)
 	}
-	return args
+	return cli.command, args
 }
 
 type stackPathSet struct {
