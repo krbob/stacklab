@@ -355,7 +355,7 @@ func (s *Service) endSessionWithCode(sessionID string, exitCode *int, reason str
 		terminalSession.current = nil
 		terminalSession.mu.Unlock()
 
-		if terminalSession.process.Process != nil {
+		if terminalSession.process != nil && terminalSession.process.Process != nil {
 			_ = terminalSession.process.Process.Kill()
 		}
 		_ = terminalSession.ptyFile.Close()
