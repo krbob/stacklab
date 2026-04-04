@@ -160,4 +160,47 @@ describe('MaintenancePage', () => {
       }))
     })
   })
+
+  it('starts all-stacks maintenance with correct payload', async () => {
+    mockUpdateStacksMaintenance.mockResolvedValue({
+      job: { id: 'job_all', stack_id: null, action: 'update_stacks', state: 'running' },
+    })
+
+    render(<MaintenancePage />)
+
+    // "All stacks" is default
+    fireEvent.click(screen.getByTestId('maintenance-start'))
+
+    await waitFor(() => {
+      expect(mockUpdateStacksMaintenance).toHaveBeenCalledWith(expect.objectContaining({
+        target: { mode: 'all', stack_ids: undefined },
+      }))
+    })
+  })
+
+  it('shows error when maintenance request fails', async () => {
+    mockUpdateStacksMaintenance.mockRejectedValue(new Error('Docker unavailable'))
+
+    render(<MaintenancePage />)
+
+    fireEvent.click(screen.getByTestId('maintenance-start'))
+
+    expect(await screen.findByText('Docker unavailable')).toBeInTheDocument()
+  })
+
+  it('disables start button while job is running', async () => {
+    mockUpdateStacksMaintenance.mockResolvedValue({
+      job: { id: 'job_run', stack_id: null, action: 'update_stacks', state: 'running' },
+    })
+
+    render(<MaintenancePage />)
+    fireEvent.click(screen.getByTestId('maintenance-start'))
+
+    await waitFor(() => {
+      expect(mockUpdateStacksMaintenance).toHaveBeenCalled()
+    })
+
+    expect(screen.getByTestId('maintenance-start')).toBeDisabled()
+    expect(screen.getByText('Running...')).toBeInTheDocument()
+  })
 })
