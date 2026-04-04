@@ -252,6 +252,60 @@ export interface AuditResponse {
   next_cursor: string | null
 }
 
+// --- Host observability ---
+
+export interface HostOverviewResponse {
+  host: {
+    hostname: string
+    os_name: string
+    kernel_version: string
+    architecture: string
+    uptime_seconds: number
+  }
+  stacklab: {
+    version: string
+    commit: string
+    started_at: string
+  }
+  docker: {
+    engine_version: string
+    compose_version: string
+  }
+  resources: {
+    cpu: {
+      core_count: number
+      load_average: [number, number, number]
+      usage_percent: number
+    }
+    memory: {
+      total_bytes: number
+      used_bytes: number
+      available_bytes: number
+      usage_percent: number
+    }
+    disk: {
+      path: string
+      total_bytes: number
+      used_bytes: number
+      available_bytes: number
+      usage_percent: number
+    }
+  }
+}
+
+export interface StacklabLogEntry {
+  timestamp: string
+  level: string
+  message: string
+  cursor: string
+}
+
+export interface StacklabLogsResponse {
+  items: StacklabLogEntry[]
+  next_cursor: string | null
+  has_more: boolean
+}
+
 export interface ApiError {
   error: {
     code: string

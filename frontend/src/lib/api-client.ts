@@ -2,6 +2,7 @@ import type {
   AuditResponse,
   DefinitionResponse,
   HealthResponse,
+  HostOverviewResponse,
   JobDetail,
   JobRef,
   MetaResponse,
@@ -9,6 +10,7 @@ import type {
   SessionResponse,
   StackDetailResponse,
   StackListResponse,
+  StacklabLogsResponse,
 } from '@/lib/api-types'
 
 class ApiClientError extends Error {
@@ -74,6 +76,20 @@ export function getSession(): Promise<SessionResponse> {
 
 export function getMeta(): Promise<MetaResponse> {
   return request('/api/meta')
+}
+
+export function getHostOverview(): Promise<HostOverviewResponse> {
+  return request('/api/host/overview')
+}
+
+export function getStacklabLogs(params?: { limit?: number; cursor?: string; level?: string; q?: string }): Promise<StacklabLogsResponse> {
+  const search = new URLSearchParams()
+  if (params?.limit) search.set('limit', String(params.limit))
+  if (params?.cursor) search.set('cursor', params.cursor)
+  if (params?.level) search.set('level', params.level)
+  if (params?.q) search.set('q', params.q)
+  const qs = search.toString()
+  return request(`/api/host/stacklab-logs${qs ? `?${qs}` : ''}`)
 }
 
 export function getStacks(params?: { q?: string; sort?: string }): Promise<StackListResponse> {
