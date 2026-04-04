@@ -1,6 +1,10 @@
 package configworkspace
 
-import "time"
+import (
+	"time"
+
+	"stacklab/internal/fsmeta"
+)
 
 type EntryType string
 
@@ -19,24 +23,28 @@ type TreeResponse struct {
 }
 
 type TreeEntry struct {
-	Name       string    `json:"name"`
-	Path       string    `json:"path"`
-	Type       EntryType `json:"type"`
-	SizeBytes  int64     `json:"size_bytes"`
-	ModifiedAt time.Time `json:"modified_at"`
-	StackID    *string   `json:"stack_id"`
+	Name        string             `json:"name"`
+	Path        string             `json:"path"`
+	Type        EntryType          `json:"type"`
+	SizeBytes   int64              `json:"size_bytes"`
+	ModifiedAt  time.Time          `json:"modified_at"`
+	StackID     *string            `json:"stack_id"`
+	Permissions fsmeta.Permissions `json:"permissions"`
 }
 
 type FileResponse struct {
-	Path       string    `json:"path"`
-	Name       string    `json:"name"`
-	Type       EntryType `json:"type"`
-	StackID    *string   `json:"stack_id"`
-	Content    *string   `json:"content"`
-	Encoding   *string   `json:"encoding"`
-	SizeBytes  int64     `json:"size_bytes"`
-	ModifiedAt time.Time `json:"modified_at"`
-	Writable   bool      `json:"writable"`
+	Path          string             `json:"path"`
+	Name          string             `json:"name"`
+	Type          EntryType          `json:"type"`
+	StackID       *string            `json:"stack_id"`
+	Content       *string            `json:"content"`
+	Encoding      *string            `json:"encoding"`
+	SizeBytes     int64              `json:"size_bytes"`
+	ModifiedAt    time.Time          `json:"modified_at"`
+	Readable      bool               `json:"readable"`
+	Writable      bool               `json:"writable"`
+	BlockedReason *string            `json:"blocked_reason,omitempty"`
+	Permissions   fsmeta.Permissions `json:"permissions"`
 }
 
 type SaveFileRequest struct {

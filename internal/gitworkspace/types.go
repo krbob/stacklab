@@ -1,5 +1,7 @@
 package gitworkspace
 
+import "stacklab/internal/fsmeta"
+
 type Scope string
 
 const (
@@ -34,23 +36,30 @@ type StatusResponse struct {
 }
 
 type StatusItem struct {
-	Path    string     `json:"path"`
-	Scope   Scope      `json:"scope"`
-	StackID *string    `json:"stack_id"`
-	Status  FileStatus `json:"status"`
-	OldPath *string    `json:"old_path"`
+	Path          string              `json:"path"`
+	Scope         Scope               `json:"scope"`
+	StackID       *string             `json:"stack_id"`
+	Status        FileStatus          `json:"status"`
+	OldPath       *string             `json:"old_path"`
+	Permissions   *fsmeta.Permissions `json:"permissions,omitempty"`
+	DiffAvailable bool                `json:"diff_available"`
+	CommitAllowed bool                `json:"commit_allowed"`
+	BlockedReason *string             `json:"blocked_reason,omitempty"`
 }
 
 type DiffResponse struct {
-	Available bool       `json:"available"`
-	Path      string     `json:"path"`
-	Scope     Scope      `json:"scope"`
-	StackID   *string    `json:"stack_id"`
-	Status    FileStatus `json:"status"`
-	OldPath   *string    `json:"old_path"`
-	IsBinary  bool       `json:"is_binary"`
-	Diff      *string    `json:"diff"`
-	Truncated bool       `json:"truncated"`
+	Available     bool                `json:"available"`
+	Path          string              `json:"path"`
+	Scope         Scope               `json:"scope"`
+	StackID       *string             `json:"stack_id"`
+	Status        FileStatus          `json:"status"`
+	OldPath       *string             `json:"old_path"`
+	Permissions   *fsmeta.Permissions `json:"permissions,omitempty"`
+	DiffAvailable bool                `json:"diff_available"`
+	BlockedReason *string             `json:"blocked_reason,omitempty"`
+	IsBinary      bool                `json:"is_binary"`
+	Diff          *string             `json:"diff"`
+	Truncated     bool                `json:"truncated"`
 }
 
 type CommitRequest struct {

@@ -147,6 +147,54 @@ func TestServiceTreeAndFileRejectTypeMismatches(t *testing.T) {
 	}
 }
 
+func TestServicePermissionDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	if os.Geteuid() == 0 {
+		t.Skip("permission diagnostics test requires non-root user")
+	}
+
+	service, root := newTestService(t)
+	mustMkdirAll(t, filepath.Join(root, "demo"))
+	protectedPath := filepath.Join(root, "demo", "secret.conf")
+	mustWriteFile(t, protectedPath, "token=secret\n")
+	if err := os.Chmod(protectedPath, 0o000); err != nil {
+		t.Fatalf("Chmod(secret.conf) error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chmod(protectedPath, 0o644)
+	})
+
+	tree, err := service.Tree(context.Background(), "demo")
+	if err != nil {
+		t.Fatalf("Tree(demo) error = %v", err)
+	}
+	if len(tree.Items) != 1 {
+		t.Fatalf("Tree(demo) items = %d, want 1", len(tree.Items))
+	}
+	if tree.Items[0].Permissions.Readable || tree.Items[0].Permissions.Writable {
+		t.Fatalf("expected protected entry to be unreadable and unwritable, got %#v", tree.Items[0].Permissions)
+	}
+
+	file, err := service.File(context.Background(), "demo/secret.conf")
+	if err != nil {
+		t.Fatalf("File(secret.conf) error = %v", err)
+	}
+	if file.Readable || file.Content != nil {
+		t.Fatalf("expected blocked file response without content, got %#v", file)
+	}
+	if file.BlockedReason == nil || *file.BlockedReason != "not_readable" {
+		t.Fatalf("unexpected blocked reason: %#v", file.BlockedReason)
+	}
+
+	if _, err := service.SaveFile(context.Background(), SaveFileRequest{
+		Path:    "demo/secret.conf",
+		Content: "token=updated\n",
+	}); !errors.Is(err, ErrPermissionDenied) {
+		t.Fatalf("SaveFile(secret.conf) error = %v, want %v", err, ErrPermissionDenied)
+	}
+}
+
 func newTestService(t *testing.T) (*Service, string) {
 	t.Helper()
 

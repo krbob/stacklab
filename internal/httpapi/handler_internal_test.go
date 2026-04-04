@@ -301,6 +301,50 @@ func TestHandlerConfigWorkspaceErrors(t *testing.T) {
 	}
 }
 
+func TestHandlerConfigWorkspacePermissionDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	if os.Geteuid() == 0 {
+		t.Skip("permission diagnostics test requires non-root user")
+	}
+
+	_, served, cfg := newInternalTestHandler(t)
+	cookies := loginInternalTestUser(t, served, "secret")
+	configRoot := filepath.Join(cfg.RootDir, "config")
+	protectedPath := filepath.Join(configRoot, "demo", "secret.conf")
+	if err := os.MkdirAll(filepath.Join(configRoot, "demo"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(config demo) error = %v", err)
+	}
+	if err := os.WriteFile(protectedPath, []byte("token=secret\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(secret.conf) error = %v", err)
+	}
+	if err := os.Chmod(protectedPath, 0o000); err != nil {
+		t.Fatalf("Chmod(secret.conf) error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chmod(protectedPath, 0o644)
+	})
+
+	fileResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/config/workspace/file?path=demo%2Fsecret.conf", nil, cookies)
+	if fileResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/config/workspace/file(secret.conf) status = %d, want %d; body=%s", fileResponse.Code, http.StatusOK, fileResponse.Body.String())
+	}
+	var filePayload configworkspace.FileResponse
+	decodeInternalResponse(t, fileResponse, &filePayload)
+	if filePayload.Readable || filePayload.BlockedReason == nil || *filePayload.BlockedReason != "not_readable" {
+		t.Fatalf("unexpected protected config file payload: %#v", filePayload)
+	}
+
+	saveResponse := performInternalJSONRequest(t, served, http.MethodPut, "/api/config/workspace/file", map[string]any{
+		"path":                      "demo/secret.conf",
+		"content":                   "token=updated\n",
+		"create_parent_directories": false,
+	}, cookies)
+	if saveResponse.Code != http.StatusConflict {
+		t.Fatalf("PUT /api/config/workspace/file(secret.conf) status = %d, want %d; body=%s", saveResponse.Code, http.StatusConflict, saveResponse.Body.String())
+	}
+}
+
 func TestHandlerGitWorkspaceStatusAndDiff(t *testing.T) {
 	t.Parallel()
 
@@ -379,6 +423,67 @@ func TestHandlerGitWorkspaceUnavailableAndValidation(t *testing.T) {
 	diffTraversal := performInternalJSONRequest(t, served, http.MethodGet, "/api/git/workspace/diff?path=..%2Fetc%2Fpasswd", nil, cookies)
 	if diffTraversal.Code != http.StatusBadRequest {
 		t.Fatalf("GET /api/git/workspace/diff(traversal) status = %d, want %d; body=%s", diffTraversal.Code, http.StatusBadRequest, diffTraversal.Body.String())
+	}
+}
+
+func TestHandlerGitWorkspacePermissionDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	if os.Geteuid() == 0 {
+		t.Skip("permission diagnostics test requires non-root user")
+	}
+
+	_, served, cfg := newInternalTestHandler(t)
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	if err := os.MkdirAll(filepath.Join(cfg.RootDir, "config", "demo"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(config demo) error = %v", err)
+	}
+	runInternalGit(t, cfg.RootDir, "init", "-b", "main")
+	runInternalGit(t, cfg.RootDir, "config", "user.name", "Stacklab Test")
+	runInternalGit(t, cfg.RootDir, "config", "user.email", "stacklab@example.com")
+	protectedPath := filepath.Join(cfg.RootDir, "config", "demo", "secret.conf")
+	if err := os.WriteFile(protectedPath, []byte("token=old\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(secret.conf) error = %v", err)
+	}
+	runInternalGit(t, cfg.RootDir, "add", ".")
+	runInternalGit(t, cfg.RootDir, "commit", "-m", "initial")
+	if err := os.WriteFile(protectedPath, []byte("token=new\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(updated secret.conf) error = %v", err)
+	}
+	if err := os.Chmod(protectedPath, 0o000); err != nil {
+		t.Fatalf("Chmod(secret.conf) error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chmod(protectedPath, 0o644)
+	})
+
+	statusResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/git/workspace/status", nil, cookies)
+	if statusResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/git/workspace/status(protected) status = %d, want %d; body=%s", statusResponse.Code, http.StatusOK, statusResponse.Body.String())
+	}
+	var statusPayload gitworkspace.StatusResponse
+	decodeInternalResponse(t, statusResponse, &statusPayload)
+	if len(statusPayload.Items) != 1 || statusPayload.Items[0].BlockedReason == nil || *statusPayload.Items[0].BlockedReason != "not_readable" {
+		t.Fatalf("unexpected protected git status payload: %#v", statusPayload)
+	}
+
+	diffResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/git/workspace/diff?path=config%2Fdemo%2Fsecret.conf", nil, cookies)
+	if diffResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/git/workspace/diff(protected) status = %d, want %d; body=%s", diffResponse.Code, http.StatusOK, diffResponse.Body.String())
+	}
+	var diffPayload gitworkspace.DiffResponse
+	decodeInternalResponse(t, diffResponse, &diffPayload)
+	if diffPayload.DiffAvailable || diffPayload.BlockedReason == nil || *diffPayload.BlockedReason != "not_readable" {
+		t.Fatalf("unexpected protected git diff payload: %#v", diffPayload)
+	}
+
+	commitResponse := performInternalJSONRequest(t, served, http.MethodPost, "/api/git/workspace/commit", map[string]any{
+		"message": "Update protected config",
+		"paths":   []string{"config/demo/secret.conf"},
+	}, cookies)
+	if commitResponse.Code != http.StatusConflict {
+		t.Fatalf("POST /api/git/workspace/commit(protected) status = %d, want %d; body=%s", commitResponse.Code, http.StatusConflict, commitResponse.Body.String())
 	}
 }
 

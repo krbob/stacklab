@@ -265,6 +265,8 @@ func (h *Handler) handleConfigWorkspaceTree(w http.ResponseWriter, r *http.Reque
 			writeError(w, http.StatusNotFound, "not_found", "Workspace path was not found.", nil)
 		case errors.Is(err, configworkspace.ErrPathNotDirectory):
 			writeError(w, http.StatusBadRequest, "path_not_directory", "Path is not a directory.", nil)
+		case errors.Is(err, configworkspace.ErrPermissionDenied):
+			writeError(w, http.StatusConflict, "permission_denied", "Config workspace path is not readable by the Stacklab service.", nil)
 		default:
 			h.logger.Error("config workspace tree failed", slog.String("err", err.Error()))
 			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load config workspace tree.", nil)
@@ -285,6 +287,8 @@ func (h *Handler) handleConfigWorkspaceFile(w http.ResponseWriter, r *http.Reque
 			writeError(w, http.StatusNotFound, "not_found", "Workspace file was not found.", nil)
 		case errors.Is(err, configworkspace.ErrPathNotFile):
 			writeError(w, http.StatusBadRequest, "path_not_file", "Path is not a file.", nil)
+		case errors.Is(err, configworkspace.ErrPermissionDenied):
+			writeError(w, http.StatusConflict, "permission_denied", "Config workspace file is not readable by the Stacklab service.", nil)
 		default:
 			h.logger.Error("config workspace file failed", slog.String("err", err.Error()))
 			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load config workspace file.", nil)
@@ -320,6 +324,8 @@ func (h *Handler) handlePutConfigWorkspaceFile(w http.ResponseWriter, r *http.Re
 			writeError(w, http.StatusBadRequest, "path_not_file", "Path is not a file.", nil)
 		case errors.Is(err, configworkspace.ErrBinaryNotEditable):
 			writeError(w, http.StatusConflict, "binary_not_editable", "Binary files cannot be edited in the browser.", nil)
+		case errors.Is(err, configworkspace.ErrPermissionDenied):
+			writeError(w, http.StatusConflict, "permission_denied", "Config workspace file cannot be edited due to file permissions.", nil)
 		default:
 			h.logger.Error("save config workspace file failed", slog.String("err", err.Error()))
 			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to save config workspace file.", nil)

@@ -210,6 +210,61 @@ func TestServiceCommitAndPushValidation(t *testing.T) {
 	}
 }
 
+func TestServiceStatusDiffAndCommitDetectUnreadableFile(t *testing.T) {
+	t.Parallel()
+
+	if os.Geteuid() == 0 {
+		t.Skip("permission diagnostics test requires non-root user")
+	}
+
+	service, root := newTestService(t)
+	runGit(t, root, "init", "-b", "main")
+	runGit(t, root, "config", "user.name", "Stacklab Test")
+	runGit(t, root, "config", "user.email", "stacklab@example.com")
+
+	protectedPath := filepath.Join(root, "config", "demo", "secret.conf")
+	mustWriteFile(t, protectedPath, "token=old\n")
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "initial")
+	mustWriteFile(t, protectedPath, "token=new\n")
+	if err := os.Chmod(protectedPath, 0o000); err != nil {
+		t.Fatalf("Chmod(secret.conf) error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chmod(protectedPath, 0o644)
+	})
+
+	status, err := service.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status() error = %v", err)
+	}
+	if len(status.Items) != 1 {
+		t.Fatalf("Status().Items = %d, want 1", len(status.Items))
+	}
+	item := status.Items[0]
+	if item.Permissions == nil || item.Permissions.Readable || item.DiffAvailable || item.CommitAllowed {
+		t.Fatalf("unexpected protected status item: %#v", item)
+	}
+	if item.BlockedReason == nil || *item.BlockedReason != "not_readable" {
+		t.Fatalf("unexpected blocked reason: %#v", item.BlockedReason)
+	}
+
+	diff, err := service.Diff(context.Background(), "config/demo/secret.conf")
+	if err != nil {
+		t.Fatalf("Diff(secret.conf) error = %v", err)
+	}
+	if diff.DiffAvailable || diff.Diff != nil || diff.BlockedReason == nil || *diff.BlockedReason != "not_readable" {
+		t.Fatalf("unexpected protected diff payload: %#v", diff)
+	}
+
+	if _, err := service.Commit(context.Background(), CommitRequest{
+		Message: "Update protected file",
+		Paths:   []string{"config/demo/secret.conf"},
+	}); err != ErrPermissionDenied {
+		t.Fatalf("Commit(secret.conf) error = %v, want %v", err, ErrPermissionDenied)
+	}
+}
+
 func newTestService(t *testing.T) (*Service, string) {
 	t.Helper()
 

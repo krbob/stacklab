@@ -58,6 +58,15 @@ const rootTree: ConfigTreeResponse = {
       size_bytes: 0,
       modified_at: '2026-04-04T12:00:00Z',
       stack_id: 'demo',
+      permissions: {
+        owner_uid: 1000,
+        owner_name: 'bob',
+        group_gid: 1000,
+        group_name: 'bob',
+        mode: '0755',
+        readable: true,
+        writable: true,
+      },
     },
   ],
 }
@@ -74,6 +83,15 @@ const demoTree: ConfigTreeResponse = {
       size_bytes: 20,
       modified_at: '2026-04-04T12:00:00Z',
       stack_id: 'demo',
+      permissions: {
+        owner_uid: 1000,
+        owner_name: 'bob',
+        group_gid: 1000,
+        group_name: 'bob',
+        mode: '0644',
+        readable: true,
+        writable: true,
+      },
     },
   ],
 }
@@ -87,7 +105,18 @@ const fileBefore: ConfigFileResponse = {
   encoding: 'utf-8',
   size_bytes: 24,
   modified_at: '2026-04-04T12:00:00Z',
+  readable: true,
   writable: true,
+  blocked_reason: null,
+  permissions: {
+    owner_uid: 1000,
+    owner_name: 'bob',
+    group_gid: 1000,
+    group_name: 'bob',
+    mode: '0644',
+    readable: true,
+    writable: true,
+  },
 }
 
 const fileAfter: ConfigFileResponse = {
@@ -114,6 +143,18 @@ const gitStatus: GitWorkspaceStatusResponse = {
       stack_id: 'demo',
       status: 'modified',
       old_path: null,
+      permissions: {
+        owner_uid: 1000,
+        owner_name: 'bob',
+        group_gid: 1000,
+        group_name: 'bob',
+        mode: '0644',
+        readable: true,
+        writable: true,
+      },
+      diff_available: true,
+      commit_allowed: true,
+      blocked_reason: null,
     },
   ],
 }
@@ -125,6 +166,17 @@ const gitDiff: GitDiffResponse = {
   stack_id: 'demo',
   status: 'modified',
   old_path: null,
+  permissions: {
+    owner_uid: 1000,
+    owner_name: 'bob',
+    group_gid: 1000,
+    group_name: 'bob',
+    mode: '0644',
+    readable: true,
+    writable: true,
+  },
+  diff_available: true,
+  blocked_reason: null,
   is_binary: false,
   diff: '@@ -1 +1 @@\n-server_name old.local;\n+server_name new.local;\n',
   truncated: false,
@@ -273,6 +325,15 @@ describe('ConfigPage', () => {
             size_bytes: 4096,
             modified_at: '2026-04-04T12:00:00Z',
             stack_id: 'demo',
+            permissions: {
+              owner_uid: 1000,
+              owner_name: 'bob',
+              group_gid: 1000,
+              group_name: 'bob',
+              mode: '0644',
+              readable: true,
+              writable: false,
+            },
           },
         ],
       })
@@ -285,7 +346,18 @@ describe('ConfigPage', () => {
       encoding: null,
       size_bytes: 4096,
       modified_at: '2026-04-04T12:00:00Z',
+      readable: true,
       writable: false,
+      blocked_reason: null,
+      permissions: {
+        owner_uid: 1000,
+        owner_name: 'bob',
+        group_gid: 1000,
+        group_name: 'bob',
+        mode: '0644',
+        readable: true,
+        writable: false,
+      },
     })
 
     renderPage()

@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"stacklab/internal/config"
+	"stacklab/internal/fsmeta"
 	"stacklab/internal/stacks"
 )
 
@@ -22,6 +23,7 @@ var (
 	ErrPathNotDirectory     = errors.New("path is not a directory")
 	ErrPathNotFile          = errors.New("path is not a file")
 	ErrBinaryNotEditable    = errors.New("binary file is not editable")
+	ErrPermissionDenied     = errors.New("config workspace permission denied")
 )
 
 type Service struct {
@@ -66,6 +68,9 @@ func (s *Service) Tree(ctx context.Context, currentPath string) (TreeResponse, e
 
 	entries, err := os.ReadDir(resolvedPath)
 	if err != nil {
+		if errors.Is(err, os.ErrPermission) {
+			return TreeResponse{}, ErrPermissionDenied
+		}
 		return TreeResponse{}, fmt.Errorf("read config workspace directory: %w", err)
 	}
 
@@ -92,6 +97,7 @@ func (s *Service) Tree(ctx context.Context, currentPath string) (TreeResponse, e
 		if err != nil {
 			return TreeResponse{}, err
 		}
+		permissions := fsmeta.Inspect(childResolved, childInfo)
 
 		sizeBytes := childInfo.Size()
 		if childInfo.IsDir() {
@@ -99,12 +105,13 @@ func (s *Service) Tree(ctx context.Context, currentPath string) (TreeResponse, e
 		}
 
 		items = append(items, TreeEntry{
-			Name:       entry.Name(),
-			Path:       childPath,
-			Type:       entryType,
-			SizeBytes:  sizeBytes,
-			ModifiedAt: childInfo.ModTime().UTC(),
-			StackID:    deriveStackID(childPath),
+			Name:        entry.Name(),
+			Path:        childPath,
+			Type:        entryType,
+			SizeBytes:   sizeBytes,
+			ModifiedAt:  childInfo.ModTime().UTC(),
+			StackID:     deriveStackID(childPath),
+			Permissions: permissions,
 		})
 	}
 
@@ -160,20 +167,33 @@ func (s *Service) File(ctx context.Context, filePath string) (FileResponse, erro
 	if err != nil {
 		return FileResponse{}, err
 	}
+	permissions := fsmeta.Inspect(resolvedPath, info)
+	readable := permissions.Readable
+	blockedReason := configBlockedReason(readable, permissions.Writable, entryType)
 
 	response := FileResponse{
-		Path:       normalized,
-		Name:       path.Base(normalized),
-		Type:       entryType,
-		StackID:    deriveStackID(normalized),
-		SizeBytes:  info.Size(),
-		ModifiedAt: info.ModTime().UTC(),
-		Writable:   entryType == EntryTypeTextFile && fileWritable(info),
+		Path:          normalized,
+		Name:          path.Base(normalized),
+		Type:          entryType,
+		StackID:       deriveStackID(normalized),
+		SizeBytes:     info.Size(),
+		ModifiedAt:    info.ModTime().UTC(),
+		Readable:      readable,
+		Writable:      entryType == EntryTypeTextFile && readable && permissions.Writable,
+		BlockedReason: blockedReason,
+		Permissions:   permissions,
 	}
 
-	if entryType == EntryTypeTextFile {
+	if entryType == EntryTypeTextFile && readable {
 		contentBytes, err := os.ReadFile(resolvedPath)
 		if err != nil {
+			if errors.Is(err, os.ErrPermission) {
+				reason := "not_readable"
+				response.Readable = false
+				response.Writable = false
+				response.BlockedReason = &reason
+				return response, nil
+			}
 			return FileResponse{}, fmt.Errorf("read config workspace file: %w", err)
 		}
 		content := string(contentBytes)
@@ -226,6 +246,10 @@ func (s *Service) resolveSaveTarget(normalizedPath string, createParentDirectori
 		if info.IsDir() {
 			return "", ErrPathNotFile
 		}
+		permissions := fsmeta.Inspect(existingPath, info)
+		if !permissions.Readable || !permissions.Writable {
+			return "", ErrPermissionDenied
+		}
 
 		entryType, detectErr := detectEntryType(existingPath, info)
 		if detectErr != nil {
@@ -270,6 +294,10 @@ func (s *Service) resolveSaveTarget(normalizedPath string, createParentDirectori
 	}
 	if !parentInfo.IsDir() {
 		return "", ErrPathNotDirectory
+	}
+	parentPermissions := fsmeta.Inspect(parentResolved, parentInfo)
+	if !parentPermissions.Writable {
+		return "", ErrPermissionDenied
 	}
 
 	targetPath := filepath.Join(parentResolved, filepath.Base(filepath.FromSlash(normalizedPath)))
@@ -349,6 +377,9 @@ func detectEntryType(path string, info os.FileInfo) (EntryType, error) {
 
 	file, err := os.Open(path)
 	if err != nil {
+		if errors.Is(err, os.ErrPermission) {
+			return EntryTypeUnknownFile, nil
+		}
 		return EntryTypeUnknownFile, fmt.Errorf("open config workspace file for inspection: %w", err)
 	}
 	defer file.Close()
@@ -356,6 +387,9 @@ func detectEntryType(path string, info os.FileInfo) (EntryType, error) {
 	buffer := make([]byte, 8192)
 	readBytes, err := file.Read(buffer)
 	if err != nil && !errors.Is(err, io.EOF) {
+		if errors.Is(err, os.ErrPermission) {
+			return EntryTypeUnknownFile, nil
+		}
 		return EntryTypeUnknownFile, fmt.Errorf("read config workspace file for inspection: %w", err)
 	}
 	sample := buffer[:readBytes]
@@ -370,8 +404,16 @@ func detectEntryType(path string, info os.FileInfo) (EntryType, error) {
 	return EntryTypeTextFile, nil
 }
 
-func fileWritable(info os.FileInfo) bool {
-	return info.Mode().Perm()&0o200 != 0
+func configBlockedReason(readable, writable bool, entryType EntryType) *string {
+	if !readable {
+		reason := "not_readable"
+		return &reason
+	}
+	if entryType == EntryTypeTextFile && !writable {
+		reason := "not_writable"
+		return &reason
+	}
+	return nil
 }
 
 func deriveStackID(relativePath string) *string {

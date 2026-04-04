@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"stacklab/internal/config"
+	"stacklab/internal/fsmeta"
 	"stacklab/internal/stacks"
 )
 
@@ -88,6 +89,12 @@ func (s *Service) Status(ctx context.Context) (StatusResponse, error) {
 	if err != nil {
 		return StatusResponse{}, err
 	}
+	for i := range items {
+		items[i], err = s.enrichStatusItem(items[i])
+		if err != nil {
+			return StatusResponse{}, err
+		}
+	}
 	base.Items = items
 	base.Clean = len(items) == 0
 
@@ -120,12 +127,18 @@ func (s *Service) Diff(ctx context.Context, requestedPath string) (DiffResponse,
 	}
 
 	response := DiffResponse{
-		Available: true,
-		Path:      item.Path,
-		Scope:     item.Scope,
-		StackID:   item.StackID,
-		Status:    item.Status,
-		OldPath:   item.OldPath,
+		Available:     true,
+		Path:          item.Path,
+		Scope:         item.Scope,
+		StackID:       item.StackID,
+		Status:        item.Status,
+		OldPath:       item.OldPath,
+		Permissions:   item.Permissions,
+		DiffAvailable: item.DiffAvailable,
+		BlockedReason: item.BlockedReason,
+	}
+	if !item.DiffAvailable {
+		return response, nil
 	}
 
 	isBinary, err := s.isBinaryDiff(ctx, *item)
@@ -134,6 +147,7 @@ func (s *Service) Diff(ctx context.Context, requestedPath string) (DiffResponse,
 	}
 	response.IsBinary = isBinary
 	if isBinary {
+		response.DiffAvailable = false
 		return response, nil
 	}
 
@@ -166,6 +180,9 @@ func (s *Service) Commit(ctx context.Context, request CommitRequest) (CommitResp
 	for _, item := range selectedItems {
 		if item.Status == FileStatusConflicted {
 			return CommitResponse{}, ErrConflictedSelection
+		}
+		if !item.CommitAllowed {
+			return CommitResponse{}, ErrPermissionDenied
 		}
 	}
 
@@ -481,6 +498,34 @@ func (s *Service) isBinaryDiff(ctx context.Context, item StatusItem) (bool, erro
 	}
 
 	return false, nil
+}
+
+func (s *Service) enrichStatusItem(item StatusItem) (StatusItem, error) {
+	if item.Status == FileStatusDeleted {
+		item.DiffAvailable = true
+		item.CommitAllowed = true
+		return item, nil
+	}
+
+	absolutePath := filepath.Join(s.workspaceRoot, filepath.FromSlash(item.Path))
+	info, err := os.Stat(absolutePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return item, nil
+		}
+		return StatusItem{}, fmt.Errorf("stat git workspace item: %w", err)
+	}
+
+	permissions := fsmeta.Inspect(absolutePath, info)
+	item.Permissions = &permissions
+	item.DiffAvailable = permissions.Readable
+	item.CommitAllowed = permissions.Readable
+	if !permissions.Readable {
+		reason := "not_readable"
+		item.BlockedReason = &reason
+	}
+
+	return item, nil
 }
 
 func (s *Service) diffText(ctx context.Context, item StatusItem) (string, error) {

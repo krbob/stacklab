@@ -309,6 +309,16 @@ export interface StacklabLogsResponse {
   has_more: boolean
 }
 
+export interface FilePermissions {
+  owner_uid: number | null
+  owner_name: string | null
+  group_gid: number | null
+  group_name: string | null
+  mode: string
+  readable: boolean
+  writable: boolean
+}
+
 // --- Config workspace ---
 
 export type ConfigEntryType = 'directory' | 'text_file' | 'binary_file' | 'unknown_file'
@@ -320,6 +330,7 @@ export interface ConfigTreeEntry {
   size_bytes: number
   modified_at: string
   stack_id: string | null
+  permissions: FilePermissions
 }
 
 export interface ConfigTreeResponse {
@@ -338,7 +349,10 @@ export interface ConfigFileResponse {
   encoding: string | null
   size_bytes: number
   modified_at: string
+  readable: boolean
   writable: boolean
+  blocked_reason: string | null
+  permissions: FilePermissions
 }
 
 export interface ConfigFileSaveResponse {
@@ -358,6 +372,10 @@ export interface GitStatusItem {
   stack_id: string | null
   status: GitFileStatus
   old_path: string | null
+  permissions: FilePermissions | null
+  diff_available: boolean
+  commit_allowed: boolean
+  blocked_reason: string | null
 }
 
 export interface GitWorkspaceStatusResponse {
@@ -378,10 +396,13 @@ export interface GitWorkspaceStatusResponse {
 export interface GitDiffResponse {
   available: boolean
   path: string
-  scope: string
+  scope: 'stacks' | 'config'
   stack_id: string | null
   status: GitFileStatus
   old_path: string | null
+  permissions: FilePermissions | null
+  diff_available: boolean
+  blocked_reason: string | null
   is_binary: boolean
   diff: string | null
   truncated: boolean
