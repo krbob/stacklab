@@ -40,6 +40,7 @@ export function LoginPage() {
           <label className="block">
             <span className="mb-2 block text-sm text-[var(--muted)]">Password</span>
             <input
+              data-testid="login-password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -55,6 +56,7 @@ export function LoginPage() {
           )}
 
           <button
+            data-testid="login-submit"
             type="submit"
             disabled={loading || !password.trim()}
             className="w-full rounded-2xl bg-[linear-gradient(135deg,rgba(79,209,197,0.9),rgba(20,184,166,0.95))] px-4 py-3 text-sm font-medium text-[#042328] transition hover:brightness-105 disabled:opacity-50"

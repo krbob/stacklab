@@ -203,6 +203,7 @@ export function StackEditorPage() {
             </button>
           )}
           <button
+            data-testid="editor-save"
             onClick={() => handleSave(false)}
             disabled={saving || stack.activity_state === 'locked'}
             className="rounded-full border border-[rgba(79,209,197,0.35)] bg-[rgba(79,209,197,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40"
@@ -210,6 +211,7 @@ export function StackEditorPage() {
             {saving ? 'Saving...' : 'Save'}
           </button>
           <button
+            data-testid="editor-save-deploy"
             onClick={() => handleSave(true)}
             disabled={saving || !resolvedValid || stack.activity_state === 'locked'}
             className="rounded-full border border-[rgba(79,209,197,0.35)] bg-[rgba(79,209,197,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40"

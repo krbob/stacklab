@@ -38,7 +38,7 @@ export function AuditTable({ entries, showStack = false, onLoadMore, hasMore, lo
         const isFailed = entry.result === 'failed' || entry.result === 'timed_out'
 
         return (
-          <div key={entry.id}>
+          <div key={entry.id} data-testid="audit-row">
             <div className="flex min-w-0 items-center gap-3 overflow-hidden rounded-[16px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-4 py-3 text-sm">
               <span className="shrink-0 text-xs text-[var(--muted)]" style={{ width: '140px' }}>
                 {new Date(entry.requested_at).toLocaleString()}
@@ -80,6 +80,7 @@ export function AuditTable({ entries, showStack = false, onLoadMore, hasMore, lo
 
       {hasMore && !loading && (
         <button
+          data-testid="audit-load-more"
           onClick={onLoadMore}
           className="rounded-full border border-[var(--panel-border)] px-4 py-2 text-sm text-[var(--muted)] hover:text-[var(--text)]"
         >

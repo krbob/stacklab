@@ -57,6 +57,7 @@ export function StacksPage() {
         {data?.items.map((stack) => (
           <Link
             key={stack.id}
+            data-testid={`stack-card-${stack.id}`}
             to={`/stacks/${stack.id}`}
             className="flex flex-col gap-3 rounded-[24px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-5 py-4 transition hover:border-[rgba(79,209,197,0.25)] hover:bg-[rgba(255,255,255,0.05)] md:flex-row md:items-center md:justify-between"
           >

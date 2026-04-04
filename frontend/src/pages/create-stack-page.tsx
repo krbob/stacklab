@@ -59,6 +59,7 @@ export function CreateStackPage() {
         <label className="block">
           <span className="mb-2 block text-sm text-[var(--muted)]">Stack name</span>
           <input
+            data-testid="create-stack-name"
             type="text"
             value={stackId}
             onChange={(e) => setStackId(e.target.value.toLowerCase())}
@@ -111,6 +112,7 @@ export function CreateStackPage() {
             Cancel
           </button>
           <button
+            data-testid="create-stack-submit"
             type="submit"
             disabled={!idValid || creating}
             className="rounded-full border border-[rgba(79,209,197,0.35)] bg-[rgba(79,209,197,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(79,209,197,0.2)] disabled:opacity-40"
