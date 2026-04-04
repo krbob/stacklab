@@ -136,6 +136,12 @@ Target automation model:
 - monthly stable workflow on the `1st`
 - manual `workflow_dispatch` for hotfix releases
 
+Recommended release train:
+
+- early-month selective low-risk automerge for trusted Renovate classes
+- nightly prereleases from `main` as the soak channel during the rest of the month
+- automatic stable publication on the `1st` from the already-green state of `main`
+
 Important constraint:
 
 - monthly stable should publish the already-stable state of `main`

@@ -169,9 +169,10 @@ Automatic monthly stable publication is only sensible if dependency policy remai
 
 Recommended model:
 
-- low-risk dependency classes may automerge later
+- low-risk dependency classes may automerge later, preferably in a short window near the start of the month
 - high-risk and major updates remain manual
-- monthly stable release publishes the already-green state of `main`
+- nightly prereleases soak the resulting `main` during the rest of the month
+- monthly stable release publishes the already-green state of `main` on the `1st` of the next month
 
 Do **not** design the release process around merging all Renovate PRs on release day.
 
@@ -184,6 +185,7 @@ This is much riskier than:
 
 - merging safe updates continuously
 - merging risky updates intentionally
+- using nightly prereleases as a soak period
 - publishing the stable state already present on `main`
 
 ## Required CI Before Renovate

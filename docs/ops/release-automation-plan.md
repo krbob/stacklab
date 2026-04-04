@@ -131,6 +131,60 @@ The safer model is:
 - keep `main` green
 - let the monthly release workflow publish what is already stable
 
+## Recommended Monthly Release Train
+
+The preferred operating model is a short integration window followed by a longer soak period.
+
+Recommended cadence:
+
+- early in the month: allow selective automerge for low-risk Renovate PRs
+- rest of the month: run nightly prereleases from `main`
+- during the month: manually merge risky updates only when they are intentionally reviewed
+- on the `1st` of the next month: publish the monthly stable from the already-green state of `main`
+
+This gives Stacklab three distinct phases:
+
+- dependency integration
+- nightly soak and homelab validation
+- stable publication
+
+It is intentionally **not**:
+
+- merge everything on release day
+- immediately release whatever was just merged
+
+### Low-risk merge window
+
+The intended long-term model is:
+
+- keep low-risk automerge narrowly scoped
+- prefer a short merge window early in the month
+- keep medium-risk and high-risk PRs manual
+
+This should cover only updates that repeatedly prove safe in CI and in nightly testing.
+
+### Nightly soak period
+
+Nightly prereleases should be the operator feedback loop between dependency integration and stable publication.
+
+Purpose:
+
+- test the package and upgrade path on a real homelab host
+- catch regressions that pass CI but behave badly on Debian or Docker
+- validate that the coming monthly stable is not just "green in Actions" but also healthy in real use
+
+### Automatic stable on the 1st
+
+Publishing the stable release on the `1st` is reasonable only if all of the following are true:
+
+- the release candidate is simply the current `main`
+- required checks are green
+- nightly and package smoke validation are green
+- there are meaningful changes since the previous stable
+- no known blocking regression remains open
+
+If those conditions are not met, the stable workflow should skip or be rerun manually after the issue is fixed.
+
 ## Renovate Policy for Release Automation
 
 Release automation depends on a stricter dependency policy than the current "all manual" baseline.
