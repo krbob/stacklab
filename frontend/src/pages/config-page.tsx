@@ -5,6 +5,7 @@ import { getConfigTree, getConfigFile, saveConfigFile, getGitWorkspaceStatus, ge
 import type { ConfigTreeEntry, ConfigFileResponse, GitStatusItem, GitDiffResponse } from '@/lib/api-types'
 import { YamlEditor } from '@/components/yaml-editor'
 import { DiffView } from '@/components/diff-view'
+import { GitCommitBar } from '@/components/git-commit-bar'
 import { cn } from '@/lib/cn'
 
 type Mode = 'files' | 'changes'
@@ -58,10 +59,13 @@ export function ConfigPage() {
   const [gitError, setGitError] = useState<string | null>(null)
   const [gitReason, setGitReason] = useState<string | null>(null)
 
+  const [gitHasUpstream, setGitHasUpstream] = useState(false)
+
   const [selectedDiff, setSelectedDiff] = useState<GitDiffResponse | null>(null)
   const [diffLoading, setDiffLoading] = useState(false)
   const [diffError, setDiffError] = useState<string | null>(null)
   const [selectedChangePath, setSelectedChangePath] = useState<string | null>(null)
+  const [selectedGitPaths, setSelectedGitPaths] = useState<Set<string>>(new Set())
 
   // --- Files mode logic ---
 
@@ -156,8 +160,10 @@ export function ConfigPage() {
       setGitItems(result.items ?? [])
       setGitBranch(result.branch ?? null)
       setGitAhead(result.ahead_count ?? 0)
+      setGitHasUpstream(result.has_upstream ?? false)
       setGitClean(result.clean ?? true)
       setGitReason(result.reason ?? null)
+      setSelectedGitPaths(new Set())
     } catch (err) {
       setGitError(err instanceof Error ? err.message : 'Failed to load Git status')
     } finally {
@@ -193,6 +199,31 @@ export function ConfigPage() {
     }
     return groups
   }, [gitItems])
+
+  const toggleGitPath = useCallback((path: string) => {
+    setSelectedGitPaths((prev) => {
+      const next = new Set(prev)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      return next
+    })
+  }, [])
+
+  const toggleGroupPaths = useCallback((groupKey: string) => {
+    const items = groupedGitItems.get(groupKey)
+    if (!items) return
+    const paths = items.map((i) => i.path)
+    setSelectedGitPaths((prev) => {
+      const allSelected = paths.every((p) => prev.has(p))
+      const next = new Set(prev)
+      if (allSelected) {
+        paths.forEach((p) => next.delete(p))
+      } else {
+        paths.forEach((p) => next.add(p))
+      }
+      return next
+    })
+  }, [groupedGitItems])
 
   const handleModeSwitch = useCallback((newMode: Mode) => {
     setMode(newMode)
@@ -305,27 +336,51 @@ export function ConfigPage() {
                   </div>
                 )}
                 {gitClean && <p className="px-2 py-4 text-xs text-[var(--muted)]">Working tree clean</p>}
-                {Array.from(groupedGitItems.entries()).map(([groupKey, items]) => (
-                  <div key={groupKey}>
-                    <div className="px-2 py-1 text-xs font-medium text-[var(--text)]">
-                      {groupKey === '__other__' ? 'Other' : groupKey}
+                {Array.from(groupedGitItems.entries()).map(([groupKey, items]) => {
+                  const groupPaths = items.map((i) => i.path)
+                  const allGroupSelected = groupPaths.every((p) => selectedGitPaths.has(p))
+                  return (
+                    <div key={groupKey}>
+                      <button
+                        onClick={() => toggleGroupPaths(groupKey)}
+                        className="flex w-full items-center gap-2 px-2 py-1 text-xs font-medium text-[var(--text)] hover:bg-[rgba(255,255,255,0.03)]"
+                      >
+                        <input type="checkbox" checked={allGroupSelected} readOnly className="rounded pointer-events-none" />
+                        {groupKey === '__other__' ? 'Other' : groupKey}
+                        <span className="text-[var(--muted)]">({items.length})</span>
+                      </button>
+                      {items.map((item) => {
+                        const prefix = statusPrefixes[item.status]
+                        const fileName = item.path.split('/').pop() ?? item.path
+                        const isDiffSelected = selectedChangePath === item.path
+                        const isChecked = selectedGitPaths.has(item.path)
+                        return (
+                          <div key={item.path} className={cn('flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition', isDiffSelected ? 'bg-[rgba(79,209,197,0.14)] text-[var(--text)]' : 'text-[var(--muted)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]')}>
+                            <input type="checkbox" checked={isChecked} onChange={() => toggleGitPath(item.path)} className="rounded shrink-0" />
+                            <button onClick={() => openDiff(item.path)} className="flex min-w-0 flex-1 items-center gap-1">
+                              {prefix && <span className={cn('w-3 shrink-0 font-mono font-bold', prefix.color)}>{prefix.letter}</span>}
+                              <span className="truncate">{fileName}</span>
+                            </button>
+                          </div>
+                        )
+                      })}
                     </div>
-                    {items.map((item) => {
-                      const prefix = statusPrefixes[item.status]
-                      const fileName = item.path.split('/').pop() ?? item.path
-                      const isSelected = selectedChangePath === item.path
-                      return (
-                        <button key={item.path} onClick={() => openDiff(item.path)} className={cn('flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition', isSelected ? 'bg-[rgba(79,209,197,0.14)] text-[var(--text)]' : 'text-[var(--muted)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]')}>
-                          {prefix && <span className={cn('w-3 shrink-0 font-mono font-bold', prefix.color)}>{prefix.letter}</span>}
-                          <span className="truncate">{fileName}</span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                ))}
+                  )
+                })}
                 <button onClick={loadGitStatus} className="mt-2 flex w-full items-center justify-center rounded-lg px-2 py-1.5 text-xs text-[var(--muted)] transition hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]">
                   Refresh
                 </button>
+
+                {/* Commit bar */}
+                {!gitClean && (
+                  <GitCommitBar
+                    selectedPaths={selectedGitPaths}
+                    hasUpstream={gitHasUpstream}
+                    aheadCount={gitAhead}
+                    onCommitted={loadGitStatus}
+                    onPushed={loadGitStatus}
+                  />
+                )}
               </div>
             )}
             {!gitLoading && !gitAvailable && (
