@@ -49,6 +49,7 @@ Responsibilities:
 - run the backend process
 - read and write required paths under `/opt/stacklab`
 - access Docker via `/var/run/docker.sock`
+- read Stacklab service logs from `journald` when `/host` log viewing is enabled
 
 ## Permissions Model
 
@@ -59,11 +60,13 @@ Minimum practical permissions for the service account:
 - read/write on `/opt/stacklab/data` only when destructive actions explicitly require it
 - read/write on `/var/lib/stacklab`
 - read/write access to `/var/run/docker.sock` via group membership or equivalent host configuration
+- read access to `journald`, typically via `systemd-journal` group membership when that group exists
 
 Recommended operational posture:
 
 - avoid running the service as `root`
 - prefer membership in the Docker socket-owning group if acceptable on the host
+- prefer membership in `systemd-journal` when service log viewing in `/host` should work on the host
 - keep permissions explicit rather than broad `0777` directory access
 - treat container-created ownership drift as an operator problem to surface and repair explicitly, not as a reason to run the whole web app as `root`
 - prefer aligning container `uid:gid` or `PUID/PGID` with the managed workspace where practical
@@ -104,7 +107,7 @@ Requires=docker.service
 Type=simple
 User=stacklab
 Group=stacklab
-SupplementaryGroups=docker
+SupplementaryGroups=docker systemd-journal
 WorkingDirectory=/opt/stacklab/app/current
 Environment=STACKLAB_ROOT=/opt/stacklab
 Environment=STACKLAB_DATA_DIR=/var/lib/stacklab
@@ -236,6 +239,7 @@ Observed staging note:
 
 - if `ProtectHome=true` is enabled, set explicit writable `HOME` and `DOCKER_CONFIG` paths for the service
 - ensure the service account is in the Docker socket-owning group, typically `docker`
+- ensure the service account can read `journald`, typically via `systemd-journal`, if `/host` should display Stacklab service logs
 
 Rules:
 

@@ -29,6 +29,10 @@ Typical macOS limitations during development:
 - some host metrics may be partial or less representative than on Linux
 - Docker Desktop / local virtualization can make resource numbers look unlike a real target host
 
+Linux deployment note:
+
+- on Linux hosts with `systemd`, readable Stacklab service logs also require the Stacklab service user to have access to `journald`, typically via membership in the `systemd-journal` group when that group exists
+
 This is expected behavior, not a product bug by itself.
 
 ## Non-Goals

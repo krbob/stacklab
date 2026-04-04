@@ -199,6 +199,10 @@ ensure_service_account() {
     usermod -a -G docker "${service_user}" || true
   fi
 
+  if getent group systemd-journal >/dev/null 2>&1; then
+    usermod -a -G systemd-journal "${service_user}" || true
+  fi
+
   install -d -m 0755 "${data_dir}/home" "${data_dir}/docker"
   chown -R "${service_user}:${service_group}" "${app_root}" "${data_dir}"
   chown "${service_user}:${service_group}" "${stacklab_root}" "${stacklab_root}/stacks" "${stacklab_root}/config" "${stacklab_root}/data"
