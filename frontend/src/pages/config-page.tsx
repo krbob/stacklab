@@ -349,8 +349,8 @@ export function ConfigPage() {
                 )}
                 {gitClean && <p className="px-2 py-4 text-xs text-[var(--muted)]">Working tree clean</p>}
                 {Array.from(groupedGitItems.entries()).map(([groupKey, items]) => {
-                  const groupPaths = items.map((i) => i.path)
-                  const allGroupSelected = groupPaths.every((p) => selectedGitPaths.has(p))
+                  const committablePaths = items.filter((i) => i.commit_allowed).map((i) => i.path)
+                  const allGroupSelected = committablePaths.length > 0 && committablePaths.every((p) => selectedGitPaths.has(p))
                   return (
                     <div key={groupKey}>
                       <button

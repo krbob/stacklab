@@ -182,6 +182,96 @@ const gitDiff: GitDiffResponse = {
   truncated: false,
 }
 
+const blockedFile: ConfigFileResponse = {
+  path: 'demo/secret.conf',
+  name: 'secret.conf',
+  type: 'unknown_file',
+  stack_id: 'demo',
+  content: null,
+  encoding: null,
+  size_bytes: 12,
+  modified_at: '2026-04-04T12:00:00Z',
+  readable: false,
+  writable: false,
+  blocked_reason: 'not_readable',
+  permissions: {
+    owner_uid: 0,
+    owner_name: 'root',
+    group_gid: 0,
+    group_name: 'root',
+    mode: '0600',
+    readable: false,
+    writable: false,
+  },
+}
+
+const blockedGitStatus: GitWorkspaceStatusResponse = {
+  ...gitStatus,
+  items: [
+    {
+      path: 'config/demo/app.conf',
+      scope: 'config',
+      stack_id: 'demo',
+      status: 'modified',
+      old_path: null,
+      permissions: {
+        owner_uid: 1000,
+        owner_name: 'bob',
+        group_gid: 1000,
+        group_name: 'bob',
+        mode: '0644',
+        readable: true,
+        writable: true,
+      },
+      diff_available: true,
+      commit_allowed: true,
+      blocked_reason: null,
+    },
+    {
+      path: 'config/demo/secret.conf',
+      scope: 'config',
+      stack_id: 'demo',
+      status: 'modified',
+      old_path: null,
+      permissions: {
+        owner_uid: 0,
+        owner_name: 'root',
+        group_gid: 0,
+        group_name: 'root',
+        mode: '0600',
+        readable: false,
+        writable: false,
+      },
+      diff_available: false,
+      commit_allowed: false,
+      blocked_reason: 'not_readable',
+    },
+  ],
+}
+
+const blockedGitDiff: GitDiffResponse = {
+  available: true,
+  path: 'config/demo/secret.conf',
+  scope: 'config',
+  stack_id: 'demo',
+  status: 'modified',
+  old_path: null,
+  permissions: {
+    owner_uid: 0,
+    owner_name: 'root',
+    group_gid: 0,
+    group_name: 'root',
+    mode: '0600',
+    readable: false,
+    writable: false,
+  },
+  diff_available: false,
+  blocked_reason: 'not_readable',
+  is_binary: false,
+  diff: null,
+  truncated: false,
+}
+
 function renderPage() {
   return render(
     <MemoryRouter>
@@ -422,5 +512,69 @@ describe('ConfigPage', () => {
     })
     expect(await screen.findByText('main')).toBeInTheDocument()
     expect(screen.queryByTestId('git-push')).not.toBeInTheDocument()
+  })
+
+  it('shows blocked file card in Files mode', async () => {
+    mockGetConfigTree
+      .mockResolvedValueOnce(rootTree)
+      .mockResolvedValueOnce({
+        ...demoTree,
+        items: [
+          {
+            name: 'secret.conf',
+            path: 'demo/secret.conf',
+            type: 'unknown_file',
+            size_bytes: 12,
+            modified_at: '2026-04-04T12:00:00Z',
+            stack_id: 'demo',
+            permissions: blockedFile.permissions,
+          },
+        ],
+      })
+    mockGetConfigFile.mockResolvedValue(blockedFile)
+
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'demo' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'secret.conf' }))
+
+    expect(await screen.findByText('File access blocked')).toBeInTheDocument()
+    expect(screen.getAllByText('root')).toHaveLength(2)
+    expect(screen.queryByLabelText('yaml-editor')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('config-save')).not.toBeInTheDocument()
+  })
+
+  it('shows blocked diff state and disables commit selection for blocked files', async () => {
+    mockGetGitWorkspaceStatus.mockResolvedValue(blockedGitStatus)
+    mockGetGitWorkspaceDiff.mockResolvedValue(blockedGitDiff)
+
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Changes/ }))
+
+    const checkboxes = await screen.findAllByRole('checkbox')
+    expect(checkboxes[2]).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: /secret\.conf/ }))
+
+    expect(await screen.findByText('File access blocked')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Open in editor' })).not.toBeInTheDocument()
+  })
+
+  it('group selection skips blocked files and still shows group as selected when all committable files are selected', async () => {
+    mockGetGitWorkspaceStatus.mockResolvedValue(blockedGitStatus)
+
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Changes/ }))
+
+    const groupButton = await screen.findByRole('button', { name: /demo/ })
+    fireEvent.click(groupButton)
+
+    const checkboxes = screen.getAllByRole('checkbox')
+    expect(checkboxes[0]).toBeChecked()
+    expect(checkboxes[1]).toBeChecked()
+    expect(checkboxes[2]).toBeDisabled()
+    expect(checkboxes[2]).not.toBeChecked()
   })
 })
