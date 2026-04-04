@@ -112,4 +112,30 @@ describe('HostPage', () => {
     })
     expect(await screen.findByText('Failed to bind port')).toBeInTheDocument()
   })
+
+  it('shows empty logs state', async () => {
+    mockGetStacklabLogs.mockResolvedValue({
+      items: [],
+      next_cursor: null,
+      has_more: false,
+    })
+
+    render(<HostPage />)
+
+    await screen.findByText('homelab')
+    expect(await screen.findByText(/No logs available/)).toBeInTheDocument()
+  })
+
+  it('shows host overview error', async () => {
+    mockGetHostOverview.mockRejectedValue(new Error('Connection refused'))
+
+    render(<HostPage />)
+
+    expect(await screen.findByText(/Connection refused/)).toBeInTheDocument()
+  })
+
+  it('displays architecture in system card', async () => {
+    render(<HostPage />)
+    expect(await screen.findByText('amd64')).toBeInTheDocument()
+  })
 })

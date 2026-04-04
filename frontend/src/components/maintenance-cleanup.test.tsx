@@ -83,4 +83,58 @@ describe('MaintenanceCleanup', () => {
       expect(mockRefetch).toHaveBeenCalledTimes(1)
     })
   })
+
+  it('shows prune preview with category counts', () => {
+    render(<MaintenanceCleanup />)
+    expect(screen.getByText(/Total reclaimable/)).toBeInTheDocument()
+    expect(screen.getByText('Unused images')).toBeInTheDocument()
+    expect(screen.getByText('Build cache')).toBeInTheDocument()
+    expect(screen.getByText('Stopped containers')).toBeInTheDocument()
+    expect(screen.getByText('Unused volumes')).toBeInTheDocument()
+  })
+
+  it('disables prune button when nothing is selected', () => {
+    render(<MaintenanceCleanup />)
+
+    // Uncheck defaults: images (index 0) and build_cache (index 1)
+    const checkboxes = screen.getAllByRole('checkbox')
+    fireEvent.click(checkboxes[0])
+    fireEvent.click(checkboxes[1])
+
+    expect(screen.getByTestId('maintenance-prune')).toBeDisabled()
+  })
+
+  it('shows error when prune fails', async () => {
+    mockRunMaintenancePrune.mockRejectedValue(new Error('Prune failed'))
+
+    render(<MaintenanceCleanup />)
+    fireEvent.click(screen.getByTestId('maintenance-prune'))
+
+    expect(await screen.findByText('Prune failed')).toBeInTheDocument()
+  })
+
+  it('sends correct scope when volumes checkbox is checked', async () => {
+    mockRunMaintenancePrune.mockResolvedValue({
+      job: { id: 'job_vol', stack_id: null, action: 'prune', state: 'running' },
+    })
+
+    render(<MaintenanceCleanup />)
+
+    // stopped_containers (index 2), volumes (index 3)
+    const checkboxes = screen.getAllByRole('checkbox')
+    fireEvent.click(checkboxes[2])
+    fireEvent.click(checkboxes[3])
+    fireEvent.click(screen.getByTestId('maintenance-prune'))
+
+    await waitFor(() => {
+      expect(mockRunMaintenancePrune).toHaveBeenCalledWith({
+        scope: {
+          images: true,
+          build_cache: true,
+          stopped_containers: true,
+          volumes: true,
+        },
+      })
+    })
+  })
 })
