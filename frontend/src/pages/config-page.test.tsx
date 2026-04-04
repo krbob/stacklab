@@ -199,4 +199,80 @@ describe('ConfigPage', () => {
     })
     expect(await screen.findByLabelText('yaml-editor')).toBeInTheDocument()
   })
+
+  it('shows "Not a Git repository" when Git is unavailable', async () => {
+    mockGetGitWorkspaceStatus.mockResolvedValue({
+      available: false,
+      repo_root: '/opt/stacklab',
+      managed_roots: ['stacks', 'config'],
+      reason: 'not_a_git_repository',
+    })
+
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Changes/ }))
+
+    expect(await screen.findByText(/Not a Git repository/)).toBeInTheDocument()
+  })
+
+  it('disables Changes button when Git is unavailable', async () => {
+    mockGetGitWorkspaceStatus.mockResolvedValue({
+      available: false,
+      repo_root: '/opt/stacklab',
+      managed_roots: ['stacks', 'config'],
+      reason: 'not_a_git_repository',
+    })
+
+    renderPage()
+
+    // Wait for initial load and git status check
+    await screen.findByRole('button', { name: 'demo' })
+
+    // Switch to changes to trigger the status fetch, then back
+    fireEvent.click(screen.getByRole('button', { name: /^Changes/ }))
+    await screen.findByText(/Not a Git repository/)
+
+    // Button should now be disabled since git is unavailable
+    fireEvent.click(screen.getByRole('button', { name: 'Files' }))
+    const changesBtn = screen.getByRole('button', { name: /^Changes/ })
+    expect(changesBtn).toBeDisabled()
+  })
+
+  it('shows read-only card for binary files', async () => {
+    mockGetConfigTree
+      .mockResolvedValueOnce(rootTree)
+      .mockResolvedValueOnce({
+        ...demoTree,
+        items: [
+          {
+            name: 'cert.p12',
+            path: 'demo/cert.p12',
+            type: 'binary_file',
+            size_bytes: 4096,
+            modified_at: '2026-04-04T12:00:00Z',
+            stack_id: 'demo',
+          },
+        ],
+      })
+    mockGetConfigFile.mockResolvedValue({
+      path: 'demo/cert.p12',
+      name: 'cert.p12',
+      type: 'binary_file',
+      stack_id: 'demo',
+      content: null,
+      encoding: null,
+      size_bytes: 4096,
+      modified_at: '2026-04-04T12:00:00Z',
+      writable: false,
+    })
+
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'demo' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'cert.p12' }))
+
+    expect(await screen.findByText('Binary file')).toBeInTheDocument()
+    expect(screen.getByText(/cannot be edited/)).toBeInTheDocument()
+    expect(screen.queryByLabelText('yaml-editor')).not.toBeInTheDocument()
+  })
 })
