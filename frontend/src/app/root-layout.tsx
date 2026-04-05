@@ -19,7 +19,7 @@ export function RootLayout() {
       <div className="mx-auto flex min-h-screen max-w-[1600px] gap-4 px-4 py-4 md:px-6">
         <aside className="hidden w-56 shrink-0 rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-[var(--shadow)] lg:flex lg:flex-col">
           <div className="mb-8">
-            <div className="text-xs uppercase tracking-[0.32em] text-[var(--accent)]">Stacklab</div>
+            <div className="font-brand text-xs uppercase tracking-[0.32em] text-[var(--accent)]">Stacklab</div>
           </div>
 
           <nav className="space-y-1">

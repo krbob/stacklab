@@ -57,7 +57,7 @@ export function StackLayout() {
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
-            <div className="text-xs uppercase tracking-[0.28em] text-[var(--accent)]">Stack</div>
+            <div className="font-brand text-xs uppercase tracking-[0.28em] text-[var(--accent)]">Stack</div>
             <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-[var(--text)]">{stack.name}</h2>
           </div>
 

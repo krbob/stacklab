@@ -37,7 +37,7 @@ export function LoginPage() {
             <rect x="16" y="28" width="32" height="9" rx="4.5" fill="#22C55E" opacity="0.5" />
             <rect x="20" y="41" width="24" height="9" rx="4.5" fill="#22C55E" opacity="0.25" />
           </svg>
-          <div className="text-xs uppercase tracking-[0.32em] text-[var(--accent)]">Stacklab</div>
+          <div className="font-brand text-xs uppercase tracking-[0.32em] text-[var(--accent)]">Stacklab</div>
         </div>
         <h1 className="mt-4 text-4xl font-semibold tracking-[-0.05em] text-[var(--text)]">Log in</h1>
         <p className="mt-4 max-w-lg text-sm leading-6 text-[var(--muted)]">

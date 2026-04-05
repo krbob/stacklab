@@ -52,7 +52,7 @@ export function CreateStackPage() {
 
   return (
     <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
-      <div className="text-xs uppercase tracking-[0.28em] text-[var(--accent)]">New stack</div>
+      <div className="font-brand text-xs uppercase tracking-[0.28em] text-[var(--accent)]">New stack</div>
       <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-[var(--text)]">Create stack</h2>
 
       <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4">
