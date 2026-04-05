@@ -1,0 +1,31 @@
+Architectures: amd64 arm64
+Codename: nightly
+Components: main
+Date: Sun, 05 Apr 2026 05:24:26 +0000
+Label: Stacklab
+Origin: Stacklab
+Suite: nightly
+MD5Sum:
+ 2e0b29c0179bb9f96b5306e2ce3ab265              148 Release
+ b37bbecd9badea7619b90a59f5335423              765 main/binary-amd64/Packages
+ ea24928de1c28275d18bb4888301402d              477 main/binary-amd64/Packages.gz
+ 9fec5d4dc6bb3badad0ad7ab3b73d3fa              765 main/binary-arm64/Packages
+ 928ebeaa1c6cdf56f7d9ef0963ca32cc              478 main/binary-arm64/Packages.gz
+SHA1:
+ 0339cf9b09122f4a090e93c337889dbaa305dd97              148 Release
+ a0d3f59466c4a358facf3bf90c939e7b6c8b3e26              765 main/binary-amd64/Packages
+ 17a825b13b3f86967db7778ff2d2472f46537cbc              477 main/binary-amd64/Packages.gz
+ 9d8155179035a4b0a1438227f59238842fd48b26              765 main/binary-arm64/Packages
+ f3dc4675bf0d16269c1bd9d81f3e02f7e2de32d8              478 main/binary-arm64/Packages.gz
+SHA256:
+ b08fa39c742f1eacb0a2e0de8247abc763aa2361bd0cb789fac247e483f05bd1              148 Release
+ 27c3c6aeeaefdf344b40f7d1955b944207f2f81eb7734dd3d1bb2a17df212b9a              765 main/binary-amd64/Packages
+ 4374ab16e4120934a9b5386e500bded625cf967739273a77040d62549f8ceb9d              477 main/binary-amd64/Packages.gz
+ 46b2f355eb2e7565e02a67920073a42020324c1edef43386c7ac8e05fd942d2d              765 main/binary-arm64/Packages
+ 448d1f689da01866aaa73be74e10c9f4e851af8f50b097c6187279574ffdb67e              478 main/binary-arm64/Packages.gz
+SHA512:
+ ce377a6744ca9130688777cc9ecd14fa6856b9baa6130cfa2b7198b682f05eb68086588f7c0e3e3ec74585baf58a44db39ba2bf8a0234137be8819a24546ae6a              148 Release
+ 3bebd5971a561e97183f5208e5a236a5ded031ed01d69c366ca6a4a8f04f7da259391b25f9435c5640db5d66852af98eb9100bc8f0186cb8c1ac893eec19f469              765 main/binary-amd64/Packages
+ 55611132075ebdb248f0c2786d9c6161fdb11f74ad02b97013aaaebffc4c7f7dac299a4a5ffd433871958b8974cf4c43027462a3d058d1c57eb90aae0bb289be              477 main/binary-amd64/Packages.gz
+ 639d8ac940cd4abf84e035c8d29bef36a2ecc28f59a9fc0365f6f02e8d0978fe93b9f2c8537a34a561430830d5490ba2dad844879e01a2dcdad9acab0f5011a0              765 main/binary-arm64/Packages
+ aed7f428dea85965a3072a3edbfc1660814bd0f5bedaf7e5d4087c6581274b0cd95ebfb0f8edc27b9dde836bd3d2af9efcf7ef9c18b0051a612826297b36e589              478 main/binary-arm64/Packages.gz
