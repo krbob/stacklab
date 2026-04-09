@@ -20,6 +20,7 @@ import { StackAuditPage } from '@/pages/stack-audit-page'
 const StackEditorPage = lazy(() => import('@/pages/stack-editor-page').then((m) => ({ default: m.StackEditorPage })))
 const StackLogsPage = lazy(() => import('@/pages/stack-logs-page').then((m) => ({ default: m.StackLogsPage })))
 const StackStatsPage = lazy(() => import('@/pages/stack-stats-page').then((m) => ({ default: m.StackStatsPage })))
+const StackFilesPage = lazy(() => import('@/pages/stack-files-page').then((m) => ({ default: m.StackFilesPage })))
 const StackTerminalPage = lazy(() => import('@/pages/stack-terminal-page').then((m) => ({ default: m.StackTerminalPage })))
 
 export function AppRoutes() {
@@ -46,6 +47,7 @@ export function AppRoutes() {
         <Route path="stacks/:stackId" element={<StackLayout />}>
           <Route index element={<StackOverviewPage />} />
           <Route path="editor" element={<Suspense><StackEditorPage /></Suspense>} />
+          <Route path="files" element={<Suspense><StackFilesPage /></Suspense>} />
           <Route path="logs" element={<Suspense><StackLogsPage /></Suspense>} />
           <Route path="stats" element={<Suspense><StackStatsPage /></Suspense>} />
           <Route path="terminal" element={<Suspense><StackTerminalPage /></Suspense>} />
