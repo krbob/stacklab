@@ -4,11 +4,13 @@ import { useApi } from '@/hooks/use-api'
 import { useJobStream } from '@/hooks/use-job-stream'
 import { MaintenanceImages } from '@/components/maintenance-images'
 import { MaintenanceCleanup } from '@/components/maintenance-cleanup'
+import { MaintenanceNetworks } from '@/components/maintenance-networks'
+import { MaintenanceVolumes } from '@/components/maintenance-volumes'
 import { StepCards } from '@/components/step-cards'
 import type { StackListItem } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
 
-type MaintenanceTab = 'update' | 'images' | 'cleanup'
+type MaintenanceTab = 'update' | 'images' | 'networks' | 'volumes' | 'cleanup'
 type TargetMode = 'all' | 'selected'
 
 const stepStatusColors: Record<string, string> = {
@@ -93,7 +95,7 @@ export function MaintenancePage() {
       <div className="flex items-center gap-2">
         <h2 className="text-2xl font-semibold tracking-[-0.04em] text-[var(--text)]">Maintenance</h2>
         <div className="ml-4 flex gap-1">
-          {([['update', 'Update'], ['images', 'Images'], ['cleanup', 'Cleanup']] as const).map(([key, label]) => (
+          {([['update', 'Update'], ['images', 'Images'], ['networks', 'Networks'], ['volumes', 'Volumes'], ['cleanup', 'Cleanup']] as const).map(([key, label]) => (
             <button
               key={key}
               onClick={() => setActiveTab(key)}
@@ -107,6 +109,14 @@ export function MaintenancePage() {
 
       <div className={activeTab === 'images' ? '' : 'hidden'}>
         <MaintenanceImages />
+      </div>
+
+      <div className={activeTab === 'networks' ? '' : 'hidden'}>
+        <MaintenanceNetworks />
+      </div>
+
+      <div className={activeTab === 'volumes' ? '' : 'hidden'}>
+        <MaintenanceVolumes />
       </div>
 
       <div className={activeTab === 'cleanup' ? '' : 'hidden'}>
