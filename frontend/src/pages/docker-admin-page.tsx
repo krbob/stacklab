@@ -1,6 +1,7 @@
-import { getDockerAdminOverview, getDockerDaemonConfig } from '@/lib/api-client'
+import { useCallback, useState } from 'react'
+import { getDockerAdminOverview, getDockerDaemonConfig, validateDockerDaemonConfig } from '@/lib/api-client'
 import { useApi } from '@/hooks/use-api'
-import type { DockerAdminOverviewResponse, DockerDaemonConfigResponse } from '@/lib/api-types'
+import type { DockerAdminOverviewResponse, DockerDaemonConfigResponse, DockerDaemonValidateResponse } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
 
 export function DockerAdminPage() {
@@ -37,6 +38,16 @@ export function DockerAdminPage() {
         {configError && <p className="mt-3 text-sm text-red-400">{configError.message}</p>}
         {daemonConfig && <DaemonConfigViewer config={daemonConfig} />}
       </section>
+
+      {/* Managed settings */}
+      {overview && (
+        <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+          <ManagedSettingsForm
+            currentSummary={overview.daemon_config.summary}
+            writeCapability={overview.daemon_config.write_capability ?? overview.write_capability}
+          />
+        </section>
+      )}
     </div>
   )
 }
@@ -179,6 +190,154 @@ function DaemonConfigViewer({ config }: { config: DockerDaemonConfigResponse }) 
       {config.configured_keys.length > 0 && (
         <div className="text-xs text-[var(--muted)]">
           Configured keys: <span className="font-mono text-[var(--text)]">{config.configured_keys.join(', ')}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ManagedSettingsForm({ currentSummary, writeCapability }: {
+  currentSummary: DockerAdminOverviewResponse['daemon_config']['summary']
+  writeCapability: { supported: boolean; reason?: string | null; managed_keys: string[] }
+}) {
+  const [dns, setDns] = useState(currentSummary.dns.join(', '))
+  const [mirrors, setMirrors] = useState(currentSummary.registry_mirrors.join(', '))
+  const [insecure, setInsecure] = useState(currentSummary.insecure_registries.join(', '))
+  const [liveRestore, setLiveRestore] = useState(currentSummary.live_restore ?? false)
+
+  const [validating, setValidating] = useState(false)
+  const [validateResult, setValidateResult] = useState<DockerDaemonValidateResponse | null>(null)
+  const [validateError, setValidateError] = useState<string | null>(null)
+
+  const handleValidate = useCallback(async () => {
+    setValidating(true)
+    setValidateError(null)
+    setValidateResult(null)
+    try {
+      const result = await validateDockerDaemonConfig({
+        settings: {
+          dns: dns.split(',').map((s) => s.trim()).filter(Boolean),
+          registry_mirrors: mirrors.split(',').map((s) => s.trim()).filter(Boolean),
+          insecure_registries: insecure.split(',').map((s) => s.trim()).filter(Boolean),
+          live_restore: liveRestore,
+        },
+      })
+      setValidateResult(result)
+    } catch (err) {
+      setValidateError(err instanceof Error ? err.message : 'Validation failed')
+    } finally {
+      setValidating(false)
+    }
+  }, [dns, mirrors, insecure, liveRestore])
+
+  return (
+    <div>
+      <h3 className="text-lg font-medium text-[var(--text)]">Managed settings</h3>
+
+      {/* Preview mode banner */}
+      {!writeCapability.supported && (
+        <div className="mt-2 rounded-md border border-amber-400/20 bg-amber-400/5 px-4 py-2 text-xs text-amber-400">
+          Preview mode — changes can be validated but not applied yet.
+          {writeCapability.reason && <span className="ml-1 text-[var(--muted)]">{writeCapability.reason}</span>}
+        </div>
+      )}
+
+      {/* Form */}
+      <div className="mt-4 max-w-lg space-y-3">
+        <label className="block">
+          <span className="mb-1 block text-xs text-[var(--muted)]">DNS servers (comma-separated)</span>
+          <input
+            type="text"
+            value={dns}
+            onChange={(e) => setDns(e.target.value)}
+            placeholder="192.168.1.2, 8.8.8.8"
+            className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)]"
+          />
+        </label>
+
+        <label className="block">
+          <span className="mb-1 block text-xs text-[var(--muted)]">Registry mirrors (comma-separated)</span>
+          <input
+            type="text"
+            value={mirrors}
+            onChange={(e) => setMirrors(e.target.value)}
+            placeholder="https://mirror.local"
+            className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)]"
+          />
+        </label>
+
+        <label className="block">
+          <span className="mb-1 block text-xs text-[var(--muted)]">Insecure registries (comma-separated)</span>
+          <input
+            type="text"
+            value={insecure}
+            onChange={(e) => setInsecure(e.target.value)}
+            placeholder="registry.local:5000"
+            className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)]"
+          />
+        </label>
+
+        <label className="flex items-center gap-2 text-xs text-[var(--text)]">
+          <input type="checkbox" checked={liveRestore} onChange={(e) => setLiveRestore(e.target.checked)} className="rounded" />
+          Enable live restore
+        </label>
+
+        <div className="flex gap-2 pt-2">
+          <button
+            onClick={handleValidate}
+            disabled={validating}
+            className="rounded-md border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] px-4 py-2 text-xs text-[var(--text)] transition hover:bg-[rgba(34,197,94,0.2)] disabled:opacity-40"
+          >
+            {validating ? 'Validating...' : 'Validate'}
+          </button>
+
+          <button
+            disabled
+            title={writeCapability.supported ? 'Apply changes' : 'Apply is not available yet'}
+            className="rounded-md border border-[var(--panel-border)] px-4 py-2 text-xs text-[var(--muted)] opacity-40"
+          >
+            Apply
+          </button>
+        </div>
+      </div>
+
+      {/* Validate error */}
+      {validateError && (
+        <div className="mt-3 rounded-md border border-red-400/20 bg-red-400/5 px-4 py-2 text-xs text-red-400">
+          {validateError}
+        </div>
+      )}
+
+      {/* Validate result */}
+      {validateResult && (
+        <div className="mt-4 space-y-3">
+          <div className="flex items-center gap-2 text-xs">
+            <span className={cn('inline-block size-2 rounded-full', validateResult.warnings.length > 0 ? 'bg-amber-400' : 'bg-emerald-400')} />
+            <span className="text-[var(--text)]">
+              Validation {validateResult.warnings.length > 0 ? 'passed with warnings' : 'passed'}
+            </span>
+            {validateResult.requires_restart && (
+              <span className="text-amber-400">· Requires Docker restart</span>
+            )}
+          </div>
+
+          {validateResult.changed_keys.length > 0 && (
+            <div className="text-xs text-[var(--muted)]">
+              Changed keys: <span className="font-mono text-[var(--text)]">{validateResult.changed_keys.join(', ')}</span>
+            </div>
+          )}
+
+          {validateResult.warnings.map((w, i) => (
+            <div key={i} className="text-xs text-amber-400">{w}</div>
+          ))}
+
+          {/* Preview content */}
+          <div>
+            <div className="mb-1 text-xs text-[var(--muted)]">Resulting daemon.json:</div>
+            <div className="overflow-auto rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-4 font-mono text-xs leading-5 text-[var(--text)]">
+              <pre className="whitespace-pre-wrap">{validateResult.preview.content}</pre>
+            </div>
+          </div>
         </div>
       )}
     </div>
