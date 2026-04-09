@@ -494,6 +494,50 @@ export interface ConfigFileSaveResponse {
   audit_action: string
 }
 
+// --- Stack workspace ---
+
+export type StackWorkspaceEntryType = ConfigEntryType
+
+export interface StackWorkspaceTreeEntry {
+  name: string
+  path: string
+  type: StackWorkspaceEntryType
+  size_bytes: number
+  modified_at: string
+  permissions: FilePermissions
+}
+
+export interface StackWorkspaceTreeResponse {
+  stack_id: string
+  workspace_root: string
+  current_path: string
+  parent_path: string | null
+  items: StackWorkspaceTreeEntry[]
+}
+
+export interface StackWorkspaceFileResponse {
+  stack_id: string
+  path: string
+  name: string
+  type: StackWorkspaceEntryType
+  content: string | null
+  encoding: string | null
+  size_bytes: number
+  modified_at: string
+  readable: boolean
+  writable: boolean
+  blocked_reason: string | null
+  permissions: FilePermissions
+}
+
+export interface StackWorkspaceFileSaveResponse {
+  saved: boolean
+  stack_id: string
+  path: string
+  modified_at: string
+  audit_action: string
+}
+
 // --- Git workspace ---
 
 export type GitFileStatus = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflicted'

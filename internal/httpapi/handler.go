@@ -22,6 +22,7 @@ import (
 	"stacklab/internal/hostinfo"
 	"stacklab/internal/jobs"
 	"stacklab/internal/maintenance"
+	"stacklab/internal/stackworkspace"
 	"stacklab/internal/stacks"
 	"stacklab/internal/store"
 	"stacklab/internal/terminal"
@@ -42,6 +43,7 @@ type Handler struct {
 	hostInfo    hostInfoReader
 	dockerAdmin dockerAdminReader
 	configFiles configWorkspaceReader
+	stackFiles  stackWorkspaceReader
 	gitStatus   gitWorkspaceReader
 	maintenance maintenanceReader
 }
@@ -62,6 +64,12 @@ type configWorkspaceReader interface {
 	Tree(ctx context.Context, currentPath string) (configworkspace.TreeResponse, error)
 	File(ctx context.Context, filePath string) (configworkspace.FileResponse, error)
 	SaveFile(ctx context.Context, request configworkspace.SaveFileRequest) (configworkspace.SaveFileResponse, error)
+}
+
+type stackWorkspaceReader interface {
+	Tree(ctx context.Context, stackID, currentPath string) (stackworkspace.TreeResponse, error)
+	File(ctx context.Context, stackID, filePath string) (stackworkspace.FileResponse, error)
+	SaveFile(ctx context.Context, stackID string, request stackworkspace.SaveFileRequest) (stackworkspace.SaveFileResponse, error)
 }
 
 type gitWorkspaceReader interface {
@@ -104,6 +112,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Servic
 		hostInfo:    hostinfo.NewService(cfg, time.Now().UTC()),
 		dockerAdmin: dockeradmin.NewService(cfg),
 		configFiles: configworkspace.NewService(cfg),
+		stackFiles:  stackworkspace.NewService(cfg),
 		gitStatus:   gitworkspace.NewService(cfg),
 		maintenance: maintenance.NewService(),
 	}
@@ -144,6 +153,9 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("DELETE /api/stacks/{stackId}", h.withAuth(h.handleDeleteStack))
 	h.mux.HandleFunc("GET /api/stacks/{stackId}/definition", h.withAuth(h.handleGetDefinition))
 	h.mux.HandleFunc("PUT /api/stacks/{stackId}/definition", h.withAuth(h.handlePutDefinition))
+	h.mux.HandleFunc("GET /api/stacks/{stackId}/workspace/tree", h.withAuth(h.handleStackWorkspaceTree))
+	h.mux.HandleFunc("GET /api/stacks/{stackId}/workspace/file", h.withAuth(h.handleStackWorkspaceFile))
+	h.mux.HandleFunc("PUT /api/stacks/{stackId}/workspace/file", h.withAuth(h.handlePutStackWorkspaceFile))
 	h.mux.HandleFunc("GET /api/stacks/{stackId}/resolved-config", h.withAuth(h.handleGetResolvedConfig))
 	h.mux.HandleFunc("POST /api/stacks/{stackId}/resolved-config", h.withAuth(h.handlePostResolvedConfig))
 	h.mux.HandleFunc("POST /api/stacks/{stackId}/actions/{action}", h.withAuth(h.handleRunStackAction))
@@ -391,6 +403,100 @@ func (h *Handler) handlePutConfigWorkspaceFile(w http.ResponseWriter, r *http.Re
 	}
 	if err := h.audit.RecordConfigFileSave(r.Context(), response.Path, deriveConfigWorkspaceStackID(response.Path), "local", details); err != nil {
 		h.logger.Warn("record save_config_file audit failed", slog.String("path", response.Path), slog.String("err", err.Error()))
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleStackWorkspaceTree(w http.ResponseWriter, r *http.Request) {
+	response, err := h.stackFiles.Tree(r.Context(), r.PathValue("stackId"), strings.TrimSpace(r.URL.Query().Get("path")))
+	if err != nil {
+		switch {
+		case errors.Is(err, stackworkspace.ErrPathOutsideWorkspace):
+			writeError(w, http.StatusBadRequest, "path_outside_workspace", "Path escapes the stack workspace.", nil)
+		case errors.Is(err, stackworkspace.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Stack workspace path was not found.", nil)
+		case errors.Is(err, stackworkspace.ErrPathNotDirectory):
+			writeError(w, http.StatusBadRequest, "path_not_directory", "Path is not a directory.", nil)
+		case errors.Is(err, stackworkspace.ErrPermissionDenied):
+			writeError(w, http.StatusConflict, "permission_denied", "Stack workspace path is not readable by the Stacklab service.", nil)
+		default:
+			h.logger.Error("stack workspace tree failed", slog.String("stack_id", r.PathValue("stackId")), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load stack workspace tree.", nil)
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleStackWorkspaceFile(w http.ResponseWriter, r *http.Request) {
+	response, err := h.stackFiles.File(r.Context(), r.PathValue("stackId"), strings.TrimSpace(r.URL.Query().Get("path")))
+	if err != nil {
+		switch {
+		case errors.Is(err, stackworkspace.ErrPathOutsideWorkspace):
+			writeError(w, http.StatusBadRequest, "path_outside_workspace", "Path escapes the stack workspace.", nil)
+		case errors.Is(err, stackworkspace.ErrReservedPath):
+			writeError(w, http.StatusConflict, "invalid_state", "compose.yaml and .env are managed through the stack editor.", nil)
+		case errors.Is(err, stackworkspace.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Stack workspace file was not found.", nil)
+		case errors.Is(err, stackworkspace.ErrPathNotFile):
+			writeError(w, http.StatusBadRequest, "path_not_file", "Path is not a file.", nil)
+		case errors.Is(err, stackworkspace.ErrPermissionDenied):
+			writeError(w, http.StatusConflict, "permission_denied", "Stack workspace file is not readable by the Stacklab service.", nil)
+		default:
+			h.logger.Error("stack workspace file failed", slog.String("stack_id", r.PathValue("stackId")), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load stack workspace file.", nil)
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handlePutStackWorkspaceFile(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request stackworkspace.SaveFileRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	stackID := r.PathValue("stackId")
+	response, err := h.stackFiles.SaveFile(r.Context(), stackID, request)
+	if err != nil {
+		switch {
+		case errors.Is(err, stackworkspace.ErrPathOutsideWorkspace):
+			writeError(w, http.StatusBadRequest, "path_outside_workspace", "Path escapes the stack workspace.", nil)
+		case errors.Is(err, stackworkspace.ErrReservedPath):
+			writeError(w, http.StatusConflict, "invalid_state", "compose.yaml and .env are managed through the stack editor.", nil)
+		case errors.Is(err, stackworkspace.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Stack workspace path was not found.", nil)
+		case errors.Is(err, stackworkspace.ErrPathNotDirectory):
+			writeError(w, http.StatusBadRequest, "path_not_directory", "Parent path is not a directory.", nil)
+		case errors.Is(err, stackworkspace.ErrPathNotFile):
+			writeError(w, http.StatusBadRequest, "path_not_file", "Path is not a file.", nil)
+		case errors.Is(err, stackworkspace.ErrBinaryNotEditable):
+			writeError(w, http.StatusConflict, "binary_not_editable", "Binary files cannot be edited in the browser.", nil)
+		case errors.Is(err, stackworkspace.ErrPermissionDenied):
+			writeError(w, http.StatusConflict, "permission_denied", "Stack workspace file cannot be edited due to file permissions.", nil)
+		default:
+			h.logger.Error("save stack workspace file failed", slog.String("stack_id", stackID), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to save stack workspace file.", nil)
+		}
+		return
+	}
+
+	details := map[string]any{
+		"path": response.Path,
+		"type": "text_file",
+	}
+	if err := h.audit.RecordStackFileSave(r.Context(), stackID, response.Path, "local", details); err != nil {
+		h.logger.Warn("record save_stack_file audit failed", slog.String("stack_id", stackID), slog.String("path", response.Path), slog.String("err", err.Error()))
 	}
 
 	writeJSON(w, http.StatusOK, response)

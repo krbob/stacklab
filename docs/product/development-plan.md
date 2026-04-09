@@ -429,3 +429,35 @@ Then decide the final UI shape:
 - compact pill vs slim bar
 - popover vs tray vs drawer
 - collapsed single-job summary vs aggregate count-first summary
+
+## Milestone 11: Stack Auxiliary Files
+
+Goal:
+
+- cover stack-local helper files such as `Dockerfile` and nested config without turning the stack area into a generic file manager
+
+Scope:
+
+- browse auxiliary files under `stacks/<stack_id>/`
+- text editing for supported files
+- blocked-file diagnostics reuse from existing workspace flows
+- keep `compose.yaml` and root `.env` in the dedicated stack editor
+
+Backend work:
+
+- stack-scoped workspace endpoint(s)
+- reserved canonical file handling
+- atomic save path for auxiliary text files
+- audit integration with `save_stack_file`
+- tests for path safety, reserved files, binary detection, and permissions
+
+UI work:
+
+- place the feature inside the stack surface
+- file tree + editor/read-only preview
+- clear affordance back to the main Compose editor
+
+UI developer input needed:
+
+- early
+- the main decision is whether this is a new stack tab or a mode inside the existing editor

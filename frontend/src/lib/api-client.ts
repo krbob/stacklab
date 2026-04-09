@@ -27,6 +27,9 @@ import type {
   ResolvedConfigResponse,
   SessionResponse,
   StackDetailResponse,
+  StackWorkspaceFileResponse,
+  StackWorkspaceFileSaveResponse,
+  StackWorkspaceTreeResponse,
   StackListResponse,
   StacklabLogsResponse,
 } from '@/lib/api-types'
@@ -191,6 +194,29 @@ export function getStack(stackId: string): Promise<StackDetailResponse> {
 
 export function getDefinition(stackId: string): Promise<DefinitionResponse> {
   return request(`/api/stacks/${encodeURIComponent(stackId)}/definition`)
+}
+
+export function getStackWorkspaceTree(stackId: string, path?: string): Promise<StackWorkspaceTreeResponse> {
+  const search = new URLSearchParams()
+  if (path) search.set('path', path)
+  const qs = search.toString()
+  return request(`/api/stacks/${encodeURIComponent(stackId)}/workspace/tree${qs ? `?${qs}` : ''}`)
+}
+
+export function getStackWorkspaceFile(stackId: string, path: string): Promise<StackWorkspaceFileResponse> {
+  return request(`/api/stacks/${encodeURIComponent(stackId)}/workspace/file?path=${encodeURIComponent(path)}`)
+}
+
+export function saveStackWorkspaceFile(
+  stackId: string,
+  path: string,
+  content: string,
+  createParentDirectories = false,
+): Promise<StackWorkspaceFileSaveResponse> {
+  return request(`/api/stacks/${encodeURIComponent(stackId)}/workspace/file`, {
+    method: 'PUT',
+    body: JSON.stringify({ path, content, create_parent_directories: createParentDirectories }),
+  })
 }
 
 export function getResolvedConfig(stackId: string): Promise<ResolvedConfigResponse> {

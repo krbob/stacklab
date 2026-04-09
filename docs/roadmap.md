@@ -58,6 +58,7 @@ Implemented and already exercised on Linux staging hosts:
 
 - manual prune workflows with explicit scope and preview
 - image inventory and selective image maintenance
+- stack-local helper files such as `Dockerfile` and nested config under `stacks/<id>/`
 - Debian-native `.deb` packaging for `amd64` and `arm64`
 - stable release workflow with GitHub Releases and signed APT `stable`
 - nightly prereleases and signed APT `nightly`
