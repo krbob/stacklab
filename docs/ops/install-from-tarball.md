@@ -4,7 +4,8 @@
 
 This document defines the first supported host-native install and upgrade flow for Stacklab using release tarballs.
 
-It is the recommended path before `.deb` packaging is implemented.
+It remains a supported host-native install and upgrade path alongside the `.deb`
+and APT workflows.
 
 ## Supported Platforms
 
@@ -58,11 +59,19 @@ stacklab-<version>-linux-<arch>/
   systemd/
     stacklab.service.example
     stacklab.env.example
+    stacklab-docker-admin.sudoers.example
   host-tools/
     upgrade.sh
 ```
 
 `host-tools/upgrade.sh` is the supported installation and upgrade entrypoint.
+
+The tarball also includes:
+
+- `bin/stacklab-docker-admin-helper`
+- `systemd/stacklab-docker-admin.sudoers.example`
+
+These are only needed if you later opt into Docker daemon apply workflows.
 
 ## First Install
 

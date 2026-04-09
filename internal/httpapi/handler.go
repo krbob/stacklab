@@ -55,6 +55,7 @@ type dockerAdminReader interface {
 	Overview(ctx context.Context) (dockeradmin.OverviewResponse, error)
 	DaemonConfig(ctx context.Context) (dockeradmin.DaemonConfigResponse, error)
 	ValidateManagedConfig(ctx context.Context, request dockeradmin.ValidateManagedConfigRequest) (dockeradmin.ValidateManagedConfigResponse, error)
+	ApplyManagedConfig(ctx context.Context, request dockeradmin.ApplyManagedConfigRequest) (dockeradmin.ApplyManagedConfigResult, error)
 }
 
 type configWorkspaceReader interface {
@@ -124,6 +125,7 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/docker/admin/overview", h.withAuth(h.handleDockerAdminOverview))
 	h.mux.HandleFunc("GET /api/docker/admin/daemon-config", h.withAuth(h.handleDockerAdminDaemonConfig))
 	h.mux.HandleFunc("POST /api/docker/admin/daemon-config/validate", h.withAuth(h.handleDockerAdminValidateDaemonConfig))
+	h.mux.HandleFunc("POST /api/docker/admin/daemon-config/apply", h.withAuth(h.handleDockerAdminApplyDaemonConfig))
 	h.mux.HandleFunc("GET /api/config/workspace/tree", h.withAuth(h.handleConfigWorkspaceTree))
 	h.mux.HandleFunc("GET /api/config/workspace/file", h.withAuth(h.handleConfigWorkspaceFile))
 	h.mux.HandleFunc("PUT /api/config/workspace/file", h.withAuth(h.handlePutConfigWorkspaceFile))
@@ -860,6 +862,159 @@ func (h *Handler) handleDockerAdminValidateDaemonConfig(w http.ResponseWriter, r
 	}
 
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleDockerAdminApplyDaemonConfig(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request dockerAdminValidateRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	validateResponse, err := h.dockerAdmin.ValidateManagedConfig(r.Context(), dockeradmin.ValidateManagedConfigRequest{
+		Settings:   request.Settings,
+		RemoveKeys: request.RemoveKeys,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, dockeradmin.ErrInvalidManagedInput):
+			writeError(w, http.StatusBadRequest, "validation_failed", err.Error(), nil)
+		case errors.Is(err, dockeradmin.ErrUnreadableConfig):
+			writeError(w, http.StatusConflict, "permission_denied", "Docker daemon config is not readable by the Stacklab service user.", nil)
+		case errors.Is(err, dockeradmin.ErrInvalidDaemonConfig):
+			writeError(w, http.StatusConflict, "invalid_state", "Docker daemon config contains invalid JSON and cannot be managed safely.", nil)
+		default:
+			h.logger.Error("docker daemon config apply preflight failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to validate Docker daemon apply request.", nil)
+		}
+		return
+	}
+	if !validateResponse.WriteCapability.Supported {
+		writeError(w, http.StatusNotImplemented, "not_implemented", "Docker daemon apply is not configured yet.", nil)
+		return
+	}
+
+	lockStackIDs, err := h.listManagedStackIDs(r.Context())
+	if err != nil {
+		h.logger.Error("list managed stacks for docker daemon apply failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to prepare Docker daemon apply workflow.", nil)
+		return
+	}
+
+	job, err := h.jobs.StartWithLocks(r.Context(), "", "apply_docker_daemon_config", "local", lockStackIDs)
+	if err != nil {
+		switch {
+		case errors.Is(err, jobs.ErrStackLocked):
+			writeError(w, http.StatusConflict, "conflict", "Another global or stack maintenance job is already running.", nil)
+		default:
+			h.logger.Error("start docker daemon apply job failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create job.", nil)
+		}
+		return
+	}
+
+	workflow := []store.JobWorkflowStep{
+		{Action: "validate_config", State: "running"},
+		{Action: "apply_and_restart", State: "queued"},
+		{Action: "verify_recovery", State: "queued"},
+	}
+	updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow)
+	if updateErr != nil {
+		h.logger.Error("initialize docker daemon apply workflow failed", slog.String("job_id", job.ID), slog.String("err", updateErr.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to initialize Docker daemon apply workflow.", nil)
+		return
+	}
+	job = updatedJob
+	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", "Starting Docker daemon config validation.", "", workflowStepRef(workflow, 0))
+	if len(validateResponse.ChangedKeys) > 0 {
+		_ = h.jobs.PublishEvent(r.Context(), job, "job_log", "Validated Docker daemon config preview.", strings.Join(validateResponse.ChangedKeys, ", "), workflowStepRef(workflow, 0))
+	}
+	if len(validateResponse.Warnings) > 0 {
+		for _, warning := range validateResponse.Warnings {
+			_ = h.jobs.PublishEvent(r.Context(), job, "job_warning", warning, "", workflowStepRef(workflow, 0))
+		}
+	}
+	workflow = markWorkflowSucceeded(workflow, 0)
+	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_finished", "Finished Docker daemon config validation.", "", workflowStepRef(workflow, 0))
+	workflow = markWorkflowRunning(workflow, 1)
+	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", "Applying Docker daemon config and restarting Docker.", "", workflowStepRef(workflow, 1))
+	if updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow); updateErr == nil {
+		job = updatedJob
+	}
+
+	applyResult, err := h.dockerAdmin.ApplyManagedConfig(r.Context(), dockeradmin.ApplyManagedConfigRequest{
+		Settings:   request.Settings,
+		RemoveKeys: request.RemoveKeys,
+	})
+	if applyResult.BackupPath != "" {
+		_ = h.jobs.PublishEvent(r.Context(), job, "job_log", "Created Docker daemon config backup.", applyResult.BackupPath, workflowStepRef(workflow, 1))
+	}
+	for _, warning := range applyResult.Warnings {
+		_ = h.jobs.PublishEvent(r.Context(), job, "job_warning", warning, "", workflowStepRef(workflow, 1))
+	}
+	if err != nil {
+		workflow = markWorkflowFailed(workflow, 1)
+		if updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow); updateErr == nil {
+			job = updatedJob
+		}
+		errorCode := "docker_daemon_apply_failed"
+		message := err.Error()
+		if errors.Is(err, dockeradmin.ErrApplyUnsupported) {
+			errorCode = "not_implemented"
+			message = "Docker daemon apply is not configured yet."
+		}
+		job, _ = h.jobs.FinishFailed(r.Context(), job, errorCode, message)
+		_ = h.audit.RecordJob(r.Context(), job, dockerDaemonApplyAuditDetails(request, applyResult))
+		writeJSON(w, http.StatusOK, map[string]any{"job": job})
+		return
+	}
+
+	workflow = markWorkflowSucceeded(workflow, 1)
+	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_finished", "Applied Docker daemon config and restarted Docker.", "", workflowStepRef(workflow, 1))
+	workflow = markWorkflowRunning(workflow, 2)
+	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", "Verifying Docker recovery.", "", workflowStepRef(workflow, 2))
+	if updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow); updateErr == nil {
+		job = updatedJob
+	}
+
+	overview, verifyErr := h.dockerAdmin.Overview(r.Context())
+	if verifyErr != nil || !overview.Engine.Available || (overview.Service.Supported && overview.Service.ActiveState != "active") {
+		workflow = markWorkflowFailed(workflow, 2)
+		if updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow); updateErr == nil {
+			job = updatedJob
+		}
+		message := "Docker daemon restart completed but recovery verification failed."
+		if verifyErr != nil {
+			message = verifyErr.Error()
+		}
+		job, _ = h.jobs.FinishFailed(r.Context(), job, "docker_daemon_verify_failed", message)
+		_ = h.audit.RecordJob(r.Context(), job, dockerDaemonApplyAuditDetails(request, applyResult))
+		writeJSON(w, http.StatusOK, map[string]any{"job": job})
+		return
+	}
+
+	workflow = markWorkflowSucceeded(workflow, 2)
+	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_finished", "Verified Docker recovery.", "", workflowStepRef(workflow, 2))
+	if updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow); updateErr == nil {
+		job = updatedJob
+	}
+
+	job, err = h.jobs.FinishSucceeded(r.Context(), job)
+	if err != nil {
+		h.logger.Error("finish docker daemon apply job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to finalize Docker daemon apply job.", nil)
+		return
+	}
+	if err := h.audit.RecordJob(r.Context(), job, dockerDaemonApplyAuditDetails(request, applyResult)); err != nil {
+		h.logger.Warn("record docker daemon apply audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"job": job})
 }
 
 func (h *Handler) handleListStacks(w http.ResponseWriter, r *http.Request) {
@@ -1704,6 +1859,48 @@ func boolOrDefault(value *bool, fallback bool) bool {
 		return fallback
 	}
 	return *value
+}
+
+func dockerDaemonApplyAuditDetails(request dockerAdminValidateRequest, result dockeradmin.ApplyManagedConfigResult) map[string]any {
+	details := map[string]any{
+		"managed_keys": supportedDockerManagedKeys(),
+	}
+	if len(request.RemoveKeys) > 0 {
+		details["remove_keys"] = request.RemoveKeys
+	}
+	if request.Settings.DNS != nil {
+		details["dns"] = *request.Settings.DNS
+	}
+	if request.Settings.RegistryMirrors != nil {
+		details["registry_mirrors"] = *request.Settings.RegistryMirrors
+	}
+	if request.Settings.InsecureRegistries != nil {
+		details["insecure_registries"] = *request.Settings.InsecureRegistries
+	}
+	if request.Settings.LiveRestore != nil {
+		details["live_restore"] = *request.Settings.LiveRestore
+	}
+	if len(result.ChangedKeys) > 0 {
+		details["changed_keys"] = result.ChangedKeys
+	}
+	if result.BackupPath != "" {
+		details["backup_path"] = result.BackupPath
+	}
+	if result.RolledBack {
+		details["rolled_back"] = true
+		details["rollback_succeeded"] = result.RollbackSucceeded
+	}
+	if result.ServiceActiveState != "" {
+		details["service_active_state"] = result.ServiceActiveState
+	}
+	if len(result.Warnings) > 0 {
+		details["warnings"] = result.Warnings
+	}
+	return details
+}
+
+func supportedDockerManagedKeys() []string {
+	return []string{"dns", "registry_mirrors", "insecure_registries", "live_restore"}
 }
 
 func parseOptionalBool(value string, fallback bool) bool {

@@ -165,6 +165,39 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /docker/admin/daemon-config/apply:
+    post:
+      tags: [Docker]
+      operationId: applyDockerAdminDaemonConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DockerDaemonValidateRequest'
+      responses:
+        '200':
+          description: Started Docker daemon config apply workflow.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobEnvelopeResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '409':
+          description: Current daemon.json is unreadable or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '501':
+          description: Docker daemon apply helper is not configured yet.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /config/workspace/tree:
     get:
       tags: [Config]

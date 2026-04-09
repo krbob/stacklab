@@ -48,7 +48,7 @@ These are chosen because they cover real homelab needs such as custom DNS and re
 Current status:
 
 - validation preview is supported
-- actual privileged apply is a later backend slice
+- actual privileged apply requires a configured helper path and remains disabled by default
 
 ## REST Endpoints
 
@@ -220,7 +220,7 @@ If the file does not exist:
 Notes:
 
 - the first managed write slice is not a raw editor
-- write/apply is represented by `write_capability`, which is intentionally disabled until a privileged helper path exists
+- write/apply is represented by `write_capability`, which remains disabled until a privileged helper path is configured
 - unreadable files should return `200` with `permissions.readable = false` instead of a generic hard failure
 - the UI should treat missing `daemon.json` as "Docker is using defaults", not as an error by itself
 
@@ -281,6 +281,50 @@ Notes:
 - if the current file is unreadable by the Stacklab service user, the endpoint returns `409 permission_denied`
 - this endpoint is safe to use as the form-level preview step before a later apply flow
 
+## `POST /api/docker/admin/daemon-config/apply`
+
+Purpose:
+
+- start the privileged apply workflow for the managed Docker daemon settings
+
+Request:
+
+- same payload as `POST /api/docker/admin/daemon-config/validate`
+
+Response:
+
+```json
+{
+  "job": {
+    "id": "job_xxx",
+    "stack_id": null,
+    "action": "apply_docker_daemon_config",
+    "state": "succeeded",
+    "requested_at": "2026-04-09T12:00:00Z",
+    "started_at": "2026-04-09T12:00:00Z",
+    "finished_at": "2026-04-09T12:00:03Z",
+    "workflow": {
+      "steps": [
+        { "action": "validate_config", "state": "succeeded" },
+        { "action": "apply_and_restart", "state": "succeeded" },
+        { "action": "verify_recovery", "state": "succeeded" }
+      ]
+    }
+  }
+}
+```
+
+Notes:
+
+- this is a global job because Docker restart affects all managed stacks
+- the helper must:
+  - create a backup
+  - write the new `daemon.json`
+  - restart Docker
+  - roll back automatically if restart fails
+- if the helper path is not configured, this endpoint returns `501 not_implemented`
+- job events should carry backup and rollback warnings where relevant
+
 ## Platform Caveat
 
 This surface is designed primarily for Debian-family Linux hosts running Docker under `systemd`.
@@ -291,6 +335,7 @@ Expected degraded states:
 - on hosts without readable Docker daemon metadata, the engine block may be partially empty
 - on hosts where `daemon.json` is unreadable by the Stacklab service user, content should remain unavailable while metadata stays visible
 - on hosts without a privileged helper, `write_capability.supported` should remain `false` even though preview validation is available
+- even when the helper binary is installed, operators should explicitly enable it through environment configuration and a narrow `sudoers` allowlist
 
 ## Suggested Backend Sources
 
@@ -299,6 +344,7 @@ Expected degraded states:
 - `docker info --format '{{json .}}'`
 - `docker compose version --short`
 - `/etc/docker/daemon.json`
+- `stacklab-docker-admin-helper`
 
 ## Tests
 
@@ -311,3 +357,4 @@ Recommended initial tests:
 - invalid `daemon.json` parse reporting
 - managed settings validation preview while preserving unknown keys
 - rejection when the current `daemon.json` is invalid or unreadable
+- helper-backed apply flow with backup, restart, and rollback reporting

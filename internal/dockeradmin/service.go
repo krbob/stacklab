@@ -29,6 +29,7 @@ var (
 	ErrInvalidDaemonConfig = errors.New("docker daemon config is invalid")
 	ErrUnreadableConfig    = errors.New("docker daemon config is unreadable")
 	ErrInvalidManagedInput = errors.New("invalid managed docker config request")
+	ErrApplyUnsupported    = errors.New("docker daemon apply is not supported")
 )
 
 var supportedManagedKeys = []string{
@@ -50,6 +51,9 @@ type commandRunner func(ctx context.Context, name string, args ...string) ([]byt
 type Service struct {
 	dockerUnitName   string
 	daemonConfigPath string
+	helperPath       string
+	backupDir        string
+	useSudo          bool
 	runCommand       commandRunner
 }
 
@@ -67,6 +71,9 @@ func NewService(cfg config.Config) *Service {
 	return &Service{
 		dockerUnitName:   dockerUnitName,
 		daemonConfigPath: daemonConfigPath,
+		helperPath:       strings.TrimSpace(cfg.DockerAdminHelperPath),
+		backupDir:        strings.TrimSpace(cfg.DockerAdminBackupDir),
+		useSudo:          cfg.DockerAdminUseSudo,
 		runCommand:       defaultCommandRunner,
 	}
 }
@@ -188,6 +195,58 @@ func (s *Service) ValidateManagedConfig(ctx context.Context, request ValidateMan
 			Summary:        summarizeDaemonConfig(merged),
 		},
 	}, nil
+}
+
+func (s *Service) ApplyManagedConfig(ctx context.Context, request ApplyManagedConfigRequest) (ApplyManagedConfigResult, error) {
+	preview, err := s.ValidateManagedConfig(ctx, ValidateManagedConfigRequest(request))
+	if err != nil {
+		return ApplyManagedConfigResult{}, err
+	}
+	if !preview.WriteCapability.Supported {
+		return ApplyManagedConfigResult{}, ErrApplyUnsupported
+	}
+
+	inputFile, err := os.CreateTemp("", "stacklab-daemon-config-*.json")
+	if err != nil {
+		return ApplyManagedConfigResult{}, fmt.Errorf("create daemon config temp file: %w", err)
+	}
+	inputPath := inputFile.Name()
+	defer os.Remove(inputPath)
+	if _, err := inputFile.WriteString(preview.Preview.Content); err != nil {
+		_ = inputFile.Close()
+		return ApplyManagedConfigResult{}, fmt.Errorf("write daemon config temp file: %w", err)
+	}
+	if err := inputFile.Close(); err != nil {
+		return ApplyManagedConfigResult{}, fmt.Errorf("close daemon config temp file: %w", err)
+	}
+
+	output, runErr := s.runHelperCommand(ctx,
+		"apply",
+		"--config-path", s.daemonConfigPath,
+		"--backup-dir", s.backupDir,
+		"--unit", s.dockerUnitName,
+		"--input", inputPath,
+	)
+
+	result, parseErr := parseHelperApplyOutput(output)
+	if parseErr != nil {
+		if runErr != nil {
+			return ApplyManagedConfigResult{}, fmt.Errorf("docker admin helper failed: %w: %s", runErr, strings.TrimSpace(string(output)))
+		}
+		return ApplyManagedConfigResult{}, parseErr
+	}
+	result.ChangedKeys = preview.ChangedKeys
+	if len(preview.Warnings) > 0 {
+		result.Warnings = append(result.Warnings, preview.Warnings...)
+	}
+	if runErr != nil {
+		if result.RolledBack {
+			result.Warnings = append(result.Warnings, "Docker daemon apply failed and rollback was attempted.")
+		}
+		return result, fmt.Errorf("docker admin helper failed: %w", runErr)
+	}
+
+	return result, nil
 }
 
 func (s *Service) readServiceStatus(ctx context.Context) ServiceStatus {
@@ -355,12 +414,27 @@ func summarizeDaemonConfig(values map[string]json.RawMessage) DaemonConfigSummar
 }
 
 func (s *Service) writeCapability() WriteCapability {
-	reason := writeUnsupportedMessage
-	return WriteCapability{
+	response := WriteCapability{
 		Supported:   false,
-		Reason:      &reason,
 		ManagedKeys: append([]string(nil), supportedManagedKeys...),
 	}
+	if s.helperPath == "" {
+		reason := writeUnsupportedMessage
+		response.Reason = &reason
+		return response
+	}
+	if strings.TrimSpace(s.backupDir) == "" {
+		reason := "Docker admin backup directory is not configured."
+		response.Reason = &reason
+		return response
+	}
+	if info, err := os.Stat(s.helperPath); err != nil || info.IsDir() {
+		reason := fmt.Sprintf("Docker admin helper is unavailable at %s.", s.helperPath)
+		response.Reason = &reason
+		return response
+	}
+	response.Supported = true
+	return response
 }
 
 func hasManagedChanges(request ValidateManagedConfigRequest) bool {
@@ -470,6 +544,42 @@ func mustMarshalJSON(value any) json.RawMessage {
 		panic(fmt.Sprintf("marshal managed docker daemon value: %v", err))
 	}
 	return encoded
+}
+
+func (s *Service) runHelperCommand(ctx context.Context, args ...string) ([]byte, error) {
+	if s.useSudo {
+		sudoArgs := append([]string{"-n", "--", s.helperPath}, args...)
+		return s.runCommand(ctx, "sudo", sudoArgs...)
+	}
+	return s.runCommand(ctx, s.helperPath, args...)
+}
+
+type helperApplyOutput struct {
+	BackupPath         string   `json:"backup_path"`
+	RolledBack         bool     `json:"rolled_back"`
+	RollbackSucceeded  bool     `json:"rollback_succeeded"`
+	ServiceActiveState string   `json:"service_active_state"`
+	Warnings           []string `json:"warnings"`
+}
+
+func parseHelperApplyOutput(output []byte) (ApplyManagedConfigResult, error) {
+	trimmed := strings.TrimSpace(string(output))
+	if trimmed == "" {
+		return ApplyManagedConfigResult{}, errors.New("docker admin helper produced empty output")
+	}
+
+	var decoded helperApplyOutput
+	if err := json.Unmarshal([]byte(trimmed), &decoded); err != nil {
+		return ApplyManagedConfigResult{}, fmt.Errorf("parse docker admin helper output: %w", err)
+	}
+
+	return ApplyManagedConfigResult{
+		BackupPath:         decoded.BackupPath,
+		RolledBack:         decoded.RolledBack,
+		RollbackSucceeded:  decoded.RollbackSucceeded,
+		ServiceActiveState: decoded.ServiceActiveState,
+		Warnings:           append([]string(nil), decoded.Warnings...),
+	}, nil
 }
 
 func decodeStringSlice(raw json.RawMessage, target *[]string) {

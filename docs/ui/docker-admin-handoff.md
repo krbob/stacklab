@@ -129,3 +129,22 @@ Do not build:
 
 - free-form JSON editor as the primary write surface
 - hidden apply controls that pretend the current release can restart Docker already
+
+## Future Apply Flow Notes
+
+Backend now exposes a future-compatible apply endpoint:
+
+- `POST /api/docker/admin/daemon-config/apply`
+
+It returns a global job and uses the same long-running job model as maintenance.
+
+That means the eventual apply UX can reuse:
+
+- global activity
+- step cards
+- job detail links
+
+Current backend behavior:
+
+- if the privileged helper is not configured, apply returns `501 not_implemented`
+- preview validation is the only supported write-adjacent action by default

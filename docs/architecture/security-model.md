@@ -220,6 +220,32 @@ Rules:
 - destructive operations must be explicit and separately flagged
 - deleting `/opt/stacklab/data/<stack>` is never the default path
 
+## Privileged Helper Flows
+
+Some host actions cannot be performed safely by the main Stacklab service user alone.
+
+Rules:
+
+- the main Stacklab service must remain non-root
+- privileged host actions must go through a narrow allowlisted helper
+- helper entrypoints must be explicit and task-specific rather than general shell execution
+- preferred model:
+  - main service invokes a dedicated helper binary
+  - helper is executed through a narrow `sudoers` allowlist or equivalent privileged boundary
+
+Current intended helper scope:
+
+- Docker daemon apply workflow:
+  - backup `/etc/docker/daemon.json`
+  - write the new file
+  - restart Docker
+  - roll back if restart fails
+
+Non-goals:
+
+- arbitrary root command execution
+- generic `sudo sh -c ...` style escape hatches
+
 ## Docker Access
 
 Because Docker access is privileged in practice:

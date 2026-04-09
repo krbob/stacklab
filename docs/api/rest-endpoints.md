@@ -402,6 +402,55 @@ Notes:
 - invalid current JSON returns `409 invalid_state`
 - unreadable current config returns `409 permission_denied`
 
+## `POST /api/docker/admin/daemon-config/apply`
+
+Purpose:
+
+- start the global Docker daemon apply workflow using the same managed settings payload as validate
+
+Request:
+
+```json
+{
+  "settings": {
+    "dns": ["192.168.1.2"],
+    "registry_mirrors": ["https://mirror.local"],
+    "live_restore": true
+  },
+  "remove_keys": ["insecure_registries"]
+}
+```
+
+Response:
+
+```json
+{
+  "job": {
+    "id": "job_xxx",
+    "stack_id": null,
+    "action": "apply_docker_daemon_config",
+    "state": "succeeded",
+    "requested_at": "2026-04-09T12:00:00Z",
+    "started_at": "2026-04-09T12:00:00Z",
+    "finished_at": "2026-04-09T12:00:03Z",
+    "workflow": {
+      "steps": [
+        { "action": "validate_config", "state": "succeeded" },
+        { "action": "apply_and_restart", "state": "succeeded" },
+        { "action": "verify_recovery", "state": "succeeded" }
+      ]
+    }
+  }
+}
+```
+
+Notes:
+
+- this is a global job because restarting Docker affects the whole host
+- Stacklab locks managed stacks during the apply workflow
+- if the helper is not configured, this returns `501 not_implemented`
+- helper-backed failures may emit warnings about rollback attempts into the job event stream
+
 ## `GET /api/config/workspace/tree`
 
 Purpose:

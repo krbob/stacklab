@@ -97,3 +97,17 @@ type ValidateManagedConfigResponse struct {
 	Warnings        []string            `json:"warnings"`
 	Preview         DaemonConfigPreview `json:"preview"`
 }
+
+type ApplyManagedConfigRequest struct {
+	Settings   ManagedSettings `json:"settings"`
+	RemoveKeys []string        `json:"remove_keys,omitempty"`
+}
+
+type ApplyManagedConfigResult struct {
+	ChangedKeys        []string `json:"changed_keys"`
+	BackupPath         string   `json:"backup_path,omitempty"`
+	RolledBack         bool     `json:"rolled_back"`
+	RollbackSucceeded  bool     `json:"rollback_succeeded"`
+	ServiceActiveState string   `json:"service_active_state,omitempty"`
+	Warnings           []string `json:"warnings,omitempty"`
+}

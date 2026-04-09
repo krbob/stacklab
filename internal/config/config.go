@@ -18,6 +18,9 @@ type Config struct {
 	SystemdUnitName         string
 	DockerSystemdUnitName   string
 	DockerDaemonConfigPath  string
+	DockerAdminHelperPath   string
+	DockerAdminUseSudo      bool
+	DockerAdminBackupDir    string
 	SessionCookieName       string
 	SessionIdleTimeout      time.Duration
 	SessionAbsoluteLifetime time.Duration
@@ -38,6 +41,9 @@ func Load() Config {
 		SystemdUnitName:         getenv("STACKLAB_SYSTEMD_UNIT", "stacklab"),
 		DockerSystemdUnitName:   getenv("STACKLAB_DOCKER_SYSTEMD_UNIT", "docker.service"),
 		DockerDaemonConfigPath:  getenv("STACKLAB_DOCKER_DAEMON_CONFIG_PATH", "/etc/docker/daemon.json"),
+		DockerAdminHelperPath:   getenv("STACKLAB_DOCKER_ADMIN_HELPER_PATH", ""),
+		DockerAdminUseSudo:      parseBool(getenv("STACKLAB_DOCKER_ADMIN_USE_SUDO", "false")),
+		DockerAdminBackupDir:    getenv("STACKLAB_DOCKER_ADMIN_BACKUP_DIR", filepath.Join(dataDir, "docker-admin")),
 		SessionCookieName:       getenv("STACKLAB_SESSION_COOKIE_NAME", "stacklab_session"),
 		SessionIdleTimeout:      parseDuration(getenv("STACKLAB_SESSION_IDLE_TIMEOUT", "12h"), 12*time.Hour),
 		SessionAbsoluteLifetime: parseDuration(getenv("STACKLAB_SESSION_ABSOLUTE_LIFETIME", "168h"), 7*24*time.Hour),

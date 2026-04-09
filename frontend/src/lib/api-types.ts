@@ -424,6 +424,8 @@ export interface DockerDaemonValidateRequest {
   remove_keys?: string[]
 }
 
+export type DockerDaemonApplyRequest = DockerDaemonValidateRequest
+
 export interface DockerDaemonConfigPreview {
   path: string
   content: string

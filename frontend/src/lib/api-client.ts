@@ -7,6 +7,7 @@ import type {
   DefinitionResponse,
   DockerAdminOverviewResponse,
   DockerDaemonConfigResponse,
+  DockerDaemonApplyRequest,
   DockerDaemonValidateRequest,
   DockerDaemonValidateResponse,
   GitCommitRequest,
@@ -119,6 +120,13 @@ export function getDockerDaemonConfig(): Promise<DockerDaemonConfigResponse> {
 
 export function validateDockerDaemonConfig(requestBody: DockerDaemonValidateRequest): Promise<DockerDaemonValidateResponse> {
   return request('/api/docker/admin/daemon-config/validate', {
+    method: 'POST',
+    body: JSON.stringify(requestBody),
+  })
+}
+
+export function applyDockerDaemonConfig(requestBody: DockerDaemonApplyRequest): Promise<{ job: JobRef }> {
+  return request('/api/docker/admin/daemon-config/apply', {
     method: 'POST',
     body: JSON.stringify(requestBody),
   })

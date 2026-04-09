@@ -44,6 +44,8 @@ type fakeDockerAdmin struct {
 	daemonConfigError    error
 	validateResponse     dockeradmin.ValidateManagedConfigResponse
 	validateError        error
+	applyResponse        dockeradmin.ApplyManagedConfigResult
+	applyError           error
 }
 
 func (f *fakeHostInfo) Overview(ctx context.Context) (hostinfo.OverviewResponse, error) {
@@ -65,6 +67,10 @@ func (f *fakeDockerAdmin) DaemonConfig(ctx context.Context) (dockeradmin.DaemonC
 
 func (f *fakeDockerAdmin) ValidateManagedConfig(ctx context.Context, request dockeradmin.ValidateManagedConfigRequest) (dockeradmin.ValidateManagedConfigResponse, error) {
 	return f.validateResponse, f.validateError
+}
+
+func (f *fakeDockerAdmin) ApplyManagedConfig(ctx context.Context, request dockeradmin.ApplyManagedConfigRequest) (dockeradmin.ApplyManagedConfigResult, error) {
+	return f.applyResponse, f.applyError
 }
 
 func TestHandlerPutDefinitionReturnsStackLockedWhenAnotherJobOwnsStack(t *testing.T) {
@@ -224,7 +230,7 @@ func TestHandlerDockerAdminOverviewAndDaemonConfig(t *testing.T) {
 				ValidJSON:      true,
 				ConfiguredKeys: []string{"dns"},
 				WriteCapability: dockeradmin.WriteCapability{
-					Supported:   false,
+					Supported:   true,
 					ManagedKeys: []string{"dns", "registry_mirrors", "insecure_registries", "live_restore"},
 				},
 				Summary: dockeradmin.DaemonConfigSummary{
@@ -234,7 +240,7 @@ func TestHandlerDockerAdminOverviewAndDaemonConfig(t *testing.T) {
 				},
 			},
 			WriteCapability: dockeradmin.WriteCapability{
-				Supported:   false,
+				Supported:   true,
 				ManagedKeys: []string{"dns", "registry_mirrors", "insecure_registries", "live_restore"},
 			},
 		},
@@ -245,7 +251,7 @@ func TestHandlerDockerAdminOverviewAndDaemonConfig(t *testing.T) {
 				ValidJSON:      true,
 				ConfiguredKeys: []string{"dns"},
 				WriteCapability: dockeradmin.WriteCapability{
-					Supported:   false,
+					Supported:   true,
 					ManagedKeys: []string{"dns", "registry_mirrors", "insecure_registries", "live_restore"},
 				},
 				Summary: dockeradmin.DaemonConfigSummary{
@@ -258,7 +264,7 @@ func TestHandlerDockerAdminOverviewAndDaemonConfig(t *testing.T) {
 		},
 		validateResponse: dockeradmin.ValidateManagedConfigResponse{
 			WriteCapability: dockeradmin.WriteCapability{
-				Supported:   false,
+				Supported:   true,
 				ManagedKeys: []string{"dns", "registry_mirrors", "insecure_registries", "live_restore"},
 			},
 			ChangedKeys:     []string{"dns"},
@@ -274,6 +280,11 @@ func TestHandlerDockerAdminOverviewAndDaemonConfig(t *testing.T) {
 					InsecureRegistries: []string{},
 				},
 			},
+		},
+		applyResponse: dockeradmin.ApplyManagedConfigResult{
+			ChangedKeys:        []string{"dns"},
+			BackupPath:         "/var/lib/stacklab/docker-admin/daemon-20260409T120000Z.json",
+			ServiceActiveState: "active",
 		},
 	}
 	handler.dockerAdmin = docker
@@ -311,6 +322,22 @@ func TestHandlerDockerAdminOverviewAndDaemonConfig(t *testing.T) {
 	decodeInternalResponse(t, validateResponse, &validatePayload)
 	if len(validatePayload.ChangedKeys) != 1 || validatePayload.ChangedKeys[0] != "dns" {
 		t.Fatalf("unexpected docker daemon validate payload: %#v", validatePayload)
+	}
+
+	applyResponse := performInternalJSONRequest(t, served, http.MethodPost, "/api/docker/admin/daemon-config/apply", map[string]any{
+		"settings": map[string]any{
+			"dns": []string{"1.1.1.1"},
+		},
+	}, cookies)
+	if applyResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/docker/admin/daemon-config/apply status = %d, want %d; body=%s", applyResponse.Code, http.StatusOK, applyResponse.Body.String())
+	}
+	var applyPayload struct {
+		Job store.Job `json:"job"`
+	}
+	decodeInternalResponse(t, applyResponse, &applyPayload)
+	if applyPayload.Job.Action != "apply_docker_daemon_config" || applyPayload.Job.State != "succeeded" {
+		t.Fatalf("unexpected docker daemon apply payload: %#v", applyPayload)
 	}
 }
 

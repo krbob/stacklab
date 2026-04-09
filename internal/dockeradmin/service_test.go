@@ -168,3 +168,66 @@ func TestValidateManagedConfigRejectsInvalidExistingJSON(t *testing.T) {
 func pointerToBool(value bool) *bool {
 	return &value
 }
+
+func TestApplyManagedConfigUsesHelperAndParsesResult(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	daemonPath := filepath.Join(tempDir, "daemon.json")
+	if err := os.WriteFile(daemonPath, []byte("{\n  \"dns\": [\"192.168.1.2\"],\n  \"log-driver\": \"json-file\"\n}\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(daemon.json) error = %v", err)
+	}
+	helperPath := filepath.Join(tempDir, "helper")
+	if err := os.WriteFile(helperPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile(helper) error = %v", err)
+	}
+
+	service := NewService(config.Config{
+		DockerDaemonConfigPath: daemonPath,
+		DockerAdminHelperPath:  helperPath,
+		DockerAdminBackupDir:   filepath.Join(tempDir, "backups"),
+	})
+	service.runCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		if name != helperPath {
+			t.Fatalf("unexpected command: %s %v", name, args)
+		}
+		return []byte(`{"backup_path":"/tmp/daemon-backup.json","rolled_back":false,"rollback_succeeded":false,"service_active_state":"active"}`), nil
+	}
+
+	result, err := service.ApplyManagedConfig(context.Background(), ApplyManagedConfigRequest{
+		Settings: ManagedSettings{
+			DNS: &[]string{"1.1.1.1"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ApplyManagedConfig() error = %v", err)
+	}
+	if result.BackupPath != "/tmp/daemon-backup.json" || result.ServiceActiveState != "active" {
+		t.Fatalf("unexpected apply result: %#v", result)
+	}
+	if len(result.ChangedKeys) != 1 || result.ChangedKeys[0] != "dns" {
+		t.Fatalf("unexpected changed keys: %#v", result.ChangedKeys)
+	}
+}
+
+func TestApplyManagedConfigRejectsWhenHelperUnsupported(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	daemonPath := filepath.Join(tempDir, "daemon.json")
+	if err := os.WriteFile(daemonPath, []byte("{\"dns\":[\"192.168.1.2\"]}\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(daemon.json) error = %v", err)
+	}
+
+	service := NewService(config.Config{
+		DockerDaemonConfigPath: daemonPath,
+	})
+	_, err := service.ApplyManagedConfig(context.Background(), ApplyManagedConfigRequest{
+		Settings: ManagedSettings{
+			DNS: &[]string{"1.1.1.1"},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), ErrApplyUnsupported.Error()) {
+		t.Fatalf("ApplyManagedConfig() error = %v, want unsupported", err)
+	}
+}
