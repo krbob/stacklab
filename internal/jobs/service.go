@@ -174,6 +174,51 @@ func (s *Service) Get(ctx context.Context, id string) (store.Job, error) {
 	return job, nil
 }
 
+func (s *Service) Events(ctx context.Context, id string) (EventsResponse, error) {
+	job, err := s.Get(ctx, id)
+	if err != nil {
+		return EventsResponse{}, err
+	}
+
+	storedEvents, err := s.store.ListJobEvents(ctx, id)
+	if err != nil {
+		return EventsResponse{}, err
+	}
+
+	response := EventsResponse{
+		JobID:    job.ID,
+		Retained: len(storedEvents) > 0,
+		Items:    make([]JobEventRecord, 0, len(storedEvents)),
+	}
+	for _, event := range storedEvents {
+		var step *ActiveJobStep
+		if event.Step != nil {
+			step = &ActiveJobStep{
+				Index:         event.Step.Index,
+				Total:         event.Step.Total,
+				Action:        event.Step.Action,
+				TargetStackID: event.Step.TargetStackID,
+			}
+		}
+		response.Items = append(response.Items, JobEventRecord{
+			JobID:     event.JobID,
+			Sequence:  event.Sequence,
+			Event:     event.Event,
+			State:     event.State,
+			Message:   event.Message,
+			Data:      event.Data,
+			Step:      step,
+			Timestamp: event.Timestamp,
+		})
+	}
+
+	if !response.Retained {
+		response.Message = "Detailed output for this job is no longer retained."
+	}
+
+	return response, nil
+}
+
 func (s *Service) ListActive(ctx context.Context) (ActiveJobsResponse, error) {
 	storedJobs, err := s.store.ListActiveJobs(ctx)
 	if err != nil {

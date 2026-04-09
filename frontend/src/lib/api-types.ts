@@ -238,6 +238,31 @@ export interface JobDetail {
   } | null
 }
 
+export interface JobEventStep {
+  index: number
+  total: number
+  action: string
+  target_stack_id?: string
+}
+
+export interface JobHistoryEvent {
+  job_id: string
+  sequence: number
+  event: JobEventType | string
+  state: JobState | string
+  message?: string
+  data?: string | null
+  step?: JobEventStep | null
+  timestamp: string
+}
+
+export interface JobEventsResponse {
+  job_id: string
+  retained: boolean
+  message?: string
+  items: JobHistoryEvent[]
+}
+
 export interface ActiveJobStep {
   index: number
   total: number

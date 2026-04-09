@@ -935,6 +935,23 @@ paths:
           $ref: '#/components/responses/ErrorUnauthorized'
         '404':
           $ref: '#/components/responses/ErrorNotFound'
+  /jobs/{jobId}/events:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    get:
+      tags: [Jobs]
+      operationId: listJobEvents
+      responses:
+        '200':
+          description: Retained job events for replayable progress detail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobEventsResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
   /jobs/{jobId}/cancel:
     parameters:
       - $ref: '#/components/parameters/JobId'
@@ -2146,6 +2163,20 @@ components:
         job:
           $ref: '#/components/schemas/Job'
       required: [job]
+    JobEventsResponse:
+      type: object
+      properties:
+        job_id:
+          type: string
+        retained:
+          type: boolean
+        message:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobEventRecord'
+      required: [job_id, retained, items]
     ActiveJobsResponse:
       type: object
       properties:
@@ -2201,6 +2232,28 @@ components:
         - stack_id
         - action
         - state
+    JobEventRecord:
+      type: object
+      properties:
+        job_id:
+          type: string
+        sequence:
+          type: integer
+        event:
+          type: string
+        state:
+          $ref: '#/components/schemas/JobState'
+        message:
+          type: string
+        data:
+          type: string
+          nullable: true
+        step:
+          $ref: '#/components/schemas/ActiveJobStep'
+        timestamp:
+          type: string
+          format: date-time
+      required: [job_id, sequence, event, state, timestamp]
     ActiveJobItem:
       type: object
       properties:

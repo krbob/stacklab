@@ -7,6 +7,13 @@ type ActiveJobsResponse struct {
 	Summary ActiveJobCounts `json:"summary"`
 }
 
+type EventsResponse struct {
+	JobID    string           `json:"job_id"`
+	Retained bool             `json:"retained"`
+	Message  string           `json:"message,omitempty"`
+	Items    []JobEventRecord `json:"items"`
+}
+
 type ActiveJobCounts struct {
 	ActiveCount          int `json:"active_count"`
 	RunningCount         int `json:"running_count"`
@@ -49,4 +56,15 @@ type ActiveJobEvent struct {
 	Data      string         `json:"data,omitempty"`
 	Timestamp time.Time      `json:"timestamp"`
 	Step      *ActiveJobStep `json:"step,omitempty"`
+}
+
+type JobEventRecord struct {
+	JobID     string         `json:"job_id"`
+	Sequence  int            `json:"sequence"`
+	Event     string         `json:"event"`
+	State     string         `json:"state"`
+	Message   string         `json:"message,omitempty"`
+	Data      string         `json:"data,omitempty"`
+	Step      *ActiveJobStep `json:"step,omitempty"`
+	Timestamp time.Time      `json:"timestamp"`
 }

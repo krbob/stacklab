@@ -201,6 +201,9 @@ func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
 	jobResponse := performJSONRequest(t, handler, http.MethodGet, "/api/jobs/"+createPayload.Job.ID, nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/jobs/"+createPayload.Job.ID, nil, cookies, jobResponse)
 
+	jobEventsResponse := performJSONRequest(t, handler, http.MethodGet, "/api/jobs/"+createPayload.Job.ID+"/events", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/jobs/"+createPayload.Job.ID+"/events", nil, cookies, jobEventsResponse)
+
 	stackAuditResponse := performJSONRequest(t, handler, http.MethodGet, "/api/stacks/"+stackID+"/audit", nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/stacks/"+stackID+"/audit", nil, cookies, stackAuditResponse)
 

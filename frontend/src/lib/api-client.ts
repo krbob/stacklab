@@ -20,6 +20,7 @@ import type {
   HealthResponse,
   HostOverviewResponse,
   JobDetail,
+  JobEventsResponse,
   JobRef,
   MaintenanceUpdateStacksRequest,
   MaintenanceImagesResponse,
@@ -265,6 +266,10 @@ export function getGlobalAudit(params?: { stack_id?: string; cursor?: string; li
 
 export function getJob(jobId: string): Promise<{ job: JobDetail }> {
   return request(`/api/jobs/${encodeURIComponent(jobId)}`)
+}
+
+export function getJobEvents(jobId: string): Promise<JobEventsResponse> {
+  return request(`/api/jobs/${encodeURIComponent(jobId)}/events`)
 }
 
 export function getActiveJobs(): Promise<ActiveJobsResponse> {

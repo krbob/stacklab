@@ -155,6 +155,7 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/maintenance/prune-preview", h.withAuth(h.handleMaintenancePrunePreview))
 	h.mux.HandleFunc("POST /api/maintenance/prune", h.withAuth(h.handleMaintenancePrune))
 	h.mux.HandleFunc("GET /api/jobs/active", h.withAuth(h.handleListActiveJobs))
+	h.mux.HandleFunc("GET /api/jobs/{jobId}/events", h.withAuth(h.handleListJobEvents))
 	h.mux.HandleFunc("GET /api/stacks", h.withAuth(h.handleListStacks))
 	h.mux.HandleFunc("POST /api/stacks", h.withAuth(h.handleCreateStack))
 	h.mux.HandleFunc("GET /api/stacks/{stackId}", h.withAuth(h.handleGetStack))
@@ -1691,6 +1692,22 @@ func (h *Handler) handleListActiveJobs(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.logger.Error("list active jobs failed", slog.String("err", err.Error()))
 		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load active jobs.", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleListJobEvents(w http.ResponseWriter, r *http.Request) {
+	response, err := h.jobs.Events(r.Context(), r.PathValue("jobId"))
+	if err != nil {
+		switch {
+		case errors.Is(err, jobs.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Job was not found.", nil)
+		default:
+			h.logger.Error("list job events failed", slog.String("job_id", r.PathValue("jobId")), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load job events.", nil)
+		}
 		return
 	}
 

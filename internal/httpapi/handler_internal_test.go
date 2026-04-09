@@ -508,6 +508,95 @@ func TestHandlerListActiveJobs(t *testing.T) {
 	}
 }
 
+func TestHandlerGetJobEvents(t *testing.T) {
+	t.Parallel()
+
+	handler, served, cfg := newInternalTestHandler(t)
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	retainedJob, err := handler.jobs.Start(context.Background(), "demo", "pull", "local")
+	if err != nil {
+		t.Fatalf("jobs.Start(retained) error = %v", err)
+	}
+	if err := handler.jobs.PublishEvent(context.Background(), retainedJob, "job_step_started", "Starting pull for demo.", "", &store.JobEventStep{
+		Index:         1,
+		Total:         1,
+		Action:        "pull",
+		TargetStackID: "demo",
+	}); err != nil {
+		t.Fatalf("jobs.PublishEvent(retained) error = %v", err)
+	}
+
+	retainedResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/jobs/"+retainedJob.ID+"/events", nil, cookies)
+	if retainedResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/jobs/%s/events status = %d, want %d; body=%s", retainedJob.ID, retainedResponse.Code, http.StatusOK, retainedResponse.Body.String())
+	}
+	var retainedPayload struct {
+		JobID    string `json:"job_id"`
+		Retained bool   `json:"retained"`
+		Message  string `json:"message"`
+		Items    []struct {
+			Sequence int    `json:"sequence"`
+			Event    string `json:"event"`
+			Step     *struct {
+				TargetStackID string `json:"target_stack_id"`
+			} `json:"step"`
+		} `json:"items"`
+	}
+	decodeInternalResponse(t, retainedResponse, &retainedPayload)
+	if retainedPayload.JobID != retainedJob.ID || !retainedPayload.Retained || retainedPayload.Message != "" {
+		t.Fatalf("unexpected retained payload header: %#v", retainedPayload)
+	}
+	if len(retainedPayload.Items) < 2 {
+		t.Fatalf("expected retained items, got %#v", retainedPayload.Items)
+	}
+	if retainedPayload.Items[1].Event != "job_step_started" || retainedPayload.Items[1].Step == nil || retainedPayload.Items[1].Step.TargetStackID != "demo" {
+		t.Fatalf("unexpected retained event payload: %#v", retainedPayload.Items)
+	}
+
+	jobStore, err := store.Open(cfg.DatabasePath)
+	if err != nil {
+		t.Fatalf("store.Open(job setup) error = %v", err)
+	}
+	defer func() {
+		if err := jobStore.Close(); err != nil {
+			t.Fatalf("Store.Close(job setup) error = %v", err)
+		}
+	}()
+	now := time.Now().UTC()
+	purgedJob := store.Job{
+		ID:          "job_purged_fixture",
+		StackID:     "old",
+		Action:      "restart",
+		State:       "succeeded",
+		RequestedBy: "local",
+		RequestedAt: now.Add(-2 * time.Minute),
+		StartedAt:   pointerTo(now.Add(-90 * time.Second)),
+		FinishedAt:  pointerTo(now.Add(-30 * time.Second)),
+	}
+	if err := jobStore.CreateJob(context.Background(), purgedJob); err != nil {
+		t.Fatalf("CreateJob(purged fixture) error = %v", err)
+	}
+
+	purgedResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/jobs/"+purgedJob.ID+"/events", nil, cookies)
+	if purgedResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/jobs/%s/events status = %d, want %d; body=%s", purgedJob.ID, purgedResponse.Code, http.StatusOK, purgedResponse.Body.String())
+	}
+	var purgedPayload struct {
+		JobID    string `json:"job_id"`
+		Retained bool   `json:"retained"`
+		Message  string `json:"message"`
+		Items    []any  `json:"items"`
+	}
+	decodeInternalResponse(t, purgedResponse, &purgedPayload)
+	if purgedPayload.JobID != purgedJob.ID || purgedPayload.Retained {
+		t.Fatalf("unexpected purged payload header: %#v", purgedPayload)
+	}
+	if purgedPayload.Message != "Detailed output for this job is no longer retained." || len(purgedPayload.Items) != 0 {
+		t.Fatalf("unexpected purged payload body: %#v", purgedPayload)
+	}
+}
+
 func TestHandlerConfigWorkspaceTreeFileAndSave(t *testing.T) {
 	t.Parallel()
 

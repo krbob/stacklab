@@ -1790,6 +1790,57 @@ Response:
 }
 ```
 
+## `GET /api/jobs/{jobId}/events`
+
+Purpose:
+
+- fetch retained `job_events` for a single job
+- power a dedicated job detail screen or replayable progress panel from audit/history links
+
+Response:
+
+```json
+{
+  "job_id": "job_01hr...",
+  "retained": true,
+  "items": [
+    {
+      "job_id": "job_01hr...",
+      "sequence": 1,
+      "event": "job_started",
+      "state": "running",
+      "message": "Job started.",
+      "timestamp": "2026-04-03T18:40:01Z"
+    },
+    {
+      "job_id": "job_01hr...",
+      "sequence": 2,
+      "event": "job_step_started",
+      "state": "running",
+      "message": "Starting pull for nextcloud.",
+      "step": {
+        "index": 1,
+        "total": 2,
+        "action": "pull",
+        "target_stack_id": "nextcloud"
+      },
+      "timestamp": "2026-04-03T18:40:02Z"
+    }
+  ]
+}
+```
+
+If detailed output was already purged, the endpoint still returns `200` with:
+
+```json
+{
+  "job_id": "job_01hr...",
+  "retained": false,
+  "message": "Detailed output for this job is no longer retained.",
+  "items": []
+}
+```
+
 ## `GET /api/jobs/active`
 
 Purpose:
