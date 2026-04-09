@@ -274,7 +274,17 @@ Response:
       "log_driver": "json-file",
       "data_root": "",
       "live_restore": null
+    },
+    "write_capability": {
+      "supported": false,
+      "reason": "Managed Docker daemon apply is not configured yet.",
+      "managed_keys": ["dns", "registry_mirrors", "insecure_registries", "live_restore"]
     }
+  },
+  "write_capability": {
+    "supported": false,
+    "reason": "Managed Docker daemon apply is not configured yet.",
+    "managed_keys": ["dns", "registry_mirrors", "insecure_registries", "live_restore"]
   }
 }
 ```
@@ -317,6 +327,11 @@ Response:
     "data_root": "",
     "live_restore": null
   },
+  "write_capability": {
+    "supported": false,
+    "reason": "Managed Docker daemon apply is not configured yet.",
+    "managed_keys": ["dns", "registry_mirrors", "insecure_registries", "live_restore"]
+  },
   "content": "{\n  \"dns\": [\"192.168.1.2\"],\n  \"log-driver\": \"json-file\"\n}\n"
 }
 ```
@@ -328,7 +343,64 @@ Notes:
   - `valid_json = false`
   - `parse_error`
   - raw `content`
-- this milestone is strictly read-only; there is no save/apply endpoint yet
+- `write_capability` describes the planned privileged apply path and the currently managed keys
+
+## `POST /api/docker/admin/daemon-config/validate`
+
+Purpose:
+
+- validate managed Docker daemon setting changes and return a merged preview without writing the file
+
+Request:
+
+```json
+{
+  "settings": {
+    "dns": ["192.168.1.2"],
+    "registry_mirrors": ["https://mirror.local"],
+    "live_restore": true
+  },
+  "remove_keys": ["insecure_registries"]
+}
+```
+
+Response:
+
+```json
+{
+  "write_capability": {
+    "supported": false,
+    "reason": "Managed Docker daemon apply is not configured yet.",
+    "managed_keys": ["dns", "registry_mirrors", "insecure_registries", "live_restore"]
+  },
+  "changed_keys": ["dns", "live_restore"],
+  "requires_restart": true,
+  "warnings": [
+    "Applying Docker daemon settings requires a Docker restart."
+  ],
+  "preview": {
+    "path": "/etc/docker/daemon.json",
+    "content": "{\n  \"dns\": [\n    \"192.168.1.2\"\n  ],\n  \"live-restore\": true,\n  \"log-driver\": \"json-file\"\n}\n",
+    "configured_keys": ["dns", "live-restore", "log-driver"],
+    "summary": {
+      "dns": ["192.168.1.2"],
+      "registry_mirrors": [],
+      "insecure_registries": [],
+      "log_driver": "json-file",
+      "data_root": "",
+      "live_restore": true
+    }
+  }
+}
+```
+
+Notes:
+
+- this is a managed settings preview, not a raw `daemon.json` editor
+- unknown existing keys are preserved in the preview
+- unsupported `remove_keys` values are rejected with `400 validation_failed`
+- invalid current JSON returns `409 invalid_state`
+- unreadable current config returns `409 permission_denied`
 
 ## `GET /api/config/workspace/tree`
 

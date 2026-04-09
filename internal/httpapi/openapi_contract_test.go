@@ -57,6 +57,14 @@ func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
 	dockerConfigResponse := performJSONRequest(t, handler, http.MethodGet, "/api/docker/admin/daemon-config", nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/docker/admin/daemon-config", nil, cookies, dockerConfigResponse)
 
+	dockerValidateBody := map[string]any{
+		"settings": map[string]any{
+			"dns": []string{"192.168.1.2"},
+		},
+	}
+	dockerValidateResponse := performJSONRequest(t, handler, http.MethodPost, "/api/docker/admin/daemon-config/validate", dockerValidateBody, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodPost, "/api/docker/admin/daemon-config/validate", dockerValidateBody, cookies, dockerValidateResponse)
+
 	configRoot := filepath.Join(cfg.RootDir, "config")
 	if err := os.MkdirAll(filepath.Join(configRoot, "nextcloud"), 0o755); err != nil {
 		t.Fatalf("MkdirAll(config nextcloud) error = %v", err)

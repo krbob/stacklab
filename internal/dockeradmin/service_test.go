@@ -63,6 +63,9 @@ func TestOverviewUsesSystemctlDockerAndDaemonConfig(t *testing.T) {
 	if len(response.DaemonConfig.Summary.DNS) != 1 || response.DaemonConfig.Summary.DNS[0] != "192.168.1.2" {
 		t.Fatalf("unexpected daemon config summary: %#v", response.DaemonConfig.Summary)
 	}
+	if response.WriteCapability.Supported {
+		t.Fatalf("expected write capability to be disabled in this slice, got %#v", response.WriteCapability)
+	}
 }
 
 func TestDaemonConfigHandlesInvalidJSON(t *testing.T) {
@@ -109,4 +112,59 @@ func TestOverviewDegradesWhenSystemctlAndDockerUnavailable(t *testing.T) {
 	if response.DaemonConfig.Path == "" {
 		t.Fatalf("expected default daemon config path, got %#v", response.DaemonConfig)
 	}
+}
+
+func TestValidateManagedConfigMergesSupportedKeysAndPreservesUnknownKeys(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	daemonPath := filepath.Join(tempDir, "daemon.json")
+	if err := os.WriteFile(daemonPath, []byte("{\n  \"dns\": [\"192.168.1.2\"],\n  \"live-restore\": false,\n  \"log-driver\": \"json-file\"\n}\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(daemon.json) error = %v", err)
+	}
+
+	service := NewService(config.Config{DockerDaemonConfigPath: daemonPath})
+	response, err := service.ValidateManagedConfig(context.Background(), ValidateManagedConfigRequest{
+		Settings: ManagedSettings{
+			DNS:         &[]string{"1.1.1.1", "8.8.8.8"},
+			LiveRestore: pointerToBool(true),
+		},
+	})
+	if err != nil {
+		t.Fatalf("ValidateManagedConfig() error = %v", err)
+	}
+
+	if !strings.Contains(response.Preview.Content, "\"log-driver\": \"json-file\"") {
+		t.Fatalf("expected preview to preserve unknown keys, got %s", response.Preview.Content)
+	}
+	if !strings.Contains(response.Preview.Content, "\"live-restore\": true") {
+		t.Fatalf("expected preview to update live-restore, got %s", response.Preview.Content)
+	}
+	if len(response.ChangedKeys) != 2 || response.ChangedKeys[0] != "dns" || response.ChangedKeys[1] != "live_restore" {
+		t.Fatalf("unexpected changed keys: %#v", response.ChangedKeys)
+	}
+}
+
+func TestValidateManagedConfigRejectsInvalidExistingJSON(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	daemonPath := filepath.Join(tempDir, "daemon.json")
+	if err := os.WriteFile(daemonPath, []byte("{ invalid json"), 0o644); err != nil {
+		t.Fatalf("WriteFile(daemon.json) error = %v", err)
+	}
+
+	service := NewService(config.Config{DockerDaemonConfigPath: daemonPath})
+	_, err := service.ValidateManagedConfig(context.Background(), ValidateManagedConfigRequest{
+		Settings: ManagedSettings{
+			DNS: &[]string{"1.1.1.1"},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), ErrInvalidDaemonConfig.Error()) {
+		t.Fatalf("ValidateManagedConfig() error = %v, want invalid daemon config", err)
+	}
+}
+
+func pointerToBool(value bool) *bool {
+	return &value
 }

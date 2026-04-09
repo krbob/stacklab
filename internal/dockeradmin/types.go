@@ -7,9 +7,10 @@ import (
 )
 
 type OverviewResponse struct {
-	Service      ServiceStatus    `json:"service"`
-	Engine       EngineStatus     `json:"engine"`
-	DaemonConfig DaemonConfigMeta `json:"daemon_config"`
+	Service         ServiceStatus    `json:"service"`
+	Engine          EngineStatus     `json:"engine"`
+	DaemonConfig    DaemonConfigMeta `json:"daemon_config"`
+	WriteCapability WriteCapability  `json:"write_capability"`
 }
 
 type ServiceStatus struct {
@@ -47,18 +48,52 @@ type DaemonConfigSummary struct {
 }
 
 type DaemonConfigMeta struct {
-	Path           string              `json:"path"`
-	Exists         bool                `json:"exists"`
-	Permissions    *fsmeta.Permissions `json:"permissions,omitempty"`
-	SizeBytes      *int64              `json:"size_bytes,omitempty"`
-	ModifiedAt     *time.Time          `json:"modified_at,omitempty"`
-	ValidJSON      bool                `json:"valid_json"`
-	ParseError     *string             `json:"parse_error,omitempty"`
-	ConfiguredKeys []string            `json:"configured_keys"`
-	Summary        DaemonConfigSummary `json:"summary"`
+	Path            string              `json:"path"`
+	Exists          bool                `json:"exists"`
+	Permissions     *fsmeta.Permissions `json:"permissions,omitempty"`
+	SizeBytes       *int64              `json:"size_bytes,omitempty"`
+	ModifiedAt      *time.Time          `json:"modified_at,omitempty"`
+	ValidJSON       bool                `json:"valid_json"`
+	ParseError      *string             `json:"parse_error,omitempty"`
+	ConfiguredKeys  []string            `json:"configured_keys"`
+	Summary         DaemonConfigSummary `json:"summary"`
+	WriteCapability WriteCapability     `json:"write_capability"`
 }
 
 type DaemonConfigResponse struct {
 	DaemonConfigMeta
 	Content *string `json:"content,omitempty"`
+}
+
+type WriteCapability struct {
+	Supported   bool     `json:"supported"`
+	Reason      *string  `json:"reason,omitempty"`
+	ManagedKeys []string `json:"managed_keys"`
+}
+
+type ManagedSettings struct {
+	DNS                *[]string `json:"dns,omitempty"`
+	RegistryMirrors    *[]string `json:"registry_mirrors,omitempty"`
+	InsecureRegistries *[]string `json:"insecure_registries,omitempty"`
+	LiveRestore        *bool     `json:"live_restore,omitempty"`
+}
+
+type ValidateManagedConfigRequest struct {
+	Settings   ManagedSettings `json:"settings"`
+	RemoveKeys []string        `json:"remove_keys,omitempty"`
+}
+
+type DaemonConfigPreview struct {
+	Path           string              `json:"path"`
+	Content        string              `json:"content"`
+	ConfiguredKeys []string            `json:"configured_keys"`
+	Summary        DaemonConfigSummary `json:"summary"`
+}
+
+type ValidateManagedConfigResponse struct {
+	WriteCapability WriteCapability     `json:"write_capability"`
+	ChangedKeys     []string            `json:"changed_keys"`
+	RequiresRestart bool                `json:"requires_restart"`
+	Warnings        []string            `json:"warnings"`
+	Preview         DaemonConfigPreview `json:"preview"`
 }

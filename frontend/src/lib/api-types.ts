@@ -392,16 +392,51 @@ export interface DockerDaemonConfigMeta {
   parse_error?: string | null
   configured_keys: string[]
   summary: DockerDaemonConfigSummary
+  write_capability: DockerDaemonWriteCapability
 }
 
 export interface DockerAdminOverviewResponse {
   service: DockerServiceStatus
   engine: DockerEngineStatus
   daemon_config: DockerDaemonConfigMeta
+  write_capability: DockerDaemonWriteCapability
 }
 
 export interface DockerDaemonConfigResponse extends DockerDaemonConfigMeta {
   content?: string | null
+}
+
+export interface DockerDaemonWriteCapability {
+  supported: boolean
+  reason?: string | null
+  managed_keys: string[]
+}
+
+export interface DockerManagedSettings {
+  dns?: string[]
+  registry_mirrors?: string[]
+  insecure_registries?: string[]
+  live_restore?: boolean
+}
+
+export interface DockerDaemonValidateRequest {
+  settings: DockerManagedSettings
+  remove_keys?: string[]
+}
+
+export interface DockerDaemonConfigPreview {
+  path: string
+  content: string
+  configured_keys: string[]
+  summary: DockerDaemonConfigSummary
+}
+
+export interface DockerDaemonValidateResponse {
+  write_capability: DockerDaemonWriteCapability
+  changed_keys: string[]
+  requires_restart: boolean
+  warnings: string[]
+  preview: DockerDaemonConfigPreview
 }
 
 export interface FilePermissions {

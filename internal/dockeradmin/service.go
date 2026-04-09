@@ -3,6 +3,8 @@ package dockeradmin
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"sort"
@@ -20,7 +22,28 @@ const (
 	systemdManagerName          = "systemd"
 	unsupportedManagerMessage   = "systemd status is unavailable on this host"
 	dockerUnavailableDefaultMsg = "Docker Engine metadata is unavailable."
+	writeUnsupportedMessage     = "Managed Docker daemon apply is not configured yet."
 )
+
+var (
+	ErrInvalidDaemonConfig = errors.New("docker daemon config is invalid")
+	ErrUnreadableConfig    = errors.New("docker daemon config is unreadable")
+	ErrInvalidManagedInput = errors.New("invalid managed docker config request")
+)
+
+var supportedManagedKeys = []string{
+	"dns",
+	"registry_mirrors",
+	"insecure_registries",
+	"live_restore",
+}
+
+var managedKeyMap = map[string]string{
+	"dns":                 "dns",
+	"registry_mirrors":    "registry-mirrors",
+	"insecure_registries": "insecure-registries",
+	"live_restore":        "live-restore",
+}
 
 type commandRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
 
@@ -59,9 +82,10 @@ func (s *Service) Overview(ctx context.Context) (OverviewResponse, error) {
 	}
 
 	return OverviewResponse{
-		Service:      s.readServiceStatus(ctx),
-		Engine:       s.readEngineStatus(ctx),
-		DaemonConfig: configResponse.DaemonConfigMeta,
+		Service:         s.readServiceStatus(ctx),
+		Engine:          s.readEngineStatus(ctx),
+		DaemonConfig:    configResponse.DaemonConfigMeta,
+		WriteCapability: s.writeCapability(),
 	}, nil
 }
 
@@ -70,9 +94,10 @@ func (s *Service) DaemonConfig(ctx context.Context) (DaemonConfigResponse, error
 
 	response := DaemonConfigResponse{
 		DaemonConfigMeta: DaemonConfigMeta{
-			Path:           s.daemonConfigPath,
-			ValidJSON:      true,
-			ConfiguredKeys: []string{},
+			Path:            s.daemonConfigPath,
+			ValidJSON:       true,
+			ConfiguredKeys:  []string{},
+			WriteCapability: s.writeCapability(),
 			Summary: DaemonConfigSummary{
 				DNS:                []string{},
 				RegistryMirrors:    []string{},
@@ -125,6 +150,44 @@ func (s *Service) DaemonConfig(ctx context.Context) (DaemonConfigResponse, error
 	response.Summary = summarizeDaemonConfig(raw)
 
 	return response, nil
+}
+
+func (s *Service) ValidateManagedConfig(ctx context.Context, request ValidateManagedConfigRequest) (ValidateManagedConfigResponse, error) {
+	if !hasManagedChanges(request) {
+		return ValidateManagedConfigResponse{}, fmt.Errorf("%w: no managed Docker settings were provided", ErrInvalidManagedInput)
+	}
+	if err := validateManagedRequest(request); err != nil {
+		return ValidateManagedConfigResponse{}, err
+	}
+
+	base, current, err := s.loadEditableConfig(ctx)
+	if err != nil {
+		return ValidateManagedConfigResponse{}, err
+	}
+
+	merged := cloneRawMap(current)
+	applyManagedSettings(merged, request.Settings)
+	applyManagedKeyRemovals(merged, request.RemoveKeys)
+
+	content, err := marshalDaemonConfig(merged)
+	if err != nil {
+		return ValidateManagedConfigResponse{}, err
+	}
+
+	return ValidateManagedConfigResponse{
+		WriteCapability: s.writeCapability(),
+		ChangedKeys:     changedManagedKeys(current, merged),
+		RequiresRestart: true,
+		Warnings: []string{
+			"Applying Docker daemon settings requires a Docker restart.",
+		},
+		Preview: DaemonConfigPreview{
+			Path:           base.Path,
+			Content:        content,
+			ConfiguredKeys: sortedKeys(merged),
+			Summary:        summarizeDaemonConfig(merged),
+		},
+	}, nil
 }
 
 func (s *Service) readServiceStatus(ctx context.Context) ServiceStatus {
@@ -289,6 +352,124 @@ func summarizeDaemonConfig(values map[string]json.RawMessage) DaemonConfigSummar
 	decodeBool(values["live-restore"], &summary.LiveRestore)
 
 	return summary
+}
+
+func (s *Service) writeCapability() WriteCapability {
+	reason := writeUnsupportedMessage
+	return WriteCapability{
+		Supported:   false,
+		Reason:      &reason,
+		ManagedKeys: append([]string(nil), supportedManagedKeys...),
+	}
+}
+
+func hasManagedChanges(request ValidateManagedConfigRequest) bool {
+	if len(request.RemoveKeys) > 0 {
+		return true
+	}
+	return request.Settings.DNS != nil ||
+		request.Settings.RegistryMirrors != nil ||
+		request.Settings.InsecureRegistries != nil ||
+		request.Settings.LiveRestore != nil
+}
+
+func validateManagedRequest(request ValidateManagedConfigRequest) error {
+	seen := map[string]struct{}{}
+	for _, key := range request.RemoveKeys {
+		normalized := strings.TrimSpace(key)
+		if _, ok := managedKeyMap[normalized]; !ok {
+			return fmt.Errorf("%w: remove_keys contains unsupported key %q", ErrInvalidManagedInput, key)
+		}
+		if _, ok := seen[normalized]; ok {
+			return fmt.Errorf("%w: remove_keys contains duplicate key %q", ErrInvalidManagedInput, key)
+		}
+		seen[normalized] = struct{}{}
+	}
+	return nil
+}
+
+func (s *Service) loadEditableConfig(ctx context.Context) (DaemonConfigResponse, map[string]json.RawMessage, error) {
+	response, err := s.DaemonConfig(ctx)
+	if err != nil {
+		return DaemonConfigResponse{}, nil, err
+	}
+	if response.Exists && response.Permissions != nil && !response.Permissions.Readable {
+		return response, nil, ErrUnreadableConfig
+	}
+	if !response.ValidJSON {
+		return response, nil, ErrInvalidDaemonConfig
+	}
+	if response.Content == nil || strings.TrimSpace(*response.Content) == "" {
+		return response, map[string]json.RawMessage{}, nil
+	}
+
+	var values map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(*response.Content), &values); err != nil {
+		return response, nil, ErrInvalidDaemonConfig
+	}
+	return response, values, nil
+}
+
+func cloneRawMap(values map[string]json.RawMessage) map[string]json.RawMessage {
+	cloned := make(map[string]json.RawMessage, len(values))
+	for key, value := range values {
+		clonedValue := append(json.RawMessage(nil), value...)
+		cloned[key] = clonedValue
+	}
+	return cloned
+}
+
+func applyManagedSettings(values map[string]json.RawMessage, settings ManagedSettings) {
+	if settings.DNS != nil {
+		values[managedKeyMap["dns"]] = mustMarshalJSON(*settings.DNS)
+	}
+	if settings.RegistryMirrors != nil {
+		values[managedKeyMap["registry_mirrors"]] = mustMarshalJSON(*settings.RegistryMirrors)
+	}
+	if settings.InsecureRegistries != nil {
+		values[managedKeyMap["insecure_registries"]] = mustMarshalJSON(*settings.InsecureRegistries)
+	}
+	if settings.LiveRestore != nil {
+		values[managedKeyMap["live_restore"]] = mustMarshalJSON(*settings.LiveRestore)
+	}
+}
+
+func applyManagedKeyRemovals(values map[string]json.RawMessage, removeKeys []string) {
+	for _, key := range removeKeys {
+		if daemonKey, ok := managedKeyMap[strings.TrimSpace(key)]; ok {
+			delete(values, daemonKey)
+		}
+	}
+}
+
+func changedManagedKeys(before, after map[string]json.RawMessage) []string {
+	changed := make([]string, 0, len(supportedManagedKeys))
+	for _, managedKey := range supportedManagedKeys {
+		daemonKey := managedKeyMap[managedKey]
+		if strings.TrimSpace(string(before[daemonKey])) != strings.TrimSpace(string(after[daemonKey])) {
+			changed = append(changed, managedKey)
+		}
+	}
+	return changed
+}
+
+func marshalDaemonConfig(values map[string]json.RawMessage) (string, error) {
+	if len(values) == 0 {
+		return "{}\n", nil
+	}
+	encoded, err := json.MarshalIndent(values, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal docker daemon config: %w", err)
+	}
+	return string(encoded) + "\n", nil
+}
+
+func mustMarshalJSON(value any) json.RawMessage {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		panic(fmt.Sprintf("marshal managed docker daemon value: %v", err))
+	}
+	return encoded
 }
 
 func decodeStringSlice(raw json.RawMessage, target *[]string) {

@@ -60,6 +60,16 @@ const overview: DockerAdminOverviewResponse = {
       data_root: '',
       live_restore: true,
     },
+    write_capability: {
+      supported: false,
+      reason: 'Managed Docker daemon apply is not configured yet.',
+      managed_keys: ['dns', 'registry_mirrors', 'insecure_registries', 'live_restore'],
+    },
+  },
+  write_capability: {
+    supported: false,
+    reason: 'Managed Docker daemon apply is not configured yet.',
+    managed_keys: ['dns', 'registry_mirrors', 'insecure_registries', 'live_restore'],
   },
 }
 
@@ -111,6 +121,11 @@ const noDaemonOverview: DockerAdminOverviewResponse = {
       insecure_registries: [],
       log_driver: '',
       data_root: '',
+    },
+    write_capability: {
+      supported: false,
+      reason: 'Managed Docker daemon apply is not configured yet.',
+      managed_keys: ['dns', 'registry_mirrors', 'insecure_registries', 'live_restore'],
     },
   },
 }

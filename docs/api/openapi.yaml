@@ -138,6 +138,33 @@ paths:
                 $ref: '#/components/schemas/DockerDaemonConfigResponse'
         '401':
           $ref: '#/components/responses/ErrorUnauthorized'
+  /docker/admin/daemon-config/validate:
+    post:
+      tags: [Docker]
+      operationId: validateDockerAdminDaemonConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DockerDaemonValidateRequest'
+      responses:
+        '200':
+          description: Managed Docker daemon config validation preview.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DockerDaemonValidateResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '409':
+          description: Current daemon.json is unreadable or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /config/workspace/tree:
     get:
       tags: [Config]
@@ -1089,7 +1116,9 @@ components:
           $ref: '#/components/schemas/DockerEngineStatus'
         daemon_config:
           $ref: '#/components/schemas/DockerDaemonConfigMeta'
-      required: [service, engine, daemon_config]
+        write_capability:
+          $ref: '#/components/schemas/DockerDaemonWriteCapability'
+      required: [service, engine, daemon_config, write_capability]
     DockerServiceStatus:
       type: object
       properties:
@@ -1190,7 +1219,9 @@ components:
             type: string
         summary:
           $ref: '#/components/schemas/DockerDaemonConfigSummary'
-      required: [path, exists, valid_json, configured_keys, summary]
+        write_capability:
+          $ref: '#/components/schemas/DockerDaemonWriteCapability'
+      required: [path, exists, valid_json, configured_keys, summary, write_capability]
     DockerDaemonConfigResponse:
       allOf:
         - $ref: '#/components/schemas/DockerDaemonConfigMeta'
@@ -1199,6 +1230,78 @@ components:
             content:
               type: string
               nullable: true
+    DockerDaemonWriteCapability:
+      type: object
+      properties:
+        supported:
+          type: boolean
+        reason:
+          type: string
+          nullable: true
+        managed_keys:
+          type: array
+          items:
+            type: string
+      required: [supported, managed_keys]
+    DockerManagedSettings:
+      type: object
+      properties:
+        dns:
+          type: array
+          items:
+            type: string
+        registry_mirrors:
+          type: array
+          items:
+            type: string
+        insecure_registries:
+          type: array
+          items:
+            type: string
+        live_restore:
+          type: boolean
+    DockerDaemonValidateRequest:
+      type: object
+      properties:
+        settings:
+          $ref: '#/components/schemas/DockerManagedSettings'
+        remove_keys:
+          type: array
+          items:
+            type: string
+      required: [settings]
+    DockerDaemonConfigPreview:
+      type: object
+      properties:
+        path:
+          type: string
+        content:
+          type: string
+        configured_keys:
+          type: array
+          items:
+            type: string
+        summary:
+          $ref: '#/components/schemas/DockerDaemonConfigSummary'
+      required: [path, content, configured_keys, summary]
+    DockerDaemonValidateResponse:
+      type: object
+      properties:
+        write_capability:
+          $ref: '#/components/schemas/DockerDaemonWriteCapability'
+        changed_keys:
+          type: array
+          items:
+            type: string
+        requires_restart:
+          type: boolean
+        warnings:
+          type: array
+          items:
+            type: string
+        preview:
+          $ref: '#/components/schemas/DockerDaemonConfigPreview'
+      required: [write_capability, changed_keys, requires_restart, warnings, preview]
     ConfigEntryType:
       type: string
       enum: [directory, text_file, binary_file, unknown_file]

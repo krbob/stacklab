@@ -42,6 +42,8 @@ type fakeDockerAdmin struct {
 	overviewError        error
 	daemonConfigResponse dockeradmin.DaemonConfigResponse
 	daemonConfigError    error
+	validateResponse     dockeradmin.ValidateManagedConfigResponse
+	validateError        error
 }
 
 func (f *fakeHostInfo) Overview(ctx context.Context) (hostinfo.OverviewResponse, error) {
@@ -59,6 +61,10 @@ func (f *fakeDockerAdmin) Overview(ctx context.Context) (dockeradmin.OverviewRes
 
 func (f *fakeDockerAdmin) DaemonConfig(ctx context.Context) (dockeradmin.DaemonConfigResponse, error) {
 	return f.daemonConfigResponse, f.daemonConfigError
+}
+
+func (f *fakeDockerAdmin) ValidateManagedConfig(ctx context.Context, request dockeradmin.ValidateManagedConfigRequest) (dockeradmin.ValidateManagedConfigResponse, error) {
+	return f.validateResponse, f.validateError
 }
 
 func TestHandlerPutDefinitionReturnsStackLockedWhenAnotherJobOwnsStack(t *testing.T) {
@@ -217,11 +223,19 @@ func TestHandlerDockerAdminOverviewAndDaemonConfig(t *testing.T) {
 				Exists:         true,
 				ValidJSON:      true,
 				ConfiguredKeys: []string{"dns"},
+				WriteCapability: dockeradmin.WriteCapability{
+					Supported:   false,
+					ManagedKeys: []string{"dns", "registry_mirrors", "insecure_registries", "live_restore"},
+				},
 				Summary: dockeradmin.DaemonConfigSummary{
 					DNS:                []string{"192.168.1.2"},
 					RegistryMirrors:    []string{},
 					InsecureRegistries: []string{},
 				},
+			},
+			WriteCapability: dockeradmin.WriteCapability{
+				Supported:   false,
+				ManagedKeys: []string{"dns", "registry_mirrors", "insecure_registries", "live_restore"},
 			},
 		},
 		daemonConfigResponse: dockeradmin.DaemonConfigResponse{
@@ -230,6 +244,10 @@ func TestHandlerDockerAdminOverviewAndDaemonConfig(t *testing.T) {
 				Exists:         true,
 				ValidJSON:      true,
 				ConfiguredKeys: []string{"dns"},
+				WriteCapability: dockeradmin.WriteCapability{
+					Supported:   false,
+					ManagedKeys: []string{"dns", "registry_mirrors", "insecure_registries", "live_restore"},
+				},
 				Summary: dockeradmin.DaemonConfigSummary{
 					DNS:                []string{"192.168.1.2"},
 					RegistryMirrors:    []string{},
@@ -237,6 +255,25 @@ func TestHandlerDockerAdminOverviewAndDaemonConfig(t *testing.T) {
 				},
 			},
 			Content: pointerTo(`{"dns":["192.168.1.2"]}`),
+		},
+		validateResponse: dockeradmin.ValidateManagedConfigResponse{
+			WriteCapability: dockeradmin.WriteCapability{
+				Supported:   false,
+				ManagedKeys: []string{"dns", "registry_mirrors", "insecure_registries", "live_restore"},
+			},
+			ChangedKeys:     []string{"dns"},
+			RequiresRestart: true,
+			Warnings:        []string{"Applying Docker daemon settings requires a Docker restart."},
+			Preview: dockeradmin.DaemonConfigPreview{
+				Path:           "/etc/docker/daemon.json",
+				Content:        "{\n  \"dns\": [\n    \"1.1.1.1\"\n  ]\n}\n",
+				ConfiguredKeys: []string{"dns"},
+				Summary: dockeradmin.DaemonConfigSummary{
+					DNS:                []string{"1.1.1.1"},
+					RegistryMirrors:    []string{},
+					InsecureRegistries: []string{},
+				},
+			},
 		},
 	}
 	handler.dockerAdmin = docker
@@ -260,6 +297,20 @@ func TestHandlerDockerAdminOverviewAndDaemonConfig(t *testing.T) {
 	decodeInternalResponse(t, configResponse, &configPayload)
 	if configPayload.Content == nil || !strings.Contains(*configPayload.Content, "192.168.1.2") {
 		t.Fatalf("unexpected docker daemon config payload: %#v", configPayload)
+	}
+
+	validateResponse := performInternalJSONRequest(t, served, http.MethodPost, "/api/docker/admin/daemon-config/validate", map[string]any{
+		"settings": map[string]any{
+			"dns": []string{"1.1.1.1"},
+		},
+	}, cookies)
+	if validateResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/docker/admin/daemon-config/validate status = %d, want %d; body=%s", validateResponse.Code, http.StatusOK, validateResponse.Body.String())
+	}
+	var validatePayload dockeradmin.ValidateManagedConfigResponse
+	decodeInternalResponse(t, validateResponse, &validatePayload)
+	if len(validatePayload.ChangedKeys) != 1 || validatePayload.ChangedKeys[0] != "dns" {
+		t.Fatalf("unexpected docker daemon validate payload: %#v", validatePayload)
 	}
 }
 

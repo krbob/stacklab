@@ -1,12 +1,13 @@
 # Docker Admin Contract Draft
 
-This document defines the proposed contract for Docker Admin v1:
+This document defines the proposed contract for Docker Admin:
 
 - read-only Docker service status
 - read-only Docker Engine and Compose metadata
 - read-only `daemon.json` visibility
+- managed validation preview for selected `daemon.json` keys
 
-It is intentionally narrower than a generic host administration API.
+It is intentionally narrower than a generic host administration API or arbitrary file editor.
 
 ## Goals
 
@@ -18,8 +19,8 @@ It is intentionally narrower than a generic host administration API.
 
 - arbitrary shell access
 - arbitrary host file editing
-- applying Docker daemon changes in v1
-- managing every Docker daemon key in the first version
+- applying Docker daemon changes without an explicit privileged helper path
+- managing every Docker daemon key in the first writable version
 
 ## Confirmed Route Shape
 
@@ -32,6 +33,22 @@ Rationale:
 - `/host` is for host and Stacklab observability
 - `/maintenance` is for operational workflows such as update and cleanup
 - Docker daemon administration will grow into its own product surface
+
+## Managed Keys In The First Writable Slice
+
+The first writable slice is intentionally constrained to:
+
+- `dns`
+- `registry_mirrors`
+- `insecure_registries`
+- `live_restore`
+
+These are chosen because they cover real homelab needs such as custom DNS and registry reachability without opening up high-risk keys like `data-root`.
+
+Current status:
+
+- validation preview is supported
+- actual privileged apply is a later backend slice
 
 ## REST Endpoints
 
@@ -89,7 +106,17 @@ Response:
       "log_driver": "json-file",
       "data_root": "",
       "live_restore": null
+    },
+    "write_capability": {
+      "supported": false,
+      "reason": "Managed Docker daemon apply is not configured yet.",
+      "managed_keys": ["dns", "registry_mirrors", "insecure_registries", "live_restore"]
     }
+  },
+  "write_capability": {
+    "supported": false,
+    "reason": "Managed Docker daemon apply is not configured yet.",
+    "managed_keys": ["dns", "registry_mirrors", "insecure_registries", "live_restore"]
   }
 }
 ```
@@ -133,6 +160,11 @@ Response:
     "log_driver": "json-file",
     "data_root": "",
     "live_restore": null
+  },
+  "write_capability": {
+    "supported": false,
+    "reason": "Managed Docker daemon apply is not configured yet.",
+    "managed_keys": ["dns", "registry_mirrors", "insecure_registries", "live_restore"]
   },
   "content": "{\n  \"dns\": [\"192.168.1.2\"],\n  \"log-driver\": \"json-file\"\n}\n"
 }
@@ -187,9 +219,67 @@ If the file does not exist:
 
 Notes:
 
-- no write/apply operation exists in this milestone
+- the first managed write slice is not a raw editor
+- write/apply is represented by `write_capability`, which is intentionally disabled until a privileged helper path exists
 - unreadable files should return `200` with `permissions.readable = false` instead of a generic hard failure
 - the UI should treat missing `daemon.json` as "Docker is using defaults", not as an error by itself
+
+## `POST /api/docker/admin/daemon-config/validate`
+
+Purpose:
+
+- validate and preview changes to the managed Docker daemon settings without writing the file yet
+
+Request:
+
+```json
+{
+  "settings": {
+    "dns": ["192.168.1.2"],
+    "registry_mirrors": ["https://mirror.local"],
+    "live_restore": true
+  },
+  "remove_keys": ["insecure_registries"]
+}
+```
+
+Response:
+
+```json
+{
+  "write_capability": {
+    "supported": false,
+    "reason": "Managed Docker daemon apply is not configured yet.",
+    "managed_keys": ["dns", "registry_mirrors", "insecure_registries", "live_restore"]
+  },
+  "changed_keys": ["dns", "live_restore"],
+  "requires_restart": true,
+  "warnings": [
+    "Applying Docker daemon settings requires a Docker restart."
+  ],
+  "preview": {
+    "path": "/etc/docker/daemon.json",
+    "content": "{\n  \"dns\": [\n    \"192.168.1.2\"\n  ],\n  \"live-restore\": true,\n  \"log-driver\": \"json-file\"\n}\n",
+    "configured_keys": ["dns", "live-restore", "log-driver"],
+    "summary": {
+      "dns": ["192.168.1.2"],
+      "registry_mirrors": [],
+      "insecure_registries": [],
+      "log_driver": "json-file",
+      "data_root": "",
+      "live_restore": true
+    }
+  }
+}
+```
+
+Notes:
+
+- unknown keys already present in `daemon.json` must be preserved in the preview
+- unsupported keys in `remove_keys` are rejected with `400 validation_failed`
+- if the current file contains invalid JSON, the endpoint returns `409 invalid_state`
+- if the current file is unreadable by the Stacklab service user, the endpoint returns `409 permission_denied`
+- this endpoint is safe to use as the form-level preview step before a later apply flow
 
 ## Platform Caveat
 
@@ -200,6 +290,7 @@ Expected degraded states:
 - on macOS, `systemctl` status is unavailable
 - on hosts without readable Docker daemon metadata, the engine block may be partially empty
 - on hosts where `daemon.json` is unreadable by the Stacklab service user, content should remain unavailable while metadata stays visible
+- on hosts without a privileged helper, `write_capability.supported` should remain `false` even though preview validation is available
 
 ## Suggested Backend Sources
 
@@ -218,3 +309,5 @@ Recommended initial tests:
 - degrade cleanly when Docker Engine is unavailable
 - valid `daemon.json` summary extraction
 - invalid `daemon.json` parse reporting
+- managed settings validation preview while preserving unknown keys
+- rejection when the current `daemon.json` is invalid or unreadable

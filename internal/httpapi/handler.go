@@ -54,6 +54,7 @@ type hostInfoReader interface {
 type dockerAdminReader interface {
 	Overview(ctx context.Context) (dockeradmin.OverviewResponse, error)
 	DaemonConfig(ctx context.Context) (dockeradmin.DaemonConfigResponse, error)
+	ValidateManagedConfig(ctx context.Context, request dockeradmin.ValidateManagedConfigRequest) (dockeradmin.ValidateManagedConfigResponse, error)
 }
 
 type configWorkspaceReader interface {
@@ -122,6 +123,7 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/host/stacklab-logs", h.withAuth(h.handleStacklabLogs))
 	h.mux.HandleFunc("GET /api/docker/admin/overview", h.withAuth(h.handleDockerAdminOverview))
 	h.mux.HandleFunc("GET /api/docker/admin/daemon-config", h.withAuth(h.handleDockerAdminDaemonConfig))
+	h.mux.HandleFunc("POST /api/docker/admin/daemon-config/validate", h.withAuth(h.handleDockerAdminValidateDaemonConfig))
 	h.mux.HandleFunc("GET /api/config/workspace/tree", h.withAuth(h.handleConfigWorkspaceTree))
 	h.mux.HandleFunc("GET /api/config/workspace/file", h.withAuth(h.handleConfigWorkspaceFile))
 	h.mux.HandleFunc("PUT /api/config/workspace/file", h.withAuth(h.handlePutConfigWorkspaceFile))
@@ -535,6 +537,11 @@ type maintenancePruneRequest struct {
 	Scope maintenance.PruneScope `json:"scope"`
 }
 
+type dockerAdminValidateRequest struct {
+	Settings   dockeradmin.ManagedSettings `json:"settings"`
+	RemoveKeys []string                    `json:"remove_keys"`
+}
+
 func (h *Handler) handleUpdateStacksMaintenance(w http.ResponseWriter, r *http.Request) {
 	if !auth.SameOrigin(r) {
 		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
@@ -819,6 +826,40 @@ func (h *Handler) handleMaintenancePrune(w http.ResponseWriter, r *http.Request)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"job": job})
+}
+
+func (h *Handler) handleDockerAdminValidateDaemonConfig(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request dockerAdminValidateRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	response, err := h.dockerAdmin.ValidateManagedConfig(r.Context(), dockeradmin.ValidateManagedConfigRequest{
+		Settings:   request.Settings,
+		RemoveKeys: request.RemoveKeys,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, dockeradmin.ErrInvalidManagedInput):
+			writeError(w, http.StatusBadRequest, "validation_failed", err.Error(), nil)
+		case errors.Is(err, dockeradmin.ErrUnreadableConfig):
+			writeError(w, http.StatusConflict, "permission_denied", "Docker daemon config is not readable by the Stacklab service user.", nil)
+		case errors.Is(err, dockeradmin.ErrInvalidDaemonConfig):
+			writeError(w, http.StatusConflict, "invalid_state", "Docker daemon config contains invalid JSON and cannot be managed safely.", nil)
+		default:
+			h.logger.Error("docker daemon config validate failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to validate Docker daemon config changes.", nil)
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (h *Handler) handleListStacks(w http.ResponseWriter, r *http.Request) {

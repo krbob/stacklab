@@ -1,10 +1,11 @@
 # Docker Admin Handoff
 
-This handoff covers the UI work for Docker Admin v1:
+This handoff covers the UI work for Docker Admin:
 
 - read-only Docker service status
 - read-only Docker Engine metadata
 - read-only `daemon.json` visibility
+- managed settings validation preview for selected Docker daemon keys
 
 Backend contract draft:
 
@@ -52,6 +53,13 @@ Recommended sections:
    - owner/group/mode
    - summary of important configured keys
    - read-only raw JSON viewer below the summary
+4. managed settings
+   - opinionated form for selected keys only:
+     - DNS
+     - registry mirrors
+     - insecure registries
+     - live restore
+   - preview / validate action before any future apply
 
 ## Recommended Layout
 
@@ -74,19 +82,20 @@ Tablet:
 - missing `daemon.json`
 - unreadable `daemon.json`
 - invalid JSON in `daemon.json`
+- managed settings preview response
+- write-capability-disabled state
 
 ## Important Product Notes
 
-- this milestone is read-only
-- there is no write/apply button yet
-- do not imply that changes can be saved in this version
-- if `permissions.writable = false`, that is information for the operator, not an invitation to show a disabled editor
+- do not show a raw editable `daemon.json` textarea
+- the writable slice is a managed settings form, not arbitrary JSON editing
+- `write_capability.supported = false` means preview is available but actual privileged apply is not yet wired
+- if `permissions.writable = false`, that remains informational; actual apply will later go through a separate privileged path
 
 ## Future-Compatible Hooks
 
 The v1 UI should leave room for later:
 
-- edit selected keys
 - diff before apply
 - restart Docker
 - rollback if restart fails
@@ -96,3 +105,27 @@ That means:
 - keep the `daemon.json` area conceptually separate from host metrics
 - do not bury it inside `/host`
 - avoid a UI shape that assumes the file is only informational forever
+
+## Managed Settings Guidance
+
+The first writable UX should be built around selected keys only:
+
+- `dns`
+- `registry_mirrors`
+- `insecure_registries`
+- `live_restore`
+
+Recommended flow:
+
+1. operator edits the managed settings form
+2. UI calls `POST /api/docker/admin/daemon-config/validate`
+3. UI shows:
+   - changed keys
+   - restart warning
+   - merged preview content
+4. future apply button is shown but disabled while `write_capability.supported = false`
+
+Do not build:
+
+- free-form JSON editor as the primary write surface
+- hidden apply controls that pretend the current release can restart Docker already

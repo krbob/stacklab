@@ -7,6 +7,8 @@ import type {
   DefinitionResponse,
   DockerAdminOverviewResponse,
   DockerDaemonConfigResponse,
+  DockerDaemonValidateRequest,
+  DockerDaemonValidateResponse,
   GitCommitRequest,
   GitCommitResponse,
   GitDiffResponse,
@@ -113,6 +115,13 @@ export function getDockerAdminOverview(): Promise<DockerAdminOverviewResponse> {
 
 export function getDockerDaemonConfig(): Promise<DockerDaemonConfigResponse> {
   return request('/api/docker/admin/daemon-config')
+}
+
+export function validateDockerDaemonConfig(requestBody: DockerDaemonValidateRequest): Promise<DockerDaemonValidateResponse> {
+  return request('/api/docker/admin/daemon-config/validate', {
+    method: 'POST',
+    body: JSON.stringify(requestBody),
+  })
 }
 
 // --- Git workspace ---
