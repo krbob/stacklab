@@ -1,5 +1,5 @@
 {
-  // Prepared but intentionally not active until Renovate is enabled for the repository.
+  // Active policy: selective low-risk automerge early in the month, manual review for risky updates.
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
   "timezone": "Europe/Warsaw",
@@ -8,8 +8,8 @@
   "assigneesFromCodeOwners": false,
   "automerge": false,
   "platformAutomerge": false,
-  "prConcurrentLimit": 2,
-  "prHourlyLimit": 2,
+  "prConcurrentLimit": 6,
+  "prHourlyLimit": 4,
   "rebaseWhen": "conflicted",
   "rangeStrategy": "bump",
   "packageRules": [
@@ -30,13 +30,51 @@
       "groupSlug": "frontend-dev"
     },
     {
+      "description": "Automerge low-risk frontend devDependency patch and minor updates early in the month after a short stability delay.",
+      "matchManagers": ["npm"],
+      "matchFileNames": ["frontend/package.json"],
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "automerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "rebase",
+      "automergeSchedule": ["* 0-5 2-7 * *"],
+      "minimumReleaseAge": "3 days"
+    },
+    {
       "description": "Group Go module updates into a single PR.",
       "matchManagers": ["gomod"],
       "groupName": "go dependencies",
       "groupSlug": "go-dependencies"
     },
     {
-      "description": "Group GitHub Actions updates into a single PR.",
+      "description": "Group low-risk GitHub Actions updates into one PR.",
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": [
+        "actions/checkout",
+        "actions/setup-go",
+        "actions/setup-node"
+      ],
+      "groupName": "low-risk github actions",
+      "groupSlug": "github-actions-low-risk"
+    },
+    {
+      "description": "Automerge low-risk GitHub Actions patch and minor updates early in the month after a stability delay.",
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": [
+        "actions/checkout",
+        "actions/setup-go",
+        "actions/setup-node"
+      ],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "automerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "rebase",
+      "automergeSchedule": ["* 0-5 2-7 * *"],
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "description": "Group remaining GitHub Actions updates into a manual review PR.",
       "matchManagers": ["github-actions"],
       "groupName": "github actions",
       "groupSlug": "github-actions"

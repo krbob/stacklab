@@ -9,17 +9,16 @@ This document records the recommended policy for dependency updates in Stacklab,
 - which updates should remain manual
 - how Docker-backed CI should harden the application against upgrade regressions
 
-This is a planning document for the current phase. It does not mean Renovate or the full CI stack should be enabled immediately.
+This document records the intended steady-state dependency policy for the repository.
 
 ## Current Recommendation
 
 Recommendation:
 
-- use Renovate, but not yet in full automatic mode
-- enable it only after core PR validation is stable
-- start with manual merges for all Renovate PRs
-- add selective automerge only later, and only for low-risk dependency classes
-- keep a checked-in Renovate config ready before enablement, so activation later is operational rather than design work
+- use Renovate continuously
+- keep manual merge as the default
+- allow selective automerge only for trusted, low-risk update classes
+- use nightly prereleases and monthly stable releases as the soak and publication loop
 
 Reasoning:
 
@@ -47,13 +46,13 @@ Conclusion:
 
 ## Adoption Timing
 
-Do not enable Renovate yet if:
+Do not widen automerge scope if:
 
 - frontend and backend integration is still visibly unstable
 - core PR validation is not green and reliable
 - key end-to-end workflows still change shape every few days
 
-Enable Renovate when all of the following are true:
+Enable low-risk automerge when all of the following are true:
 
 - `main` has a stable baseline of automated checks
 - the current application milestone is functionally complete enough that dependency updates are noise, not constant overlap
@@ -63,23 +62,19 @@ Practical rule:
 
 - first stabilize CI
 - then enable Renovate
+- only after that allow selective automerge
 
-Current repository status:
+## Current Renovate Policy
 
-- a conservative Renovate config can be checked in safely before enablement
-- the config alone does not activate Renovate
-- actual PR creation starts only after the Renovate GitHub app is enabled for the repository
-
-## Initial Renovate Policy
-
-Start with a conservative rollout.
+Use a conservative rollout.
 
 ### Merge policy
 
-Initial policy:
+Current policy:
 
-- no automerge
-- every Renovate PR is merged manually after green CI
+- manual merge remains the default
+- low-risk classes may automerge early in the month after a release-age delay
+- risky and major updates remain manual
 
 This does not mean deep manual auditing of each diff. It means:
 
@@ -89,15 +84,15 @@ This does not mean deep manual auditing of each diff. It means:
 
 ### PR volume limits
 
-Recommended initial limits:
+Recommended limits:
 
-- maximum 1 or 2 open Renovate PRs at a time
+- keep PR volume bounded instead of unlimited
 
 Why:
 
 - avoids dependency-update noise during active product work
 - keeps review effort bounded
-- keeps review effort bounded without depending on dashboard schedule overrides
+- keeps CI load manageable without depending on dashboard schedule overrides
 
 ### Grouping policy
 
@@ -112,13 +107,23 @@ Do not start with one PR per package unless update volume is very low.
 
 Recommended repository config:
 
-- `prConcurrentLimit = 2`
+- `prConcurrentLimit = 6`
+- `prHourlyLimit = 4`
 - grouped PRs for:
   - frontend runtime dependencies
   - frontend dev dependencies
   - Go modules
   - GitHub Actions
 - major updates kept separate
+- selective automerge only for:
+  - frontend `devDependencies` patch/minor/pin/digest updates
+  - selected GitHub Actions patch/minor/pin/digest updates:
+    - `actions/checkout`
+    - `actions/setup-go`
+    - `actions/setup-node`
+- minimum release age before automerge:
+  - frontend tooling: `3 days`
+  - selected GitHub Actions: `7 days`
 
 Note on scheduling:
 
@@ -136,7 +141,7 @@ This keeps update volume controlled while avoiding confusing "pending but not cr
 
 ### Lower-risk candidates
 
-Good candidates for eventual automerge after trust is established:
+Good candidates for selective automerge:
 
 - frontend devDependencies
 - linting and formatting tools
@@ -145,13 +150,13 @@ Good candidates for eventual automerge after trust is established:
 
 ### Medium-risk candidates
 
-Keep manual for longer:
+Keep manual:
 
 - frontend runtime dependencies
 - React Router
 - CodeMirror
 - charting and UI libraries
-- GitHub Actions changes
+- GitHub Actions that affect release, Pages, packaging, or deployment behavior
 
 ### High-risk candidates
 
@@ -169,10 +174,16 @@ Automatic monthly stable publication is only sensible if dependency policy remai
 
 Recommended model:
 
-- low-risk dependency classes may automerge later, preferably in a short window near the start of the month
+- low-risk dependency classes may automerge in a short early-month window
 - high-risk and major updates remain manual
 - nightly prereleases soak the resulting `main` during the rest of the month
 - monthly stable release publishes the already-green state of `main` on the `1st` of the next month
+
+Operationally, this should mean:
+
+- stable `YYYY.MM.0` publishes on the `1st`
+- low-risk automerge opens only after that stable release
+- nightly then soaks the resulting `main` until the next stable
 
 Do **not** design the release process around merging all Renovate PRs on release day.
 

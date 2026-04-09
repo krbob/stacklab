@@ -10,7 +10,7 @@ This document defines the target release automation model for Stacklab, includin
 - Git tags and GitHub Releases
 - APT publication for `nightly` and `stable`
 
-It is a target-state plan, not a statement that all of this should be implemented immediately.
+This document now describes the intended operating model for release automation.
 
 ## Desired Release Model
 
@@ -41,7 +41,7 @@ Nightly is for:
 
 ### Stable
 
-Stable is the planned monthly release.
+Stable is the monthly release.
 
 Rules:
 
@@ -137,10 +137,10 @@ The preferred operating model is a short integration window followed by a longer
 
 Recommended cadence:
 
-- early in the month: allow selective automerge for low-risk Renovate PRs
+- on the `1st`: publish the monthly stable from the already-green state of `main`
+- early in the month after the stable release: allow selective automerge for low-risk Renovate PRs
 - rest of the month: run nightly prereleases from `main`
 - during the month: manually merge risky updates only when they are intentionally reviewed
-- on the `1st` of the next month: publish the monthly stable from the already-green state of `main`
 
 This gives Stacklab three distinct phases:
 
@@ -193,21 +193,24 @@ Recommended long-term split:
 
 ### Low-risk classes
 
-Candidates for selective automerge after trust is proven:
+Current candidates for selective automerge:
 
 - frontend devDependencies
 - linting and formatting tools
-- selected GitHub Actions updates
+- selected GitHub Actions updates:
+  - `actions/checkout`
+  - `actions/setup-go`
+  - `actions/setup-node`
 - other tooling dependencies that repeatedly prove safe in CI
 
 ### Medium-risk classes
 
-Keep manual longer:
+Keep manual:
 
 - frontend runtime dependencies
 - UI/editor libraries
 - browser automation dependencies
-- GitHub Actions that affect release or deployment behavior
+- GitHub Actions that affect release, Pages, packaging, or deployment behavior
 
 ### High-risk classes
 
@@ -225,6 +228,7 @@ Practical consequence:
 
 - automatic monthly stable is viable only if automerge is constrained to low-risk updates
 - majors and risky runtime changes must still be merged intentionally before release day
+- the stable release should happen before the next early-month automerge window opens
 
 ## GitHub Releases and Release Notes
 
@@ -251,6 +255,23 @@ Current implementation direction:
   - manual hotfix releases
 
 This keeps release notes consistent across both automated and manual publication flows.
+
+## Post-Publish Verification
+
+Release automation should not stop at "tag created" or "APT metadata pushed".
+
+Required post-publish verification:
+
+- wait until GitHub Pages serves:
+  - the public APT key
+  - the channel `InRelease`
+- run an automated Debian install smoke against the published repository
+
+Purpose:
+
+- verify that the published repo is reachable, not just committed to `gh-pages`
+- catch Pages propagation or metadata issues after publication
+- prove that `apt update && apt install stacklab` works from the published channel
 
 ## APT Channel Model
 

@@ -14,12 +14,11 @@ It also defines the recommended balance between:
 
 Recommendation:
 
-- keep stable release publication manual in the near term
-- build toward automated nightly publication first
+- keep automated nightly publication
+- keep automated monthly stable publication on the `1st`
 - keep hotfix publication manual
-- move to automated monthly stable publication only after packaging and release CI are proven
-
-This is the intended long-term model. It does **not** mean we should implement full automation immediately.
+- keep risky dependency merges manual
+- allow selective low-risk automerge only in a short window after the monthly stable
 
 ## Why Not Fully Automatic Releases Immediately
 
@@ -50,7 +49,7 @@ Real risk:
 
 So the right model is not "everything manual" and not "everything automatic".
 
-The right long-term model is:
+The right operating model is:
 
 - automated nightly publication
 - controlled monthly stable publication
@@ -120,17 +119,17 @@ Renovate should help prepare releases, not force them.
 
 Recommended model:
 
-- Renovate opens dependency update PRs
+- Renovate opens dependency update PRs continuously
 - CI validates them
-- low-risk classes may automerge later
+- low-risk classes may automerge only in a short early-month window
 - risky or major updates are still merged intentionally
-- monthly stable release picks up already-merged, already-green updates
+- monthly stable release picks up already-merged, already-green, already-soaked updates
 
 This keeps dependency maintenance continuous while keeping published releases controlled.
 
 ## Release Automation Model
 
-Target automation model:
+Current automation model:
 
 - nightly prerelease workflow on a schedule
 - monthly stable workflow on the `1st`
@@ -138,9 +137,9 @@ Target automation model:
 
 Recommended release train:
 
-- early-month selective low-risk automerge for trusted Renovate classes
-- nightly prereleases from `main` as the soak channel during the rest of the month
 - automatic stable publication on the `1st` from the already-green state of `main`
+- early-month selective low-risk automerge for trusted Renovate classes after the stable release
+- nightly prereleases from `main` as the soak channel during the rest of the month
 
 Important constraint:
 
@@ -164,7 +163,8 @@ The stable workflow or its manual fallback should effectively verify:
 5. build release artifacts and `.deb`
 6. create tag and release notes
 7. publish to APT `stable`
-8. optionally deploy to the homelab host
+8. run post-publish APT install smoke
+9. optionally deploy to the homelab host
 
 ## Release Decision Rules
 
@@ -214,12 +214,12 @@ At that point, we may consider:
 Do now:
 
 - keep versioning policy documented
-- keep the release artifact workflow manual-on-demand
-- define the future nightly/stable/hotfix model
-- implement `.deb` build before full publication automation
+- keep nightly, stable, and hotfix workflows operational
+- keep selective automerge narrowly scoped
+- keep nightly soak as the validation loop for the next stable
 
 Do later:
 
-- add nightly prereleases
-- add APT publication
-- add automatic monthly stable publication once the packaging path is proven
+- add stronger host-native post-publish smoke
+- add nightly retention and cleanup
+- widen low-risk automerge only if soak keeps proving safe
