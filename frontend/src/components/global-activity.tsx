@@ -159,10 +159,10 @@ export function GlobalActivity() {
 
           <div className="space-y-1">
             {activeItems.map((job) => (
-              <JobRow key={job.id} job={job} />
+              <JobRow key={job.id} job={job} onOpen={() => setOpen(false)} />
             ))}
             {recentlyCompleted.map((job) => (
-              <JobRow key={job.id} job={job} terminal />
+              <JobRow key={job.id} job={job} terminal onOpen={() => setOpen(false)} />
             ))}
           </div>
         </div>
@@ -171,7 +171,7 @@ export function GlobalActivity() {
   )
 }
 
-function JobRow({ job, terminal = false }: { job: ActiveJobItem; terminal?: boolean }) {
+function JobRow({ job, terminal = false, onOpen }: { job: ActiveJobItem; terminal?: boolean; onOpen?: () => void }) {
   const { openJob } = useJobDrawer()
   const target = job.current_step?.target_stack_id ?? job.stack_id
   const action = job.current_step?.action ?? job.action
@@ -181,7 +181,10 @@ function JobRow({ job, terminal = false }: { job: ActiveJobItem; terminal?: bool
 
   return (
     <button
-      onClick={() => openJob(job.id)}
+      onClick={() => {
+        openJob(job.id)
+        onOpen?.()
+      }}
       className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition hover:bg-[rgba(255,255,255,0.05)]"
     >
       <span className={cn(

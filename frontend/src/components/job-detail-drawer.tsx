@@ -33,15 +33,23 @@ function toJobEvent(e: JobHistoryEvent): JobEvent {
 }
 
 export function JobDetailDrawer() {
-  const { jobId, closeJob } = useJobDrawer()
+  const { jobId } = useJobDrawer()
+
+  if (!jobId) return null
+
+  return <JobDetailDrawerContent key={jobId} jobId={jobId} />
+}
+
+function JobDetailDrawerContent({ jobId }: { jobId: string }) {
+  const { closeJob } = useJobDrawer()
 
   const { data: jobData, error: jobError, loading: jobLoading } = useApi(
-    () => jobId ? getJob(jobId) : Promise.resolve(null),
+    () => getJob(jobId),
     [jobId],
   )
 
   const { data: eventsData, error: eventsError, loading: eventsLoading } = useApi(
-    () => jobId ? getJobEvents(jobId) : Promise.resolve(null),
+    () => getJobEvents(jobId),
     [jobId],
   )
 
@@ -54,8 +62,6 @@ export function JobDetailDrawer() {
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
   }, [jobId, closeJob])
-
-  if (!jobId) return null
 
   const job = jobData?.job ?? null
   const events = eventsData?.items ?? []
