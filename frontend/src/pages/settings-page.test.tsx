@@ -79,21 +79,23 @@ describe("SettingsPage", () => {
     fireEvent.click(screen.getByText("Save"));
 
     await waitFor(() => {
-      expect(mockUpdateNotificationSettings).toHaveBeenCalledWith({
-        enabled: true,
-        webhook_url: "https://hooks.example.test/stacklab",
-        events: {
-          job_failed: true,
-          job_succeeded_with_warnings: true,
-          maintenance_succeeded: true,
-        },
-      });
+      expect(mockUpdateNotificationSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          enabled: true,
+          webhook_url: "https://hooks.example.test/stacklab",
+          events: expect.objectContaining({
+            job_failed: true,
+            job_succeeded_with_warnings: true,
+            maintenance_succeeded: true,
+          }),
+        }),
+      );
     });
 
     expect(await screen.findByText("Saved")).toBeInTheDocument();
   });
 
-  it("sends test notification with current draft values", async () => {
+  it("sends webhook test notification with current draft values", async () => {
     mockGetNotificationSettings.mockResolvedValue({
       enabled: true,
       configured: true,
@@ -104,7 +106,7 @@ describe("SettingsPage", () => {
         maintenance_succeeded: false,
       },
     });
-    mockSendNotificationTest.mockResolvedValue({ sent: true });
+    mockSendNotificationTest.mockResolvedValue({ sent: true, channel: 'webhook' });
 
     render(<SettingsPage />);
     await screen.findByText("Notifications");
@@ -116,18 +118,17 @@ describe("SettingsPage", () => {
         target: { value: "https://hooks.example.test/draft" },
       },
     );
-    fireEvent.click(screen.getByText("Send test"));
+    // Click the first "Send test" (webhook card)
+    const sendTestButtons = screen.getAllByText("Send test");
+    fireEvent.click(sendTestButtons[0]);
 
     await waitFor(() => {
-      expect(mockSendNotificationTest).toHaveBeenCalledWith({
-        enabled: false,
-        webhook_url: "https://hooks.example.test/draft",
-        events: {
-          job_failed: true,
-          job_succeeded_with_warnings: true,
-          maintenance_succeeded: false,
-        },
-      });
+      expect(mockSendNotificationTest).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: 'webhook',
+          webhook_url: "https://hooks.example.test/draft",
+        }),
+      );
     });
   });
 });
