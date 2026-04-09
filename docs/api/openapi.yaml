@@ -2364,7 +2364,64 @@ components:
           type: boolean
         maintenance_succeeded:
           type: boolean
+        post_update_recovery_failed:
+          type: boolean
       required: [job_failed, job_succeeded_with_warnings, maintenance_succeeded]
+    NotificationWebhookChannel:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        configured:
+          type: boolean
+        url:
+          type: string
+      required: [enabled, configured, url]
+    NotificationTelegramChannel:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        configured:
+          type: boolean
+        bot_token_configured:
+          type: boolean
+        chat_id:
+          type: string
+      required: [enabled, configured, bot_token_configured, chat_id]
+    NotificationChannelsResponse:
+      type: object
+      properties:
+        webhook:
+          $ref: '#/components/schemas/NotificationWebhookChannel'
+        telegram:
+          $ref: '#/components/schemas/NotificationTelegramChannel'
+      required: [webhook, telegram]
+    NotificationWebhookChannelRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        url:
+          type: string
+      required: [enabled, url]
+    NotificationTelegramChannelRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        bot_token:
+          type: string
+        chat_id:
+          type: string
+      required: [enabled, bot_token, chat_id]
+    NotificationChannelsRequest:
+      type: object
+      properties:
+        webhook:
+          $ref: '#/components/schemas/NotificationWebhookChannelRequest'
+        telegram:
+          $ref: '#/components/schemas/NotificationTelegramChannelRequest'
     NotificationSettingsRequest:
       type: object
       properties:
@@ -2374,6 +2431,8 @@ components:
           type: string
         events:
           $ref: '#/components/schemas/NotificationEventToggles'
+        channels:
+          $ref: '#/components/schemas/NotificationChannelsRequest'
       required: [enabled, webhook_url, events]
     NotificationSettingsResponse:
       type: object
@@ -2386,23 +2445,33 @@ components:
           type: string
         events:
           $ref: '#/components/schemas/NotificationEventToggles'
-      required: [enabled, configured, webhook_url, events]
+        channels:
+          $ref: '#/components/schemas/NotificationChannelsResponse'
+      required: [enabled, configured, webhook_url, events, channels]
     NotificationTestRequest:
       type: object
       properties:
+        channel:
+          type: string
+          enum: [webhook, telegram]
         enabled:
           type: boolean
         webhook_url:
           type: string
         events:
           $ref: '#/components/schemas/NotificationEventToggles'
+        channels:
+          $ref: '#/components/schemas/NotificationChannelsRequest'
       required: [enabled, webhook_url, events]
     NotificationTestResponse:
       type: object
       properties:
         sent:
           type: boolean
-      required: [sent]
+        channel:
+          type: string
+          enum: [webhook, telegram]
+      required: [sent, channel]
     JobEnvelopeResponse:
       type: object
       properties:

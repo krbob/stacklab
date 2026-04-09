@@ -9,13 +9,18 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
+	"stacklab/internal/stacks"
 	"stacklab/internal/store"
 )
 
-const settingsKey = "notifications_webhook_v1"
+const (
+	settingsKey       = "notifications_v2"
+	legacySettingsKey = "notifications_webhook_v1"
+)
 
 var ErrInvalidConfig = errors.New("invalid notification config")
 
@@ -25,50 +30,113 @@ type Store interface {
 	ListJobEvents(ctx context.Context, jobID string) ([]store.JobEvent, error)
 }
 
+type StackInspector interface {
+	Get(ctx context.Context, stackID string) (stacks.StackDetailResponse, error)
+}
+
 type webhookSender func(ctx context.Context, target string, payload WebhookPayload) error
+type telegramSender func(ctx context.Context, botToken, chatID, text string) error
 
 type EventToggles struct {
 	JobFailed                bool `json:"job_failed"`
 	JobSucceededWithWarnings bool `json:"job_succeeded_with_warnings"`
 	MaintenanceSucceeded     bool `json:"maintenance_succeeded"`
+	PostUpdateRecoveryFailed bool `json:"post_update_recovery_failed"`
 }
 
 type Settings struct {
-	Enabled    bool         `json:"enabled"`
-	WebhookURL string       `json:"webhook_url"`
-	Events     EventToggles `json:"events"`
+	Events   EventToggles `json:"events"`
+	Channels Channels     `json:"channels"`
+}
+
+type Channels struct {
+	Webhook  WebhookSettings  `json:"webhook"`
+	Telegram TelegramSettings `json:"telegram"`
+}
+
+type WebhookSettings struct {
+	Enabled bool   `json:"enabled"`
+	URL     string `json:"url"`
+}
+
+type TelegramSettings struct {
+	Enabled  bool   `json:"enabled"`
+	BotToken string `json:"bot_token"`
+	ChatID   string `json:"chat_id"`
 }
 
 type SettingsResponse struct {
+	// Legacy v1 webhook fields kept for backward compatibility with the current UI.
 	Enabled    bool         `json:"enabled"`
 	Configured bool         `json:"configured"`
 	WebhookURL string       `json:"webhook_url"`
 	Events     EventToggles `json:"events"`
+	Channels   ChannelsView `json:"channels"`
+}
+
+type ChannelsView struct {
+	Webhook  WebhookView  `json:"webhook"`
+	Telegram TelegramView `json:"telegram"`
+}
+
+type WebhookView struct {
+	Enabled    bool   `json:"enabled"`
+	Configured bool   `json:"configured"`
+	URL        string `json:"url"`
+}
+
+type TelegramView struct {
+	Enabled            bool   `json:"enabled"`
+	Configured         bool   `json:"configured"`
+	BotTokenConfigured bool   `json:"bot_token_configured"`
+	ChatID             string `json:"chat_id"`
 }
 
 type UpdateSettingsRequest struct {
-	Enabled    bool         `json:"enabled"`
-	WebhookURL string       `json:"webhook_url"`
-	Events     EventToggles `json:"events"`
+	// Legacy v1 webhook fields kept for backward compatibility with the current UI.
+	Enabled    bool             `json:"enabled"`
+	WebhookURL string           `json:"webhook_url"`
+	Events     EventToggles     `json:"events"`
+	Channels   *ChannelsRequest `json:"channels,omitempty"`
+}
+
+type ChannelsRequest struct {
+	Webhook  *WebhookRequest  `json:"webhook,omitempty"`
+	Telegram *TelegramRequest `json:"telegram,omitempty"`
+}
+
+type WebhookRequest struct {
+	Enabled bool   `json:"enabled"`
+	URL     string `json:"url"`
+}
+
+type TelegramRequest struct {
+	Enabled  bool   `json:"enabled"`
+	BotToken string `json:"bot_token"`
+	ChatID   string `json:"chat_id"`
 }
 
 type TestRequest struct {
-	Enabled    bool         `json:"enabled"`
-	WebhookURL string       `json:"webhook_url"`
-	Events     EventToggles `json:"events"`
+	Channel    string           `json:"channel,omitempty"`
+	Enabled    bool             `json:"enabled"`
+	WebhookURL string           `json:"webhook_url"`
+	Events     EventToggles     `json:"events"`
+	Channels   *ChannelsRequest `json:"channels,omitempty"`
 }
 
 type TestResponse struct {
-	Sent bool `json:"sent"`
+	Sent    bool   `json:"sent"`
+	Channel string `json:"channel"`
 }
 
 type WebhookPayload struct {
-	Event        string      `json:"event"`
-	SentAt       time.Time   `json:"sent_at"`
-	Source       string      `json:"source"`
-	Summary      string      `json:"summary"`
-	Job          *WebhookJob `json:"job,omitempty"`
-	WarningCount int         `json:"warning_count,omitempty"`
+	Event        string             `json:"event"`
+	SentAt       time.Time          `json:"sent_at"`
+	Source       string             `json:"source"`
+	Summary      string             `json:"summary"`
+	Job          *WebhookJob        `json:"job,omitempty"`
+	WarningCount int                `json:"warning_count,omitempty"`
+	PostUpdate   *PostUpdateSummary `json:"post_update,omitempty"`
 }
 
 type WebhookJob struct {
@@ -84,11 +152,27 @@ type WebhookJob struct {
 	DurationMS   *int       `json:"duration_ms,omitempty"`
 }
 
+type PostUpdateSummary struct {
+	FailedStacks []PostUpdateFailure `json:"failed_stacks"`
+}
+
+type PostUpdateFailure struct {
+	StackID                 string `json:"stack_id"`
+	RuntimeState            string `json:"runtime_state,omitempty"`
+	DisplayState            string `json:"display_state,omitempty"`
+	UnhealthyContainerCount int    `json:"unhealthy_container_count,omitempty"`
+	RunningContainerCount   int    `json:"running_container_count,omitempty"`
+	TotalContainerCount     int    `json:"total_container_count,omitempty"`
+	Reason                  string `json:"reason,omitempty"`
+}
+
 type Service struct {
-	store  Store
-	logger *slog.Logger
-	send   webhookSender
-	now    func() time.Time
+	store          Store
+	logger         *slog.Logger
+	stackInspector StackInspector
+	sendWebhook    webhookSender
+	sendTelegram   telegramSender
+	now            func() time.Time
 }
 
 func NewService(settingStore Store, logger *slog.Logger) *Service {
@@ -96,7 +180,7 @@ func NewService(settingStore Store, logger *slog.Logger) *Service {
 	return &Service{
 		store:  settingStore,
 		logger: logger,
-		send: func(ctx context.Context, target string, payload WebhookPayload) error {
+		sendWebhook: func(ctx context.Context, target string, payload WebhookPayload) error {
 			body, err := json.Marshal(payload)
 			if err != nil {
 				return fmt.Errorf("marshal webhook payload: %w", err)
@@ -118,8 +202,38 @@ func NewService(settingStore Store, logger *slog.Logger) *Service {
 			}
 			return nil
 		},
+		sendTelegram: func(ctx context.Context, botToken, chatID, text string) error {
+			body, err := json.Marshal(map[string]any{
+				"chat_id":                  chatID,
+				"text":                     text,
+				"disable_web_page_preview": true,
+			})
+			if err != nil {
+				return fmt.Errorf("marshal telegram payload: %w", err)
+			}
+			endpoint := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+			if err != nil {
+				return fmt.Errorf("build telegram request: %w", err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("User-Agent", "Stacklab-Notifications/1")
+			resp, err := client.Do(req)
+			if err != nil {
+				return fmt.Errorf("send telegram request: %w", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				return fmt.Errorf("telegram returned status %d", resp.StatusCode)
+			}
+			return nil
+		},
 		now: time.Now().UTC,
 	}
+}
+
+func (s *Service) SetStackInspector(inspector StackInspector) {
+	s.stackInspector = inspector
 }
 
 func (s *Service) GetSettings(ctx context.Context) (SettingsResponse, error) {
@@ -131,10 +245,9 @@ func (s *Service) GetSettings(ctx context.Context) (SettingsResponse, error) {
 }
 
 func (s *Service) UpdateSettings(ctx context.Context, request UpdateSettingsRequest) (SettingsResponse, error) {
-	settings := Settings{
-		Enabled:    request.Enabled,
-		WebhookURL: strings.TrimSpace(request.WebhookURL),
-		Events:     request.Events,
+	settings, err := s.settingsFromUpdateRequest(ctx, request)
+	if err != nil {
+		return SettingsResponse{}, err
 	}
 	if err := validateSettings(settings); err != nil {
 		return SettingsResponse{}, err
@@ -146,10 +259,9 @@ func (s *Service) UpdateSettings(ctx context.Context, request UpdateSettingsRequ
 }
 
 func (s *Service) SendTest(ctx context.Context, request TestRequest) (TestResponse, error) {
-	settings := Settings{
-		Enabled:    request.Enabled,
-		WebhookURL: strings.TrimSpace(request.WebhookURL),
-		Events:     request.Events,
+	settings, err := s.settingsFromTestRequest(ctx, request)
+	if err != nil {
+		return TestResponse{}, err
 	}
 	if err := validateSettings(settings); err != nil {
 		return TestResponse{}, err
@@ -160,10 +272,23 @@ func (s *Service) SendTest(ctx context.Context, request TestRequest) (TestRespon
 		Source:  "stacklab",
 		Summary: "Stacklab test notification",
 	}
-	if err := s.send(ctx, settings.WebhookURL, payload); err != nil {
-		return TestResponse{}, err
+	channel := strings.TrimSpace(request.Channel)
+	if channel == "" {
+		channel = "webhook"
 	}
-	return TestResponse{Sent: true}, nil
+	switch channel {
+	case "webhook":
+		if err := s.sendWebhook(ctx, settings.Channels.Webhook.URL, payload); err != nil {
+			return TestResponse{}, err
+		}
+	case "telegram":
+		if err := s.sendTelegram(ctx, settings.Channels.Telegram.BotToken, settings.Channels.Telegram.ChatID, buildTelegramText(payload)); err != nil {
+			return TestResponse{}, err
+		}
+	default:
+		return TestResponse{}, fmt.Errorf("%w: unsupported channel", ErrInvalidConfig)
+	}
+	return TestResponse{Sent: true, Channel: channel}, nil
 }
 
 func (s *Service) DispatchJobAsync(job store.Job) {
@@ -181,9 +306,6 @@ func (s *Service) DispatchJob(ctx context.Context, job store.Job) error {
 	if err != nil {
 		return err
 	}
-	if !settings.Enabled || settings.WebhookURL == "" {
-		return nil
-	}
 
 	payload, ok, err := s.buildJobPayload(ctx, job, settings)
 	if err != nil {
@@ -192,7 +314,19 @@ func (s *Service) DispatchJob(ctx context.Context, job store.Job) error {
 	if !ok {
 		return nil
 	}
-	return s.send(ctx, settings.WebhookURL, payload)
+
+	var errs []error
+	if settings.Channels.Webhook.Enabled && settings.Channels.Webhook.URL != "" {
+		if err := s.sendWebhook(ctx, settings.Channels.Webhook.URL, payload); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if settings.Channels.Telegram.Enabled && settings.Channels.Telegram.BotToken != "" && settings.Channels.Telegram.ChatID != "" {
+		if err := s.sendTelegram(ctx, settings.Channels.Telegram.BotToken, settings.Channels.Telegram.ChatID, buildTelegramText(payload)); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func (s *Service) buildJobPayload(ctx context.Context, job store.Job, settings Settings) (WebhookPayload, bool, error) {
@@ -208,9 +342,21 @@ func (s *Service) buildJobPayload(ctx context.Context, job store.Job, settings S
 	}
 
 	eventType := ""
+	var postUpdate *PostUpdateSummary
 	switch {
 	case job.State == "failed" && settings.Events.JobFailed:
 		eventType = "job_failed"
+	case job.State == "succeeded" && job.Action == "update_stacks" && settings.Events.PostUpdateRecoveryFailed:
+		failures, err := s.inspectPostUpdateFailures(ctx, job)
+		if err != nil {
+			return WebhookPayload{}, false, err
+		}
+		if len(failures) > 0 {
+			eventType = "post_update_recovery_failed"
+			postUpdate = &PostUpdateSummary{FailedStacks: failures}
+			break
+		}
+		fallthrough
 	case job.State == "succeeded" && warningCount > 0 && settings.Events.JobSucceededWithWarnings:
 		eventType = "job_succeeded_with_warnings"
 	case job.State == "succeeded" && isMaintenanceAction(job.Action) && settings.Events.MaintenanceSucceeded:
@@ -237,6 +383,7 @@ func (s *Service) buildJobPayload(ctx context.Context, job store.Job, settings S
 		Source:       "stacklab",
 		Summary:      summary,
 		WarningCount: warningCount,
+		PostUpdate:   postUpdate,
 		Job: &WebhookJob{
 			ID:           job.ID,
 			Action:       job.Action,
@@ -259,15 +406,42 @@ func (s *Service) loadSettings(ctx context.Context) (Settings, error) {
 		return Settings{}, err
 	}
 	if !ok {
+		raw, ok, err = s.store.AppSetting(ctx, legacySettingsKey)
+		if err != nil {
+			return Settings{}, err
+		}
+	}
+	if !ok {
 		return defaultSettings(), nil
 	}
-	settings := defaultSettings()
-	if err := json.Unmarshal([]byte(raw), &settings); err != nil {
+
+	type persistedCompat struct {
+		Enabled    *bool        `json:"enabled"`
+		WebhookURL string       `json:"webhook_url"`
+		Events     EventToggles `json:"events"`
+		Channels   Channels     `json:"channels"`
+	}
+
+	compat := persistedCompat{
+		Events:   defaultSettings().Events,
+		Channels: defaultSettings().Channels,
+	}
+	if err := json.Unmarshal([]byte(raw), &compat); err != nil {
 		return Settings{}, fmt.Errorf("parse notification settings: %w", err)
 	}
-	if settings.WebhookURL != "" {
-		settings.WebhookURL = strings.TrimSpace(settings.WebhookURL)
+
+	settings := defaultSettings()
+	settings.Events = compat.Events
+	settings.Channels = compat.Channels
+	if compat.Enabled != nil {
+		settings.Channels.Webhook.Enabled = *compat.Enabled
 	}
+	if strings.TrimSpace(compat.WebhookURL) != "" {
+		settings.Channels.Webhook.URL = strings.TrimSpace(compat.WebhookURL)
+	}
+	settings.Channels.Webhook.URL = strings.TrimSpace(settings.Channels.Webhook.URL)
+	settings.Channels.Telegram.BotToken = strings.TrimSpace(settings.Channels.Telegram.BotToken)
+	settings.Channels.Telegram.ChatID = strings.TrimSpace(settings.Channels.Telegram.ChatID)
 	return settings, nil
 }
 
@@ -281,38 +455,71 @@ func (s *Service) saveSettings(ctx context.Context, settings Settings) error {
 
 func defaultSettings() Settings {
 	return Settings{
-		Enabled:    false,
-		WebhookURL: "",
 		Events: EventToggles{
 			JobFailed:                true,
 			JobSucceededWithWarnings: true,
 			MaintenanceSucceeded:     false,
+			PostUpdateRecoveryFailed: false,
+		},
+		Channels: Channels{
+			Webhook: WebhookSettings{
+				Enabled: false,
+				URL:     "",
+			},
+			Telegram: TelegramSettings{
+				Enabled:  false,
+				BotToken: "",
+				ChatID:   "",
+			},
 		},
 	}
 }
 
 func settingsResponse(settings Settings) SettingsResponse {
 	return SettingsResponse{
-		Enabled:    settings.Enabled,
-		Configured: settings.WebhookURL != "",
-		WebhookURL: settings.WebhookURL,
+		Enabled:    settings.Channels.Webhook.Enabled,
+		Configured: settings.Channels.Webhook.URL != "",
+		WebhookURL: settings.Channels.Webhook.URL,
 		Events:     settings.Events,
+		Channels: ChannelsView{
+			Webhook: WebhookView{
+				Enabled:    settings.Channels.Webhook.Enabled,
+				Configured: settings.Channels.Webhook.URL != "",
+				URL:        settings.Channels.Webhook.URL,
+			},
+			Telegram: TelegramView{
+				Enabled:            settings.Channels.Telegram.Enabled,
+				Configured:         settings.Channels.Telegram.BotToken != "" && settings.Channels.Telegram.ChatID != "",
+				BotTokenConfigured: settings.Channels.Telegram.BotToken != "",
+				ChatID:             settings.Channels.Telegram.ChatID,
+			},
+		},
 	}
 }
 
 func validateSettings(settings Settings) error {
-	if !settings.Enabled && strings.TrimSpace(settings.WebhookURL) == "" {
-		return nil
+	webhook := settings.Channels.Webhook
+	if webhook.Enabled || strings.TrimSpace(webhook.URL) != "" {
+		if strings.TrimSpace(webhook.URL) == "" {
+			return fmt.Errorf("%w: webhook_url is required", ErrInvalidConfig)
+		}
+		parsed, err := url.Parse(webhook.URL)
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+			return fmt.Errorf("%w: webhook_url must be a valid absolute URL", ErrInvalidConfig)
+		}
+		if parsed.Scheme != "http" && parsed.Scheme != "https" {
+			return fmt.Errorf("%w: webhook_url must use http or https", ErrInvalidConfig)
+		}
 	}
-	if settings.WebhookURL == "" {
-		return fmt.Errorf("%w: webhook_url is required", ErrInvalidConfig)
-	}
-	parsed, err := url.Parse(settings.WebhookURL)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return fmt.Errorf("%w: webhook_url must be a valid absolute URL", ErrInvalidConfig)
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return fmt.Errorf("%w: webhook_url must use http or https", ErrInvalidConfig)
+
+	telegram := settings.Channels.Telegram
+	if telegram.Enabled || telegram.BotToken != "" || telegram.ChatID != "" {
+		if telegram.BotToken == "" {
+			return fmt.Errorf("%w: telegram bot_token is required", ErrInvalidConfig)
+		}
+		if telegram.ChatID == "" {
+			return fmt.Errorf("%w: telegram chat_id is required", ErrInvalidConfig)
+		}
 	}
 	return nil
 }
@@ -338,7 +545,137 @@ func buildSummary(eventType string, job store.Job, warningCount int) string {
 		return fmt.Sprintf("Stacklab job succeeded with warnings: %s (%d warnings)", target, warningCount)
 	case "maintenance_succeeded":
 		return "Stacklab maintenance completed: " + target
+	case "post_update_recovery_failed":
+		return "Stacklab post-update recovery failed: " + target
 	default:
 		return "Stacklab notification"
 	}
+}
+
+func (s *Service) settingsFromUpdateRequest(ctx context.Context, request UpdateSettingsRequest) (Settings, error) {
+	settings, err := s.loadSettings(ctx)
+	if err != nil {
+		return Settings{}, err
+	}
+	settings.Events = request.Events
+	if request.Channels == nil {
+		settings.Channels.Webhook = WebhookSettings{
+			Enabled: request.Enabled,
+			URL:     strings.TrimSpace(request.WebhookURL),
+		}
+		return settings, nil
+	}
+	if request.Channels.Webhook != nil {
+		settings.Channels.Webhook = WebhookSettings{
+			Enabled: request.Channels.Webhook.Enabled,
+			URL:     strings.TrimSpace(request.Channels.Webhook.URL),
+		}
+	}
+	if request.Channels.Telegram != nil {
+		settings.Channels.Telegram = TelegramSettings{
+			Enabled:  request.Channels.Telegram.Enabled,
+			BotToken: strings.TrimSpace(request.Channels.Telegram.BotToken),
+			ChatID:   strings.TrimSpace(request.Channels.Telegram.ChatID),
+		}
+	}
+	return settings, nil
+}
+
+func (s *Service) settingsFromTestRequest(ctx context.Context, request TestRequest) (Settings, error) {
+	return s.settingsFromUpdateRequest(ctx, UpdateSettingsRequest{
+		Enabled:    request.Enabled,
+		WebhookURL: request.WebhookURL,
+		Events:     request.Events,
+		Channels:   request.Channels,
+	})
+}
+
+func (s *Service) inspectPostUpdateFailures(ctx context.Context, job store.Job) ([]PostUpdateFailure, error) {
+	if s.stackInspector == nil {
+		return nil, nil
+	}
+
+	targets := map[string]struct{}{}
+	if job.Workflow != nil {
+		for _, step := range job.Workflow.Steps {
+			if step.TargetStackID != "" {
+				targets[step.TargetStackID] = struct{}{}
+			}
+		}
+	}
+	if len(targets) == 0 && job.StackID != "" {
+		targets[job.StackID] = struct{}{}
+	}
+	if len(targets) == 0 {
+		return nil, nil
+	}
+
+	stackIDs := make([]string, 0, len(targets))
+	for stackID := range targets {
+		stackIDs = append(stackIDs, stackID)
+	}
+	sort.Strings(stackIDs)
+
+	failures := make([]PostUpdateFailure, 0)
+	for _, stackID := range stackIDs {
+		response, err := s.stackInspector.Get(ctx, stackID)
+		if err != nil {
+			failures = append(failures, PostUpdateFailure{
+				StackID: stackID,
+				Reason:  "stack_lookup_failed",
+			})
+			continue
+		}
+
+		runningCount := 0
+		for _, container := range response.Stack.Containers {
+			if container.Status == "running" {
+				runningCount++
+			}
+		}
+
+		if response.Stack.RuntimeState == stacks.RuntimeStateRunning && response.Stack.HealthSummary.UnhealthyContainerCount == 0 {
+			continue
+		}
+
+		failures = append(failures, PostUpdateFailure{
+			StackID:                 response.Stack.ID,
+			RuntimeState:            string(response.Stack.RuntimeState),
+			DisplayState:            string(response.Stack.DisplayState),
+			UnhealthyContainerCount: response.Stack.HealthSummary.UnhealthyContainerCount,
+			RunningContainerCount:   runningCount,
+			TotalContainerCount:     len(response.Stack.Containers),
+			Reason:                  "stack_not_healthy_after_update",
+		})
+	}
+
+	return failures, nil
+}
+
+func buildTelegramText(payload WebhookPayload) string {
+	lines := []string{payload.Summary}
+	if payload.Job != nil {
+		lines = append(lines, fmt.Sprintf("Action: %s", payload.Job.Action))
+		if payload.Job.StackID != nil {
+			lines = append(lines, fmt.Sprintf("Stack: %s", *payload.Job.StackID))
+		}
+		lines = append(lines, fmt.Sprintf("State: %s", payload.Job.State))
+		if payload.Job.ErrorMessage != "" {
+			lines = append(lines, fmt.Sprintf("Error: %s", payload.Job.ErrorMessage))
+		}
+	}
+	if payload.WarningCount > 0 {
+		lines = append(lines, fmt.Sprintf("Warnings: %d", payload.WarningCount))
+	}
+	if payload.PostUpdate != nil && len(payload.PostUpdate.FailedStacks) > 0 {
+		lines = append(lines, "Failed stacks:")
+		for _, failed := range payload.PostUpdate.FailedStacks {
+			reason := failed.RuntimeState
+			if reason == "" {
+				reason = failed.Reason
+			}
+			lines = append(lines, fmt.Sprintf("- %s (%s)", failed.StackID, reason))
+		}
+	}
+	return strings.Join(lines, "\n")
 }

@@ -78,6 +78,25 @@ export interface NotificationEventToggles {
   job_failed: boolean
   job_succeeded_with_warnings: boolean
   maintenance_succeeded: boolean
+  post_update_recovery_failed?: boolean
+}
+
+export interface NotificationWebhookChannel {
+  enabled: boolean
+  configured: boolean
+  url: string
+}
+
+export interface NotificationTelegramChannel {
+  enabled: boolean
+  configured: boolean
+  bot_token_configured: boolean
+  chat_id: string
+}
+
+export interface NotificationChannels {
+  webhook: NotificationWebhookChannel
+  telegram: NotificationTelegramChannel
 }
 
 export interface NotificationSettingsResponse {
@@ -85,22 +104,39 @@ export interface NotificationSettingsResponse {
   configured: boolean
   webhook_url: string
   events: NotificationEventToggles
+  channels?: NotificationChannels
+}
+
+export interface NotificationChannelRequest {
+  webhook?: {
+    enabled: boolean
+    url: string
+  }
+  telegram?: {
+    enabled: boolean
+    bot_token: string
+    chat_id: string
+  }
 }
 
 export interface NotificationSettingsUpdateRequest {
   enabled: boolean
   webhook_url: string
   events: NotificationEventToggles
+  channels?: NotificationChannelRequest
 }
 
 export interface NotificationTestRequest {
+  channel?: 'webhook' | 'telegram'
   enabled: boolean
   webhook_url: string
   events: NotificationEventToggles
+  channels?: NotificationChannelRequest
 }
 
 export interface NotificationTestResponse {
   sent: boolean
+  channel?: 'webhook' | 'telegram'
 }
 
 export interface PortMapping {

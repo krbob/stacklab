@@ -3,27 +3,42 @@
 Purpose:
 
 - add first-class outgoing notifications without requiring the operator to stay in the UI
-- keep v1 intentionally narrow: one webhook target, one delivery format, no inbox
+- keep the first iteration narrow and predictable before layering on richer mobile alerts
 
 Scope:
 
-- outgoing webhook only
+- outgoing channels only
 - settings stored in SQLite `app_settings`
 - delivery on selected terminal job states
 - explicit test notification endpoint
 
-V1 event toggles:
+Current event toggles:
 
 - `job_failed`
 - `job_succeeded_with_warnings`
 - `maintenance_succeeded`
+- `post_update_recovery_failed`
 
 Supported terminal events:
 
 - `job_failed`
 - `job_succeeded_with_warnings`
 - `maintenance_succeeded`
+- `post_update_recovery_failed`
 - `test_notification`
+
+Current channels:
+
+- `webhook`
+- `telegram`
+
+Compatibility note:
+
+- the REST contract still exposes legacy top-level webhook fields:
+  - `enabled`
+  - `configured`
+  - `webhook_url`
+- newer clients should prefer the nested `channels` shape
 
 Payload shape:
 
@@ -49,11 +64,16 @@ Payload shape:
 }
 ```
 
-Headers:
+Webhook headers:
 
 - `Content-Type: application/json`
 - `User-Agent: Stacklab-Notifications/1`
 - `X-Stacklab-Event: <event>`
+
+Telegram delivery:
+
+- uses the official `sendMessage` Bot API endpoint with plain text messages  
+  Source: https://core.telegram.org/bots/api#sendmessage
 
 Delivery semantics:
 
@@ -61,21 +81,59 @@ Delivery semantics:
 - no retry queue in v1
 - notification delivery must not block the originating job
 - job completion remains the source of truth even if webhook delivery fails
+- if multiple channels are enabled, Stacklab attempts delivery to each enabled channel independently
 
 Storage key:
 
-- `app_settings.key = notifications_webhook_v1`
+- `app_settings.key = notifications_v2`
 
 Validation:
 
 - `webhook_url` must be an absolute `http` or `https` URL
 - `enabled = true` requires `webhook_url`
 - `test` may use a valid URL even if notifications are not yet enabled
+- Telegram requires:
+  - `bot_token`
+  - `chat_id`
 
-Non-goals for v1:
+Post-update recovery failure:
+
+- applies only to `update_stacks`
+- after a successful maintenance workflow, Stacklab inspects each targeted stack
+- if any targeted stack does not return to a healthy `running` state, Stacklab emits:
+  - `post_update_recovery_failed`
+- this is intended to catch:
+  - partial/error runtime state after update
+  - unhealthy containers after update
+
+Payload extension for post-update failures:
+
+```json
+{
+  "event": "post_update_recovery_failed",
+  "summary": "Stacklab post-update recovery failed: update_stacks",
+  "post_update": {
+    "failed_stacks": [
+      {
+        "stack_id": "demo",
+        "runtime_state": "error",
+        "display_state": "error",
+        "unhealthy_container_count": 1,
+        "running_container_count": 0,
+        "total_container_count": 1,
+        "reason": "stack_not_healthy_after_update"
+      }
+    ]
+  }
+}
+```
+
+Non-goals for the current slice:
 
 - multiple channels or multiple webhook targets
-- message templating
-- notification inbox inside Stacklab
+- WhatsApp native integration
+- log anomaly alerting
+- retry queues
 - batching or digests
-- retries / dead-letter queues
+- notification inbox inside Stacklab
+- rich templating

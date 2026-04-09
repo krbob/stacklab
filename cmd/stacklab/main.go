@@ -40,6 +40,7 @@ func main() {
 	auditService := audit.NewService(authStore)
 	jobService := jobs.NewService(authStore)
 	notificationService := notifications.NewService(authStore, logger)
+	notificationService.SetStackInspector(stacks.NewServiceReader(cfg, logger))
 	jobService.SetTerminalHook(notificationService.DispatchJobAsync)
 	if err := authService.Bootstrap(context.Background()); err != nil {
 		if errors.Is(err, auth.ErrNotConfigured) {

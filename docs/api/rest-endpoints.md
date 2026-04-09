@@ -1869,7 +1869,7 @@ Response:
 
 Purpose:
 
-- fetch current outgoing webhook notification settings
+- fetch current outgoing notification settings
 - power the notifications section in `Settings`
 
 Response:
@@ -1882,24 +1882,40 @@ Response:
   "events": {
     "job_failed": true,
     "job_succeeded_with_warnings": true,
-    "maintenance_succeeded": false
+    "maintenance_succeeded": false,
+    "post_update_recovery_failed": false
+  },
+  "channels": {
+    "webhook": {
+      "enabled": false,
+      "configured": false,
+      "url": ""
+    },
+    "telegram": {
+      "enabled": false,
+      "configured": false,
+      "bot_token_configured": false,
+      "chat_id": ""
+    }
   }
 }
 ```
 
 Notes:
 
-- v1 supports a single outgoing webhook only
+- legacy top-level webhook fields remain for backward compatibility
+- newer clients should prefer the nested `channels` shape
 - default policy is:
   - notify on failed jobs
   - notify on successful jobs with warnings
   - do not notify on successful maintenance by default
+  - do not notify on post-update recovery failures by default until the UI exposes it
 
 ## `PUT /api/settings/notifications`
 
 Purpose:
 
-- persist outgoing webhook notification settings in SQLite
+- persist outgoing notification settings in SQLite
 
 Request:
 
@@ -1910,7 +1926,19 @@ Request:
   "events": {
     "job_failed": true,
     "job_succeeded_with_warnings": true,
-    "maintenance_succeeded": true
+    "maintenance_succeeded": true,
+    "post_update_recovery_failed": true
+  },
+  "channels": {
+    "webhook": {
+      "enabled": true,
+      "url": "https://hooks.example.test/stacklab"
+    },
+    "telegram": {
+      "enabled": true,
+      "bot_token": "123456:ABC-DEF",
+      "chat_id": "-100123456"
+    }
   }
 }
 ```
@@ -1925,7 +1953,21 @@ Response:
   "events": {
     "job_failed": true,
     "job_succeeded_with_warnings": true,
-    "maintenance_succeeded": true
+    "maintenance_succeeded": true,
+    "post_update_recovery_failed": true
+  },
+  "channels": {
+    "webhook": {
+      "enabled": true,
+      "configured": true,
+      "url": "https://hooks.example.test/stacklab"
+    },
+    "telegram": {
+      "enabled": true,
+      "configured": true,
+      "bot_token_configured": true,
+      "chat_id": "-100123456"
+    }
   }
 }
 ```
@@ -1934,24 +1976,36 @@ Validation:
 
 - `webhook_url` must be an absolute `http` or `https` URL when provided
 - `enabled = true` requires a non-empty `webhook_url`
+- Telegram requires:
+  - `bot_token`
+  - `chat_id`
 
 ## `POST /api/settings/notifications/test`
 
 Purpose:
 
-- deliver a test webhook using the current form payload
-- let the operator validate URL and receiver formatting before enabling notifications
+- deliver a test notification using the current form payload
+- let the operator validate channel configuration before enabling notifications
 
 Request:
 
 ```json
 {
+  "channel": "telegram",
   "enabled": false,
-  "webhook_url": "https://hooks.example.test/stacklab",
+  "webhook_url": "",
   "events": {
     "job_failed": true,
     "job_succeeded_with_warnings": true,
-    "maintenance_succeeded": false
+    "maintenance_succeeded": false,
+    "post_update_recovery_failed": false
+  },
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "bot_token": "123456:ABC-DEF",
+      "chat_id": "-100123456"
+    }
   }
 }
 ```
@@ -1960,13 +2014,14 @@ Response:
 
 ```json
 {
-  "sent": true
+  "sent": true,
+  "channel": "telegram"
 }
 ```
 
 Error behavior:
 
-- invalid URL or malformed payload -> `400 validation_failed`
+- invalid channel config or malformed payload -> `400 validation_failed`
 - upstream delivery failure -> `502 delivery_failed`
 - test send does not persist settings
 
