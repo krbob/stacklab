@@ -129,7 +129,7 @@ Scope:
 - show owner, group, and mode where possible
 - base diagnostics on the current file inode and effective access, not on assumed ACL inheritance
 - explain why some files cannot be diffed, edited, or committed
-- later add explicit repair workflows restricted to managed roots
+- add explicit helper-backed repair workflows restricted to managed roots
 
 Non-goal:
 
@@ -139,17 +139,18 @@ Backend work:
 
 - enrich workspace and Git models with permission diagnostics
 - detect blocked reads and blocked writes cleanly
-- define a future repair interface that stays scoped to managed roots
+- expose helper-backed repair endpoints for config and stack workspaces
+- keep repair constrained to managed roots and explicit target paths
 
 UI work:
 
 - blocked-file states
 - ownership/mode messaging
-- repair entry point later, once backend model exists
+- repair entry points in blocked file states after backend contract is available
 
 UI developer input needed:
 
-- after backend exposes concrete blocked-file semantics
+- after backend exposes concrete repair capability and response semantics
 
 ## Milestone 7: Maintenance Inventory And Cleanup
 

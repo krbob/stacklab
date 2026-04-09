@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"stacklab/internal/config"
+	"stacklab/internal/fsmeta"
+	"stacklab/internal/workspacerepair"
 )
 
 func TestServiceTreeListsSortedEntriesWithStackIDs(t *testing.T) {
@@ -65,6 +67,9 @@ func TestServiceFileDetectsTextAndBinary(t *testing.T) {
 	}
 	if !textFile.Writable {
 		t.Fatalf("expected text file to be writable")
+	}
+	if textFile.RepairCapability.Supported {
+		t.Fatalf("expected repair capability to be disabled by default, got %#v", textFile.RepairCapability)
 	}
 
 	binaryFile, err := service.File(context.Background(), "nextcloud/cert.p12")
@@ -193,6 +198,62 @@ func TestServicePermissionDiagnostics(t *testing.T) {
 	}); !errors.Is(err, ErrPermissionDenied) {
 		t.Fatalf("SaveFile(secret.conf) error = %v, want %v", err, ErrPermissionDenied)
 	}
+}
+
+func TestServiceRepairPermissionsUsesRepairerAndReturnsCapability(t *testing.T) {
+	t.Parallel()
+
+	service, root := newTestService(t)
+	targetPath := filepath.Join(root, "demo", "secret.conf")
+	mustWriteFile(t, targetPath, "token=secret\n")
+	resolvedTargetPath, err := filepath.EvalSymlinks(targetPath)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(targetPath) error = %v", err)
+	}
+	service.repairer = fakePermissionRepairer{
+		capability: workspacerepair.Capability{Supported: true, Recursive: true},
+		repair: func(ctx context.Context, target string, recursive bool) (workspacerepair.Result, error) {
+			if target != resolvedTargetPath {
+				t.Fatalf("repair target = %q, want %q", target, resolvedTargetPath)
+			}
+			if recursive {
+				t.Fatalf("expected non-recursive repair")
+			}
+			return workspacerepair.Result{
+				ChangedItems:            1,
+				Warnings:                []string{"owner updated"},
+				TargetPermissionsBefore: fsmeta.Permissions{Mode: "0000"},
+				TargetPermissionsAfter:  fsmeta.Permissions{Mode: "0600", Readable: true, Writable: true},
+			}, nil
+		},
+	}
+
+	response, err := service.RepairPermissions(context.Background(), RepairPermissionsRequest{
+		Path:      "demo/secret.conf",
+		Recursive: false,
+	})
+	if err != nil {
+		t.Fatalf("RepairPermissions() error = %v", err)
+	}
+	if !response.Repaired || response.ChangedItems != 1 || response.AuditAction != "repair_config_workspace_permissions" {
+		t.Fatalf("unexpected repair response: %#v", response)
+	}
+	if !response.RepairCapability.Supported {
+		t.Fatalf("expected repair capability to be supported, got %#v", response.RepairCapability)
+	}
+}
+
+type fakePermissionRepairer struct {
+	capability workspacerepair.Capability
+	repair     func(ctx context.Context, targetPath string, recursive bool) (workspacerepair.Result, error)
+}
+
+func (f fakePermissionRepairer) Capability(ctx context.Context) workspacerepair.Capability {
+	return f.capability
+}
+
+func (f fakePermissionRepairer) Repair(ctx context.Context, targetPath string, recursive bool) (workspacerepair.Result, error) {
+	return f.repair(ctx, targetPath, recursive)
 }
 
 func newTestService(t *testing.T) (*Service, string) {

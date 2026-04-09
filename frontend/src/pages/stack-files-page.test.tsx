@@ -11,6 +11,12 @@ const mockGetStackWorkspaceTree = vi.fn()
 const mockGetStackWorkspaceFile = vi.fn()
 const mockSaveStackWorkspaceFile = vi.fn()
 
+const unsupportedRepairCapability = {
+  supported: false,
+  reason: 'Workspace permission repair is not configured yet.',
+  recursive: true,
+}
+
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
   return {
@@ -125,6 +131,7 @@ const blockedFile: StackWorkspaceFileResponse = {
     readable: false,
     writable: false,
   },
+  repair_capability: unsupportedRepairCapability,
 }
 
 describe('StackFilesPage', () => {

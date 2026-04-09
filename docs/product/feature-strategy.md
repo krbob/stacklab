@@ -249,7 +249,8 @@ Suggested scope:
 - show ownership and mode information when access is blocked
 - base diagnostics on the current file metadata and effective access, not on assumed ACL inheritance
 - recommend aligning container `uid:gid` or `PUID/PGID` where possible
-- later add an explicit repair workflow restricted to managed roots
+- add an explicit helper-backed repair workflow restricted to managed roots
+- keep repair scoped to explicit target paths inside `/config` and `/stacks/<id>`
 
 Avoid:
 

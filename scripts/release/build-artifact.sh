@@ -58,12 +58,19 @@ echo "Building backend binary for ${platform}..."
       -ldflags "-s -w" \
       -o "${stage_dir}/bin/stacklab-docker-admin-helper" \
       ./cmd/stacklab-docker-admin-helper
+
+  GOOS="${goos}" GOARCH="${goarch}" CGO_ENABLED=0 \
+    go build \
+      -ldflags "-s -w" \
+      -o "${stage_dir}/bin/stacklab-workspace-admin-helper" \
+      ./cmd/stacklab-workspace-admin-helper
 )
 
 cp -R "${repo_root}/frontend/dist" "${stage_dir}/frontend/dist"
 cp "${repo_root}/packaging/systemd/stacklab.service.example" "${stage_dir}/systemd/stacklab.service.example"
 cp "${repo_root}/packaging/systemd/stacklab.env.example" "${stage_dir}/systemd/stacklab.env.example"
 cp "${repo_root}/packaging/systemd/stacklab-docker-admin.sudoers.example" "${stage_dir}/systemd/stacklab-docker-admin.sudoers.example"
+cp "${repo_root}/packaging/systemd/stacklab-workspace-admin.sudoers.example" "${stage_dir}/systemd/stacklab-workspace-admin.sudoers.example"
 cp "${repo_root}/scripts/release/upgrade.sh" "${stage_dir}/host-tools/upgrade.sh"
 chmod +x "${stage_dir}/host-tools/upgrade.sh"
 

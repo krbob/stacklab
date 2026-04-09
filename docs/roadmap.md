@@ -51,7 +51,7 @@ Implemented and already exercised on Linux staging hosts:
 
 - surface unreadable or unwritable files created by containers
 - show ownership and mode details where access is blocked
-- add explicit repair workflows later, restricted to managed roots
+- add explicit helper-backed repair workflows, restricted to managed roots
 - keep Stacklab itself on a non-root service model by default
 
 ## Mid-Term Product Goals

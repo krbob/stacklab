@@ -3,6 +3,8 @@ import type {
   AuditResponse,
   ConfigFileResponse,
   ConfigFileSaveResponse,
+  ConfigRepairPermissionsRequest,
+  ConfigRepairPermissionsResponse,
   ConfigTreeResponse,
   DefinitionResponse,
   DockerAdminOverviewResponse,
@@ -29,6 +31,8 @@ import type {
   StackDetailResponse,
   StackWorkspaceFileResponse,
   StackWorkspaceFileSaveResponse,
+  StackRepairPermissionsRequest,
+  StackRepairPermissionsResponse,
   StackWorkspaceTreeResponse,
   StackListResponse,
   StacklabLogsResponse,
@@ -178,6 +182,13 @@ export function saveConfigFile(path: string, content: string, createParentDirect
   })
 }
 
+export function repairConfigWorkspacePermissions(requestBody: ConfigRepairPermissionsRequest): Promise<ConfigRepairPermissionsResponse> {
+  return request('/api/config/workspace/repair-permissions', {
+    method: 'POST',
+    body: JSON.stringify(requestBody),
+  })
+}
+
 // --- Stack management ---
 
 export function getStacks(params?: { q?: string; sort?: string }): Promise<StackListResponse> {
@@ -216,6 +227,16 @@ export function saveStackWorkspaceFile(
   return request(`/api/stacks/${encodeURIComponent(stackId)}/workspace/file`, {
     method: 'PUT',
     body: JSON.stringify({ path, content, create_parent_directories: createParentDirectories }),
+  })
+}
+
+export function repairStackWorkspacePermissions(
+  stackId: string,
+  requestBody: StackRepairPermissionsRequest,
+): Promise<StackRepairPermissionsResponse> {
+  return request(`/api/stacks/${encodeURIComponent(stackId)}/workspace/repair-permissions`, {
+    method: 'POST',
+    body: JSON.stringify(requestBody),
   })
 }
 

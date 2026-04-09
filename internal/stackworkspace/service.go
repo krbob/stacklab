@@ -15,6 +15,7 @@ import (
 	"stacklab/internal/config"
 	"stacklab/internal/fsmeta"
 	"stacklab/internal/stacks"
+	"stacklab/internal/workspacerepair"
 )
 
 var (
@@ -28,7 +29,13 @@ var (
 )
 
 type Service struct {
-	rootDir string
+	rootDir  string
+	repairer permissionRepairer
+}
+
+type permissionRepairer interface {
+	Capability(ctx context.Context) workspacerepair.Capability
+	Repair(ctx context.Context, targetPath string, recursive bool) (workspacerepair.Result, error)
 }
 
 func NewService(cfg config.Config) *Service {
@@ -36,7 +43,10 @@ func NewService(cfg config.Config) *Service {
 	if absolute, err := filepath.Abs(root); err == nil {
 		root = absolute
 	}
-	return &Service{rootDir: root}
+	return &Service{
+		rootDir:  root,
+		repairer: workspacerepair.NewService(cfg),
+	}
 }
 
 func (s *Service) Tree(ctx context.Context, stackID, currentPath string) (TreeResponse, error) {
@@ -182,16 +192,17 @@ func (s *Service) File(ctx context.Context, stackID, filePath string) (FileRespo
 	blockedReason := stackBlockedReason(readable, permissions.Writable, entryType)
 
 	response := FileResponse{
-		StackID:       stackID,
-		Path:          normalized,
-		Name:          path.Base(normalized),
-		Type:          entryType,
-		SizeBytes:     info.Size(),
-		ModifiedAt:    info.ModTime().UTC(),
-		Readable:      readable,
-		Writable:      entryType == EntryTypeTextFile && readable && permissions.Writable,
-		BlockedReason: blockedReason,
-		Permissions:   permissions,
+		StackID:          stackID,
+		Path:             normalized,
+		Name:             path.Base(normalized),
+		Type:             entryType,
+		SizeBytes:        info.Size(),
+		ModifiedAt:       info.ModTime().UTC(),
+		Readable:         readable,
+		Writable:         entryType == EntryTypeTextFile && readable && permissions.Writable,
+		BlockedReason:    blockedReason,
+		Permissions:      permissions,
+		RepairCapability: s.repairer.Capability(ctx),
 	}
 
 	if entryType == EntryTypeTextFile && readable {
@@ -253,6 +264,41 @@ func (s *Service) SaveFile(ctx context.Context, stackID string, request SaveFile
 		Path:        normalized,
 		ModifiedAt:  info.ModTime().UTC(),
 		AuditAction: "save_stack_file",
+	}, nil
+}
+
+func (s *Service) RepairPermissions(ctx context.Context, stackID string, request RepairPermissionsRequest) (RepairPermissionsResponse, error) {
+	stackRoot, err := s.stackRoot(stackID)
+	if err != nil {
+		return RepairPermissionsResponse{}, err
+	}
+
+	normalized, err := normalizeRequiredRepairPath(request.Path)
+	if err != nil {
+		return RepairPermissionsResponse{}, err
+	}
+
+	targetPath, err := s.resolveExistingPath(stackRoot, normalized)
+	if err != nil {
+		return RepairPermissionsResponse{}, err
+	}
+
+	result, err := s.repairer.Repair(ctx, targetPath, request.Recursive)
+	if err != nil {
+		return RepairPermissionsResponse{}, err
+	}
+
+	return RepairPermissionsResponse{
+		Repaired:                true,
+		StackID:                 stackID,
+		Path:                    normalized,
+		Recursive:               request.Recursive,
+		ChangedItems:            result.ChangedItems,
+		Warnings:                append([]string(nil), result.Warnings...),
+		TargetPermissionsBefore: result.TargetPermissionsBefore,
+		TargetPermissionsAfter:  result.TargetPermissionsAfter,
+		AuditAction:             "repair_stack_workspace_permissions",
+		RepairCapability:        s.repairer.Capability(ctx),
 	}, nil
 }
 
@@ -454,6 +500,17 @@ func normalizeRequiredFilePath(value string) (string, error) {
 	}
 	if normalized == "" {
 		return "", ErrPathNotFile
+	}
+	return normalized, nil
+}
+
+func normalizeRequiredRepairPath(value string) (string, error) {
+	normalized, err := normalizeRelativePath(value)
+	if err != nil {
+		return "", err
+	}
+	if normalized == "" {
+		return "", ErrPathOutsideWorkspace
 	}
 	return normalized, nil
 }

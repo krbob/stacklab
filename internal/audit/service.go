@@ -175,6 +175,54 @@ func (s *Service) RecordStackFileSave(ctx context.Context, stackID, relativePath
 	})
 }
 
+func (s *Service) RecordConfigPermissionRepair(ctx context.Context, relativePath, requestedBy string, details map[string]any) error {
+	detailJSON, err := marshalDetails(details)
+	if err != nil {
+		return err
+	}
+
+	requestedAt := time.Now().UTC()
+	targetType := "config_file"
+	targetID := relativePath
+
+	return s.store.CreateAuditEntry(ctx, store.AuditEntry{
+		ID:          "audit_" + randomToken(18),
+		Action:      "repair_config_workspace_permissions",
+		RequestedBy: fallback(requestedBy, "local"),
+		Result:      "succeeded",
+		RequestedAt: requestedAt,
+		FinishedAt:  &requestedAt,
+		TargetType:  targetType,
+		TargetID:    &targetID,
+		DetailJSON:  detailJSON,
+	})
+}
+
+func (s *Service) RecordStackPermissionRepair(ctx context.Context, stackID, relativePath, requestedBy string, details map[string]any) error {
+	detailJSON, err := marshalDetails(details)
+	if err != nil {
+		return err
+	}
+
+	requestedAt := time.Now().UTC()
+	stackIDValue := stackID
+	targetType := "stack_file"
+	targetID := relativePath
+
+	return s.store.CreateAuditEntry(ctx, store.AuditEntry{
+		ID:          "audit_" + randomToken(18),
+		StackID:     &stackIDValue,
+		Action:      "repair_stack_workspace_permissions",
+		RequestedBy: fallback(requestedBy, "local"),
+		Result:      "succeeded",
+		RequestedAt: requestedAt,
+		FinishedAt:  &requestedAt,
+		TargetType:  targetType,
+		TargetID:    &targetID,
+		DetailJSON:  detailJSON,
+	})
+}
+
 func (s *Service) RecordGitCommit(ctx context.Context, requestedBy, commitID, summary string, paths []string, remainingChanges int, details map[string]any) error {
 	requestedAt := time.Now().UTC()
 	targetType := "git_workspace"

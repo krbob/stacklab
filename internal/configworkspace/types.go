@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"stacklab/internal/fsmeta"
+	"stacklab/internal/workspacerepair"
 )
 
 type EntryType string
@@ -33,18 +34,19 @@ type TreeEntry struct {
 }
 
 type FileResponse struct {
-	Path          string             `json:"path"`
-	Name          string             `json:"name"`
-	Type          EntryType          `json:"type"`
-	StackID       *string            `json:"stack_id"`
-	Content       *string            `json:"content"`
-	Encoding      *string            `json:"encoding"`
-	SizeBytes     int64              `json:"size_bytes"`
-	ModifiedAt    time.Time          `json:"modified_at"`
-	Readable      bool               `json:"readable"`
-	Writable      bool               `json:"writable"`
-	BlockedReason *string            `json:"blocked_reason,omitempty"`
-	Permissions   fsmeta.Permissions `json:"permissions"`
+	Path             string                     `json:"path"`
+	Name             string                     `json:"name"`
+	Type             EntryType                  `json:"type"`
+	StackID          *string                    `json:"stack_id"`
+	Content          *string                    `json:"content"`
+	Encoding         *string                    `json:"encoding"`
+	SizeBytes        int64                      `json:"size_bytes"`
+	ModifiedAt       time.Time                  `json:"modified_at"`
+	Readable         bool                       `json:"readable"`
+	Writable         bool                       `json:"writable"`
+	BlockedReason    *string                    `json:"blocked_reason,omitempty"`
+	Permissions      fsmeta.Permissions         `json:"permissions"`
+	RepairCapability workspacerepair.Capability `json:"repair_capability"`
 }
 
 type SaveFileRequest struct {
@@ -58,4 +60,21 @@ type SaveFileResponse struct {
 	Path        string    `json:"path"`
 	ModifiedAt  time.Time `json:"modified_at"`
 	AuditAction string    `json:"audit_action"`
+}
+
+type RepairPermissionsRequest struct {
+	Path      string `json:"path"`
+	Recursive bool   `json:"recursive"`
+}
+
+type RepairPermissionsResponse struct {
+	Repaired                bool                       `json:"repaired"`
+	Path                    string                     `json:"path"`
+	Recursive               bool                       `json:"recursive"`
+	ChangedItems            int                        `json:"changed_items"`
+	Warnings                []string                   `json:"warnings,omitempty"`
+	TargetPermissionsBefore fsmeta.Permissions         `json:"target_permissions_before"`
+	TargetPermissionsAfter  fsmeta.Permissions         `json:"target_permissions_after"`
+	AuditAction             string                     `json:"audit_action"`
+	RepairCapability        workspacerepair.Capability `json:"repair_capability"`
 }

@@ -20,13 +20,16 @@ import (
 	"stacklab/internal/config"
 	"stacklab/internal/configworkspace"
 	"stacklab/internal/dockeradmin"
+	"stacklab/internal/fsmeta"
 	"stacklab/internal/gitworkspace"
 	"stacklab/internal/hostinfo"
 	"stacklab/internal/jobs"
 	"stacklab/internal/maintenance"
 	"stacklab/internal/stacks"
+	"stacklab/internal/stackworkspace"
 	"stacklab/internal/store"
 	"stacklab/internal/terminal"
+	"stacklab/internal/workspacerepair"
 )
 
 type fakeHostInfo struct {
@@ -46,6 +49,16 @@ type fakeDockerAdmin struct {
 	validateError        error
 	applyResponse        dockeradmin.ApplyManagedConfigResult
 	applyError           error
+}
+
+type fakeConfigWorkspaceReader struct {
+	repairResponse configworkspace.RepairPermissionsResponse
+	repairError    error
+}
+
+type fakeStackWorkspaceReader struct {
+	repairResponse stackworkspace.RepairPermissionsResponse
+	repairError    error
 }
 
 func (f *fakeHostInfo) Overview(ctx context.Context) (hostinfo.OverviewResponse, error) {
@@ -71,6 +84,38 @@ func (f *fakeDockerAdmin) ValidateManagedConfig(ctx context.Context, request doc
 
 func (f *fakeDockerAdmin) ApplyManagedConfig(ctx context.Context, request dockeradmin.ApplyManagedConfigRequest) (dockeradmin.ApplyManagedConfigResult, error) {
 	return f.applyResponse, f.applyError
+}
+
+func (f *fakeConfigWorkspaceReader) Tree(ctx context.Context, currentPath string) (configworkspace.TreeResponse, error) {
+	return configworkspace.TreeResponse{}, nil
+}
+
+func (f *fakeConfigWorkspaceReader) File(ctx context.Context, filePath string) (configworkspace.FileResponse, error) {
+	return configworkspace.FileResponse{}, nil
+}
+
+func (f *fakeConfigWorkspaceReader) SaveFile(ctx context.Context, request configworkspace.SaveFileRequest) (configworkspace.SaveFileResponse, error) {
+	return configworkspace.SaveFileResponse{}, nil
+}
+
+func (f *fakeConfigWorkspaceReader) RepairPermissions(ctx context.Context, request configworkspace.RepairPermissionsRequest) (configworkspace.RepairPermissionsResponse, error) {
+	return f.repairResponse, f.repairError
+}
+
+func (f *fakeStackWorkspaceReader) Tree(ctx context.Context, stackID, currentPath string) (stackworkspace.TreeResponse, error) {
+	return stackworkspace.TreeResponse{}, nil
+}
+
+func (f *fakeStackWorkspaceReader) File(ctx context.Context, stackID, filePath string) (stackworkspace.FileResponse, error) {
+	return stackworkspace.FileResponse{}, nil
+}
+
+func (f *fakeStackWorkspaceReader) SaveFile(ctx context.Context, stackID string, request stackworkspace.SaveFileRequest) (stackworkspace.SaveFileResponse, error) {
+	return stackworkspace.SaveFileResponse{}, nil
+}
+
+func (f *fakeStackWorkspaceReader) RepairPermissions(ctx context.Context, stackID string, request stackworkspace.RepairPermissionsRequest) (stackworkspace.RepairPermissionsResponse, error) {
+	return f.repairResponse, f.repairError
 }
 
 func TestHandlerPutDefinitionReturnsStackLockedWhenAnotherJobOwnsStack(t *testing.T) {
@@ -631,6 +676,103 @@ func TestHandlerConfigWorkspacePermissionDiagnostics(t *testing.T) {
 	}, cookies)
 	if saveResponse.Code != http.StatusConflict {
 		t.Fatalf("PUT /api/config/workspace/file(secret.conf) status = %d, want %d; body=%s", saveResponse.Code, http.StatusConflict, saveResponse.Body.String())
+	}
+}
+
+func TestHandlerRepairConfigWorkspacePermissions(t *testing.T) {
+	t.Parallel()
+
+	handler, served, _ := newInternalTestHandler(t)
+	handler.configFiles = &fakeConfigWorkspaceReader{
+		repairResponse: configworkspace.RepairPermissionsResponse{
+			Repaired:     true,
+			Path:         "demo/secret.conf",
+			Recursive:    false,
+			ChangedItems: 1,
+			TargetPermissionsBefore: fsmeta.Permissions{
+				Mode:     "0000",
+				Readable: false,
+				Writable: false,
+			},
+			TargetPermissionsAfter: fsmeta.Permissions{
+				Mode:     "0600",
+				Readable: true,
+				Writable: true,
+			},
+			AuditAction: "repair_config_workspace_permissions",
+			RepairCapability: workspacerepair.Capability{
+				Supported: true,
+				Recursive: true,
+			},
+		},
+	}
+
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	response := performInternalJSONRequest(t, served, http.MethodPost, "/api/config/workspace/repair-permissions", map[string]any{
+		"path":      "demo/secret.conf",
+		"recursive": false,
+	}, cookies)
+	if response.Code != http.StatusOK {
+		t.Fatalf("POST /api/config/workspace/repair-permissions status = %d, want %d; body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+	var payload configworkspace.RepairPermissionsResponse
+	decodeInternalResponse(t, response, &payload)
+	if !payload.Repaired || payload.Path != "demo/secret.conf" || payload.ChangedItems != 1 {
+		t.Fatalf("unexpected repair payload: %#v", payload)
+	}
+
+	handler.configFiles = &fakeConfigWorkspaceReader{repairError: workspacerepair.ErrUnsupported}
+	notImplemented := performInternalJSONRequest(t, served, http.MethodPost, "/api/config/workspace/repair-permissions", map[string]any{
+		"path": "demo/secret.conf",
+	}, cookies)
+	if notImplemented.Code != http.StatusNotImplemented {
+		t.Fatalf("POST /api/config/workspace/repair-permissions(not configured) status = %d, want %d; body=%s", notImplemented.Code, http.StatusNotImplemented, notImplemented.Body.String())
+	}
+}
+
+func TestHandlerRepairStackWorkspacePermissions(t *testing.T) {
+	t.Parallel()
+
+	handler, served, _ := newInternalTestHandler(t)
+	handler.stackFiles = &fakeStackWorkspaceReader{
+		repairResponse: stackworkspace.RepairPermissionsResponse{
+			Repaired:     true,
+			StackID:      "demo",
+			Path:         "Dockerfile",
+			Recursive:    false,
+			ChangedItems: 1,
+			TargetPermissionsBefore: fsmeta.Permissions{
+				Mode:     "0400",
+				Readable: true,
+				Writable: false,
+			},
+			TargetPermissionsAfter: fsmeta.Permissions{
+				Mode:     "0600",
+				Readable: true,
+				Writable: true,
+			},
+			AuditAction: "repair_stack_workspace_permissions",
+			RepairCapability: workspacerepair.Capability{
+				Supported: true,
+				Recursive: true,
+			},
+		},
+	}
+
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	response := performInternalJSONRequest(t, served, http.MethodPost, "/api/stacks/demo/workspace/repair-permissions", map[string]any{
+		"path":      "Dockerfile",
+		"recursive": false,
+	}, cookies)
+	if response.Code != http.StatusOK {
+		t.Fatalf("POST /api/stacks/demo/workspace/repair-permissions status = %d, want %d; body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+	var payload stackworkspace.RepairPermissionsResponse
+	decodeInternalResponse(t, response, &payload)
+	if !payload.Repaired || payload.StackID != "demo" || payload.Path != "Dockerfile" {
+		t.Fatalf("unexpected stack repair payload: %#v", payload)
 	}
 }
 

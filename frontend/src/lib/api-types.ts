@@ -485,6 +485,7 @@ export interface ConfigFileResponse {
   writable: boolean
   blocked_reason: string | null
   permissions: FilePermissions
+  repair_capability: WorkspaceRepairCapability
 }
 
 export interface ConfigFileSaveResponse {
@@ -492,6 +493,29 @@ export interface ConfigFileSaveResponse {
   path: string
   modified_at: string
   audit_action: string
+}
+
+export interface WorkspaceRepairCapability {
+  supported: boolean
+  reason?: string
+  recursive: boolean
+}
+
+export interface ConfigRepairPermissionsRequest {
+  path: string
+  recursive?: boolean
+}
+
+export interface ConfigRepairPermissionsResponse {
+  repaired: boolean
+  path: string
+  recursive: boolean
+  changed_items: number
+  warnings?: string[]
+  target_permissions_before: FilePermissions
+  target_permissions_after: FilePermissions
+  audit_action: string
+  repair_capability: WorkspaceRepairCapability
 }
 
 // --- Stack workspace ---
@@ -528,6 +552,7 @@ export interface StackWorkspaceFileResponse {
   writable: boolean
   blocked_reason: string | null
   permissions: FilePermissions
+  repair_capability: WorkspaceRepairCapability
 }
 
 export interface StackWorkspaceFileSaveResponse {
@@ -536,6 +561,24 @@ export interface StackWorkspaceFileSaveResponse {
   path: string
   modified_at: string
   audit_action: string
+}
+
+export interface StackRepairPermissionsRequest {
+  path: string
+  recursive?: boolean
+}
+
+export interface StackRepairPermissionsResponse {
+  repaired: boolean
+  stack_id: string
+  path: string
+  recursive: boolean
+  changed_items: number
+  warnings?: string[]
+  target_permissions_before: FilePermissions
+  target_permissions_after: FilePermissions
+  audit_action: string
+  repair_capability: WorkspaceRepairCapability
 }
 
 // --- Git workspace ---

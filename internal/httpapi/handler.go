@@ -22,10 +22,11 @@ import (
 	"stacklab/internal/hostinfo"
 	"stacklab/internal/jobs"
 	"stacklab/internal/maintenance"
-	"stacklab/internal/stackworkspace"
 	"stacklab/internal/stacks"
+	"stacklab/internal/stackworkspace"
 	"stacklab/internal/store"
 	"stacklab/internal/terminal"
+	"stacklab/internal/workspacerepair"
 	"strconv"
 	"strings"
 	"time"
@@ -64,12 +65,14 @@ type configWorkspaceReader interface {
 	Tree(ctx context.Context, currentPath string) (configworkspace.TreeResponse, error)
 	File(ctx context.Context, filePath string) (configworkspace.FileResponse, error)
 	SaveFile(ctx context.Context, request configworkspace.SaveFileRequest) (configworkspace.SaveFileResponse, error)
+	RepairPermissions(ctx context.Context, request configworkspace.RepairPermissionsRequest) (configworkspace.RepairPermissionsResponse, error)
 }
 
 type stackWorkspaceReader interface {
 	Tree(ctx context.Context, stackID, currentPath string) (stackworkspace.TreeResponse, error)
 	File(ctx context.Context, stackID, filePath string) (stackworkspace.FileResponse, error)
 	SaveFile(ctx context.Context, stackID string, request stackworkspace.SaveFileRequest) (stackworkspace.SaveFileResponse, error)
+	RepairPermissions(ctx context.Context, stackID string, request stackworkspace.RepairPermissionsRequest) (stackworkspace.RepairPermissionsResponse, error)
 }
 
 type gitWorkspaceReader interface {
@@ -138,6 +141,7 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/config/workspace/tree", h.withAuth(h.handleConfigWorkspaceTree))
 	h.mux.HandleFunc("GET /api/config/workspace/file", h.withAuth(h.handleConfigWorkspaceFile))
 	h.mux.HandleFunc("PUT /api/config/workspace/file", h.withAuth(h.handlePutConfigWorkspaceFile))
+	h.mux.HandleFunc("POST /api/config/workspace/repair-permissions", h.withAuth(h.handleRepairConfigWorkspacePermissions))
 	h.mux.HandleFunc("GET /api/git/workspace/status", h.withAuth(h.handleGitWorkspaceStatus))
 	h.mux.HandleFunc("GET /api/git/workspace/diff", h.withAuth(h.handleGitWorkspaceDiff))
 	h.mux.HandleFunc("POST /api/git/workspace/commit", h.withAuth(h.handleGitWorkspaceCommit))
@@ -156,6 +160,7 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/stacks/{stackId}/workspace/tree", h.withAuth(h.handleStackWorkspaceTree))
 	h.mux.HandleFunc("GET /api/stacks/{stackId}/workspace/file", h.withAuth(h.handleStackWorkspaceFile))
 	h.mux.HandleFunc("PUT /api/stacks/{stackId}/workspace/file", h.withAuth(h.handlePutStackWorkspaceFile))
+	h.mux.HandleFunc("POST /api/stacks/{stackId}/workspace/repair-permissions", h.withAuth(h.handleRepairStackWorkspacePermissions))
 	h.mux.HandleFunc("GET /api/stacks/{stackId}/resolved-config", h.withAuth(h.handleGetResolvedConfig))
 	h.mux.HandleFunc("POST /api/stacks/{stackId}/resolved-config", h.withAuth(h.handlePostResolvedConfig))
 	h.mux.HandleFunc("POST /api/stacks/{stackId}/actions/{action}", h.withAuth(h.handleRunStackAction))
@@ -408,6 +413,49 @@ func (h *Handler) handlePutConfigWorkspaceFile(w http.ResponseWriter, r *http.Re
 	writeJSON(w, http.StatusOK, response)
 }
 
+func (h *Handler) handleRepairConfigWorkspacePermissions(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request configworkspace.RepairPermissionsRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	response, err := h.configFiles.RepairPermissions(r.Context(), request)
+	if err != nil {
+		switch {
+		case errors.Is(err, configworkspace.ErrPathOutsideWorkspace):
+			writeError(w, http.StatusBadRequest, "path_outside_workspace", "Path escapes the config workspace.", nil)
+		case errors.Is(err, configworkspace.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Workspace path was not found.", nil)
+		case errors.Is(err, workspacerepair.ErrUnsupported):
+			writeError(w, http.StatusNotImplemented, "not_implemented", "Workspace permission repair is not configured yet.", nil)
+		default:
+			h.logger.Error("repair config workspace permissions failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to repair config workspace permissions.", nil)
+		}
+		return
+	}
+
+	details := map[string]any{
+		"path":          response.Path,
+		"recursive":     response.Recursive,
+		"changed_items": response.ChangedItems,
+	}
+	if len(response.Warnings) > 0 {
+		details["warnings"] = response.Warnings
+	}
+	if err := h.audit.RecordConfigPermissionRepair(r.Context(), response.Path, "local", details); err != nil {
+		h.logger.Warn("record repair_config_workspace_permissions audit failed", slog.String("path", response.Path), slog.String("err", err.Error()))
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
 func (h *Handler) handleStackWorkspaceTree(w http.ResponseWriter, r *http.Request) {
 	response, err := h.stackFiles.Tree(r.Context(), r.PathValue("stackId"), strings.TrimSpace(r.URL.Query().Get("path")))
 	if err != nil {
@@ -497,6 +545,50 @@ func (h *Handler) handlePutStackWorkspaceFile(w http.ResponseWriter, r *http.Req
 	}
 	if err := h.audit.RecordStackFileSave(r.Context(), stackID, response.Path, "local", details); err != nil {
 		h.logger.Warn("record save_stack_file audit failed", slog.String("stack_id", stackID), slog.String("path", response.Path), slog.String("err", err.Error()))
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleRepairStackWorkspacePermissions(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request stackworkspace.RepairPermissionsRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	stackID := r.PathValue("stackId")
+	response, err := h.stackFiles.RepairPermissions(r.Context(), stackID, request)
+	if err != nil {
+		switch {
+		case errors.Is(err, stackworkspace.ErrPathOutsideWorkspace):
+			writeError(w, http.StatusBadRequest, "path_outside_workspace", "Path escapes the stack workspace.", nil)
+		case errors.Is(err, stackworkspace.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Stack workspace path was not found.", nil)
+		case errors.Is(err, workspacerepair.ErrUnsupported):
+			writeError(w, http.StatusNotImplemented, "not_implemented", "Workspace permission repair is not configured yet.", nil)
+		default:
+			h.logger.Error("repair stack workspace permissions failed", slog.String("stack_id", stackID), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to repair stack workspace permissions.", nil)
+		}
+		return
+	}
+
+	details := map[string]any{
+		"path":          response.Path,
+		"recursive":     response.Recursive,
+		"changed_items": response.ChangedItems,
+	}
+	if len(response.Warnings) > 0 {
+		details["warnings"] = response.Warnings
+	}
+	if err := h.audit.RecordStackPermissionRepair(r.Context(), stackID, response.Path, "local", details); err != nil {
+		h.logger.Warn("record repair_stack_workspace_permissions audit failed", slog.String("stack_id", stackID), slog.String("path", response.Path), slog.String("err", err.Error()))
 	}
 
 	writeJSON(w, http.StatusOK, response)

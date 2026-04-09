@@ -141,6 +141,11 @@ Response for text file:
   "readable": true,
   "writable": true,
   "blocked_reason": null,
+  "repair_capability": {
+    "supported": false,
+    "reason": "Workspace permission repair is not configured yet.",
+    "recursive": true
+  },
   "permissions": {
     "owner_uid": 1000,
     "owner_name": "stacklab",
@@ -168,6 +173,11 @@ Response for blocked file:
   "readable": false,
   "writable": false,
   "blocked_reason": "not_readable",
+  "repair_capability": {
+    "supported": false,
+    "reason": "Workspace permission repair is not configured yet.",
+    "recursive": true
+  },
   "permissions": {
     "owner_uid": 0,
     "owner_name": "root",
@@ -206,6 +216,62 @@ Response:
 }
 ```
 
+## `POST /api/stacks/{stackId}/workspace/repair-permissions`
+
+Repair ownership and owner access bits for one existing path under the stack root.
+
+Request:
+
+```json
+{
+  "path": "Dockerfile",
+  "recursive": false
+}
+```
+
+Response:
+
+```json
+{
+  "repaired": true,
+  "stack_id": "jellyfin",
+  "path": "Dockerfile",
+  "recursive": false,
+  "changed_items": 1,
+  "warnings": [],
+  "target_permissions_before": {
+    "owner_uid": 0,
+    "owner_name": "root",
+    "group_gid": 0,
+    "group_name": "root",
+    "mode": "0400",
+    "readable": true,
+    "writable": false
+  },
+  "target_permissions_after": {
+    "owner_uid": 1000,
+    "owner_name": "stacklab",
+    "group_gid": 1000,
+    "group_name": "stacklab",
+    "mode": "0600",
+    "readable": true,
+    "writable": true
+  },
+  "audit_action": "repair_stack_workspace_permissions",
+  "repair_capability": {
+    "supported": true,
+    "recursive": true
+  }
+}
+```
+
+Rules:
+
+- this is restricted to existing paths under `/opt/stacklab/stacks/<stack_id>`
+- unlike `workspace/file`, reserved root paths may still be repaired
+- path traversal is rejected
+- helper-backed repair is opt-in and returns `501 not_implemented` until configured
+
 ## Error Semantics
 
 - `400 path_outside_workspace`
@@ -216,3 +282,4 @@ Response:
   - reserved canonical root files
 - `409 binary_not_editable`
 - `409 permission_denied`
+- `501 not_implemented`

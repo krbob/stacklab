@@ -64,8 +64,11 @@ sudo apt-get install stacklab
   - `/var/lib/stacklab`
 - The package also installs the Docker admin helper binary:
   - `/usr/lib/stacklab/bin/stacklab-docker-admin-helper`
+- The package also installs the workspace repair helper binary:
+  - `/usr/lib/stacklab/bin/stacklab-workspace-admin-helper`
 - A sample `sudoers` allowlist is installed at:
   - `/usr/share/doc/stacklab/examples/stacklab-docker-admin.sudoers.example`
+  - `/usr/share/doc/stacklab/examples/stacklab-workspace-admin.sudoers.example`
 - The package depends on:
   - `systemd`
   - Docker Engine
@@ -80,3 +83,8 @@ sudo apt-get install stacklab
   - install a narrow `sudoers` rule for the helper
   - keep `NoNewPrivileges=false` in `stacklab.service`
   - include `/etc/docker` in the unit `ReadWritePaths`
+- Workspace permission repair also remains opt-in:
+  - set `STACKLAB_WORKSPACE_ADMIN_HELPER_PATH`
+  - set `STACKLAB_WORKSPACE_ADMIN_USE_SUDO=true`
+  - install a narrow `sudoers` rule for the helper
+  - keep `NoNewPrivileges=false` in `stacklab.service`

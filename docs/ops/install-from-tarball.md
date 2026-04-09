@@ -60,6 +60,7 @@ stacklab-<version>-linux-<arch>/
     stacklab.service.example
     stacklab.env.example
     stacklab-docker-admin.sudoers.example
+    stacklab-workspace-admin.sudoers.example
   host-tools/
     upgrade.sh
 ```
@@ -69,11 +70,13 @@ stacklab-<version>-linux-<arch>/
 The tarball also includes:
 
 - `bin/stacklab-docker-admin-helper`
+- `bin/stacklab-workspace-admin-helper`
 - `systemd/stacklab-docker-admin.sudoers.example`
+- `systemd/stacklab-workspace-admin.sudoers.example`
 
 These are only needed if you later opt into Docker daemon apply workflows.
-If you do enable that workflow, the Stacklab unit must keep `NoNewPrivileges=false`.
-It must also include `/etc/docker` in `ReadWritePaths`.
+If you enable Docker daemon apply or workspace permission repair through `sudo` helpers, the Stacklab unit must keep `NoNewPrivileges=false`.
+Docker daemon apply also requires `/etc/docker` in `ReadWritePaths`.
 
 ## First Install
 

@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"stacklab/internal/config"
+	"stacklab/internal/fsmeta"
+	"stacklab/internal/workspacerepair"
 )
 
 func TestServiceTreeListsAuxiliaryFilesAndIncludesCanonicalDefinitionFilesForRedirect(t *testing.T) {
@@ -52,6 +54,9 @@ func TestServiceFileDetectsTextAndBinaryAndRejectsCanonicalFiles(t *testing.T) {
 	}
 	if textFile.Type != EntryTypeTextFile || textFile.Content == nil || *textFile.Content != "FROM alpine:3.20\n" {
 		t.Fatalf("unexpected text file payload: %#v", textFile)
+	}
+	if textFile.RepairCapability.Supported {
+		t.Fatalf("expected repair capability to be disabled by default, got %#v", textFile.RepairCapability)
 	}
 
 	binaryFile, err := service.File(context.Background(), "demo", "blob.bin")
@@ -165,6 +170,58 @@ func TestServicePermissionDiagnostics(t *testing.T) {
 	if file.BlockedReason == nil || *file.BlockedReason != "not_readable" {
 		t.Fatalf("unexpected blocked reason: %#v", file.BlockedReason)
 	}
+}
+
+func TestServiceRepairPermissionsUsesRepairerAndReturnsCapability(t *testing.T) {
+	t.Parallel()
+
+	service, stackRoot := newTestService(t, "demo")
+	targetPath := filepath.Join(stackRoot, "Dockerfile")
+	mustWriteFile(t, targetPath, "FROM alpine:3.20\n")
+	resolvedTargetPath, err := filepath.EvalSymlinks(targetPath)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(targetPath) error = %v", err)
+	}
+	service.repairer = fakePermissionRepairer{
+		capability: workspacerepair.Capability{Supported: true, Recursive: true},
+		repair: func(ctx context.Context, target string, recursive bool) (workspacerepair.Result, error) {
+			if target != resolvedTargetPath {
+				t.Fatalf("repair target = %q, want %q", target, resolvedTargetPath)
+			}
+			return workspacerepair.Result{
+				ChangedItems:            1,
+				TargetPermissionsBefore: fsmeta.Permissions{Mode: "0400"},
+				TargetPermissionsAfter:  fsmeta.Permissions{Mode: "0600", Readable: true, Writable: true},
+			}, nil
+		},
+	}
+
+	response, err := service.RepairPermissions(context.Background(), "demo", RepairPermissionsRequest{
+		Path:      "Dockerfile",
+		Recursive: false,
+	})
+	if err != nil {
+		t.Fatalf("RepairPermissions() error = %v", err)
+	}
+	if !response.Repaired || response.StackID != "demo" || response.AuditAction != "repair_stack_workspace_permissions" {
+		t.Fatalf("unexpected repair response: %#v", response)
+	}
+	if !response.RepairCapability.Supported {
+		t.Fatalf("expected repair capability to be supported, got %#v", response.RepairCapability)
+	}
+}
+
+type fakePermissionRepairer struct {
+	capability workspacerepair.Capability
+	repair     func(ctx context.Context, targetPath string, recursive bool) (workspacerepair.Result, error)
+}
+
+func (f fakePermissionRepairer) Capability(ctx context.Context) workspacerepair.Capability {
+	return f.capability
+}
+
+func (f fakePermissionRepairer) Repair(ctx context.Context, targetPath string, recursive bool) (workspacerepair.Result, error) {
+	return f.repair(ctx, targetPath, recursive)
 }
 
 func newTestService(t *testing.T, stackID string) (*Service, string) {
