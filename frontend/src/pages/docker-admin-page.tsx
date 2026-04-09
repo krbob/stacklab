@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getDockerAdminOverview, getDockerDaemonConfig, validateDockerDaemonConfig, applyDockerDaemonConfig } from '@/lib/api-client'
 import { useApi } from '@/hooks/use-api'
 import { useJobStream } from '@/hooks/use-job-stream'
@@ -224,6 +224,28 @@ function ManagedSettingsForm({ currentSummary, writeCapability, onApplyDone }: {
 
   const { events: applyEvents, state: applyJobState } = useJobStream({ jobId: applyJobId })
   const applyTerminal = applyJobState === 'succeeded' || applyJobState === 'failed' || applyJobState === 'cancelled' || applyJobState === 'timed_out'
+  const applyInProgress = Boolean(applyJobId) && !applyTerminal
+
+  const applyBackupPath = useMemo(
+    () =>
+      applyEvents.find(
+        (event) => event.event === 'job_log' && event.message === 'Created Docker daemon config backup.' && event.data,
+      )?.data ?? null,
+    [applyEvents],
+  )
+  const applyRollbackAttempted = useMemo(
+    () =>
+      applyEvents.some(
+        (event) =>
+          event.event === 'job_warning' && /rollback/i.test(event.message),
+      ),
+    [applyEvents],
+  )
+
+  useEffect(() => {
+    setValidateResult(null)
+    setValidateError(null)
+  }, [dns, mirrors, insecure, liveRestore])
 
   // Auto-refresh on apply completion
   useEffect(() => {
@@ -293,7 +315,7 @@ function ManagedSettingsForm({ currentSummary, writeCapability, onApplyDone }: {
     }
   }, [dns, mirrors, insecure, liveRestore])
 
-  const canApply = writeCapability.supported && validateResult && validateResult.warnings.length === 0 && !applying && !applyJobId
+  const canApply = writeCapability.supported && Boolean(validateResult) && !applying && !applyInProgress
 
   return (
     <div>
@@ -446,12 +468,23 @@ function ManagedSettingsForm({ currentSummary, writeCapability, onApplyDone }: {
           {applyJobState === 'succeeded' && (
             <div className="rounded-md border border-emerald-400/20 bg-emerald-400/5 px-4 py-3 text-xs text-emerald-400">
               Docker configuration applied and Docker restarted successfully.
+              {applyBackupPath && (
+                <div className="mt-1 text-[var(--muted)]">
+                  Backup: <span className="font-mono text-emerald-300">{applyBackupPath}</span>
+                </div>
+              )}
             </div>
           )}
           {applyJobState === 'failed' && (
             <div className="rounded-md border border-amber-400/20 bg-amber-400/5 px-4 py-3 text-xs text-amber-400">
-              Apply failed. If a rollback was performed, the previous configuration has been restored.
-              Check the step details above for the rollback status and backup path.
+              {applyRollbackAttempted
+                ? 'Apply failed. A rollback was attempted; the previous configuration should be restored.'
+                : 'Apply failed. Check the step details above before retrying.'}
+              {applyBackupPath && (
+                <div className="mt-1 text-[var(--muted)]">
+                  Backup: <span className="font-mono text-amber-300">{applyBackupPath}</span>
+                </div>
+              )}
             </div>
           )}
         </div>
