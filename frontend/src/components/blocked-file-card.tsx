@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { ShieldAlert } from 'lucide-react'
 import type { FilePermissions, WorkspaceRepairCapability } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
@@ -12,10 +12,12 @@ interface RepairResult {
 }
 
 interface BlockedFileCardProps {
+  stateKey?: string
   blockedReason: string | null
   permissions: FilePermissions | null
   repairCapability?: WorkspaceRepairCapability | null
   onRepair?: (recursive: boolean) => Promise<RepairResult>
+  allowRecursive?: boolean
 }
 
 const reasonMessages: Record<string, string> = {
@@ -23,11 +25,26 @@ const reasonMessages: Record<string, string> = {
   not_writable: 'This file is currently not writable by the Stacklab service user.',
 }
 
-export function BlockedFileCard({ blockedReason, permissions, repairCapability, onRepair }: BlockedFileCardProps) {
+export function BlockedFileCard({ stateKey, blockedReason, permissions, repairCapability, onRepair, allowRecursive = false }: BlockedFileCardProps) {
   const [recursive, setRecursive] = useState(false)
   const [repairing, setRepairing] = useState(false)
   const [repairResult, setRepairResult] = useState<RepairResult | null>(null)
   const [repairError, setRepairError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setRecursive(false)
+    setRepairing(false)
+    setRepairResult(null)
+    setRepairError(null)
+  }, [stateKey])
+
+  useEffect(() => {
+    if (!repairResult) return
+    const timeout = window.setTimeout(() => {
+      setRepairResult(null)
+    }, 10_000)
+    return () => window.clearTimeout(timeout)
+  }, [repairResult])
 
   const handleRepair = useCallback(async () => {
     if (!onRepair) return
@@ -86,7 +103,7 @@ export function BlockedFileCard({ blockedReason, permissions, repairCapability, 
             >
               {repairing ? 'Repairing...' : 'Repair access'}
             </button>
-            {repairCapability.recursive && (
+            {allowRecursive && repairCapability.recursive && (
               <label className="flex items-center justify-center gap-2 text-xs text-[var(--muted)]">
                 <input type="checkbox" checked={recursive} onChange={(e) => setRecursive(e.target.checked)} disabled={repairing} className="rounded" />
                 Repair recursively
@@ -142,6 +159,16 @@ export function BlockedFileCard({ blockedReason, permissions, repairCapability, 
                 {repairResult.warnings.map((w, i) => <div key={i}>{w}</div>)}
               </div>
             )}
+
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setRepairResult(null)}
+                className="rounded-full border border-[var(--panel-border)] px-3 py-1 text-[10px] text-[var(--muted)] transition hover:text-[var(--text)]"
+              >
+                Done
+              </button>
+            </div>
           </div>
         )}
       </div>

@@ -453,14 +453,14 @@ export function ConfigPage() {
                 <div className="mt-3 flex-1" style={{ minHeight: '400px' }}>
                   {selectedFile.blocked_reason ? (
                     <BlockedFileCard
+                      stateKey={selectedFile.path}
                       blockedReason={selectedFile.blocked_reason}
                       permissions={selectedFile.permissions}
                       repairCapability={selectedFile.repair_capability}
                       onRepair={selectedFile.repair_capability?.supported ? async (recursive) => {
                         const result = await repairConfigWorkspacePermissions({ path: selectedFile.path, recursive })
-                        // Refresh file and tree after repair
-                        openFile(selectedFile.path)
-                        loadTree(treePath)
+                        void openFile(selectedFile.path)
+                        void loadTree(treePath)
                         return result
                       } : undefined}
                     />

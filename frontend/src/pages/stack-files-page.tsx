@@ -183,13 +183,14 @@ export function StackFilesPage() {
             <div className="mt-3 flex-1" style={{ minHeight: '300px' }}>
               {selectedFile.blocked_reason ? (
                 <BlockedFileCard
+                  stateKey={selectedFile.path}
                   blockedReason={selectedFile.blocked_reason}
                   permissions={selectedFile.permissions}
                   repairCapability={selectedFile.repair_capability}
                   onRepair={selectedFile.repair_capability?.supported ? async (recursive) => {
                     const result = await repairStackWorkspacePermissions(stack.id, { path: selectedFile.path, recursive })
-                    openFile(selectedFile.path)
-                    refetchTree()
+                    void openFile(selectedFile.path)
+                    void refetchTree()
                     return result
                   } : undefined}
                 />
