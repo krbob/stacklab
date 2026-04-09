@@ -77,6 +77,8 @@ The tarball also includes:
 These are only needed if you later opt into Docker daemon apply workflows.
 If you enable Docker daemon apply or workspace permission repair through `sudo` helpers, the Stacklab unit must keep `NoNewPrivileges=false`.
 Docker daemon apply also requires `/etc/docker` in `ReadWritePaths`.
+The sudoers examples inside the tarball are already rewritten for the tarball
+layout and point at `/opt/stacklab/app/current/bin/...`.
 
 ## First Install
 

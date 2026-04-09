@@ -74,6 +74,11 @@ cp "${repo_root}/packaging/systemd/stacklab-workspace-admin.sudoers.example" "${
 cp "${repo_root}/scripts/release/upgrade.sh" "${stage_dir}/host-tools/upgrade.sh"
 chmod +x "${stage_dir}/host-tools/upgrade.sh"
 
+perl -0pi -e "s|/usr/lib/stacklab/bin/stacklab-docker-admin-helper|/opt/stacklab/app/current/bin/stacklab-docker-admin-helper|g" \
+  "${stage_dir}/systemd/stacklab-docker-admin.sudoers.example"
+perl -0pi -e "s|/usr/lib/stacklab/bin/stacklab-workspace-admin-helper|/opt/stacklab/app/current/bin/stacklab-workspace-admin-helper|g" \
+  "${stage_dir}/systemd/stacklab-workspace-admin.sudoers.example"
+
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "${stage_dir}" 2>/dev/null || true
 fi
