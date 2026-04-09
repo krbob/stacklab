@@ -185,3 +185,45 @@ jobs:
           fi
           git commit -m "Publish apt stable for ${{ needs.prepare.outputs.release_version }}"
           git push origin HEAD:gh-pages
+
+  smoke-published-apt:
+    name: smoke-published-hotfix-apt
+    needs: [publish]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Wait for Pages to serve stable metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY%%/*}"
+          repo="${GITHUB_REPOSITORY#*/}"
+          repo_url="https://${owner}.github.io/${repo}/apt"
+
+          wait_for_url() {
+            local url="$1"
+            local attempt=1
+            while (( attempt <= 30 )); do
+              if curl -fsI "${url}" >/dev/null 2>&1; then
+                return 0
+              fi
+              sleep 10
+              attempt=$((attempt + 1))
+            done
+            echo "timed out waiting for ${url} after 30 attempts" >&2
+            return 1
+          }
+
+          wait_for_url "${repo_url}/stacklab-archive-keyring.gpg"
+          wait_for_url "${repo_url}/dists/stable/InRelease"
+
+      - name: Smoke install from published stable APT repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY%%/*}"
+          repo="${GITHUB_REPOSITORY#*/}"
+          repo_url="https://${owner}.github.io/${repo}/apt"
+          scripts/release/smoke-apt-repo-install.sh --channel stable --repo-url "${repo_url}" --arch amd64
