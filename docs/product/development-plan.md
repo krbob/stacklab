@@ -328,6 +328,48 @@ Scope:
 - automatic monthly stable release on the `1st`
 - selective Renovate automerge for low-risk dependency classes only
 
+## Milestone 13: Mobile Notifications And Post-Update Alerts
+
+Goal:
+
+- get important operator-facing failures onto the phone without requiring the UI to stay open
+
+Scope:
+
+- keep webhook notifications as the generic baseline
+- add Telegram as the first native mobile delivery channel
+- evaluate `ntfy` and `Gotify` later as homelab-friendly self-hosted channels
+- add post-update recovery alerts when a maintenance workflow completes but a stack does not return to a healthy state
+
+Recommended event order:
+
+1. post-update stack recovery failed
+2. job failed
+3. job succeeded with warnings
+4. later runtime health degradation:
+   - unhealthy containers
+   - restart loops
+   - stack transitions into degraded states
+
+Non-goals in the first mobile alert slice:
+
+- WhatsApp native integration
+- log-anomaly alerting
+- notification inbox in the UI
+- templating or batching
+
+Backend work:
+
+- notification channel abstraction above the existing webhook sender
+- Telegram channel support with test send
+- post-update verification logic tied to maintenance completion
+- debounced runtime health alert model later, only after post-update alerts are stable
+
+UI developer input needed:
+
+- after the Telegram/settings contract is ready
+- the first UI slice still lives inside `/settings`, not on a dedicated notifications page
+
 Important constraint:
 
 - release day publishes the already-green state of `main`

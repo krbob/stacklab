@@ -69,6 +69,10 @@ Implemented and already exercised on Linux staging hosts:
   - explicit backup, restart, and rollback workflow
 - read-only visibility into Docker networks and volumes that affect Compose stacks
 - targeted create/delete actions for external networks or volumes when directly useful to stacks
+- mobile-friendly notifications beyond generic webhooks:
+  - Telegram first
+  - `ntfy` or `Gotify` as strong later candidates for self-hosted setups
+  - post-update failure alerts before broader runtime alerting
 - scheduled maintenance jobs only as explicit opt-in policies
 - richer live stats visualization beyond the current lightweight sparklines
 - theme toggle with system preference support
@@ -77,6 +81,11 @@ Implemented and already exercised on Linux staging hosts:
 - host-level system information widgets on dashboard views
 - light internationalization groundwork, then selected translations once UI copy stabilizes
 - richer maintenance notifications and scheduled update policies
+- post-update verification alerts for stacks that fail to recover after maintenance
+- runtime health alerts later:
+  - unhealthy containers
+  - restart loops
+  - stack transitions into degraded states
 - optional repo bootstrap workflows only if they complement the local Git workspace model
 
 ## Later / Conditional

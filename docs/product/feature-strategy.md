@@ -269,8 +269,15 @@ Why:
 Suggested scope:
 
 - webhook notifications first
+- Telegram next as the first native mobile channel
+- `ntfy` and `Gotify` are good later candidates for homelab-first, self-hosted delivery
 - email later if needed
-- events: job failed, job succeeded with warnings, scheduled maintenance summary, update available
+- events:
+  - job failed
+  - job succeeded with warnings
+  - scheduled maintenance summary
+  - post-update stack recovery failure
+  - later runtime health degradation such as unhealthy containers or restart loops
 
 #### Template library / app catalog
 
@@ -425,7 +432,7 @@ The following are the most worthwhile "borrowed" ideas for Stacklab:
 - Docker daemon administration for common operator needs such as DNS, with explicit backup/restart/rollback
 - stronger background activity visibility for long-running operations across the whole app
 - read-only network and volume inventory
-- notifications
+- notifications, with Telegram as the first native mobile target after generic webhooks
 
 ### Priority C: Git And Templates
 

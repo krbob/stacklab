@@ -152,7 +152,7 @@ function NotificationsSection() {
     setTestResult(null)
     try {
       await sendNotificationTest({
-        enabled: true,
+        enabled,
         webhook_url: webhookUrl,
         events: {
           job_failed: jobFailed,
@@ -166,7 +166,7 @@ function NotificationsSection() {
     } finally {
       setTesting(false)
     }
-  }, [webhookUrl, jobFailed, jobWarnings, maintenanceSucceeded])
+  }, [enabled, webhookUrl, jobFailed, jobWarnings, maintenanceSucceeded])
 
   if (loading) {
     return (
