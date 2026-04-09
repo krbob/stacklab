@@ -12,6 +12,8 @@ vi.mock('@/hooks/use-api', () => ({
 
 vi.mock('@/lib/api-client', () => ({
   getMaintenanceVolumes: vi.fn(),
+  createMaintenanceVolume: vi.fn(),
+  deleteMaintenanceVolume: vi.fn(),
 }))
 
 const volumesData: MaintenanceVolumesResponse = {
@@ -74,6 +76,17 @@ describe('MaintenanceVolumes', () => {
     )
 
     expect(screen.getAllByText('external').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('disables remove for managed volumes and enables it for unused external volumes', () => {
+    render(
+      <MemoryRouter>
+        <MaintenanceVolumes />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByRole('button', { name: 'Remove demo_data' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Remove external_media' })).toBeEnabled()
   })
 
   it('shows empty state', () => {

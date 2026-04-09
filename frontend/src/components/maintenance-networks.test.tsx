@@ -12,6 +12,8 @@ vi.mock('@/hooks/use-api', () => ({
 
 vi.mock('@/lib/api-client', () => ({
   getMaintenanceNetworks: vi.fn(),
+  createMaintenanceNetwork: vi.fn(),
+  deleteMaintenanceNetwork: vi.fn(),
 }))
 
 const networksData: MaintenanceNetworksResponse = {
@@ -79,6 +81,17 @@ describe('MaintenanceNetworks', () => {
 
     expect(screen.getAllByText('external').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('internal')).toBeInTheDocument()
+  })
+
+  it('disables remove for managed networks and enables it for unused external networks', () => {
+    render(
+      <MemoryRouter>
+        <MaintenanceNetworks />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByRole('button', { name: 'Remove demo_default' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Remove external_shared' })).toBeEnabled()
   })
 
   it('shows empty state', () => {

@@ -26,6 +26,7 @@ export function MaintenanceVolumes() {
   const [createName, setCreateName] = useState('')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
 
   const { data, error, loading, refetch } = useApi(
     () => getMaintenanceVolumes({ usage: usage !== 'all' ? usage : undefined, origin: origin !== 'all' ? origin : undefined, q: search || undefined }),
@@ -39,6 +40,7 @@ export function MaintenanceVolumes() {
     if (!createName.trim()) return
     setCreating(true)
     setCreateError(null)
+    setActionError(null)
     try {
       await createMaintenanceVolume({ name: createName.trim() })
       setCreateName('')
@@ -52,11 +54,12 @@ export function MaintenanceVolumes() {
   }, [createName, refetch])
 
   const handleDelete = useCallback(async (name: string) => {
+    setActionError(null)
     try {
       await deleteMaintenanceVolume(name)
       refetch()
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Delete failed')
+      setActionError(err instanceof Error ? err.message : 'Delete failed')
     }
   }, [refetch])
 
@@ -96,6 +99,7 @@ export function MaintenanceVolumes() {
         </div>
       )}
 
+      {actionError && <div className="mt-3 rounded-md border border-red-400/20 bg-red-400/5 px-4 py-3 text-sm text-red-400">{actionError}</div>}
       {error && <div className="mt-3 rounded-md border border-red-400/20 bg-red-400/5 px-4 py-3 text-sm text-red-400">{error.message}</div>}
 
       <div className="mt-4 space-y-1">
@@ -123,14 +127,16 @@ export function MaintenanceVolumes() {
                 )}
               </div>
             </div>
-            <button
-              onClick={() => handleDelete(vol.name)}
-              disabled={!canDelete(vol)}
-              title={deleteBlockedReason(vol) ?? 'Remove volume'}
-              className="shrink-0 rounded-full border border-red-400/30 px-2 py-1 text-xs text-red-400 transition hover:bg-red-400/10 disabled:opacity-30 disabled:hover:bg-transparent"
-            >
-              Remove
-            </button>
+            <span className="shrink-0" title={deleteBlockedReason(vol) ?? undefined}>
+              <button
+                onClick={() => handleDelete(vol.name)}
+                disabled={!canDelete(vol)}
+                aria-label={`Remove ${vol.name}`}
+                className="rounded-full border border-red-400/30 px-2 py-1 text-xs text-red-400 transition hover:bg-red-400/10 disabled:opacity-30 disabled:hover:bg-transparent"
+              >
+                Remove
+              </button>
+            </span>
           </div>
         ))}
       </div>
