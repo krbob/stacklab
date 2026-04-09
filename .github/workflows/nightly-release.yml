@@ -131,7 +131,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download amd64 nightly artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: nightly-amd64
           path: dist/release
@@ -154,7 +154,7 @@ jobs:
         run: git fetch --tags --force
 
       - name: Download nightly artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: nightly-*
           path: dist/nightly
