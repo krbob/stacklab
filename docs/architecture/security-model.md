@@ -238,6 +238,14 @@ Current intended helper scope:
 - Docker daemon apply workflow:
   - backup `/etc/docker/daemon.json`
   - write the new file
+  - restart `docker.service`
+  - roll back the config if restart verification fails
+
+Operational note:
+
+- when the Docker daemon helper is enabled through `sudo`, `stacklab.service` cannot run with `NoNewPrivileges=true`
+- when the Docker daemon helper is enabled through `sudo`, the service sandbox must allow writes to `/etc/docker`
+- this is an intentional tradeoff for the opt-in apply workflow and should be documented in deployment instructions
   - restart Docker
   - roll back if restart fails
 

@@ -49,6 +49,8 @@ Current status:
 
 - validation preview is supported
 - actual privileged apply requires a configured helper path and remains disabled by default
+- if apply is enabled through `sudo`, `stacklab.service` must run with `NoNewPrivileges=false`
+- if apply is enabled through `sudo`, the service sandbox must also allow writes to `/etc/docker`
 
 ## REST Endpoints
 

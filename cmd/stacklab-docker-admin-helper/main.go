@@ -12,6 +12,10 @@ import (
 	"time"
 )
 
+type emittedError struct {
+	error
+}
+
 type applyResult struct {
 	BackupPath         string   `json:"backup_path,omitempty"`
 	RolledBack         bool     `json:"rolled_back"`
@@ -28,6 +32,10 @@ func main() {
 	switch os.Args[1] {
 	case "apply":
 		if err := runApply(os.Args[2:]); err != nil {
+			var emitted *emittedError
+			if errors.As(err, &emitted) {
+				os.Exit(1)
+			}
 			failJSON(err)
 		}
 	default:
@@ -82,15 +90,15 @@ func runApply(args []string) error {
 		if rollbackErr := rollbackConfig(configPath, previousContent, previousExists); rollbackErr != nil {
 			result.RollbackSucceeded = false
 			emitResult(result)
-			return fmt.Errorf("restart failed: %v; rollback failed: %w", err, rollbackErr)
+			return &emittedError{fmt.Errorf("restart failed: %v; rollback failed: %w", err, rollbackErr)}
 		}
 		result.RollbackSucceeded = true
 		if rollbackRestartErr := restartAndVerify(unitName, &result); rollbackRestartErr != nil {
 			emitResult(result)
-			return fmt.Errorf("restart failed: %v; rollback restart failed: %w", err, rollbackRestartErr)
+			return &emittedError{fmt.Errorf("restart failed: %v; rollback restart failed: %w", err, rollbackRestartErr)}
 		}
 		emitResult(result)
-		return fmt.Errorf("restart failed and config was rolled back: %w", err)
+		return &emittedError{fmt.Errorf("restart failed and config was rolled back: %w", err)}
 	}
 
 	emitResult(result)

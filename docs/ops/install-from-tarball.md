@@ -72,6 +72,8 @@ The tarball also includes:
 - `systemd/stacklab-docker-admin.sudoers.example`
 
 These are only needed if you later opt into Docker daemon apply workflows.
+If you do enable that workflow, the Stacklab unit must keep `NoNewPrivileges=false`.
+It must also include `/etc/docker` in `ReadWritePaths`.
 
 ## First Install
 

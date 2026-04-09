@@ -92,7 +92,7 @@ func (s *Service) Overview(ctx context.Context) (OverviewResponse, error) {
 		Service:         s.readServiceStatus(ctx),
 		Engine:          s.readEngineStatus(ctx),
 		DaemonConfig:    configResponse.DaemonConfigMeta,
-		WriteCapability: s.writeCapability(),
+		WriteCapability: s.writeCapability(ctx),
 	}, nil
 }
 
@@ -104,7 +104,7 @@ func (s *Service) DaemonConfig(ctx context.Context) (DaemonConfigResponse, error
 			Path:            s.daemonConfigPath,
 			ValidJSON:       true,
 			ConfiguredKeys:  []string{},
-			WriteCapability: s.writeCapability(),
+			WriteCapability: s.writeCapability(ctx),
 			Summary: DaemonConfigSummary{
 				DNS:                []string{},
 				RegistryMirrors:    []string{},
@@ -182,7 +182,7 @@ func (s *Service) ValidateManagedConfig(ctx context.Context, request ValidateMan
 	}
 
 	return ValidateManagedConfigResponse{
-		WriteCapability: s.writeCapability(),
+		WriteCapability: s.writeCapability(ctx),
 		ChangedKeys:     changedManagedKeys(current, merged),
 		RequiresRestart: true,
 		Warnings: []string{
@@ -413,7 +413,7 @@ func summarizeDaemonConfig(values map[string]json.RawMessage) DaemonConfigSummar
 	return summary
 }
 
-func (s *Service) writeCapability() WriteCapability {
+func (s *Service) writeCapability(ctx context.Context) WriteCapability {
 	response := WriteCapability{
 		Supported:   false,
 		ManagedKeys: append([]string(nil), supportedManagedKeys...),
@@ -432,6 +432,27 @@ func (s *Service) writeCapability() WriteCapability {
 		reason := fmt.Sprintf("Docker admin helper is unavailable at %s.", s.helperPath)
 		response.Reason = &reason
 		return response
+	}
+	if s.useSudo {
+		probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		output, err := s.runHelperCommand(probeCtx)
+		if err != nil {
+			message := strings.TrimSpace(string(output))
+			lower := strings.ToLower(message)
+			switch {
+			case strings.Contains(lower, "no new privileges"):
+				reason := "Docker admin helper requires NoNewPrivileges=false in stacklab.service."
+				response.Reason = &reason
+				return response
+			case strings.Contains(lower, "a password is required"),
+				strings.Contains(lower, "not allowed to execute"),
+				strings.Contains(lower, "may not run sudo"):
+				reason := "Docker admin helper sudoers is not configured correctly."
+				response.Reason = &reason
+				return response
+			}
+		}
 	}
 	response.Supported = true
 	return response
@@ -570,7 +591,21 @@ func parseHelperApplyOutput(output []byte) (ApplyManagedConfigResult, error) {
 
 	var decoded helperApplyOutput
 	if err := json.Unmarshal([]byte(trimmed), &decoded); err != nil {
-		return ApplyManagedConfigResult{}, fmt.Errorf("parse docker admin helper output: %w", err)
+		found := false
+		for _, line := range strings.Split(trimmed, "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			var candidate helperApplyOutput
+			if json.Unmarshal([]byte(line), &candidate) == nil {
+				decoded = candidate
+				found = true
+			}
+		}
+		if !found {
+			return ApplyManagedConfigResult{}, fmt.Errorf("parse docker admin helper output: %w", err)
+		}
 	}
 
 	return ApplyManagedConfigResult{

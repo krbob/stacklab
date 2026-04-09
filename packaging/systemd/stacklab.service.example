@@ -1,8 +1,7 @@
 [Unit]
 Description=Stacklab
 After=network-online.target docker.service
-Wants=network-online.target
-Requires=docker.service
+Wants=network-online.target docker.service
 
 [Service]
 Type=simple
@@ -16,11 +15,13 @@ Restart=on-failure
 RestartSec=5
 TimeoutStartSec=30
 TimeoutStopSec=30
-NoNewPrivileges=true
+# Must remain false to allow the opt-in Docker admin helper to elevate via sudo.
+NoNewPrivileges=false
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=true
-ReadWritePaths=/opt/stacklab /var/lib/stacklab
+# Include /etc/docker when the opt-in Docker admin helper is enabled.
+ReadWritePaths=/opt/stacklab /var/lib/stacklab /etc/docker
 
 [Install]
 WantedBy=multi-user.target

@@ -76,4 +76,7 @@ sudo apt-get install stacklab
 - Docker daemon apply remains opt-in:
   - set `STACKLAB_DOCKER_ADMIN_HELPER_PATH`
   - set `STACKLAB_DOCKER_ADMIN_USE_SUDO=true`
+  - set `STACKLAB_DOCKER_ADMIN_BACKUP_DIR`
   - install a narrow `sudoers` rule for the helper
+  - keep `NoNewPrivileges=false` in `stacklab.service`
+  - include `/etc/docker` in the unit `ReadWritePaths`
