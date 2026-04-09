@@ -126,7 +126,7 @@ Runner:
 
 Setup:
 
-- Go `1.26.1`
+- Go `1.26.2`
 - Go module cache enabled
 
 Commands:
@@ -202,7 +202,7 @@ This is preferred over a VM for normal PR validation.
 Setup:
 
 - Node `22`
-- Go `1.26.1`
+- Go `1.26.2`
 - Docker and Compose available on runner
 
 Recommended preparation:
@@ -375,7 +375,7 @@ Runner:
 Setup:
 
 - Node `22`
-- Go `1.26.1`
+- Go `1.26.2`
 
 Commands:
 
