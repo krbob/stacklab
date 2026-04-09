@@ -1,6 +1,7 @@
 import { Activity, Container, FolderCog, FolderKanban, LogOut, Monitor, Settings, Wrench } from 'lucide-react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '@/hooks/use-auth'
+import { GlobalActivity } from '@/components/global-activity'
 
 const links = [
   { to: '/stacks', label: 'Stacks', icon: FolderKanban },
@@ -43,7 +44,8 @@ export function RootLayout() {
             ))}
           </nav>
 
-          <div className="mt-auto">
+          <div className="mt-auto space-y-1">
+            <GlobalActivity />
             <button
               onClick={() => logout()}
               className="flex w-full items-center gap-3 rounded-2xl border border-transparent px-4 py-3 text-sm text-[var(--muted)] transition hover:border-[var(--panel-border)] hover:bg-[rgba(255,255,255,0.03)] hover:text-[var(--text)]"
