@@ -8,7 +8,7 @@ import { YamlEditor } from '@/components/yaml-editor'
 import { BlockedFileCard } from '@/components/blocked-file-card'
 import { cn } from '@/lib/cn'
 
-const RESERVED_ROOT_FILES = ['compose.yaml', 'compose.yml', 'docker-compose.yml', '.env']
+const RESERVED_ROOT_FILES = ['compose.yaml', '.env']
 
 function isDockerfile(name: string): boolean {
   return name === 'Dockerfile' || name.startsWith('Dockerfile.')
@@ -105,9 +105,9 @@ export function StackFilesPage() {
   const parentPath = treeData?.parent_path ?? null
 
   return (
-    <div className="flex gap-4" style={{ minHeight: '400px' }}>
+    <div className="flex flex-col gap-4 lg:flex-row" style={{ minHeight: '400px' }}>
       {/* Tree panel */}
-      <div className="hidden w-56 shrink-0 flex-col overflow-y-auto lg:flex">
+      <div className="w-full shrink-0 overflow-y-auto lg:w-56">
         {treeLoading && (
           <div className="space-y-2">
             {[1, 2, 3].map((i) => <div key={i} className="h-6 animate-pulse rounded bg-[rgba(255,255,255,0.05)]" />)}
@@ -129,7 +129,7 @@ export function StackFilesPage() {
                 isSelected={selectedFile?.path === entry.path}
                 onOpenFile={openFile}
                 onNavigateDir={navigateDir}
-                onGoToEditor={() => navigate('editor' as string, { relative: 'path' })}
+                onGoToEditor={() => navigate('../editor', { relative: 'path' })}
               />
             ))}
             {treeEntries.length === 0 && <p className="px-2 py-4 text-xs text-[var(--muted)]">Empty directory</p>}

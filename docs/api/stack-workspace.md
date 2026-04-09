@@ -62,7 +62,7 @@ Browse one directory level of the stack workspace.
 
 Notes:
 
-- root-level `compose.yaml` and `.env` are filtered out
+- root-level `compose.yaml` and `.env` may be returned so the UI can show them as disabled entries that redirect to the dedicated Editor tab
 - sorting is deterministic:
   - directories first
   - then files

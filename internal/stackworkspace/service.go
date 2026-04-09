@@ -78,10 +78,6 @@ func (s *Service) Tree(ctx context.Context, stackID, currentPath string) (TreeRe
 
 	items := make([]TreeEntry, 0, len(entries))
 	for _, entry := range entries {
-		if normalized == "" && isReservedDefinitionFile(entry.Name()) {
-			continue
-		}
-
 		childPath := joinRelativePath(normalized, entry.Name())
 		childResolved, err := s.resolveExistingPath(stackRoot, childPath)
 		if err != nil {
@@ -532,10 +528,6 @@ func writeFileAtomic(path, content, pattern string) error {
 		return err
 	}
 	return nil
-}
-
-func isReservedDefinitionFile(name string) bool {
-	return name == "compose.yaml" || name == ".env"
 }
 
 func isReservedDefinitionPath(relativePath string) bool {

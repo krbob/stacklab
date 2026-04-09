@@ -11,7 +11,7 @@ import (
 	"stacklab/internal/config"
 )
 
-func TestServiceTreeListsAuxiliaryFilesAndFiltersCanonicalDefinitionFiles(t *testing.T) {
+func TestServiceTreeListsAuxiliaryFilesAndIncludesCanonicalDefinitionFilesForRedirect(t *testing.T) {
 	t.Parallel()
 
 	service, stackRoot := newTestService(t, "demo")
@@ -28,10 +28,10 @@ func TestServiceTreeListsAuxiliaryFilesAndFiltersCanonicalDefinitionFiles(t *tes
 	if response.CurrentPath != "" || response.ParentPath != nil {
 		t.Fatalf("unexpected root tree navigation payload: %#v", response)
 	}
-	if len(response.Items) != 2 {
-		t.Fatalf("Tree(root) items = %d, want 2", len(response.Items))
+	if len(response.Items) != 4 {
+		t.Fatalf("Tree(root) items = %d, want 4", len(response.Items))
 	}
-	if got := []string{response.Items[0].Name, response.Items[1].Name}; got[0] != "app" || got[1] != "Dockerfile" {
+	if got := []string{response.Items[0].Name, response.Items[1].Name, response.Items[2].Name, response.Items[3].Name}; got[0] != "app" || got[1] != ".env" || got[2] != "compose.yaml" || got[3] != "Dockerfile" {
 		t.Fatalf("Tree(root) sort order = %#v", got)
 	}
 }
