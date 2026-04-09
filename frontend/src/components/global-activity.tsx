@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getActiveJobs } from '@/lib/api-client'
-import type { ActiveJobItem, ActiveJobsResponse } from '@/lib/api-types'
+import { getActiveJobs, getJob } from '@/lib/api-client'
+import type { ActiveJobItem, ActiveJobsResponse, JobDetail } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
 
 const POLL_INTERVAL = 3_000
@@ -27,6 +27,20 @@ function jobRoute(job: ActiveJobItem): string {
   return '/audit'
 }
 
+function toActiveJobItem(job: JobDetail): ActiveJobItem {
+  return {
+    id: job.id,
+    stack_id: job.stack_id,
+    action: job.action,
+    state: job.state,
+    requested_at: job.requested_at,
+    started_at: job.started_at,
+    workflow: job.workflow,
+    current_step: null,
+    latest_event: null,
+  }
+}
+
 export function GlobalActivity() {
   const [response, setResponse] = useState<ActiveJobsResponse | null>(null)
   const [open, setOpen] = useState(false)
@@ -45,15 +59,36 @@ export function GlobalActivity() {
       prevIdsRef.current = currentIds
 
       if (vanished.length > 0) {
-        // We don't have the full job data for completed ones — create synthetic entries
-        setRecentlyCompleted((prev) => [
-          ...prev,
-          ...vanished.map((id) => ({ id, action: 'completed', state: 'succeeded' as const, stack_id: null, requested_at: new Date().toISOString(), started_at: null })),
-        ])
-        // Auto-remove after linger
-        setTimeout(() => {
-          setRecentlyCompleted((prev) => prev.filter((j) => !vanished.includes(j.id)))
-        }, COMPLETED_LINGER_MS)
+        const resolvedJobs = await Promise.all(
+          vanished.map(async (id) => {
+            try {
+              const { job } = await getJob(id)
+              return toActiveJobItem(job)
+            } catch {
+              return null
+            }
+          }),
+        )
+
+        const completed = resolvedJobs.filter((job): job is ActiveJobItem => job !== null)
+        if (completed.length === 0) return
+
+        setRecentlyCompleted((prev) => {
+          const merged = new Map(prev.map((job) => [job.id, job]))
+          for (const job of completed) {
+            merged.set(job.id, job)
+          }
+          return Array.from(merged.values())
+        })
+
+        const transientIds = completed
+          .filter((job) => ['succeeded', 'cancelled'].includes(job.state))
+          .map((job) => job.id)
+        if (transientIds.length > 0) {
+          setTimeout(() => {
+            setRecentlyCompleted((prev) => prev.filter((job) => !transientIds.includes(job.id)))
+          }, COMPLETED_LINGER_MS)
+        }
       }
     } catch {
       // Silently ignore poll failures
@@ -89,6 +124,7 @@ export function GlobalActivity() {
   const activeCount = response?.summary.active_count ?? 0
   const activeItems = response?.items ?? []
   const primaryJob = activeItems[0] ?? null
+  const failedRecent = recentlyCompleted.find((job) => job.state === 'failed' || job.state === 'timed_out')
 
   if (activeCount === 0 && recentlyCompleted.length === 0) return null
 
@@ -101,14 +137,16 @@ export function GlobalActivity() {
       >
         <span className={cn(
           'inline-block size-2 rounded-full',
-          activeCount > 0 ? 'animate-pulse bg-sky-400' : 'bg-emerald-400',
+          activeCount > 0 ? 'animate-pulse bg-sky-400' : failedRecent ? 'bg-red-400' : 'bg-emerald-400',
         )} />
         <span className="text-[var(--text)]">
           {activeCount > 0
             ? activeCount === 1
               ? jobLabel(primaryJob!)
               : `${activeCount} running`
-            : 'Done'}
+            : failedRecent
+              ? `Failed · ${jobLabel(failedRecent)}`
+              : 'Done'}
         </span>
         {primaryJob?.started_at && (
           <span className="ml-auto text-[var(--muted)]">{formatElapsed(primaryJob.started_at)}</span>
@@ -129,10 +167,7 @@ export function GlobalActivity() {
               <JobRow key={job.id} job={job} />
             ))}
             {recentlyCompleted.map((job) => (
-              <div key={job.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-emerald-400">
-                <span className="size-1.5 rounded-full bg-emerald-400" />
-                <span>Completed</span>
-              </div>
+              <JobRow key={job.id} job={job} terminal />
             ))}
           </div>
         </div>
@@ -141,11 +176,13 @@ export function GlobalActivity() {
   )
 }
 
-function JobRow({ job }: { job: ActiveJobItem }) {
+function JobRow({ job, terminal = false }: { job: ActiveJobItem; terminal?: boolean }) {
   const target = job.current_step?.target_stack_id ?? job.stack_id
   const action = job.current_step?.action ?? job.action
   const elapsed = job.started_at ? formatElapsed(job.started_at) : '—'
   const route = jobRoute(job)
+  const isFailure = job.state === 'failed' || job.state === 'timed_out'
+  const isSuccess = job.state === 'succeeded' || job.state === 'cancelled'
 
   return (
     <Link
@@ -154,14 +191,25 @@ function JobRow({ job }: { job: ActiveJobItem }) {
     >
       <span className={cn(
         'size-1.5 shrink-0 rounded-full',
-        job.state === 'running' ? 'animate-pulse bg-sky-400' : 'bg-amber-400',
+        job.state === 'running'
+          ? 'animate-pulse bg-sky-400'
+          : job.state === 'queued' || job.state === 'cancel_requested'
+            ? 'bg-amber-400'
+            : isFailure
+              ? 'bg-red-400'
+              : 'bg-emerald-400',
       )} />
       <span className="min-w-0 flex-1 truncate text-[var(--text)]">
         {action}
         {target && <span className="text-[var(--muted)]"> · {target}</span>}
       </span>
-      {job.current_step && (
+      {job.current_step && !terminal && (
         <span className="shrink-0 text-[var(--muted)]">{job.current_step.index}/{job.current_step.total}</span>
+      )}
+      {terminal && (
+        <span className={cn('shrink-0', isFailure ? 'text-red-400' : isSuccess ? 'text-emerald-400' : 'text-[var(--muted)]')}>
+          {isFailure ? 'Failed' : isSuccess ? 'Done' : job.state}
+        </span>
       )}
       <span className="shrink-0 text-[var(--muted)]">{elapsed}</span>
     </Link>
