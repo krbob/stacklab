@@ -1256,11 +1256,33 @@ func TestHandlerMaintenanceInventoryAndPrune(t *testing.T) {
 	}
 	var networksPayload maintenance.NetworksResponse
 	decodeInternalResponse(t, networksResponse, &networksPayload)
-	if len(networksPayload.Items) != 2 {
+	if len(networksPayload.Items) != 3 {
 		t.Fatalf("unexpected maintenance networks payload: %#v", networksPayload)
 	}
 	if networksPayload.Items[0].Name != "demo_default" && networksPayload.Items[1].Name != "demo_default" {
 		t.Fatalf("expected demo_default network in payload: %#v", networksPayload.Items)
+	}
+
+	createNetworkResponse := performInternalJSONRequest(t, served, http.MethodPost, "/api/maintenance/networks", map[string]any{
+		"name": "homelab_proxy",
+	}, cookies)
+	if createNetworkResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/maintenance/networks status = %d, want %d; body=%s", createNetworkResponse.Code, http.StatusOK, createNetworkResponse.Body.String())
+	}
+	var createNetworkPayload maintenance.CreateNetworkResponse
+	decodeInternalResponse(t, createNetworkResponse, &createNetworkPayload)
+	if !createNetworkPayload.Created || createNetworkPayload.Name != "homelab_proxy" {
+		t.Fatalf("unexpected create network payload: %#v", createNetworkPayload)
+	}
+
+	deleteNetworkResponse := performInternalJSONRequest(t, served, http.MethodDelete, "/api/maintenance/networks/external_unused", nil, cookies)
+	if deleteNetworkResponse.Code != http.StatusOK {
+		t.Fatalf("DELETE /api/maintenance/networks/external_unused status = %d, want %d; body=%s", deleteNetworkResponse.Code, http.StatusOK, deleteNetworkResponse.Body.String())
+	}
+	var deleteNetworkPayload maintenance.DeleteNetworkResponse
+	decodeInternalResponse(t, deleteNetworkResponse, &deleteNetworkPayload)
+	if !deleteNetworkPayload.Deleted || deleteNetworkPayload.Name != "external_unused" {
+		t.Fatalf("unexpected delete network payload: %#v", deleteNetworkPayload)
 	}
 
 	volumesResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/maintenance/volumes?usage=all&origin=all", nil, cookies)
@@ -1274,6 +1296,28 @@ func TestHandlerMaintenanceInventoryAndPrune(t *testing.T) {
 	}
 	if volumesPayload.Items[0].Name != "demo_data" && volumesPayload.Items[1].Name != "demo_data" {
 		t.Fatalf("expected demo_data volume in payload: %#v", volumesPayload.Items)
+	}
+
+	createVolumeResponse := performInternalJSONRequest(t, served, http.MethodPost, "/api/maintenance/volumes", map[string]any{
+		"name": "media_cache",
+	}, cookies)
+	if createVolumeResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/maintenance/volumes status = %d, want %d; body=%s", createVolumeResponse.Code, http.StatusOK, createVolumeResponse.Body.String())
+	}
+	var createVolumePayload maintenance.CreateVolumeResponse
+	decodeInternalResponse(t, createVolumeResponse, &createVolumePayload)
+	if !createVolumePayload.Created || createVolumePayload.Name != "media_cache" {
+		t.Fatalf("unexpected create volume payload: %#v", createVolumePayload)
+	}
+
+	deleteVolumeResponse := performInternalJSONRequest(t, served, http.MethodDelete, "/api/maintenance/volumes/external_media", nil, cookies)
+	if deleteVolumeResponse.Code != http.StatusOK {
+		t.Fatalf("DELETE /api/maintenance/volumes/external_media status = %d, want %d; body=%s", deleteVolumeResponse.Code, http.StatusOK, deleteVolumeResponse.Body.String())
+	}
+	var deleteVolumePayload maintenance.DeleteVolumeResponse
+	decodeInternalResponse(t, deleteVolumeResponse, &deleteVolumePayload)
+	if !deleteVolumePayload.Deleted || deleteVolumePayload.Name != "external_media" {
+		t.Fatalf("unexpected delete volume payload: %#v", deleteVolumePayload)
 	}
 
 	previewResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/maintenance/prune-preview?images=true&build_cache=true&stopped_containers=true&volumes=false", nil, cookies)
@@ -1510,11 +1554,24 @@ fi
 if [ "$1" = "network" ] && [ "$2" = "ls" ]; then
   echo '{"ID":"network-demo","Name":"demo_default","Driver":"bridge","Scope":"local"}'
   echo '{"ID":"network-ext","Name":"external_shared","Driver":"bridge","Scope":"local"}'
+  echo '{"ID":"network-unused","Name":"external_unused","Driver":"bridge","Scope":"local"}'
   exit 0
 fi
 
 if [ "$1" = "network" ] && [ "$2" = "inspect" ]; then
-  echo '[{"Id":"network-demo","Name":"demo_default","Driver":"bridge","Scope":"local","Internal":false,"Attachable":false,"Ingress":false,"Labels":{"com.docker.compose.project":"demo"}},{"Id":"network-ext","Name":"external_shared","Driver":"bridge","Scope":"local","Internal":false,"Attachable":false,"Ingress":false,"Labels":{}}]'
+  echo '[{"Id":"network-demo","Name":"demo_default","Driver":"bridge","Scope":"local","Internal":false,"Attachable":false,"Ingress":false,"Labels":{"com.docker.compose.project":"demo"}},{"Id":"network-ext","Name":"external_shared","Driver":"bridge","Scope":"local","Internal":false,"Attachable":false,"Ingress":false,"Labels":{}},{"Id":"network-unused","Name":"external_unused","Driver":"bridge","Scope":"local","Internal":false,"Attachable":false,"Ingress":false,"Labels":{}}]'
+  exit 0
+fi
+
+if [ "$1" = "network" ] && [ "$2" = "create" ]; then
+  append_log "docker network create $3"
+  echo "$3"
+  exit 0
+fi
+
+if [ "$1" = "network" ] && [ "$2" = "rm" ]; then
+  append_log "docker network rm $3"
+  echo "$3"
   exit 0
 fi
 
@@ -1526,6 +1583,18 @@ fi
 
 if [ "$1" = "volume" ] && [ "$2" = "inspect" ]; then
   echo '[{"Name":"demo_data","Driver":"local","Mountpoint":"/var/lib/docker/volumes/demo_data/_data","Scope":"local","Labels":{"com.docker.compose.project":"demo"},"Options":{}},{"Name":"external_media","Driver":"local","Mountpoint":"/var/lib/docker/volumes/external_media/_data","Scope":"local","Labels":{},"Options":{"type":"nfs"}}]'
+  exit 0
+fi
+
+if [ "$1" = "volume" ] && [ "$2" = "create" ]; then
+  append_log "docker volume create $3"
+  echo "$3"
+  exit 0
+fi
+
+if [ "$1" = "volume" ] && [ "$2" = "rm" ]; then
+  append_log "docker volume rm $3"
+  echo "$3"
   exit 0
 fi
 

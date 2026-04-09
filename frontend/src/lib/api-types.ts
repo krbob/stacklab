@@ -740,6 +740,20 @@ export interface MaintenanceNetworksResponse {
   items: MaintenanceNetworkItem[]
 }
 
+export interface MaintenanceCreateNetworkRequest {
+  name: string
+}
+
+export interface MaintenanceCreateNetworkResponse {
+  created: boolean
+  name: string
+}
+
+export interface MaintenanceDeleteNetworkResponse {
+  deleted: boolean
+  name: string
+}
+
 export type MaintenanceVolumeSource = 'stack_managed' | 'external'
 
 export interface MaintenanceVolumeItem {
@@ -756,6 +770,20 @@ export interface MaintenanceVolumeItem {
 
 export interface MaintenanceVolumesResponse {
   items: MaintenanceVolumeItem[]
+}
+
+export interface MaintenanceCreateVolumeRequest {
+  name: string
+}
+
+export interface MaintenanceCreateVolumeResponse {
+  created: boolean
+  name: string
+}
+
+export interface MaintenanceDeleteVolumeResponse {
+  deleted: boolean
+  name: string
 }
 
 export interface MaintenancePrunePreviewItem {

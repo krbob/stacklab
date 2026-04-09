@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,6 +15,19 @@ import (
 )
 
 var ErrDockerUnavailable = errors.New("docker unavailable")
+var ErrInvalidName = errors.New("invalid maintenance object name")
+var ErrAlreadyExists = errors.New("maintenance object already exists")
+var ErrNotFound = errors.New("maintenance object not found")
+var ErrProtectedObject = errors.New("maintenance object is protected")
+var ErrObjectInUse = errors.New("maintenance object is in use")
+
+var maintenanceNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
+var protectedNetworkNames = map[string]struct{}{
+	"bridge":  {},
+	"host":    {},
+	"none":    {},
+	"ingress": {},
+}
 
 type commandRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
 
@@ -225,6 +239,115 @@ func (s *Service) Volumes(ctx context.Context, query VolumesQuery) (VolumesRespo
 	return VolumesResponse{Items: items}, nil
 }
 
+func (s *Service) CreateNetwork(ctx context.Context, request CreateNetworkRequest) (CreateNetworkResponse, error) {
+	name := strings.TrimSpace(request.Name)
+	if !isValidMaintenanceObjectName(name) {
+		return CreateNetworkResponse{}, ErrInvalidName
+	}
+
+	rows, err := s.listNetworks(ctx)
+	if err != nil {
+		return CreateNetworkResponse{}, err
+	}
+	for _, row := range rows {
+		if row.Name == name {
+			return CreateNetworkResponse{}, ErrAlreadyExists
+		}
+	}
+
+	if _, err := s.runCommand(ctx, "docker", "network", "create", name); err != nil {
+		return CreateNetworkResponse{}, dockerMutationError(err)
+	}
+
+	return CreateNetworkResponse{
+		Created: true,
+		Name:    name,
+	}, nil
+}
+
+func (s *Service) DeleteNetwork(ctx context.Context, name string, managedStackIDs []string) (DeleteNetworkResponse, error) {
+	name = strings.TrimSpace(name)
+	if !isValidMaintenanceObjectName(name) {
+		return DeleteNetworkResponse{}, ErrInvalidName
+	}
+	if _, protected := protectedNetworkNames[name]; protected {
+		return DeleteNetworkResponse{}, ErrProtectedObject
+	}
+
+	item, err := s.networkByName(ctx, name, managedStackIDs)
+	if err != nil {
+		return DeleteNetworkResponse{}, err
+	}
+	if item.Source != NetworkSourceExternal {
+		return DeleteNetworkResponse{}, ErrProtectedObject
+	}
+	if !item.IsUnused {
+		return DeleteNetworkResponse{}, ErrObjectInUse
+	}
+
+	if _, err := s.runCommand(ctx, "docker", "network", "rm", name); err != nil {
+		return DeleteNetworkResponse{}, dockerMutationError(err)
+	}
+
+	return DeleteNetworkResponse{
+		Deleted: true,
+		Name:    name,
+	}, nil
+}
+
+func (s *Service) CreateVolume(ctx context.Context, request CreateVolumeRequest) (CreateVolumeResponse, error) {
+	name := strings.TrimSpace(request.Name)
+	if !isValidMaintenanceObjectName(name) {
+		return CreateVolumeResponse{}, ErrInvalidName
+	}
+
+	rows, err := s.listVolumes(ctx)
+	if err != nil {
+		return CreateVolumeResponse{}, err
+	}
+	for _, row := range rows {
+		if row.Name == name {
+			return CreateVolumeResponse{}, ErrAlreadyExists
+		}
+	}
+
+	if _, err := s.runCommand(ctx, "docker", "volume", "create", name); err != nil {
+		return CreateVolumeResponse{}, dockerMutationError(err)
+	}
+
+	return CreateVolumeResponse{
+		Created: true,
+		Name:    name,
+	}, nil
+}
+
+func (s *Service) DeleteVolume(ctx context.Context, name string, managedStackIDs []string) (DeleteVolumeResponse, error) {
+	name = strings.TrimSpace(name)
+	if !isValidMaintenanceObjectName(name) {
+		return DeleteVolumeResponse{}, ErrInvalidName
+	}
+
+	item, err := s.volumeByName(ctx, name, managedStackIDs)
+	if err != nil {
+		return DeleteVolumeResponse{}, err
+	}
+	if item.Source != VolumeSourceExternal {
+		return DeleteVolumeResponse{}, ErrProtectedObject
+	}
+	if !item.IsUnused {
+		return DeleteVolumeResponse{}, ErrObjectInUse
+	}
+
+	if _, err := s.runCommand(ctx, "docker", "volume", "rm", name); err != nil {
+		return DeleteVolumeResponse{}, dockerMutationError(err)
+	}
+
+	return DeleteVolumeResponse{
+		Deleted: true,
+		Name:    name,
+	}, nil
+}
+
 func (s *Service) PrunePreview(ctx context.Context, query PrunePreviewQuery) (PrunePreviewResponse, error) {
 	systemDF, err := s.systemDF(ctx)
 	if err != nil {
@@ -293,6 +416,63 @@ func (s *Service) RunPruneStep(ctx context.Context, action string) (string, erro
 		return trimmed, errors.New(trimmed)
 	}
 	return trimmed, nil
+}
+
+func (s *Service) networkByName(ctx context.Context, name string, managedStackIDs []string) (NetworkItem, error) {
+	networks, err := s.Networks(ctx, NetworksQuery{
+		Usage:           ImageUsageAll,
+		Origin:          ImageOriginAll,
+		ManagedStackIDs: managedStackIDs,
+	})
+	if err != nil {
+		return NetworkItem{}, err
+	}
+	for _, item := range networks.Items {
+		if item.Name == name {
+			return item, nil
+		}
+	}
+	return NetworkItem{}, ErrNotFound
+}
+
+func (s *Service) volumeByName(ctx context.Context, name string, managedStackIDs []string) (VolumeItem, error) {
+	volumes, err := s.Volumes(ctx, VolumesQuery{
+		Usage:           ImageUsageAll,
+		Origin:          ImageOriginAll,
+		ManagedStackIDs: managedStackIDs,
+	})
+	if err != nil {
+		return VolumeItem{}, err
+	}
+	for _, item := range volumes.Items {
+		if item.Name == name {
+			return item, nil
+		}
+	}
+	return VolumeItem{}, ErrNotFound
+}
+
+func isValidMaintenanceObjectName(value string) bool {
+	return maintenanceNamePattern.MatchString(value)
+}
+
+func dockerMutationError(err error) error {
+	if err == nil {
+		return nil
+	}
+	message := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(message, "executable file not found"), strings.Contains(message, "command not found"):
+		return dockerUnavailable(err)
+	case strings.Contains(message, "already exists"):
+		return ErrAlreadyExists
+	case strings.Contains(message, "not found"), strings.Contains(message, "no such network"), strings.Contains(message, "no such volume"):
+		return ErrNotFound
+	case strings.Contains(message, "is in use"), strings.Contains(message, "has active endpoints"), strings.Contains(message, "volume is in use"):
+		return ErrObjectInUse
+	default:
+		return fmt.Errorf("docker mutation failed: %w", err)
+	}
 }
 
 type imageRow struct {

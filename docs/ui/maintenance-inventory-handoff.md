@@ -58,6 +58,7 @@ Recommended first implementation:
 - tabs or segmented control at the top of the page
 - keep current `Update` screen intact
 - add `Images`, `Networks`, `Volumes`, and `Cleanup` without moving them into the sidebar
+- later safe actions should stay inside `Networks` and `Volumes`, not become separate pages
 
 ## `Images` View
 
@@ -111,6 +112,21 @@ Recommended visual priorities:
 - keep `stacks_using` obvious
 - do not add network create/delete actions in this slice
 
+### Safe External Network Actions
+
+Follow-up scope:
+
+- create external network by name
+- remove unused external network
+
+Important UX constraints:
+
+- built-in networks are never removable
+- stack-managed or in-use networks must look blocked, not merely disabled without explanation
+- create should stay intentionally narrow:
+  - name only in v1
+  - no advanced driver/options panel yet
+
 ## `Volumes` View
 
 Recommended content:
@@ -133,6 +149,20 @@ Recommended visual priorities:
 - make unused volumes easy to spot without implying deletion is safe by default
 - keep external-but-used volumes obvious
 - do not add volume create/delete actions in this slice
+
+### Safe External Volume Actions
+
+Follow-up scope:
+
+- create external named volume by name
+- remove unused external named volume
+
+Important UX constraints:
+
+- stack-managed or in-use volumes must look blocked, not merely disabled without explanation
+- create should stay intentionally narrow:
+  - name only in v1
+  - no driver/options editor yet
 
 ## `Cleanup` View
 

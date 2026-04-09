@@ -22,6 +22,12 @@ import type {
   JobDetail,
   JobEventsResponse,
   JobRef,
+  MaintenanceCreateNetworkRequest,
+  MaintenanceCreateNetworkResponse,
+  MaintenanceCreateVolumeRequest,
+  MaintenanceCreateVolumeResponse,
+  MaintenanceDeleteNetworkResponse,
+  MaintenanceDeleteVolumeResponse,
   MaintenanceUpdateStacksRequest,
   MaintenanceImagesResponse,
   MaintenanceNetworksResponse,
@@ -368,6 +374,19 @@ export function getMaintenanceNetworks(params?: { q?: string; usage?: 'all' | 'u
   return request(`/api/maintenance/networks${qs ? `?${qs}` : ''}`)
 }
 
+export function createMaintenanceNetwork(payload: MaintenanceCreateNetworkRequest): Promise<MaintenanceCreateNetworkResponse> {
+  return request('/api/maintenance/networks', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteMaintenanceNetwork(name: string): Promise<MaintenanceDeleteNetworkResponse> {
+  return request(`/api/maintenance/networks/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+  })
+}
+
 export function getMaintenanceVolumes(params?: { q?: string; usage?: 'all' | 'used' | 'unused'; origin?: 'all' | 'stack_managed' | 'external' }): Promise<MaintenanceVolumesResponse> {
   const search = new URLSearchParams()
   if (params?.q) search.set('q', params.q)
@@ -375,6 +394,19 @@ export function getMaintenanceVolumes(params?: { q?: string; usage?: 'all' | 'us
   if (params?.origin) search.set('origin', params.origin)
   const qs = search.toString()
   return request(`/api/maintenance/volumes${qs ? `?${qs}` : ''}`)
+}
+
+export function createMaintenanceVolume(payload: MaintenanceCreateVolumeRequest): Promise<MaintenanceCreateVolumeResponse> {
+  return request('/api/maintenance/volumes', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteMaintenanceVolume(name: string): Promise<MaintenanceDeleteVolumeResponse> {
+  return request(`/api/maintenance/volumes/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+  })
 }
 
 export function getMaintenancePrunePreview(params?: { images?: boolean; build_cache?: boolean; stopped_containers?: boolean; volumes?: boolean }): Promise<MaintenancePrunePreviewResponse> {

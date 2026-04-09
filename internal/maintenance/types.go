@@ -87,6 +87,20 @@ type NetworkItem struct {
 	Source          NetworkSource       `json:"source"`
 }
 
+type CreateNetworkRequest struct {
+	Name string `json:"name"`
+}
+
+type CreateNetworkResponse struct {
+	Created bool   `json:"created"`
+	Name    string `json:"name"`
+}
+
+type DeleteNetworkResponse struct {
+	Deleted bool   `json:"deleted"`
+	Name    string `json:"name"`
+}
+
 type VolumesQuery struct {
 	Search          string
 	Usage           ImageUsage
@@ -115,6 +129,20 @@ type VolumeItem struct {
 	StacksUsing     []StackServiceUsage `json:"stacks_using"`
 	IsUnused        bool                `json:"is_unused"`
 	Source          VolumeSource        `json:"source"`
+}
+
+type CreateVolumeRequest struct {
+	Name string `json:"name"`
+}
+
+type CreateVolumeResponse struct {
+	Created bool   `json:"created"`
+	Name    string `json:"name"`
+}
+
+type DeleteVolumeResponse struct {
+	Deleted bool   `json:"deleted"`
+	Name    string `json:"name"`
 }
 
 type PrunePreviewQuery struct {

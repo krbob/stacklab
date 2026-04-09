@@ -1068,6 +1068,55 @@ Rules:
 - `is_unused = true` means no container currently uses the network
 - inventory is read-only in this slice
 
+## `POST /api/maintenance/networks`
+
+Purpose:
+
+- create a plain external Docker network by name
+
+Request:
+
+```json
+{
+  "name": "homelab_proxy"
+}
+```
+
+Response:
+
+```json
+{
+  "created": true,
+  "name": "homelab_proxy"
+}
+```
+
+Rules:
+
+- only name-based creation is supported in this slice
+- advanced driver/options editing is out of scope
+
+## `DELETE /api/maintenance/networks/{name}`
+
+Purpose:
+
+- remove an unused external Docker network deliberately
+
+Response:
+
+```json
+{
+  "deleted": true,
+  "name": "old_shared_network"
+}
+```
+
+Rules:
+
+- built-in networks like `bridge`, `host`, `none`, and `ingress` are protected
+- stack-managed networks are protected
+- in-use networks are protected
+
 ## `GET /api/maintenance/volumes`
 
 Purpose:
@@ -1112,6 +1161,54 @@ Rules:
 - external named volumes used by managed stack containers still count as `stack_managed`
 - `is_unused = true` means no container currently uses the volume
 - inventory is read-only in this slice
+
+## `POST /api/maintenance/volumes`
+
+Purpose:
+
+- create a plain external named Docker volume by name
+
+Request:
+
+```json
+{
+  "name": "media_cache"
+}
+```
+
+Response:
+
+```json
+{
+  "created": true,
+  "name": "media_cache"
+}
+```
+
+Rules:
+
+- only name-based creation is supported in this slice
+- driver/options editing is out of scope
+
+## `DELETE /api/maintenance/volumes/{name}`
+
+Purpose:
+
+- remove an unused external Docker volume deliberately
+
+Response:
+
+```json
+{
+  "deleted": true,
+  "name": "old_media_cache"
+}
+```
+
+Rules:
+
+- stack-managed volumes are protected
+- in-use volumes are protected
 
 ## `GET /api/maintenance/prune-preview`
 

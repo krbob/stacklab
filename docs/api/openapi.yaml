@@ -505,6 +505,77 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+    post:
+      tags: [Maintenance]
+      operationId: createMaintenanceNetwork
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MaintenanceCreateNetworkRequest'
+      responses:
+        '200':
+          description: Docker network created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceCreateNetworkResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '409':
+          description: Network already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Docker maintenance actions are unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /maintenance/networks/{name}:
+    delete:
+      tags: [Maintenance]
+      operationId: deleteMaintenanceNetwork
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Docker network deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceDeleteNetworkResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '404':
+          description: Docker network not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Only unused external networks can be removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Docker maintenance actions are unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /maintenance/volumes:
     get:
       tags: [Maintenance]
@@ -540,6 +611,77 @@ paths:
           $ref: '#/components/responses/ErrorValidationFailed'
         '503':
           description: Docker maintenance inventory is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      tags: [Maintenance]
+      operationId: createMaintenanceVolume
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MaintenanceCreateVolumeRequest'
+      responses:
+        '200':
+          description: Docker volume created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceCreateVolumeResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '409':
+          description: Volume already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Docker maintenance actions are unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /maintenance/volumes/{name}:
+    delete:
+      tags: [Maintenance]
+      operationId: deleteMaintenanceVolume
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Docker volume deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceDeleteVolumeResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '404':
+          description: Docker volume not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Only unused external volumes can be removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Docker maintenance actions are unavailable.
           content:
             application/json:
               schema:
@@ -2442,6 +2584,28 @@ components:
           items:
             $ref: '#/components/schemas/MaintenanceNetworkItem'
       required: [items]
+    MaintenanceCreateNetworkRequest:
+      type: object
+      properties:
+        name:
+          type: string
+      required: [name]
+    MaintenanceCreateNetworkResponse:
+      type: object
+      properties:
+        created:
+          type: boolean
+        name:
+          type: string
+      required: [created, name]
+    MaintenanceDeleteNetworkResponse:
+      type: object
+      properties:
+        deleted:
+          type: boolean
+        name:
+          type: string
+      required: [deleted, name]
     MaintenanceNetworkItem:
       type: object
       properties:
@@ -2479,6 +2643,28 @@ components:
           items:
             $ref: '#/components/schemas/MaintenanceVolumeItem'
       required: [items]
+    MaintenanceCreateVolumeRequest:
+      type: object
+      properties:
+        name:
+          type: string
+      required: [name]
+    MaintenanceCreateVolumeResponse:
+      type: object
+      properties:
+        created:
+          type: boolean
+        name:
+          type: string
+      required: [created, name]
+    MaintenanceDeleteVolumeResponse:
+      type: object
+      properties:
+        deleted:
+          type: boolean
+        name:
+          type: string
+      required: [deleted, name]
     MaintenanceVolumeItem:
       type: object
       properties:

@@ -85,7 +85,11 @@ type gitWorkspaceReader interface {
 type maintenanceReader interface {
 	Images(ctx context.Context, query maintenance.ImagesQuery) (maintenance.ImagesResponse, error)
 	Networks(ctx context.Context, query maintenance.NetworksQuery) (maintenance.NetworksResponse, error)
+	CreateNetwork(ctx context.Context, request maintenance.CreateNetworkRequest) (maintenance.CreateNetworkResponse, error)
+	DeleteNetwork(ctx context.Context, name string, managedStackIDs []string) (maintenance.DeleteNetworkResponse, error)
 	Volumes(ctx context.Context, query maintenance.VolumesQuery) (maintenance.VolumesResponse, error)
+	CreateVolume(ctx context.Context, request maintenance.CreateVolumeRequest) (maintenance.CreateVolumeResponse, error)
+	DeleteVolume(ctx context.Context, name string, managedStackIDs []string) (maintenance.DeleteVolumeResponse, error)
 	PrunePreview(ctx context.Context, query maintenance.PrunePreviewQuery) (maintenance.PrunePreviewResponse, error)
 	RunPruneStep(ctx context.Context, action string) (string, error)
 }
@@ -151,7 +155,11 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("POST /api/maintenance/update-stacks", h.withAuth(h.handleUpdateStacksMaintenance))
 	h.mux.HandleFunc("GET /api/maintenance/images", h.withAuth(h.handleMaintenanceImages))
 	h.mux.HandleFunc("GET /api/maintenance/networks", h.withAuth(h.handleMaintenanceNetworks))
+	h.mux.HandleFunc("POST /api/maintenance/networks", h.withAuth(h.handleCreateMaintenanceNetwork))
+	h.mux.HandleFunc("DELETE /api/maintenance/networks/{name}", h.withAuth(h.handleDeleteMaintenanceNetwork))
 	h.mux.HandleFunc("GET /api/maintenance/volumes", h.withAuth(h.handleMaintenanceVolumes))
+	h.mux.HandleFunc("POST /api/maintenance/volumes", h.withAuth(h.handleCreateMaintenanceVolume))
+	h.mux.HandleFunc("DELETE /api/maintenance/volumes/{name}", h.withAuth(h.handleDeleteMaintenanceVolume))
 	h.mux.HandleFunc("GET /api/maintenance/prune-preview", h.withAuth(h.handleMaintenancePrunePreview))
 	h.mux.HandleFunc("POST /api/maintenance/prune", h.withAuth(h.handleMaintenancePrune))
 	h.mux.HandleFunc("GET /api/jobs/active", h.withAuth(h.handleListActiveJobs))
@@ -932,6 +940,82 @@ func (h *Handler) handleMaintenanceNetworks(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, response)
 }
 
+func (h *Handler) handleCreateMaintenanceNetwork(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request maintenance.CreateNetworkRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	response, err := h.maintenance.CreateNetwork(r.Context(), request)
+	if err != nil {
+		switch {
+		case errors.Is(err, maintenance.ErrInvalidName):
+			writeError(w, http.StatusBadRequest, "validation_failed", "Network name is invalid.", nil)
+		case errors.Is(err, maintenance.ErrAlreadyExists):
+			writeError(w, http.StatusConflict, "already_exists", "A Docker network with that name already exists.", nil)
+		case errors.Is(err, maintenance.ErrDockerUnavailable):
+			writeError(w, http.StatusServiceUnavailable, "docker_unavailable", "Docker maintenance actions are unavailable.", nil)
+		default:
+			h.logger.Error("create maintenance network failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create Docker network.", nil)
+		}
+		return
+	}
+
+	finishedAt := time.Now().UTC()
+	_ = h.audit.RecordSystemEvent(r.Context(), "create_network", "local", "succeeded", finishedAt, &finishedAt, map[string]any{
+		"name": response.Name,
+	})
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleDeleteMaintenanceNetwork(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	managedStackIDs, err := h.listManagedStackIDs(r.Context())
+	if err != nil {
+		h.logger.Error("list managed stacks for maintenance network delete failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to delete Docker network.", nil)
+		return
+	}
+
+	name := r.PathValue("name")
+	response, err := h.maintenance.DeleteNetwork(r.Context(), name, managedStackIDs)
+	if err != nil {
+		switch {
+		case errors.Is(err, maintenance.ErrInvalidName):
+			writeError(w, http.StatusBadRequest, "validation_failed", "Network name is invalid.", nil)
+		case errors.Is(err, maintenance.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Docker network not found.", nil)
+		case errors.Is(err, maintenance.ErrProtectedObject):
+			writeError(w, http.StatusConflict, "invalid_state", "Only unused external Docker networks can be removed manually.", nil)
+		case errors.Is(err, maintenance.ErrObjectInUse):
+			writeError(w, http.StatusConflict, "invalid_state", "Cannot remove a Docker network that is currently in use.", nil)
+		case errors.Is(err, maintenance.ErrDockerUnavailable):
+			writeError(w, http.StatusServiceUnavailable, "docker_unavailable", "Docker maintenance actions are unavailable.", nil)
+		default:
+			h.logger.Error("delete maintenance network failed", slog.String("name", name), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to delete Docker network.", nil)
+		}
+		return
+	}
+
+	finishedAt := time.Now().UTC()
+	_ = h.audit.RecordSystemEvent(r.Context(), "delete_network", "local", "succeeded", finishedAt, &finishedAt, map[string]any{
+		"name": response.Name,
+	})
+	writeJSON(w, http.StatusOK, response)
+}
+
 func (h *Handler) handleMaintenanceVolumes(w http.ResponseWriter, r *http.Request) {
 	managedStackIDs, err := h.listManagedStackIDs(r.Context())
 	if err != nil {
@@ -961,6 +1045,82 @@ func (h *Handler) handleMaintenanceVolumes(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleCreateMaintenanceVolume(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request maintenance.CreateVolumeRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	response, err := h.maintenance.CreateVolume(r.Context(), request)
+	if err != nil {
+		switch {
+		case errors.Is(err, maintenance.ErrInvalidName):
+			writeError(w, http.StatusBadRequest, "validation_failed", "Volume name is invalid.", nil)
+		case errors.Is(err, maintenance.ErrAlreadyExists):
+			writeError(w, http.StatusConflict, "already_exists", "A Docker volume with that name already exists.", nil)
+		case errors.Is(err, maintenance.ErrDockerUnavailable):
+			writeError(w, http.StatusServiceUnavailable, "docker_unavailable", "Docker maintenance actions are unavailable.", nil)
+		default:
+			h.logger.Error("create maintenance volume failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create Docker volume.", nil)
+		}
+		return
+	}
+
+	finishedAt := time.Now().UTC()
+	_ = h.audit.RecordSystemEvent(r.Context(), "create_volume", "local", "succeeded", finishedAt, &finishedAt, map[string]any{
+		"name": response.Name,
+	})
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleDeleteMaintenanceVolume(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	managedStackIDs, err := h.listManagedStackIDs(r.Context())
+	if err != nil {
+		h.logger.Error("list managed stacks for maintenance volume delete failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to delete Docker volume.", nil)
+		return
+	}
+
+	name := r.PathValue("name")
+	response, err := h.maintenance.DeleteVolume(r.Context(), name, managedStackIDs)
+	if err != nil {
+		switch {
+		case errors.Is(err, maintenance.ErrInvalidName):
+			writeError(w, http.StatusBadRequest, "validation_failed", "Volume name is invalid.", nil)
+		case errors.Is(err, maintenance.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Docker volume not found.", nil)
+		case errors.Is(err, maintenance.ErrProtectedObject):
+			writeError(w, http.StatusConflict, "invalid_state", "Only unused external Docker volumes can be removed manually.", nil)
+		case errors.Is(err, maintenance.ErrObjectInUse):
+			writeError(w, http.StatusConflict, "invalid_state", "Cannot remove a Docker volume that is currently in use.", nil)
+		case errors.Is(err, maintenance.ErrDockerUnavailable):
+			writeError(w, http.StatusServiceUnavailable, "docker_unavailable", "Docker maintenance actions are unavailable.", nil)
+		default:
+			h.logger.Error("delete maintenance volume failed", slog.String("name", name), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to delete Docker volume.", nil)
+		}
+		return
+	}
+
+	finishedAt := time.Now().UTC()
+	_ = h.audit.RecordSystemEvent(r.Context(), "delete_volume", "local", "succeeded", finishedAt, &finishedAt, map[string]any{
+		"name": response.Name,
+	})
 	writeJSON(w, http.StatusOK, response)
 }
 

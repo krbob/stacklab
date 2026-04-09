@@ -176,3 +176,105 @@ func TestParseDockerSize(t *testing.T) {
 		}
 	}
 }
+
+func TestServiceCreateAndDeleteExternalResources(t *testing.T) {
+	service := NewService()
+	service.runCommand = func(_ context.Context, name string, args ...string) ([]byte, error) {
+		if name != "docker" {
+			return nil, errors.New("unexpected command")
+		}
+		switch strings.Join(args, " ") {
+		case "network ls --no-trunc --format {{json .}}":
+			return []byte(strings.Join([]string{
+				`{"ID":"network-demo","Name":"demo_default","Driver":"bridge","Scope":"local"}`,
+				`{"ID":"network-ext","Name":"external_shared","Driver":"bridge","Scope":"local"}`,
+				`{"ID":"network-unused","Name":"external_unused","Driver":"bridge","Scope":"local"}`,
+			}, "\n")), nil
+		case "network inspect network-demo network-ext network-unused":
+			return []byte(`[
+				{"Id":"network-demo","Name":"demo_default","Driver":"bridge","Scope":"local","Internal":false,"Attachable":false,"Ingress":false,"Labels":{"com.docker.compose.project":"demo"}},
+				{"Id":"network-ext","Name":"external_shared","Driver":"bridge","Scope":"local","Internal":false,"Attachable":false,"Ingress":false,"Labels":{}},
+				{"Id":"network-unused","Name":"external_unused","Driver":"bridge","Scope":"local","Internal":false,"Attachable":false,"Ingress":false,"Labels":{}}
+			]`), nil
+		case "volume ls --format {{json .}}":
+			return []byte(strings.Join([]string{
+				`{"Name":"demo_data","Driver":"local"}`,
+				`{"Name":"external_media","Driver":"local"}`,
+			}, "\n")), nil
+		case "volume inspect demo_data external_media":
+			return []byte(`[
+				{"Name":"demo_data","Driver":"local","Mountpoint":"/var/lib/docker/volumes/demo_data/_data","Scope":"local","Labels":{"com.docker.compose.project":"demo"},"Options":{}},
+				{"Name":"external_media","Driver":"local","Mountpoint":"/var/lib/docker/volumes/external_media/_data","Scope":"local","Labels":{},"Options":{}}
+			]`), nil
+		case "ps -aq":
+			return []byte("container-1\n"), nil
+		case "inspect container-1":
+			return []byte(`[
+				{
+					"Image":"sha256:used",
+					"Config":{
+						"Image":"ghcr.io/example/app:latest",
+						"Labels":{
+							"com.docker.compose.project":"demo",
+							"com.docker.compose.service":"app"
+						}
+					},
+					"Mounts":[{"Name":"demo_data","Type":"volume"}],
+					"NetworkSettings":{"Networks":{"demo_default":{},"external_shared":{}}}
+				}
+			]`), nil
+		case "network create homelab_proxy":
+			return []byte("created"), nil
+		case "network rm external_unused":
+			return []byte("removed"), nil
+		case "volume create media_cache":
+			return []byte("created"), nil
+		case "volume rm external_media":
+			return []byte("removed"), nil
+		default:
+			return nil, errors.New("unexpected args: " + strings.Join(args, " "))
+		}
+	}
+
+	createdNetwork, err := service.CreateNetwork(context.Background(), CreateNetworkRequest{Name: "homelab_proxy"})
+	if err != nil {
+		t.Fatalf("CreateNetwork() error = %v", err)
+	}
+	if !createdNetwork.Created || createdNetwork.Name != "homelab_proxy" {
+		t.Fatalf("unexpected created network response: %#v", createdNetwork)
+	}
+
+	deletedNetwork, err := service.DeleteNetwork(context.Background(), "external_unused", []string{"demo"})
+	if err != nil {
+		t.Fatalf("DeleteNetwork() error = %v", err)
+	}
+	if !deletedNetwork.Deleted || deletedNetwork.Name != "external_unused" {
+		t.Fatalf("unexpected deleted network response: %#v", deletedNetwork)
+	}
+
+	createdVolume, err := service.CreateVolume(context.Background(), CreateVolumeRequest{Name: "media_cache"})
+	if err != nil {
+		t.Fatalf("CreateVolume() error = %v", err)
+	}
+	if !createdVolume.Created || createdVolume.Name != "media_cache" {
+		t.Fatalf("unexpected created volume response: %#v", createdVolume)
+	}
+
+	deletedVolume, err := service.DeleteVolume(context.Background(), "external_media", []string{"demo"})
+	if err != nil {
+		t.Fatalf("DeleteVolume() error = %v", err)
+	}
+	if !deletedVolume.Deleted || deletedVolume.Name != "external_media" {
+		t.Fatalf("unexpected deleted volume response: %#v", deletedVolume)
+	}
+
+	if _, err := service.DeleteNetwork(context.Background(), "external_shared", []string{"demo"}); !errors.Is(err, ErrProtectedObject) {
+		t.Fatalf("DeleteNetwork(protected) error = %v, want ErrProtectedObject", err)
+	}
+	if _, err := service.DeleteVolume(context.Background(), "demo_data", []string{"demo"}); !errors.Is(err, ErrProtectedObject) {
+		t.Fatalf("DeleteVolume(protected) error = %v, want ErrProtectedObject", err)
+	}
+	if _, err := service.CreateNetwork(context.Background(), CreateNetworkRequest{Name: "bad/name"}); !errors.Is(err, ErrInvalidName) {
+		t.Fatalf("CreateNetwork(invalid) error = %v, want ErrInvalidName", err)
+	}
+}

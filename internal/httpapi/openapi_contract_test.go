@@ -237,8 +237,26 @@ func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
 	maintenanceNetworksResponse := performJSONRequest(t, handler, http.MethodGet, "/api/maintenance/networks?usage=all&origin=all", nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/maintenance/networks?usage=all&origin=all", nil, cookies, maintenanceNetworksResponse)
 
+	createNetworkBody := map[string]any{
+		"name": "homelab_proxy",
+	}
+	createNetworkResponse := performJSONRequest(t, handler, http.MethodPost, "/api/maintenance/networks", createNetworkBody, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodPost, "/api/maintenance/networks", createNetworkBody, cookies, createNetworkResponse)
+
+	deleteNetworkResponse := performJSONRequest(t, handler, http.MethodDelete, "/api/maintenance/networks/external_unused", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodDelete, "/api/maintenance/networks/external_unused", nil, cookies, deleteNetworkResponse)
+
 	maintenanceVolumesResponse := performJSONRequest(t, handler, http.MethodGet, "/api/maintenance/volumes?usage=all&origin=all", nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/maintenance/volumes?usage=all&origin=all", nil, cookies, maintenanceVolumesResponse)
+
+	createVolumeBody := map[string]any{
+		"name": "media_cache",
+	}
+	createVolumeResponse := performJSONRequest(t, handler, http.MethodPost, "/api/maintenance/volumes", createVolumeBody, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodPost, "/api/maintenance/volumes", createVolumeBody, cookies, createVolumeResponse)
+
+	deleteVolumeResponse := performJSONRequest(t, handler, http.MethodDelete, "/api/maintenance/volumes/external_media", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodDelete, "/api/maintenance/volumes/external_media", nil, cookies, deleteVolumeResponse)
 
 	prunePreviewResponse := performJSONRequest(t, handler, http.MethodGet, "/api/maintenance/prune-preview?images=true&build_cache=true&stopped_containers=true&volumes=false", nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/maintenance/prune-preview?images=true&build_cache=true&stopped_containers=true&volumes=false", nil, cookies, prunePreviewResponse)

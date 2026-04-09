@@ -778,11 +778,24 @@ fi
 if [ "$1" = "network" ] && [ "$2" = "ls" ]; then
   echo '{"ID":"network-demo","Name":"demo_default","Driver":"bridge","Scope":"local"}'
   echo '{"ID":"network-ext","Name":"external_shared","Driver":"bridge","Scope":"local"}'
+  echo '{"ID":"network-unused","Name":"external_unused","Driver":"bridge","Scope":"local"}'
   exit 0
 fi
 
 if [ "$1" = "network" ] && [ "$2" = "inspect" ]; then
-  echo '[{"Id":"network-demo","Name":"demo_default","Driver":"bridge","Scope":"local","Internal":false,"Attachable":false,"Ingress":false,"Labels":{"com.docker.compose.project":"demo"}},{"Id":"network-ext","Name":"external_shared","Driver":"bridge","Scope":"local","Internal":false,"Attachable":false,"Ingress":false,"Labels":{}}]'
+  echo '[{"Id":"network-demo","Name":"demo_default","Driver":"bridge","Scope":"local","Internal":false,"Attachable":false,"Ingress":false,"Labels":{"com.docker.compose.project":"demo"}},{"Id":"network-ext","Name":"external_shared","Driver":"bridge","Scope":"local","Internal":false,"Attachable":false,"Ingress":false,"Labels":{}},{"Id":"network-unused","Name":"external_unused","Driver":"bridge","Scope":"local","Internal":false,"Attachable":false,"Ingress":false,"Labels":{}}]'
+  exit 0
+fi
+
+if [ "$1" = "network" ] && [ "$2" = "create" ]; then
+  append_log "docker network create $3"
+  echo "$3"
+  exit 0
+fi
+
+if [ "$1" = "network" ] && [ "$2" = "rm" ]; then
+  append_log "docker network rm $3"
+  echo "$3"
   exit 0
 fi
 
@@ -794,6 +807,18 @@ fi
 
 if [ "$1" = "volume" ] && [ "$2" = "inspect" ]; then
   echo '[{"Name":"demo_data","Driver":"local","Mountpoint":"/var/lib/docker/volumes/demo_data/_data","Scope":"local","Labels":{"com.docker.compose.project":"demo"},"Options":{}},{"Name":"external_media","Driver":"local","Mountpoint":"/var/lib/docker/volumes/external_media/_data","Scope":"local","Labels":{},"Options":{"type":"nfs"}}]'
+  exit 0
+fi
+
+if [ "$1" = "volume" ] && [ "$2" = "create" ]; then
+  append_log "docker volume create $3"
+  echo "$3"
+  exit 0
+fi
+
+if [ "$1" = "volume" ] && [ "$2" = "rm" ]; then
+  append_log "docker volume rm $3"
+  echo "$3"
   exit 0
 fi
 
