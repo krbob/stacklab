@@ -238,6 +238,45 @@ export interface JobDetail {
   } | null
 }
 
+export interface ActiveJobStep {
+  index: number
+  total: number
+  action: string
+  target_stack_id?: string
+}
+
+export interface ActiveJobLatestEvent {
+  event: JobEventType | string
+  message?: string
+  data?: string | null
+  timestamp: string
+  step?: ActiveJobStep | null
+}
+
+export interface ActiveJobItem {
+  id: string
+  stack_id: string | null
+  action: string
+  state: JobState
+  requested_at: string
+  started_at: string | null
+  workflow?: {
+    steps: { action: string; state: string; target_stack_id?: string }[]
+  } | null
+  current_step?: ActiveJobStep | null
+  latest_event?: ActiveJobLatestEvent | null
+}
+
+export interface ActiveJobsResponse {
+  items: ActiveJobItem[]
+  summary: {
+    active_count: number
+    running_count: number
+    queued_count: number
+    cancel_requested_count: number
+  }
+}
+
 export interface AuditEntry {
   id: string
   stack_id: string | null

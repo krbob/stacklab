@@ -263,6 +263,128 @@ func TestHandlerDockerAdminOverviewAndDaemonConfig(t *testing.T) {
 	}
 }
 
+func TestHandlerListActiveJobs(t *testing.T) {
+	t.Parallel()
+
+	handler, served, _ := newInternalTestHandler(t)
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	stackJob, err := handler.jobs.Start(context.Background(), "demo", "pull", "local")
+	if err != nil {
+		t.Fatalf("jobs.Start(stack) error = %v", err)
+	}
+	stackWorkflow := []store.JobWorkflowStep{
+		{Action: "pull", State: "running", TargetStackID: "demo"},
+		{Action: "up", State: "queued", TargetStackID: "demo"},
+	}
+	stackJob, err = handler.jobs.UpdateWorkflow(context.Background(), stackJob, stackWorkflow)
+	if err != nil {
+		t.Fatalf("jobs.UpdateWorkflow(stack) error = %v", err)
+	}
+	if err := handler.jobs.PublishEvent(context.Background(), stackJob, "job_step_started", "Starting pull for demo.", "", &store.JobEventStep{
+		Index:         1,
+		Total:         2,
+		Action:        "pull",
+		TargetStackID: "demo",
+	}); err != nil {
+		t.Fatalf("jobs.PublishEvent(stack) error = %v", err)
+	}
+
+	globalJob, err := handler.jobs.Start(context.Background(), "", "update_stacks", "local")
+	if err != nil {
+		t.Fatalf("jobs.Start(global) error = %v", err)
+	}
+	globalWorkflow := []store.JobWorkflowStep{
+		{Action: "pull", State: "running", TargetStackID: "demo"},
+		{Action: "up", State: "queued", TargetStackID: "demo"},
+	}
+	globalJob, err = handler.jobs.UpdateWorkflow(context.Background(), globalJob, globalWorkflow)
+	if err != nil {
+		t.Fatalf("jobs.UpdateWorkflow(global) error = %v", err)
+	}
+	if err := handler.jobs.PublishEvent(context.Background(), globalJob, "job_step_started", "Starting pull for demo.", "", &store.JobEventStep{
+		Index:         1,
+		Total:         2,
+		Action:        "pull",
+		TargetStackID: "demo",
+	}); err != nil {
+		t.Fatalf("jobs.PublishEvent(global) error = %v", err)
+	}
+
+	finishedJob, err := handler.jobs.Start(context.Background(), "old", "restart", "local")
+	if err != nil {
+		t.Fatalf("jobs.Start(finished) error = %v", err)
+	}
+	if _, err := handler.jobs.FinishSucceeded(context.Background(), finishedJob); err != nil {
+		t.Fatalf("jobs.FinishSucceeded() error = %v", err)
+	}
+
+	response := performInternalJSONRequest(t, served, http.MethodGet, "/api/jobs/active", nil, cookies)
+	if response.Code != http.StatusOK {
+		t.Fatalf("GET /api/jobs/active status = %d, want %d; body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+
+	var payload struct {
+		Items []struct {
+			ID          string  `json:"id"`
+			StackID     *string `json:"stack_id"`
+			Action      string  `json:"action"`
+			State       string  `json:"state"`
+			CurrentStep *struct {
+				Index         int    `json:"index"`
+				Total         int    `json:"total"`
+				Action        string `json:"action"`
+				TargetStackID string `json:"target_stack_id"`
+			} `json:"current_step"`
+			LatestEvent *struct {
+				Event string `json:"event"`
+				Step  *struct {
+					TargetStackID string `json:"target_stack_id"`
+				} `json:"step"`
+			} `json:"latest_event"`
+		} `json:"items"`
+		Summary struct {
+			ActiveCount          int `json:"active_count"`
+			RunningCount         int `json:"running_count"`
+			QueuedCount          int `json:"queued_count"`
+			CancelRequestedCount int `json:"cancel_requested_count"`
+		} `json:"summary"`
+	}
+	decodeInternalResponse(t, response, &payload)
+
+	if payload.Summary.ActiveCount != 2 || payload.Summary.RunningCount != 2 {
+		t.Fatalf("unexpected summary payload: %#v", payload.Summary)
+	}
+	if len(payload.Items) != 2 {
+		t.Fatalf("len(items) = %d, want 2", len(payload.Items))
+	}
+
+	var foundGlobal, foundStack bool
+	for _, item := range payload.Items {
+		switch item.Action {
+		case "update_stacks":
+			foundGlobal = true
+			if item.StackID != nil {
+				t.Fatalf("global job stack_id = %#v, want nil", item.StackID)
+			}
+		case "pull":
+			foundStack = true
+			if item.StackID == nil || *item.StackID != "demo" {
+				t.Fatalf("stack job stack_id = %#v, want demo", item.StackID)
+			}
+		}
+		if item.CurrentStep == nil || item.CurrentStep.TargetStackID != "demo" {
+			t.Fatalf("unexpected current_step payload: %#v", item.CurrentStep)
+		}
+		if item.LatestEvent == nil || item.LatestEvent.Event != "job_step_started" {
+			t.Fatalf("unexpected latest_event payload: %#v", item.LatestEvent)
+		}
+	}
+	if !foundGlobal || !foundStack {
+		t.Fatalf("missing expected jobs in payload: %#v", payload.Items)
+	}
+}
+
 func TestHandlerConfigWorkspaceTreeFileAndSave(t *testing.T) {
 	t.Parallel()
 

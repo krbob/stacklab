@@ -1577,6 +1577,72 @@ Response:
 }
 ```
 
+## `GET /api/jobs/active`
+
+Purpose:
+
+- power a global activity affordance for currently running background work
+- let the UI recover cross-page job visibility without subscribing to each job individually
+
+Definition of "active":
+
+- `queued`
+- `running`
+- `cancel_requested`
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "id": "job_01hr...",
+      "stack_id": null,
+      "action": "update_stacks",
+      "state": "running",
+      "requested_at": "2026-04-09T10:15:00Z",
+      "started_at": "2026-04-09T10:15:01Z",
+      "workflow": {
+        "steps": [
+          { "action": "pull", "state": "running", "target_stack_id": "demo" },
+          { "action": "up", "state": "queued", "target_stack_id": "demo" }
+        ]
+      },
+      "current_step": {
+        "index": 1,
+        "total": 2,
+        "action": "pull",
+        "target_stack_id": "demo"
+      },
+      "latest_event": {
+        "event": "job_step_started",
+        "message": "Starting pull for demo.",
+        "timestamp": "2026-04-09T10:15:02Z",
+        "step": {
+          "index": 1,
+          "total": 2,
+          "action": "pull",
+          "target_stack_id": "demo"
+        }
+      }
+    }
+  ],
+  "summary": {
+    "active_count": 1,
+    "running_count": 1,
+    "queued_count": 0,
+    "cancel_requested_count": 0
+  }
+}
+```
+
+Behavior:
+
+- ordered by most recently active first
+- `stack_id` may be `null` for workspace-level jobs
+- `current_step` and `latest_event` are optional
+- UI should derive elapsed time from `started_at` when present, otherwise `requested_at`
+
 ## `POST /api/jobs/{jobId}/cancel`
 
 Purpose:

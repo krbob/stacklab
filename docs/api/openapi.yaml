@@ -767,6 +767,19 @@ paths:
                 $ref: '#/components/schemas/UpdatePasswordResponse'
         '401':
           $ref: '#/components/responses/ErrorUnauthorized'
+  /jobs/active:
+    get:
+      tags: [Jobs]
+      operationId: listActiveJobs
+      responses:
+        '200':
+          description: Active jobs for global activity chrome.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActiveJobsResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
   /jobs/{jobId}:
     parameters:
       - $ref: '#/components/parameters/JobId'
@@ -1919,6 +1932,16 @@ components:
         job:
           $ref: '#/components/schemas/Job'
       required: [job]
+    ActiveJobsResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActiveJobItem'
+        summary:
+          $ref: '#/components/schemas/ActiveJobSummary'
+      required: [items, summary]
     Job:
       type: object
       properties:
@@ -1964,6 +1987,91 @@ components:
         - stack_id
         - action
         - state
+    ActiveJobItem:
+      type: object
+      properties:
+        id:
+          type: string
+        stack_id:
+          type: string
+          nullable: true
+        action:
+          type: string
+        state:
+          $ref: '#/components/schemas/JobState'
+        requested_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        workflow:
+          $ref: '#/components/schemas/ActiveJobWorkflow'
+        current_step:
+          $ref: '#/components/schemas/ActiveJobStep'
+        latest_event:
+          $ref: '#/components/schemas/ActiveJobLatestEvent'
+      required: [id, stack_id, action, state, requested_at]
+    ActiveJobWorkflow:
+      type: object
+      properties:
+        steps:
+          type: array
+          items:
+            type: object
+            properties:
+              action:
+                type: string
+              state:
+                $ref: '#/components/schemas/JobState'
+              target_stack_id:
+                type: string
+            required: [action, state]
+      required: [steps]
+      nullable: true
+    ActiveJobStep:
+      type: object
+      properties:
+        index:
+          type: integer
+        total:
+          type: integer
+        action:
+          type: string
+        target_stack_id:
+          type: string
+      required: [index, total, action]
+      nullable: true
+    ActiveJobLatestEvent:
+      type: object
+      properties:
+        event:
+          type: string
+        message:
+          type: string
+        data:
+          type: string
+          nullable: true
+        timestamp:
+          type: string
+          format: date-time
+        step:
+          $ref: '#/components/schemas/ActiveJobStep'
+      required: [event, timestamp]
+      nullable: true
+    ActiveJobSummary:
+      type: object
+      properties:
+        active_count:
+          type: integer
+        running_count:
+          type: integer
+        queued_count:
+          type: integer
+        cancel_requested_count:
+          type: integer
+      required: [active_count, running_count, queued_count, cancel_requested_count]
     MaintenanceUpdateStacksRequest:
       type: object
       properties:

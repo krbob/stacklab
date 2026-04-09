@@ -174,6 +174,77 @@ func (s *Service) Get(ctx context.Context, id string) (store.Job, error) {
 	return job, nil
 }
 
+func (s *Service) ListActive(ctx context.Context) (ActiveJobsResponse, error) {
+	storedJobs, err := s.store.ListActiveJobs(ctx)
+	if err != nil {
+		return ActiveJobsResponse{}, err
+	}
+
+	response := ActiveJobsResponse{
+		Items: make([]ActiveJobItem, 0, len(storedJobs)),
+	}
+
+	for _, job := range storedJobs {
+		item := ActiveJobItem{
+			ID:          job.ID,
+			Action:      job.Action,
+			State:       job.State,
+			RequestedAt: job.RequestedAt,
+			StartedAt:   job.StartedAt,
+		}
+		if job.StackID != "" {
+			stackID := job.StackID
+			item.StackID = &stackID
+		}
+		if job.Workflow != nil {
+			item.Workflow = &ActiveWorkflow{Steps: make([]ActiveWorkflowStep, 0, len(job.Workflow.Steps))}
+			for _, step := range job.Workflow.Steps {
+				item.Workflow.Steps = append(item.Workflow.Steps, ActiveWorkflowStep{
+					Action:        step.Action,
+					State:         step.State,
+					TargetStackID: step.TargetStackID,
+				})
+			}
+		}
+
+		latestEvent, ok, err := s.store.LatestJobEvent(ctx, job.ID)
+		if err != nil {
+			return ActiveJobsResponse{}, err
+		}
+		if ok {
+			item.LatestEvent = &ActiveJobEvent{
+				Event:     latestEvent.Event,
+				Message:   latestEvent.Message,
+				Data:      latestEvent.Data,
+				Timestamp: latestEvent.Timestamp,
+			}
+			if latestEvent.Step != nil {
+				step := ActiveJobStep{
+					Index:         latestEvent.Step.Index,
+					Total:         latestEvent.Step.Total,
+					Action:        latestEvent.Step.Action,
+					TargetStackID: latestEvent.Step.TargetStackID,
+				}
+				item.CurrentStep = &step
+				item.LatestEvent.Step = &step
+			}
+		}
+
+		switch job.State {
+		case "running":
+			response.Summary.RunningCount++
+		case "queued":
+			response.Summary.QueuedCount++
+		case "cancel_requested":
+			response.Summary.CancelRequestedCount++
+		}
+		response.Items = append(response.Items, item)
+	}
+
+	response.Summary.ActiveCount = len(response.Items)
+	return response, nil
+}
+
 func randomToken(length int) string {
 	bytes := make([]byte, length)
 	if _, err := rand.Read(bytes); err != nil {

@@ -45,6 +45,7 @@ Future global chrome note:
 
 - long-running jobs should later surface in a persistent global activity affordance in the app chrome
 - this is intended for background job visibility, not as a replacement for audit or page-local progress panels
+- the first milestone is backed by `GET /api/jobs/active`, with final chrome placement left to UI design
 
 ## Stack Context Navigation
 

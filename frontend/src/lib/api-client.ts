@@ -1,4 +1,5 @@
 import type {
+  ActiveJobsResponse,
   AuditResponse,
   ConfigFileResponse,
   ConfigFileSaveResponse,
@@ -198,6 +199,10 @@ export function getGlobalAudit(params?: { stack_id?: string; cursor?: string; li
 
 export function getJob(jobId: string): Promise<{ job: JobDetail }> {
   return request(`/api/jobs/${encodeURIComponent(jobId)}`)
+}
+
+export function getActiveJobs(): Promise<ActiveJobsResponse> {
+  return request('/api/jobs/active')
 }
 
 // --- Mutating endpoints ---

@@ -8,6 +8,7 @@ This section contains information architecture, screens, and UI-facing contracts
 - [screen-specs.md](screen-specs.md) — per-screen specifications with wireframes
 - [states-and-empty-cases.md](states-and-empty-cases.md) — stack/service/operation state model, badges, empty states, loading, errors, confirmation dialogs
 - [editor-progress-integration.md](editor-progress-integration.md) — backend-backed integration notes for the editor, mutating actions, and progress panel
+- [global-activity-handoff.md](global-activity-handoff.md) — app-wide background job visibility, collapsed chrome activity, and active job list guidance
 - [host-observability-handoff.md](host-observability-handoff.md) — route and screen guidance for host overview and Stacklab service logs
 - [docker-admin-handoff.md](docker-admin-handoff.md) — route and screen guidance for read-only Docker daemon administration
 - [config-workspace-handoff.md](config-workspace-handoff.md) — route and screen guidance for `/opt/stacklab/config` browsing and editing

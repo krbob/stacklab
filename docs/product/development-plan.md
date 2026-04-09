@@ -382,10 +382,14 @@ Suggested order:
 
 ## Recommended Immediate Next Step
 
-Implement the first Milestone 7 backend slice:
+Implement the first Milestone 9 backend slice:
 
-1. `GET /api/maintenance/images`
-2. `GET /api/maintenance/prune-preview`
-3. `POST /api/maintenance/prune`
+1. `GET /api/jobs/active`
+2. return the latest event and current step for each active job
+3. hand the concrete active-job model to the UI developer for the global chrome activity affordance
 
-Then hand the concrete backend model to the UI developer for `Images` and `Cleanup` inside `/maintenance`.
+Then decide the final UI shape:
+
+- compact pill vs slim bar
+- popover vs tray vs drawer
+- collapsed single-job summary vs aggregate count-first summary

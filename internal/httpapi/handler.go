@@ -133,6 +133,7 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/maintenance/images", h.withAuth(h.handleMaintenanceImages))
 	h.mux.HandleFunc("GET /api/maintenance/prune-preview", h.withAuth(h.handleMaintenancePrunePreview))
 	h.mux.HandleFunc("POST /api/maintenance/prune", h.withAuth(h.handleMaintenancePrune))
+	h.mux.HandleFunc("GET /api/jobs/active", h.withAuth(h.handleListActiveJobs))
 	h.mux.HandleFunc("GET /api/stacks", h.withAuth(h.handleListStacks))
 	h.mux.HandleFunc("POST /api/stacks", h.withAuth(h.handleCreateStack))
 	h.mux.HandleFunc("GET /api/stacks/{stackId}", h.withAuth(h.handleGetStack))
@@ -1203,6 +1204,17 @@ func (h *Handler) handleGetJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"job": job})
+}
+
+func (h *Handler) handleListActiveJobs(w http.ResponseWriter, r *http.Request) {
+	response, err := h.jobs.ListActive(r.Context())
+	if err != nil {
+		h.logger.Error("list active jobs failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load active jobs.", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (h *Handler) handleListStackAudit(w http.ResponseWriter, r *http.Request) {

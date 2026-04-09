@@ -13,7 +13,9 @@ import (
 	"sync"
 	"testing"
 
+	"stacklab/internal/jobs"
 	"stacklab/internal/stacks"
+	"stacklab/internal/store"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
@@ -152,6 +154,41 @@ func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
 	}
 	saveResponse := performJSONRequest(t, handler, http.MethodPut, "/api/stacks/"+stackID+"/definition", saveBody, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodPut, "/api/stacks/"+stackID+"/definition", saveBody, cookies, saveResponse)
+
+	jobStore, err := store.Open(cfg.DatabasePath)
+	if err != nil {
+		t.Fatalf("store.Open(jobStore) error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := jobStore.Close(); err != nil {
+			t.Fatalf("jobStore.Close() error = %v", err)
+		}
+	})
+	jobService := jobs.NewService(jobStore)
+
+	activeJob, err := jobService.Start(context.Background(), "", "update_stacks", "local")
+	if err != nil {
+		t.Fatalf("jobs.Start(active) error = %v", err)
+	}
+	activeWorkflow := []store.JobWorkflowStep{
+		{Action: "pull", State: "running", TargetStackID: stackID},
+		{Action: "up", State: "queued", TargetStackID: stackID},
+	}
+	activeJob, err = jobService.UpdateWorkflow(context.Background(), activeJob, activeWorkflow)
+	if err != nil {
+		t.Fatalf("jobs.UpdateWorkflow(active) error = %v", err)
+	}
+	if err := jobService.PublishEvent(context.Background(), activeJob, "job_step_started", "Starting pull.", "", &store.JobEventStep{
+		Index:         1,
+		Total:         2,
+		Action:        "pull",
+		TargetStackID: stackID,
+	}); err != nil {
+		t.Fatalf("jobs.PublishEvent(active) error = %v", err)
+	}
+
+	activeJobsResponse := performJSONRequest(t, handler, http.MethodGet, "/api/jobs/active", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/jobs/active", nil, cookies, activeJobsResponse)
 
 	jobResponse := performJSONRequest(t, handler, http.MethodGet, "/api/jobs/"+createPayload.Job.ID, nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/jobs/"+createPayload.Job.ID, nil, cookies, jobResponse)
