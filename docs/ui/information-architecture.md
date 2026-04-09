@@ -18,9 +18,9 @@ There is no deeper nesting. Every screen is reachable in at most two clicks from
 │      │                                      │
 │  ◉ Stacks    Main content area              │
 │  ◎ Host                                     │
-│  ◎ Docker                                   │
 │  ◎ Config                                   │
 │  ◎ Maintenance                              │
+│  ◎ Docker                                   │
 │  ◎ Audit                                    │
 │  ◎ Settings                                 │
 │      │                                      │
@@ -33,9 +33,9 @@ There is no deeper nesting. Every screen is reachable in at most two clicks from
 |---|---|---|
 | **Stacks** | `/stacks` | Stack list dashboard. Default landing page. |
 | **Host** | `/host` | Host overview, Stacklab version, and Stacklab service logs |
-| **Docker** | `/docker` | Docker daemon status, Engine metadata, and read-only `daemon.json` visibility |
 | **Config** | `/config` | Managed config workspace, Git changes, commit, and push |
 | **Maintenance** | `/maintenance` | Bulk update, images inventory, and cleanup workflows |
+| **Docker** | `/docker` | Docker daemon status, Engine metadata, and read-only `daemon.json` visibility |
 | **Audit** | `/audit` | Global audit log of all mutating actions |
 | **Settings** | `/settings` | Application settings, auth, preferences, and later update schedules |
 

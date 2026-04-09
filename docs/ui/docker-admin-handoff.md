@@ -20,9 +20,9 @@ Recommended nav placement:
 
 - `Stacks`
 - `Host`
-- `Docker`
 - `Config`
 - `Maintenance`
+- `Docker`
 - `Audit`
 - `Settings`
 
