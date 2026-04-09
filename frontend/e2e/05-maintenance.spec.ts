@@ -29,8 +29,11 @@ test.describe('Maintenance', () => {
     await expect(page.getByRole('heading', { name: 'Cleanup' })).toBeVisible()
     await expect(page.getByText('Total reclaimable:')).toBeVisible({ timeout: 20_000 })
 
+    const progressPanel = page.getByRole('heading', { name: 'Progress' }).locator('xpath=..')
     await page.getByTestId('maintenance-prune').click()
-    await expect(page.getByText(/Running|Succeeded/)).toBeVisible({ timeout: 20_000 })
-    await expect(page.getByRole('heading', { name: 'Progress' })).toBeVisible()
+    await expect(page.getByTestId('maintenance-prune')).toHaveText('Cleaning...', { timeout: 5_000 })
+    await expect(progressPanel.getByText('prune_images')).toBeVisible({ timeout: 20_000 })
+    await expect(progressPanel.getByText('Succeeded')).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByTestId('maintenance-prune')).toHaveText('Run cleanup', { timeout: 20_000 })
   })
 })
