@@ -32,7 +32,7 @@ const statusLabel: Record<string, { text: string; color: string }> = {
 }
 
 function formatElapsed(startMs: number, endMs: number): string {
-  const seconds = Math.round((endMs - startMs) / 1000)
+  const seconds = Math.floor((endMs - startMs) / 1000)
   if (seconds < 0) return '—'
   if (seconds < 60) return `${seconds}s`
   const mins = Math.floor(seconds / 60)
@@ -49,7 +49,7 @@ export function StepCards({ events }: StepCardsProps) {
   return (
     <div className="space-y-2">
       {steps.map((step) => (
-        <StepCard key={`${step.index}-${step.action}`} step={step} />
+        <StepCard key={`${step.index}-${step.action}-${step.targetStackId ?? ''}`} step={step} />
       ))}
     </div>
   )
