@@ -87,6 +87,39 @@ Recommended later enrichment:
 3. richer rendering of `pull`, `build`, and `up` output
 4. optional structured image progress events for Docker pull/build operations
 
+## Richer Maintenance Progress v1.1
+
+The next UX slice should still stay within the current event model.
+
+Meaning:
+
+- no ANSI parsing requirement
+- no image layer progress bars yet
+- no XTerm-style terminal renderer inside maintenance
+
+The immediate richer progress goal is:
+
+- render one card per workflow step
+- show elapsed time derived from:
+  - `job_step_started.timestamp`
+  - `job_step_finished.timestamp`
+  - `Date.now()` while running
+- render raw `job_log` output inside the corresponding step card
+- keep raw output collapsed by default, expandable on demand
+
+Important existing contract detail:
+
+- maintenance and prune `job_log` events already include `step`
+- therefore the UI can assign log output to the active workflow step without backend changes
+
+Recommended v1.1 UI grouping rule:
+
+- `job_step_started` creates or activates a step card
+- `job_log` with `step` appends output to that step card
+- `job_step_finished` marks the card terminal and freezes elapsed time
+
+This preserves the current backend contract while making the progress feel much more alive.
+
 Broader product implication:
 
 - this should feed a later global background activity UX, not only the `/maintenance` page

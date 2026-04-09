@@ -155,6 +155,62 @@ Longer-term UX direction:
 - maintenance progress should eventually also connect to a global activity affordance shared across the app
 - the page-local progress panel remains important, but it should not be the only place where a long-running background workflow is visible
 
+## Richer Maintenance Progress Direction
+
+Agreed v1.1 direction:
+
+- use step cards, not a terminal emulator and not Dockge-style ANSI progress bars
+- each step card should show:
+  - action label
+  - `target_stack_id`
+  - status dot / label
+  - elapsed time
+  - collapsible raw output
+
+Recommended interpretation:
+
+- one workflow step = one card
+- raw `job_log` output with matching `step` belongs inside that card
+- cards should default to collapsed raw output with only a short preview visible
+
+Why this shape:
+
+- it is a natural evolution of the current chronological step list
+- it works well on desktop and still degrades cleanly on tablet
+- it avoids overcommitting to CLI-emulator UX before the backend emits structured Docker pull/build progress
+
+## Elapsed Time Guidance
+
+Use event timestamps already present in the contract:
+
+- `job_step_started.timestamp`
+- `job_step_finished.timestamp`
+
+While a step is running:
+
+- derive elapsed time from `job_step_started.timestamp` to `Date.now()`
+
+After a step finishes:
+
+- freeze elapsed time using the finished timestamp
+
+## Raw Output Guidance
+
+Raw Docker/Compose output should be rendered as:
+
+- monospace
+- append-only
+- step-local
+- optionally line-clamped when collapsed
+
+Do not try to parse:
+
+- ANSI colors
+- carriage-return progress bars
+- image-layer percentages
+
+That is a later milestone.
+
 ## Required UI States
 
 - no stacks selected state
@@ -182,13 +238,23 @@ These need intentional UI input before implementation is locked:
    - only the current run
    - or also a lightweight "last maintenance run" summary?
 
+## Current Decision Snapshot
+
+Current direction after product review:
+
+1. step cards
+2. elapsed time per step from existing event timestamps
+3. raw `job_log` output rendered inside the step card
+4. no ANSI parsing or pseudo-terminal rendering in this milestone
+
 ## Recommended First Version
 
 To keep scope tight:
 
 - checkbox list for selected stacks
-- chronological step list on the right
+- step cards on the right
 - current run only
 - no historical summary card yet
+- raw output collapsed by default
 
 That is enough to replace `update_stacks.sh` safely without over-designing the page.

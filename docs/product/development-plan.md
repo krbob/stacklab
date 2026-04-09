@@ -363,6 +363,42 @@ UI developer input needed:
 - early
 - this is primarily a cross-app interaction and information-architecture problem, not just a component styling task
 
+## Milestone 10: Richer Maintenance Progress
+
+Goal:
+
+- make long-running maintenance workflows feel active and legible without pretending to be a full Docker pull terminal
+
+Scope:
+
+- replace the current bare step list with step cards
+- show elapsed time per workflow step
+- attach raw `job_log` output to the corresponding step card
+- keep output collapsed by default with expand-on-demand
+
+Important constraint:
+
+- use the current job event model first
+- do not block on structured image-layer progress or ANSI parsing
+
+Backend work:
+
+- none required for the first slice if current `job_log` events continue carrying `step`
+- only document and preserve the current contract semantics
+
+UI work:
+
+- step-card presentation for update and cleanup workflows
+- elapsed time rendering from existing event timestamps
+- step-local raw output rendering
+
+UI developer input needed:
+
+- early, but now already directionally decided:
+  - step cards over timeline-only list
+  - elapsed time per step
+  - step-local collapsible output
+
 ## Packaging Track
 
 `.deb` packaging and later APT publication should start after the next product-shaping operator milestones are substantially complete.
