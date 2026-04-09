@@ -49,13 +49,15 @@ Recommended top-level maintenance navigation inside `/maintenance`:
 
 - `Update`
 - `Images`
+- `Networks`
+- `Volumes`
 - `Cleanup`
 
 Recommended first implementation:
 
 - tabs or segmented control at the top of the page
 - keep current `Update` screen intact
-- add `Images` and `Cleanup` without moving them into the sidebar
+- add `Images`, `Networks`, `Volumes`, and `Cleanup` without moving them into the sidebar
 
 ## `Images` View
 
@@ -85,6 +87,52 @@ Not recommended in the first version:
 - destructive image actions from the table
 - registry pulls from the table
 - complicated nested object views
+
+## `Networks` View
+
+Recommended content:
+
+- searchable list or table
+- same filters as `Images`:
+  - search
+  - all / used / unused
+  - stack-managed / external
+- columns/fields:
+  - name
+  - driver
+  - scope
+  - attached container count
+  - stacks using it
+  - internal / ingress indicators when true
+
+Recommended visual priorities:
+
+- make external-but-used networks easy to spot
+- keep `stacks_using` obvious
+- do not add network create/delete actions in this slice
+
+## `Volumes` View
+
+Recommended content:
+
+- searchable list or table
+- same filters as `Images`:
+  - search
+  - all / used / unused
+  - stack-managed / external
+- columns/fields:
+  - name
+  - driver
+  - mountpoint
+  - attached container count
+  - stacks using it
+  - options count
+
+Recommended visual priorities:
+
+- make unused volumes easy to spot without implying deletion is safe by default
+- keep external-but-used volumes obvious
+- do not add volume create/delete actions in this slice
 
 ## `Cleanup` View
 
@@ -148,6 +196,8 @@ These should be answered intentionally once the backend model is implemented:
 To keep scope tight:
 
 - `Images` = searchable table/list
+- `Networks` = searchable list with stack usage
+- `Volumes` = searchable list with stack usage
 - `Cleanup` = toggle form + preview summary + confirm button
 - no image row actions yet
 - no historical cleanup summary yet

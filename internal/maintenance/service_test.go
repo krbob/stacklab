@@ -37,8 +37,30 @@ func TestServiceImagesAndPreview(t *testing.T) {
 							"com.docker.compose.project":"demo",
 							"com.docker.compose.service":"app"
 						}
-					}
+					},
+					"Mounts":[{"Name":"demo_data","Type":"volume"}],
+					"NetworkSettings":{"Networks":{"demo_default":{},"external_shared":{}}}
 				}
+			]`), nil
+		case "network ls --no-trunc --format {{json .}}":
+			return []byte(strings.Join([]string{
+				`{"ID":"network-demo","Name":"demo_default","Driver":"bridge","Scope":"local"}`,
+				`{"ID":"network-ext","Name":"external_shared","Driver":"bridge","Scope":"local"}`,
+			}, "\n")), nil
+		case "network inspect network-demo network-ext":
+			return []byte(`[
+				{"Id":"network-demo","Name":"demo_default","Driver":"bridge","Scope":"local","Internal":false,"Attachable":false,"Ingress":false,"Labels":{"com.docker.compose.project":"demo"}},
+				{"Id":"network-ext","Name":"external_shared","Driver":"bridge","Scope":"local","Internal":false,"Attachable":false,"Ingress":false,"Labels":{}}
+			]`), nil
+		case "volume ls --format {{json .}}":
+			return []byte(strings.Join([]string{
+				`{"Name":"demo_data","Driver":"local"}`,
+				`{"Name":"external_media","Driver":"local"}`,
+			}, "\n")), nil
+		case "volume inspect demo_data external_media":
+			return []byte(`[
+				{"Name":"demo_data","Driver":"local","Mountpoint":"/var/lib/docker/volumes/demo_data/_data","Scope":"local","Labels":{"com.docker.compose.project":"demo"},"Options":{}},
+				{"Name":"external_media","Driver":"local","Mountpoint":"/var/lib/docker/volumes/external_media/_data","Scope":"local","Labels":{},"Options":{"type":"nfs"}}
 			]`), nil
 		case "system df --format {{json .}}":
 			return []byte(strings.Join([]string{
@@ -71,6 +93,42 @@ func TestServiceImagesAndPreview(t *testing.T) {
 	}
 	if got := images.Items[0].CreatedAt.UTC(); !got.Equal(time.Date(2026, 4, 4, 12, 11, 0, 0, time.UTC)) {
 		t.Fatalf("unexpected image created_at: %s", got)
+	}
+
+	networks, err := service.Networks(context.Background(), NetworksQuery{
+		Usage:           ImageUsageAll,
+		Origin:          ImageOriginAll,
+		ManagedStackIDs: []string{"demo"},
+	})
+	if err != nil {
+		t.Fatalf("Networks() error = %v", err)
+	}
+	if len(networks.Items) != 2 {
+		t.Fatalf("Networks() item count = %d, want 2", len(networks.Items))
+	}
+	if networks.Items[0].Name != "demo_default" || networks.Items[0].Source != NetworkSourceStackManaged {
+		t.Fatalf("unexpected managed network item: %#v", networks.Items[0])
+	}
+	if networks.Items[1].Name != "external_shared" || networks.Items[1].Source != NetworkSourceStackManaged {
+		t.Fatalf("unexpected external shared network item: %#v", networks.Items[1])
+	}
+
+	volumes, err := service.Volumes(context.Background(), VolumesQuery{
+		Usage:           ImageUsageAll,
+		Origin:          ImageOriginAll,
+		ManagedStackIDs: []string{"demo"},
+	})
+	if err != nil {
+		t.Fatalf("Volumes() error = %v", err)
+	}
+	if len(volumes.Items) != 2 {
+		t.Fatalf("Volumes() item count = %d, want 2", len(volumes.Items))
+	}
+	if volumes.Items[0].Name != "demo_data" || volumes.Items[0].Source != VolumeSourceStackManaged {
+		t.Fatalf("unexpected managed volume item: %#v", volumes.Items[0])
+	}
+	if volumes.Items[1].Name != "external_media" || !volumes.Items[1].IsUnused || volumes.Items[1].Source != VolumeSourceExternal {
+		t.Fatalf("unexpected external volume item: %#v", volumes.Items[1])
 	}
 
 	preview, err := service.PrunePreview(context.Background(), PrunePreviewQuery{

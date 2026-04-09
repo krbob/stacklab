@@ -84,6 +84,8 @@ type gitWorkspaceReader interface {
 
 type maintenanceReader interface {
 	Images(ctx context.Context, query maintenance.ImagesQuery) (maintenance.ImagesResponse, error)
+	Networks(ctx context.Context, query maintenance.NetworksQuery) (maintenance.NetworksResponse, error)
+	Volumes(ctx context.Context, query maintenance.VolumesQuery) (maintenance.VolumesResponse, error)
 	PrunePreview(ctx context.Context, query maintenance.PrunePreviewQuery) (maintenance.PrunePreviewResponse, error)
 	RunPruneStep(ctx context.Context, action string) (string, error)
 }
@@ -148,6 +150,8 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("POST /api/git/workspace/push", h.withAuth(h.handleGitWorkspacePush))
 	h.mux.HandleFunc("POST /api/maintenance/update-stacks", h.withAuth(h.handleUpdateStacksMaintenance))
 	h.mux.HandleFunc("GET /api/maintenance/images", h.withAuth(h.handleMaintenanceImages))
+	h.mux.HandleFunc("GET /api/maintenance/networks", h.withAuth(h.handleMaintenanceNetworks))
+	h.mux.HandleFunc("GET /api/maintenance/volumes", h.withAuth(h.handleMaintenanceVolumes))
 	h.mux.HandleFunc("GET /api/maintenance/prune-preview", h.withAuth(h.handleMaintenancePrunePreview))
 	h.mux.HandleFunc("POST /api/maintenance/prune", h.withAuth(h.handleMaintenancePrune))
 	h.mux.HandleFunc("GET /api/jobs/active", h.withAuth(h.handleListActiveJobs))
@@ -871,28 +875,17 @@ func (h *Handler) handleMaintenanceImages(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	query := maintenance.ImagesQuery{
-		Search:          strings.TrimSpace(r.URL.Query().Get("q")),
-		Usage:           maintenance.ImageUsage(strings.TrimSpace(r.URL.Query().Get("usage"))),
-		Origin:          maintenance.ImageOrigin(strings.TrimSpace(r.URL.Query().Get("origin"))),
-		ManagedStackIDs: managedStackIDs,
-	}
-	if query.Usage == "" {
-		query.Usage = maintenance.ImageUsageAll
-	}
-	if query.Origin == "" {
-		query.Origin = maintenance.ImageOriginAll
-	}
-	if query.Usage != maintenance.ImageUsageAll && query.Usage != maintenance.ImageUsageUsed && query.Usage != maintenance.ImageUsageUnused {
-		writeError(w, http.StatusBadRequest, "validation_failed", "usage must be one of: all, used, unused.", nil)
-		return
-	}
-	if query.Origin != maintenance.ImageOriginAll && query.Origin != maintenance.ImageOriginStackManaged && query.Origin != maintenance.ImageOriginExternal {
-		writeError(w, http.StatusBadRequest, "validation_failed", "origin must be one of: all, stack_managed, external.", nil)
+	filters, ok := parseMaintenanceInventoryFilters(w, r)
+	if !ok {
 		return
 	}
 
-	response, err := h.maintenance.Images(r.Context(), query)
+	response, err := h.maintenance.Images(r.Context(), maintenance.ImagesQuery{
+		Search:          filters.Search,
+		Usage:           filters.Usage,
+		Origin:          filters.Origin,
+		ManagedStackIDs: managedStackIDs,
+	})
 	if err != nil {
 		if errors.Is(err, maintenance.ErrDockerUnavailable) {
 			writeError(w, http.StatusServiceUnavailable, "docker_unavailable", "Docker maintenance inventory is unavailable.", nil)
@@ -900,6 +893,70 @@ func (h *Handler) handleMaintenanceImages(w http.ResponseWriter, r *http.Request
 		}
 		h.logger.Error("maintenance images failed", slog.String("err", err.Error()))
 		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load maintenance images.", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleMaintenanceNetworks(w http.ResponseWriter, r *http.Request) {
+	managedStackIDs, err := h.listManagedStackIDs(r.Context())
+	if err != nil {
+		h.logger.Error("list managed stacks for maintenance networks failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load maintenance networks.", nil)
+		return
+	}
+
+	query, ok := parseMaintenanceInventoryFilters(w, r)
+	if !ok {
+		return
+	}
+
+	response, err := h.maintenance.Networks(r.Context(), maintenance.NetworksQuery{
+		Search:          query.Search,
+		Usage:           query.Usage,
+		Origin:          query.Origin,
+		ManagedStackIDs: managedStackIDs,
+	})
+	if err != nil {
+		if errors.Is(err, maintenance.ErrDockerUnavailable) {
+			writeError(w, http.StatusServiceUnavailable, "docker_unavailable", "Docker maintenance inventory is unavailable.", nil)
+			return
+		}
+		h.logger.Error("maintenance networks failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load maintenance networks.", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleMaintenanceVolumes(w http.ResponseWriter, r *http.Request) {
+	managedStackIDs, err := h.listManagedStackIDs(r.Context())
+	if err != nil {
+		h.logger.Error("list managed stacks for maintenance volumes failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load maintenance volumes.", nil)
+		return
+	}
+
+	query, ok := parseMaintenanceInventoryFilters(w, r)
+	if !ok {
+		return
+	}
+
+	response, err := h.maintenance.Volumes(r.Context(), maintenance.VolumesQuery{
+		Search:          query.Search,
+		Usage:           query.Usage,
+		Origin:          query.Origin,
+		ManagedStackIDs: managedStackIDs,
+	})
+	if err != nil {
+		if errors.Is(err, maintenance.ErrDockerUnavailable) {
+			writeError(w, http.StatusServiceUnavailable, "docker_unavailable", "Docker maintenance inventory is unavailable.", nil)
+			return
+		}
+		h.logger.Error("maintenance volumes failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load maintenance volumes.", nil)
 		return
 	}
 
@@ -932,6 +989,35 @@ func (h *Handler) handleMaintenancePrunePreview(w http.ResponseWriter, r *http.R
 	}
 
 	writeJSON(w, http.StatusOK, response)
+}
+
+type maintenanceInventoryFilters struct {
+	Search string
+	Usage  maintenance.ImageUsage
+	Origin maintenance.ImageOrigin
+}
+
+func parseMaintenanceInventoryFilters(w http.ResponseWriter, r *http.Request) (maintenanceInventoryFilters, bool) {
+	query := maintenanceInventoryFilters{
+		Search: strings.TrimSpace(r.URL.Query().Get("q")),
+		Usage:  maintenance.ImageUsage(strings.TrimSpace(r.URL.Query().Get("usage"))),
+		Origin: maintenance.ImageOrigin(strings.TrimSpace(r.URL.Query().Get("origin"))),
+	}
+	if query.Usage == "" {
+		query.Usage = maintenance.ImageUsageAll
+	}
+	if query.Origin == "" {
+		query.Origin = maintenance.ImageOriginAll
+	}
+	if query.Usage != maintenance.ImageUsageAll && query.Usage != maintenance.ImageUsageUsed && query.Usage != maintenance.ImageUsageUnused {
+		writeError(w, http.StatusBadRequest, "validation_failed", "usage must be one of: all, used, unused.", nil)
+		return maintenanceInventoryFilters{}, false
+	}
+	if query.Origin != maintenance.ImageOriginAll && query.Origin != maintenance.ImageOriginStackManaged && query.Origin != maintenance.ImageOriginExternal {
+		writeError(w, http.StatusBadRequest, "validation_failed", "origin must be one of: all, stack_managed, external.", nil)
+		return maintenanceInventoryFilters{}, false
+	}
+	return query, true
 }
 
 func (h *Handler) handleMaintenancePrune(w http.ResponseWriter, r *http.Request) {

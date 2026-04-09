@@ -231,6 +231,12 @@ func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
 	maintenanceImagesResponse := performJSONRequest(t, handler, http.MethodGet, "/api/maintenance/images?usage=all&origin=all", nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/maintenance/images?usage=all&origin=all", nil, cookies, maintenanceImagesResponse)
 
+	maintenanceNetworksResponse := performJSONRequest(t, handler, http.MethodGet, "/api/maintenance/networks?usage=all&origin=all", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/maintenance/networks?usage=all&origin=all", nil, cookies, maintenanceNetworksResponse)
+
+	maintenanceVolumesResponse := performJSONRequest(t, handler, http.MethodGet, "/api/maintenance/volumes?usage=all&origin=all", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/maintenance/volumes?usage=all&origin=all", nil, cookies, maintenanceVolumesResponse)
+
 	prunePreviewResponse := performJSONRequest(t, handler, http.MethodGet, "/api/maintenance/prune-preview?images=true&build_cache=true&stopped_containers=true&volumes=false", nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/maintenance/prune-preview?images=true&build_cache=true&stopped_containers=true&volumes=false", nil, cookies, prunePreviewResponse)
 

@@ -1161,6 +1161,32 @@ func TestHandlerMaintenanceInventoryAndPrune(t *testing.T) {
 		t.Fatalf("expected unused image in payload: %#v", imagesPayload.Items)
 	}
 
+	networksResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/maintenance/networks?usage=all&origin=all", nil, cookies)
+	if networksResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/maintenance/networks status = %d, want %d; body=%s", networksResponse.Code, http.StatusOK, networksResponse.Body.String())
+	}
+	var networksPayload maintenance.NetworksResponse
+	decodeInternalResponse(t, networksResponse, &networksPayload)
+	if len(networksPayload.Items) != 2 {
+		t.Fatalf("unexpected maintenance networks payload: %#v", networksPayload)
+	}
+	if networksPayload.Items[0].Name != "demo_default" && networksPayload.Items[1].Name != "demo_default" {
+		t.Fatalf("expected demo_default network in payload: %#v", networksPayload.Items)
+	}
+
+	volumesResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/maintenance/volumes?usage=all&origin=all", nil, cookies)
+	if volumesResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/maintenance/volumes status = %d, want %d; body=%s", volumesResponse.Code, http.StatusOK, volumesResponse.Body.String())
+	}
+	var volumesPayload maintenance.VolumesResponse
+	decodeInternalResponse(t, volumesResponse, &volumesPayload)
+	if len(volumesPayload.Items) != 2 {
+		t.Fatalf("unexpected maintenance volumes payload: %#v", volumesPayload)
+	}
+	if volumesPayload.Items[0].Name != "demo_data" && volumesPayload.Items[1].Name != "demo_data" {
+		t.Fatalf("expected demo_data volume in payload: %#v", volumesPayload.Items)
+	}
+
 	previewResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/maintenance/prune-preview?images=true&build_cache=true&stopped_containers=true&volumes=false", nil, cookies)
 	if previewResponse.Code != http.StatusOK {
 		t.Fatalf("GET /api/maintenance/prune-preview status = %d, want %d; body=%s", previewResponse.Code, http.StatusOK, previewResponse.Body.String())
@@ -1350,7 +1376,7 @@ if [ "$1" = "ps" ]; then
 fi
 
 if [ "$1" = "inspect" ]; then
-  echo '[{"Image":"sha256:used","Config":{"Image":"ghcr.io/example/app:latest","Labels":{"com.docker.compose.project":"demo","com.docker.compose.service":"app"}}}]'
+  echo '[{"Image":"sha256:used","Config":{"Image":"ghcr.io/example/app:latest","Labels":{"com.docker.compose.project":"demo","com.docker.compose.service":"app"}},"Mounts":[{"Name":"demo_data","Type":"volume"}],"NetworkSettings":{"Networks":{"demo_default":{},"external_shared":{}}}}]'
   exit 0
 fi
 
@@ -1389,6 +1415,28 @@ if [ "$1" = "image" ] && [ "$2" = "prune" ]; then
   shift 2
   append_log "docker image prune $*"
   echo "Deleted Images:"
+  exit 0
+fi
+
+if [ "$1" = "network" ] && [ "$2" = "ls" ]; then
+  echo '{"ID":"network-demo","Name":"demo_default","Driver":"bridge","Scope":"local"}'
+  echo '{"ID":"network-ext","Name":"external_shared","Driver":"bridge","Scope":"local"}'
+  exit 0
+fi
+
+if [ "$1" = "network" ] && [ "$2" = "inspect" ]; then
+  echo '[{"Id":"network-demo","Name":"demo_default","Driver":"bridge","Scope":"local","Internal":false,"Attachable":false,"Ingress":false,"Labels":{"com.docker.compose.project":"demo"}},{"Id":"network-ext","Name":"external_shared","Driver":"bridge","Scope":"local","Internal":false,"Attachable":false,"Ingress":false,"Labels":{}}]'
+  exit 0
+fi
+
+if [ "$1" = "volume" ] && [ "$2" = "ls" ]; then
+  echo '{"Name":"demo_data","Driver":"local"}'
+  echo '{"Name":"external_media","Driver":"local"}'
+  exit 0
+fi
+
+if [ "$1" = "volume" ] && [ "$2" = "inspect" ]; then
+  echo '[{"Name":"demo_data","Driver":"local","Mountpoint":"/var/lib/docker/volumes/demo_data/_data","Scope":"local","Labels":{"com.docker.compose.project":"demo"},"Options":{}},{"Name":"external_media","Driver":"local","Mountpoint":"/var/lib/docker/volumes/external_media/_data","Scope":"local","Labels":{},"Options":{"type":"nfs"}}]'
   exit 0
 fi
 

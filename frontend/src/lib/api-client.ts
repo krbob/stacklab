@@ -23,8 +23,10 @@ import type {
   JobRef,
   MaintenanceUpdateStacksRequest,
   MaintenanceImagesResponse,
+  MaintenanceNetworksResponse,
   MaintenancePrunePreviewResponse,
   MaintenancePruneRequest,
+  MaintenanceVolumesResponse,
   MetaResponse,
   ResolvedConfigResponse,
   SessionResponse,
@@ -350,6 +352,24 @@ export function getMaintenanceImages(params?: { q?: string; usage?: 'all' | 'use
   if (params?.origin) search.set('origin', params.origin)
   const qs = search.toString()
   return request(`/api/maintenance/images${qs ? `?${qs}` : ''}`)
+}
+
+export function getMaintenanceNetworks(params?: { q?: string; usage?: 'all' | 'used' | 'unused'; origin?: 'all' | 'stack_managed' | 'external' }): Promise<MaintenanceNetworksResponse> {
+  const search = new URLSearchParams()
+  if (params?.q) search.set('q', params.q)
+  if (params?.usage) search.set('usage', params.usage)
+  if (params?.origin) search.set('origin', params.origin)
+  const qs = search.toString()
+  return request(`/api/maintenance/networks${qs ? `?${qs}` : ''}`)
+}
+
+export function getMaintenanceVolumes(params?: { q?: string; usage?: 'all' | 'used' | 'unused'; origin?: 'all' | 'stack_managed' | 'external' }): Promise<MaintenanceVolumesResponse> {
+  const search = new URLSearchParams()
+  if (params?.q) search.set('q', params.q)
+  if (params?.usage) search.set('usage', params.usage)
+  if (params?.origin) search.set('origin', params.origin)
+  const qs = search.toString()
+  return request(`/api/maintenance/volumes${qs ? `?${qs}` : ''}`)
 }
 
 export function getMaintenancePrunePreview(params?: { images?: boolean; build_cache?: boolean; stopped_containers?: boolean; volumes?: boolean }): Promise<MaintenancePrunePreviewResponse> {

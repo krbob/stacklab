@@ -57,6 +57,110 @@ Milestone 7 should be implemented in this order:
    - read-only volumes inventory
    - selective actions only where directly useful
 
+## Read-only Network Inventory
+
+## `GET /api/maintenance/networks`
+
+Purpose:
+
+- list host Docker networks in a maintenance-oriented shape
+
+Query parameters:
+
+- `q` optional text filter
+- `usage` optional:
+  - `all`
+  - `used`
+  - `unused`
+- `origin` optional:
+  - `all`
+  - `stack_managed`
+  - `external`
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "id": "network-demo",
+      "name": "demo_default",
+      "driver": "bridge",
+      "scope": "local",
+      "internal": false,
+      "attachable": false,
+      "ingress": false,
+      "containers_using": 1,
+      "stacks_using": [
+        {
+          "stack_id": "demo",
+          "service_names": ["app"]
+        }
+      ],
+      "is_unused": false,
+      "source": "stack_managed"
+    }
+  ]
+}
+```
+
+Notes:
+
+- `source = stack_managed` means Stacklab can associate the network with at least one managed stack
+- this includes external networks when managed stack containers are attached to them
+- inventory remains read-only in this slice
+
+## Read-only Volume Inventory
+
+## `GET /api/maintenance/volumes`
+
+Purpose:
+
+- list host Docker volumes in a maintenance-oriented shape
+
+Query parameters:
+
+- `q` optional text filter
+- `usage` optional:
+  - `all`
+  - `used`
+  - `unused`
+- `origin` optional:
+  - `all`
+  - `stack_managed`
+  - `external`
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "name": "demo_data",
+      "driver": "local",
+      "mountpoint": "/var/lib/docker/volumes/demo_data/_data",
+      "scope": "local",
+      "options_count": 0,
+      "containers_using": 1,
+      "stacks_using": [
+        {
+          "stack_id": "demo",
+          "service_names": ["app"]
+        }
+      ],
+      "is_unused": false,
+      "source": "stack_managed"
+    }
+  ]
+}
+```
+
+Notes:
+
+- `source = stack_managed` means Stacklab can associate the volume with at least one managed stack
+- this includes external named volumes when managed stack containers use them
+- inventory remains read-only in this slice
+
 ## Image Inventory
 
 ## `GET /api/maintenance/images`

@@ -1021,6 +1021,98 @@ Rules:
 - `is_unused = true` means no container currently uses the image
 - inventory is read-only in this slice
 
+## `GET /api/maintenance/networks`
+
+Purpose:
+
+- list host Docker networks in a maintenance-oriented shape
+- show which ones are currently used by managed stacks, including external networks
+
+Query parameters:
+
+- `q` optional text filter
+- `usage` optional: `all`, `used`, `unused`
+- `origin` optional: `all`, `stack_managed`, `external`
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "id": "network-demo",
+      "name": "demo_default",
+      "driver": "bridge",
+      "scope": "local",
+      "internal": false,
+      "attachable": false,
+      "ingress": false,
+      "containers_using": 1,
+      "stacks_using": [
+        {
+          "stack_id": "demo",
+          "service_names": ["app"]
+        }
+      ],
+      "is_unused": false,
+      "source": "stack_managed"
+    }
+  ]
+}
+```
+
+Rules:
+
+- `source = stack_managed` means Stacklab could map the network back to at least one managed stack
+- external networks used by managed stack containers still count as `stack_managed`
+- `is_unused = true` means no container currently uses the network
+- inventory is read-only in this slice
+
+## `GET /api/maintenance/volumes`
+
+Purpose:
+
+- list host Docker volumes in a maintenance-oriented shape
+- show which ones are currently used by managed stacks, including external named volumes
+
+Query parameters:
+
+- `q` optional text filter
+- `usage` optional: `all`, `used`, `unused`
+- `origin` optional: `all`, `stack_managed`, `external`
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "name": "demo_data",
+      "driver": "local",
+      "mountpoint": "/var/lib/docker/volumes/demo_data/_data",
+      "scope": "local",
+      "options_count": 0,
+      "containers_using": 1,
+      "stacks_using": [
+        {
+          "stack_id": "demo",
+          "service_names": ["app"]
+        }
+      ],
+      "is_unused": false,
+      "source": "stack_managed"
+    }
+  ]
+}
+```
+
+Rules:
+
+- `source = stack_managed` means Stacklab could map the volume back to at least one managed stack
+- external named volumes used by managed stack containers still count as `stack_managed`
+- `is_unused = true` means no container currently uses the volume
+- inventory is read-only in this slice
+
 ## `GET /api/maintenance/prune-preview`
 
 Purpose:

@@ -695,6 +695,44 @@ export interface MaintenanceImagesResponse {
   items: MaintenanceImageItem[]
 }
 
+export type MaintenanceNetworkSource = 'stack_managed' | 'external'
+
+export interface MaintenanceNetworkItem {
+  id: string
+  name: string
+  driver: string
+  scope: string
+  internal: boolean
+  attachable: boolean
+  ingress: boolean
+  containers_using: number
+  stacks_using: MaintenanceImageStackUsage[]
+  is_unused: boolean
+  source: MaintenanceNetworkSource
+}
+
+export interface MaintenanceNetworksResponse {
+  items: MaintenanceNetworkItem[]
+}
+
+export type MaintenanceVolumeSource = 'stack_managed' | 'external'
+
+export interface MaintenanceVolumeItem {
+  name: string
+  driver: string
+  mountpoint: string
+  scope: string
+  options_count: number
+  containers_using: number
+  stacks_using: MaintenanceImageStackUsage[]
+  is_unused: boolean
+  source: MaintenanceVolumeSource
+}
+
+export interface MaintenanceVolumesResponse {
+  items: MaintenanceVolumeItem[]
+}
+
 export interface MaintenancePrunePreviewItem {
   reference: string
   size_bytes: number

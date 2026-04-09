@@ -466,6 +466,84 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /maintenance/networks:
+    get:
+      tags: [Maintenance]
+      operationId: getMaintenanceNetworks
+      parameters:
+        - in: query
+          name: q
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: usage
+          required: false
+          schema:
+            type: string
+            enum: [all, used, unused]
+        - in: query
+          name: origin
+          required: false
+          schema:
+            type: string
+            enum: [all, stack_managed, external]
+      responses:
+        '200':
+          description: Maintenance network inventory.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceNetworksResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '503':
+          description: Docker maintenance inventory is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /maintenance/volumes:
+    get:
+      tags: [Maintenance]
+      operationId: getMaintenanceVolumes
+      parameters:
+        - in: query
+          name: q
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: usage
+          required: false
+          schema:
+            type: string
+            enum: [all, used, unused]
+        - in: query
+          name: origin
+          required: false
+          schema:
+            type: string
+            enum: [all, stack_managed, external]
+      responses:
+        '200':
+          description: Maintenance volume inventory.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceVolumesResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '503':
+          description: Docker maintenance inventory is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /maintenance/prune-preview:
     get:
       tags: [Maintenance]
@@ -2303,6 +2381,76 @@ components:
           items:
             type: string
       required: [stack_id, service_names]
+    MaintenanceNetworksResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MaintenanceNetworkItem'
+      required: [items]
+    MaintenanceNetworkItem:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        driver:
+          type: string
+        scope:
+          type: string
+        internal:
+          type: boolean
+        attachable:
+          type: boolean
+        ingress:
+          type: boolean
+        containers_using:
+          type: integer
+        stacks_using:
+          type: array
+          items:
+            $ref: '#/components/schemas/MaintenanceImageStackUsage'
+        is_unused:
+          type: boolean
+        source:
+          type: string
+          enum: [stack_managed, external]
+      required: [id, name, driver, scope, internal, attachable, ingress, containers_using, stacks_using, is_unused, source]
+    MaintenanceVolumesResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MaintenanceVolumeItem'
+      required: [items]
+    MaintenanceVolumeItem:
+      type: object
+      properties:
+        name:
+          type: string
+        driver:
+          type: string
+        mountpoint:
+          type: string
+        scope:
+          type: string
+        options_count:
+          type: integer
+        containers_using:
+          type: integer
+        stacks_using:
+          type: array
+          items:
+            $ref: '#/components/schemas/MaintenanceImageStackUsage'
+        is_unused:
+          type: boolean
+        source:
+          type: string
+          enum: [stack_managed, external]
+      required: [name, driver, mountpoint, scope, options_count, containers_using, stacks_using, is_unused, source]
     MaintenancePrunePreviewResponse:
       type: object
       properties:
