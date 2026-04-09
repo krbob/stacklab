@@ -90,6 +90,7 @@ When package upgrades are stable:
 
 - publish package metadata
 - sign repository metadata
+- publish the public signing key
 - document `apt` installation
 - allow normal `apt upgrade`
 

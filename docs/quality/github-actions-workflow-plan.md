@@ -35,6 +35,7 @@ Recommended future workflow files:
 - `.github/workflows/stable-release.yml`
 - `.github/workflows/hotfix-release.yml`
 - `.github/workflows/apt-publish.yml`
+- `.github/workflows/apt-repo-smoke.yml`
 - `.github/workflows/pre-release-smoke.yml`
 
 Currently implemented:
@@ -49,6 +50,7 @@ Currently implemented:
 - `.github/workflows/stable-release.yml`
 - `.github/workflows/hotfix-release.yml`
 - `.github/workflows/apt-publish.yml`
+- `.github/workflows/apt-repo-smoke.yml`
 
 Current `release-build.yml` scope:
 
@@ -63,6 +65,7 @@ Current release automation direction:
 - `stable-release.yml` is the target monthly stable workflow
 - `hotfix-release.yml` is the target manual patch-release workflow
 - `apt-publish.yml` is the manual repair and republish path for APT channels
+- `apt-repo-smoke.yml` is the manual end-to-end validation path for the published APT repository
 
 The advisory workflows should run, but they should not become required too early.
 

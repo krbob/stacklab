@@ -1,0 +1,35 @@
+name: APT Repo Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: APT channel to test
+        required: true
+        default: stable
+        type: choice
+        options:
+          - stable
+          - nightly
+      repo_url:
+        description: Override repo URL
+        required: false
+        default: https://krbob.github.io/stacklab/apt
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  apt-repo-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Smoke install from published APT repo
+        run: |
+          scripts/release/smoke-apt-repo-install.sh \
+            --channel "${{ inputs.channel }}" \
+            --repo-url "${{ inputs.repo_url }}" \
+            --arch amd64

@@ -27,13 +27,13 @@ Implemented today:
 - audit history
 - backend and frontend automated tests
 - manual-on-demand Linux `amd64` and `arm64` release artifact build
+- `.deb` build and published APT channels
 - staging deployment trials on Linux `arm64`, Ubuntu `amd64`, and Debian `amd64`
 
 Not done yet:
 
-- release publication and host upgrade automation
+- package migration from an existing `/opt/stacklab` tarball install
 - scheduled dependency maintenance workflows
-- packaged distribution (`.deb`) and APT repository
 - final hardening for long-term production use
 
 ## Architecture
@@ -96,6 +96,36 @@ Then open:
 
 - `http://127.0.0.1:8080`
 
+### Install from APT
+
+Debian-family hosts can install Stacklab from the published APT repository.
+
+Install the repository key:
+
+```bash
+sudo mkdir -p /usr/share/keyrings
+curl -fsSL https://krbob.github.io/stacklab/apt/stacklab-archive-keyring.gpg \
+  | sudo tee /usr/share/keyrings/stacklab-archive-keyring.gpg >/dev/null
+```
+
+Add the stable channel:
+
+```bash
+echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/stacklab-archive-keyring.gpg] https://krbob.github.io/stacklab/apt stable main' \
+  | sudo tee /etc/apt/sources.list.d/stacklab.list
+```
+
+Install:
+
+```bash
+sudo apt-get update
+sudo apt-get install stacklab
+```
+
+For the nightly channel and additional notes, see:
+
+- [`docs/ops/install-from-apt.md`](docs/ops/install-from-apt.md)
+
 ## Tests
 
 Backend:
@@ -128,6 +158,7 @@ Good entry points:
 - [`docs/ops/systemd.md`](docs/ops/systemd.md)
 - [`docs/ops/release-plan.md`](docs/ops/release-plan.md)
 - [`docs/ops/debian-package-plan.md`](docs/ops/debian-package-plan.md)
+- [`docs/ops/install-from-apt.md`](docs/ops/install-from-apt.md)
 
 ## Current Constraints
 

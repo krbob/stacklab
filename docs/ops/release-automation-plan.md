@@ -295,13 +295,18 @@ APT publication requires these repository secrets:
 - `APT_GPG_PASSPHRASE`
   - optional passphrase for that key
 - `APT_GPG_KEY_ID`
-  - optional explicit key id used for signing
+  - optional explicit key id or fingerprint used for signing
 
 Nightly and stable workflows use the built-in `GITHUB_TOKEN` for:
 
 - creating tags
 - creating GitHub Releases
 - pushing APT repository updates to `gh-pages`
+
+The published APT repository should expose the public signing key at:
+
+- `https://krbob.github.io/stacklab/apt/stacklab-archive-keyring.gpg`
+- `https://krbob.github.io/stacklab/apt/stacklab-archive-keyring.asc`
 
 ## Workflow Set
 
@@ -312,6 +317,7 @@ Target workflow set:
 - `stable-release.yml`
 - `hotfix-release.yml`
 - `apt-publish.yml`
+- `apt-repo-smoke.yml`
 
 ### `release-build.yml`
 
@@ -396,6 +402,16 @@ Recommended behavior:
 Practical role:
 
 - manual repair or re-publication path if APT channel state needs to be rebuilt from an existing release tag
+
+### `apt-repo-smoke.yml`
+
+Purpose:
+
+- manually validate that the published GitHub Pages APT repository can install `stacklab` through normal `apt`
+
+Practical role:
+
+- end-to-end verification of the public key, repository metadata, and package installation path after publication
 
 ## Scheduling Notes
 

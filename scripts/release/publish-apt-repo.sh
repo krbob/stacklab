@@ -134,13 +134,25 @@ chmod 700 "${gpg_home}"
 
 printf '%s' "${APT_GPG_PRIVATE_KEY_BASE64}" | base64 --decode | gpg --batch --homedir "${gpg_home}" --import
 
-gpg_args=(--batch --yes --homedir "${gpg_home}" --pinentry-mode loopback)
+selected_key="${APT_GPG_KEY_ID:-}"
+if [[ -z "${selected_key}" ]]; then
+  selected_key="$(
+    gpg --batch --homedir "${gpg_home}" --list-secret-keys --with-colons \
+      | awk -F: '/^fpr:/ { print $10; exit }'
+  )"
+fi
+[[ -n "${selected_key}" ]] || {
+  echo "could not determine signing key id" >&2
+  exit 1
+}
+
+gpg_args=(--batch --yes --homedir "${gpg_home}" --pinentry-mode loopback --default-key "${selected_key}")
 if [[ -n "${APT_GPG_PASSPHRASE:-}" ]]; then
   gpg_args+=(--passphrase "${APT_GPG_PASSPHRASE}")
 fi
-if [[ -n "${APT_GPG_KEY_ID:-}" ]]; then
-  gpg_args+=(--default-key "${APT_GPG_KEY_ID}")
-fi
+
+gpg --batch --yes --homedir "${gpg_home}" --armor --export "${selected_key}" > "${repo_root}/stacklab-archive-keyring.asc"
+gpg --batch --yes --homedir "${gpg_home}" --export "${selected_key}" > "${repo_root}/stacklab-archive-keyring.gpg"
 
 gpg "${gpg_args[@]}" --armor --detach-sign --output "${dist_dir}/Release.gpg" "${dist_dir}/Release"
 gpg "${gpg_args[@]}" --clearsign --output "${dist_dir}/InRelease" "${dist_dir}/Release"
