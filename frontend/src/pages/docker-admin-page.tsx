@@ -214,13 +214,22 @@ function ManagedSettingsForm({ currentSummary, writeCapability }: {
     setValidateError(null)
     setValidateResult(null)
     try {
+      const dnsList = parseCommaSeparatedList(dns)
+      const mirrorsList = parseCommaSeparatedList(mirrors)
+      const insecureList = parseCommaSeparatedList(insecure)
+      const removeKeys: string[] = []
+      if (dnsList.length === 0) removeKeys.push('dns')
+      if (mirrorsList.length === 0) removeKeys.push('registry_mirrors')
+      if (insecureList.length === 0) removeKeys.push('insecure_registries')
+
       const result = await validateDockerDaemonConfig({
         settings: {
-          dns: dns.split(',').map((s) => s.trim()).filter(Boolean),
-          registry_mirrors: mirrors.split(',').map((s) => s.trim()).filter(Boolean),
-          insecure_registries: insecure.split(',').map((s) => s.trim()).filter(Boolean),
+          dns: dnsList,
+          registry_mirrors: mirrorsList,
+          insecure_registries: insecureList,
           live_restore: liveRestore,
         },
+        remove_keys: removeKeys,
       })
       setValidateResult(result)
     } catch (err) {
@@ -342,4 +351,11 @@ function ManagedSettingsForm({ currentSummary, writeCapability }: {
       )}
     </div>
   )
+}
+
+function parseCommaSeparatedList(value: string): string[] {
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
 }

@@ -1,9 +1,10 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DockerAdminPage } from './docker-admin-page'
 import type { DockerAdminOverviewResponse, DockerDaemonConfigResponse } from '@/lib/api-types'
 
 const mockUseApi = vi.fn()
+const mockValidateDockerDaemonConfig = vi.fn()
 
 vi.mock('@/hooks/use-api', () => ({
   useApi: (...args: unknown[]) => mockUseApi(...args),
@@ -12,6 +13,7 @@ vi.mock('@/hooks/use-api', () => ({
 vi.mock('@/lib/api-client', () => ({
   getDockerAdminOverview: vi.fn(),
   getDockerDaemonConfig: vi.fn(),
+  validateDockerDaemonConfig: (...args: unknown[]) => mockValidateDockerDaemonConfig(...args),
 }))
 
 const overview: DockerAdminOverviewResponse = {
@@ -133,6 +135,7 @@ const noDaemonOverview: DockerAdminOverviewResponse = {
 describe('DockerAdminPage', () => {
   beforeEach(() => {
     mockUseApi.mockReset()
+    mockValidateDockerDaemonConfig.mockReset()
   })
 
   function mockOverviewAndConfig(ov: DockerAdminOverviewResponse, cfg: DockerDaemonConfigResponse) {
@@ -207,5 +210,101 @@ describe('DockerAdminPage', () => {
     render(<DockerAdminPage />)
 
     expect(screen.getByText(/Connection refused/)).toBeInTheDocument()
+  })
+
+  it('validates managed settings and shows preview', async () => {
+    mockOverviewAndConfig(overview, daemonConfig)
+    mockValidateDockerDaemonConfig.mockResolvedValue({
+      write_capability: overview.write_capability,
+      changed_keys: ['dns'],
+      requires_restart: true,
+      warnings: ['Applying Docker daemon settings requires a Docker restart.'],
+      preview: {
+        path: '/etc/docker/daemon.json',
+        content: '{\n  "dns": ["1.1.1.1"]\n}\n',
+        configured_keys: ['dns'],
+        summary: {
+          dns: ['1.1.1.1'],
+          registry_mirrors: [],
+          insecure_registries: [],
+          log_driver: 'json-file',
+          data_root: '',
+          live_restore: true,
+        },
+      },
+    })
+
+    render(<DockerAdminPage />)
+
+    fireEvent.change(screen.getByLabelText(/DNS servers/i), { target: { value: '1.1.1.1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Validate' }))
+
+    await waitFor(() => {
+      expect(mockValidateDockerDaemonConfig).toHaveBeenCalledWith({
+        settings: {
+          dns: ['1.1.1.1'],
+          registry_mirrors: ['https://mirror.local'],
+          insecure_registries: [],
+          live_restore: true,
+        },
+        remove_keys: ['insecure_registries'],
+      })
+    })
+
+    expect(screen.getByText(/Validation passed with warnings/)).toBeInTheDocument()
+    expect(screen.getByText(/Requires Docker restart/)).toBeInTheDocument()
+    expect(screen.getByText(/"dns": \["1.1.1.1"\]/)).toBeInTheDocument()
+  })
+
+  it('sends remove_keys when list fields are cleared', async () => {
+    mockOverviewAndConfig(overview, daemonConfig)
+    mockValidateDockerDaemonConfig.mockResolvedValue({
+      write_capability: overview.write_capability,
+      changed_keys: ['dns', 'registry_mirrors', 'insecure_registries'],
+      requires_restart: true,
+      warnings: [],
+      preview: {
+        path: '/etc/docker/daemon.json',
+        content: '{}\n',
+        configured_keys: [],
+        summary: {
+          dns: [],
+          registry_mirrors: [],
+          insecure_registries: [],
+          log_driver: '',
+          data_root: '',
+          live_restore: false,
+        },
+      },
+    })
+
+    render(<DockerAdminPage />)
+
+    fireEvent.change(screen.getByLabelText(/DNS servers/i), { target: { value: '' } })
+    fireEvent.change(screen.getByLabelText(/Registry mirrors/i), { target: { value: '' } })
+    fireEvent.change(screen.getByLabelText(/Insecure registries/i), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Validate' }))
+
+    await waitFor(() => {
+      expect(mockValidateDockerDaemonConfig).toHaveBeenCalledWith({
+        settings: {
+          dns: [],
+          registry_mirrors: [],
+          insecure_registries: [],
+          live_restore: true,
+        },
+        remove_keys: ['dns', 'registry_mirrors', 'insecure_registries'],
+      })
+    })
+  })
+
+  it('shows inline validation error', async () => {
+    mockOverviewAndConfig(overview, daemonConfig)
+    mockValidateDockerDaemonConfig.mockRejectedValue(new Error('Docker daemon config contains invalid JSON and cannot be managed safely.'))
+
+    render(<DockerAdminPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Validate' }))
+
+    expect(await screen.findByText(/cannot be managed safely/i)).toBeInTheDocument()
   })
 })
