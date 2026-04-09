@@ -14,6 +14,11 @@ vi.mock('@/lib/api-client', () => ({
   getDockerAdminOverview: vi.fn(),
   getDockerDaemonConfig: vi.fn(),
   validateDockerDaemonConfig: (...args: unknown[]) => mockValidateDockerDaemonConfig(...args),
+  applyDockerDaemonConfig: vi.fn(),
+}))
+
+vi.mock('@/hooks/use-job-stream', () => ({
+  useJobStream: () => ({ events: [], state: null, clear: vi.fn() }),
 }))
 
 const overview: DockerAdminOverviewResponse = {

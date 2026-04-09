@@ -1,12 +1,19 @@
-import { useCallback, useState } from 'react'
-import { getDockerAdminOverview, getDockerDaemonConfig, validateDockerDaemonConfig } from '@/lib/api-client'
+import { useCallback, useEffect, useState } from 'react'
+import { getDockerAdminOverview, getDockerDaemonConfig, validateDockerDaemonConfig, applyDockerDaemonConfig } from '@/lib/api-client'
 import { useApi } from '@/hooks/use-api'
+import { useJobStream } from '@/hooks/use-job-stream'
+import { StepCards } from '@/components/step-cards'
 import type { DockerAdminOverviewResponse, DockerDaemonConfigResponse, DockerDaemonValidateResponse } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
 
 export function DockerAdminPage() {
-  const { data: overview, error: overviewError, loading: overviewLoading } = useApi(() => getDockerAdminOverview(), [])
-  const { data: daemonConfig, error: configError, loading: configLoading } = useApi(() => getDockerDaemonConfig(), [])
+  const { data: overview, error: overviewError, loading: overviewLoading, refetch: refetchOverview } = useApi(() => getDockerAdminOverview(), [])
+  const { data: daemonConfig, error: configError, loading: configLoading, refetch: refetchConfig } = useApi(() => getDockerDaemonConfig(), [])
+
+  const handleApplyDone = useCallback(() => {
+    refetchOverview()
+    refetchConfig()
+  }, [refetchOverview, refetchConfig])
 
   return (
     <div className="flex flex-col gap-4">
@@ -45,6 +52,7 @@ export function DockerAdminPage() {
           <ManagedSettingsForm
             currentSummary={overview.daemon_config.summary}
             writeCapability={overview.daemon_config.write_capability ?? overview.write_capability}
+            onApplyDone={handleApplyDone}
           />
         </section>
       )}
@@ -196,9 +204,10 @@ function DaemonConfigViewer({ config }: { config: DockerDaemonConfigResponse }) 
   )
 }
 
-function ManagedSettingsForm({ currentSummary, writeCapability }: {
+function ManagedSettingsForm({ currentSummary, writeCapability, onApplyDone }: {
   currentSummary: DockerAdminOverviewResponse['daemon_config']['summary']
   writeCapability: { supported: boolean; reason?: string | null; managed_keys: string[] }
+  onApplyDone: () => void
 }) {
   const [dns, setDns] = useState(currentSummary.dns.join(', '))
   const [mirrors, setMirrors] = useState(currentSummary.registry_mirrors.join(', '))
@@ -208,6 +217,20 @@ function ManagedSettingsForm({ currentSummary, writeCapability }: {
   const [validating, setValidating] = useState(false)
   const [validateResult, setValidateResult] = useState<DockerDaemonValidateResponse | null>(null)
   const [validateError, setValidateError] = useState<string | null>(null)
+
+  const [applyJobId, setApplyJobId] = useState<string | null>(null)
+  const [applying, setApplying] = useState(false)
+  const [applyError, setApplyError] = useState<string | null>(null)
+
+  const { events: applyEvents, state: applyJobState } = useJobStream({ jobId: applyJobId })
+  const applyTerminal = applyJobState === 'succeeded' || applyJobState === 'failed' || applyJobState === 'cancelled' || applyJobState === 'timed_out'
+
+  // Auto-refresh on apply completion
+  useEffect(() => {
+    if (applyTerminal && applyJobId) {
+      onApplyDone()
+    }
+  }, [applyTerminal, applyJobId, onApplyDone])
 
   const handleValidate = useCallback(async () => {
     setValidating(true)
@@ -238,6 +261,39 @@ function ManagedSettingsForm({ currentSummary, writeCapability }: {
       setValidating(false)
     }
   }, [dns, mirrors, insecure, liveRestore])
+
+  const handleApply = useCallback(async () => {
+    setApplying(true)
+    setApplyError(null)
+    setApplyJobId(null)
+    try {
+      const dnsList = parseCommaSeparatedList(dns)
+      const mirrorsList = parseCommaSeparatedList(mirrors)
+      const insecureList = parseCommaSeparatedList(insecure)
+      const removeKeys: string[] = []
+      if (dnsList.length === 0) removeKeys.push('dns')
+      if (mirrorsList.length === 0) removeKeys.push('registry_mirrors')
+      if (insecureList.length === 0) removeKeys.push('insecure_registries')
+
+      const result = await applyDockerDaemonConfig({
+        settings: {
+          dns: dnsList,
+          registry_mirrors: mirrorsList,
+          insecure_registries: insecureList,
+          live_restore: liveRestore,
+        },
+        remove_keys: removeKeys,
+      })
+      setApplyJobId(result.job.id)
+      setValidateResult(null) // Clear preview since we're applying
+    } catch (err) {
+      setApplyError(err instanceof Error ? err.message : 'Apply failed')
+    } finally {
+      setApplying(false)
+    }
+  }, [dns, mirrors, insecure, liveRestore])
+
+  const canApply = writeCapability.supported && validateResult && validateResult.warnings.length === 0 && !applying && !applyJobId
 
   return (
     <div>
@@ -301,11 +357,17 @@ function ManagedSettingsForm({ currentSummary, writeCapability }: {
           </button>
 
           <button
-            disabled
-            title={writeCapability.supported ? 'Apply changes' : 'Apply is not available yet'}
-            className="rounded-md border border-[var(--panel-border)] px-4 py-2 text-xs text-[var(--muted)] opacity-40"
+            onClick={handleApply}
+            disabled={!canApply}
+            title={!writeCapability.supported ? 'Apply is not available yet' : !validateResult ? 'Validate first' : 'Apply changes and restart Docker'}
+            className={cn(
+              'rounded-md border px-4 py-2 text-xs transition',
+              canApply
+                ? 'border-red-400/30 bg-red-400/10 text-red-400 hover:bg-red-400/20'
+                : 'border-[var(--panel-border)] text-[var(--muted)] opacity-40',
+            )}
           >
-            Apply
+            {applying ? 'Applying...' : 'Apply & Restart'}
           </button>
         </div>
       </div>
@@ -347,6 +409,51 @@ function ManagedSettingsForm({ currentSummary, writeCapability }: {
               <pre className="whitespace-pre-wrap">{validateResult.preview.content}</pre>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Apply error */}
+      {applyError && (
+        <div className="mt-3 rounded-md border border-red-400/20 bg-red-400/5 px-4 py-2 text-xs text-red-400">
+          {applyError}
+        </div>
+      )}
+
+      {/* Apply progress */}
+      {applyJobId && (
+        <div className="mt-4 space-y-3">
+          <h4 className="text-sm font-medium text-[var(--text)]">Apply progress</h4>
+
+          <div className="flex items-center gap-2 text-xs">
+            {!applyTerminal && <span className="inline-block size-2 animate-pulse rounded-full bg-sky-400" />}
+            <span className={cn(
+              'font-medium',
+              applyJobState === 'running' ? 'text-sky-400' :
+              applyJobState === 'succeeded' ? 'text-emerald-400' :
+              applyJobState === 'failed' ? 'text-red-400' :
+              'text-[var(--muted)]',
+            )}>
+              {applyJobState === 'running' ? 'Applying...' :
+               applyJobState === 'succeeded' ? 'Applied successfully' :
+               applyJobState === 'failed' ? 'Apply failed' :
+               applyJobState ?? 'Starting'}
+            </span>
+          </div>
+
+          <StepCards events={applyEvents} />
+
+          {/* Result card */}
+          {applyJobState === 'succeeded' && (
+            <div className="rounded-md border border-emerald-400/20 bg-emerald-400/5 px-4 py-3 text-xs text-emerald-400">
+              Docker configuration applied and Docker restarted successfully.
+            </div>
+          )}
+          {applyJobState === 'failed' && (
+            <div className="rounded-md border border-amber-400/20 bg-amber-400/5 px-4 py-3 text-xs text-amber-400">
+              Apply failed. If a rollback was performed, the previous configuration has been restored.
+              Check the step details above for the rollback status and backup path.
+            </div>
+          )}
         </div>
       )}
     </div>
