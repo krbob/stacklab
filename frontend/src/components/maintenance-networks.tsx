@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { getMaintenanceNetworks } from '@/lib/api-client'
 import { useApi } from '@/hooks/use-api'
 import type { MaintenanceNetworkItem } from '@/lib/api-types'
@@ -70,7 +71,15 @@ function NetworkRow({ network }: { network: MaintenanceNetworkItem }) {
         <span>driver: {network.driver}</span>
         <span>scope: {network.scope}</span>
         <span>{network.containers_using} container{network.containers_using !== 1 ? 's' : ''}</span>
-        {network.stacks_using.length > 0 && <span className="text-[var(--accent)]">{network.stacks_using.map((s) => s.stack_id).join(', ')}</span>}
+        {network.stacks_using.length > 0 && (
+          <span className="flex flex-wrap gap-2">
+            {network.stacks_using.map((s) => (
+              <Link key={s.stack_id} to={`/stacks/${s.stack_id}`} className="text-[var(--accent)] hover:underline">
+                {s.stack_id}
+              </Link>
+            ))}
+          </span>
+        )}
         <span className="text-zinc-600">{network.id.slice(0, 12)}</span>
       </div>
     </div>

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { getMaintenanceImages } from '@/lib/api-client'
 import { useApi } from '@/hooks/use-api'
 import type { MaintenanceImageItem, MaintenanceImageUsage, MaintenanceImageOrigin } from '@/lib/api-types'
@@ -110,7 +111,13 @@ function ImageRow({ image }: { image: MaintenanceImageItem }) {
           <span>{image.source.replace('_', ' ')}</span>
           <span>{image.containers_using} container{image.containers_using !== 1 ? 's' : ''}</span>
           {image.stacks_using.length > 0 && (
-            <span className="text-[var(--accent)]">{image.stacks_using.map((s) => s.stack_id).join(', ')}</span>
+            <span className="flex flex-wrap gap-2">
+              {image.stacks_using.map((s) => (
+                <Link key={s.stack_id} to={`/stacks/${s.stack_id}`} className="text-[var(--accent)] hover:underline">
+                  {s.stack_id}
+                </Link>
+              ))}
+            </span>
           )}
           <span className="font-mono text-zinc-600">{image.id.slice(0, 12)}</span>
         </div>
