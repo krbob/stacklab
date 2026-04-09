@@ -35,6 +35,10 @@ import type {
   MaintenancePruneRequest,
   MaintenanceVolumesResponse,
   MetaResponse,
+  NotificationSettingsResponse,
+  NotificationSettingsUpdateRequest,
+  NotificationTestRequest,
+  NotificationTestResponse,
   ResolvedConfigResponse,
   SessionResponse,
   StackDetailResponse,
@@ -110,6 +114,24 @@ export function getSession(): Promise<SessionResponse> {
 
 export function getMeta(): Promise<MetaResponse> {
   return request('/api/meta')
+}
+
+export function getNotificationSettings(): Promise<NotificationSettingsResponse> {
+  return request('/api/settings/notifications')
+}
+
+export function updateNotificationSettings(requestBody: NotificationSettingsUpdateRequest): Promise<NotificationSettingsResponse> {
+  return request('/api/settings/notifications', {
+    method: 'PUT',
+    body: JSON.stringify(requestBody),
+  })
+}
+
+export function sendNotificationTest(requestBody: NotificationTestRequest): Promise<NotificationTestResponse> {
+  return request('/api/settings/notifications/test', {
+    method: 'POST',
+    body: JSON.stringify(requestBody),
+  })
 }
 
 export function getHostOverview(): Promise<HostOverviewResponse> {

@@ -1865,6 +1865,122 @@ Response:
 }
 ```
 
+## `GET /api/settings/notifications`
+
+Purpose:
+
+- fetch current outgoing webhook notification settings
+- power the notifications section in `Settings`
+
+Response:
+
+```json
+{
+  "enabled": false,
+  "configured": false,
+  "webhook_url": "",
+  "events": {
+    "job_failed": true,
+    "job_succeeded_with_warnings": true,
+    "maintenance_succeeded": false
+  }
+}
+```
+
+Notes:
+
+- v1 supports a single outgoing webhook only
+- default policy is:
+  - notify on failed jobs
+  - notify on successful jobs with warnings
+  - do not notify on successful maintenance by default
+
+## `PUT /api/settings/notifications`
+
+Purpose:
+
+- persist outgoing webhook notification settings in SQLite
+
+Request:
+
+```json
+{
+  "enabled": true,
+  "webhook_url": "https://hooks.example.test/stacklab",
+  "events": {
+    "job_failed": true,
+    "job_succeeded_with_warnings": true,
+    "maintenance_succeeded": true
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "enabled": true,
+  "configured": true,
+  "webhook_url": "https://hooks.example.test/stacklab",
+  "events": {
+    "job_failed": true,
+    "job_succeeded_with_warnings": true,
+    "maintenance_succeeded": true
+  }
+}
+```
+
+Validation:
+
+- `webhook_url` must be an absolute `http` or `https` URL when provided
+- `enabled = true` requires a non-empty `webhook_url`
+
+## `POST /api/settings/notifications/test`
+
+Purpose:
+
+- deliver a test webhook using the current form payload
+- let the operator validate URL and receiver formatting before enabling notifications
+
+Request:
+
+```json
+{
+  "enabled": false,
+  "webhook_url": "https://hooks.example.test/stacklab",
+  "events": {
+    "job_failed": true,
+    "job_succeeded_with_warnings": true,
+    "maintenance_succeeded": false
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "sent": true
+}
+```
+
+Error behavior:
+
+- invalid URL or malformed payload -> `400 validation_failed`
+- upstream delivery failure -> `502 delivery_failed`
+- test send does not persist settings
+
+Webhook payload:
+
+```json
+{
+  "event": "test_notification",
+  "sent_at": "2026-04-09T19:00:00Z",
+  "source": "stacklab",
+  "summary": "Stacklab test notification"
+}
+```
+
 ## `GET /api/jobs/{jobId}`
 
 Purpose:

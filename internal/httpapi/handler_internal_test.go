@@ -25,6 +25,7 @@ import (
 	"stacklab/internal/hostinfo"
 	"stacklab/internal/jobs"
 	"stacklab/internal/maintenance"
+	"stacklab/internal/notifications"
 	"stacklab/internal/stacks"
 	"stacklab/internal/stackworkspace"
 	"stacklab/internal/store"
@@ -1438,6 +1439,8 @@ func newInternalTestHandler(t *testing.T) (*Handler, http.Handler, config.Config
 	auditService := audit.NewService(testStore)
 	jobService := jobs.NewService(testStore)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	notificationService := notifications.NewService(testStore, logger)
+	jobService.SetTerminalHook(notificationService.DispatchJobAsync)
 
 	handler := &Handler{
 		cfg:    cfg,
@@ -1451,12 +1454,13 @@ func newInternalTestHandler(t *testing.T) (*Handler, http.Handler, config.Config
 			IdleTimeout:         30 * time.Minute,
 			DetachGracePeriod:   time.Minute,
 		}, func(event terminal.LifecycleEvent) {}),
-		stackReader: stacks.NewServiceReader(cfg, logger),
-		hostInfo:    hostinfo.NewService(cfg, time.Unix(1_712_598_000, 0).UTC()),
-		dockerAdmin: dockeradmin.NewService(cfg),
-		configFiles: configworkspace.NewService(cfg),
-		gitStatus:   gitworkspace.NewService(cfg),
-		maintenance: maintenance.NewService(),
+		stackReader:   stacks.NewServiceReader(cfg, logger),
+		hostInfo:      hostinfo.NewService(cfg, time.Unix(1_712_598_000, 0).UTC()),
+		dockerAdmin:   dockeradmin.NewService(cfg),
+		configFiles:   configworkspace.NewService(cfg),
+		gitStatus:     gitworkspace.NewService(cfg),
+		maintenance:   maintenance.NewService(),
+		notifications: notificationService,
 	}
 	handler.registerRoutes()
 

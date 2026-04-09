@@ -5,6 +5,7 @@ This section contains REST and WebSocket contracts shared with the UI developer.
 Current focused additions:
 
 - `host-observability.md`
+- `notifications.md`
 - `docker-admin.md`
 - `global-activity.md`
 - `job-detail.md`

@@ -22,6 +22,7 @@ import (
 	"stacklab/internal/config"
 	"stacklab/internal/httpapi"
 	"stacklab/internal/jobs"
+	"stacklab/internal/notifications"
 	"stacklab/internal/store"
 )
 
@@ -81,6 +82,70 @@ func TestHandlerLoginSessionAndPasswordUpdate(t *testing.T) {
 	}, nil)
 	if newLoginResponse.Code != http.StatusOK {
 		t.Fatalf("POST /api/auth/login(new password) status = %d, want %d", newLoginResponse.Code, http.StatusOK)
+	}
+}
+
+func TestHandlerNotificationSettingsAndTestWebhook(t *testing.T) {
+	t.Parallel()
+
+	var received struct {
+		Event string `json:"event"`
+	}
+	webhook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("webhook method = %s, want POST", r.Method)
+		}
+		if got := r.Header.Get("X-Stacklab-Event"); got != "test_notification" {
+			t.Fatalf("X-Stacklab-Event = %q, want %q", got, "test_notification")
+		}
+		if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
+			t.Fatalf("Decode(webhook payload) error = %v", err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer webhook.Close()
+
+	handler, _ := newTestHandler(t)
+	cookies := loginTestUser(t, handler, "secret")
+
+	getResponse := performJSONRequest(t, handler, http.MethodGet, "/api/settings/notifications", nil, cookies)
+	if getResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/settings/notifications status = %d, want %d; body=%s", getResponse.Code, http.StatusOK, getResponse.Body.String())
+	}
+	var initial struct {
+		Enabled    bool `json:"enabled"`
+		Configured bool `json:"configured"`
+		Events     struct {
+			JobFailed                bool `json:"job_failed"`
+			JobSucceededWithWarnings bool `json:"job_succeeded_with_warnings"`
+			MaintenanceSucceeded     bool `json:"maintenance_succeeded"`
+		} `json:"events"`
+	}
+	decodeResponse(t, getResponse, &initial)
+	if initial.Enabled || initial.Configured || !initial.Events.JobFailed || !initial.Events.JobSucceededWithWarnings || initial.Events.MaintenanceSucceeded {
+		t.Fatalf("unexpected initial notification settings: %#v", initial)
+	}
+
+	updateBody := map[string]any{
+		"enabled":     true,
+		"webhook_url": webhook.URL,
+		"events": map[string]any{
+			"job_failed":                  true,
+			"job_succeeded_with_warnings": true,
+			"maintenance_succeeded":       true,
+		},
+	}
+	updateResponse := performJSONRequest(t, handler, http.MethodPut, "/api/settings/notifications", updateBody, cookies)
+	if updateResponse.Code != http.StatusOK {
+		t.Fatalf("PUT /api/settings/notifications status = %d, want %d; body=%s", updateResponse.Code, http.StatusOK, updateResponse.Body.String())
+	}
+
+	testResponse := performJSONRequest(t, handler, http.MethodPost, "/api/settings/notifications/test", updateBody, cookies)
+	if testResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/settings/notifications/test status = %d, want %d; body=%s", testResponse.Code, http.StatusOK, testResponse.Body.String())
+	}
+	if received.Event != "test_notification" {
+		t.Fatalf("received webhook event = %q, want %q", received.Event, "test_notification")
 	}
 }
 
@@ -609,11 +674,13 @@ func newTestHandler(t *testing.T) (http.Handler, config.Config) {
 	if err := authService.Bootstrap(context.Background()); err != nil {
 		t.Fatalf("Bootstrap() error = %v", err)
 	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	auditService := audit.NewService(testStore)
 	jobService := jobs.NewService(testStore)
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	notificationService := notifications.NewService(testStore, logger)
+	jobService.SetTerminalHook(notificationService.DispatchJobAsync)
 
-	handler, err := httpapi.NewHandler(cfg, logger, authService, auditService, jobService)
+	handler, err := httpapi.NewHandler(cfg, logger, authService, auditService, jobService, notificationService)
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v", err)
 	}

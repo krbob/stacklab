@@ -183,6 +183,11 @@ func (s *Store) migrate(ctx context.Context) error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires_at ON auth_sessions (expires_at);`,
 		`CREATE INDEX IF NOT EXISTS idx_auth_sessions_revoked_at ON auth_sessions (revoked_at);`,
+		`CREATE TABLE IF NOT EXISTS app_settings (
+			key TEXT PRIMARY KEY,
+			value_json TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);`,
 		`CREATE TABLE IF NOT EXISTS jobs (
 			id TEXT PRIMARY KEY,
 			stack_id TEXT NOT NULL,
@@ -262,6 +267,35 @@ func (s *Store) SetPasswordHash(ctx context.Context, passwordHash string, update
 	)
 	if err != nil {
 		return fmt.Errorf("store password hash: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) AppSetting(ctx context.Context, key string) (string, bool, error) {
+	var value string
+	err := s.db.QueryRowContext(ctx, `SELECT value_json FROM app_settings WHERE key = ?`, key).Scan(&value)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return "", false, nil
+	case err != nil:
+		return "", false, fmt.Errorf("load app setting %q: %w", key, err)
+	default:
+		return value, true, nil
+	}
+}
+
+func (s *Store) SetAppSetting(ctx context.Context, key, valueJSON string, updatedAt time.Time) error {
+	_, err := s.db.ExecContext(
+		ctx,
+		`INSERT INTO app_settings (key, value_json, updated_at)
+		 VALUES (?, ?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
+		key,
+		valueJSON,
+		updatedAt.UTC().Format(time.RFC3339Nano),
+	)
+	if err != nil {
+		return fmt.Errorf("store app setting %q: %w", key, err)
 	}
 	return nil
 }

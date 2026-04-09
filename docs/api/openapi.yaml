@@ -1047,6 +1047,62 @@ paths:
                 $ref: '#/components/schemas/UpdatePasswordResponse'
         '401':
           $ref: '#/components/responses/ErrorUnauthorized'
+  /settings/notifications:
+    get:
+      tags: [Settings]
+      operationId: getNotificationSettings
+      responses:
+        '200':
+          description: Current webhook notification settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationSettingsResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+    put:
+      tags: [Settings]
+      operationId: updateNotificationSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationSettingsRequest'
+      responses:
+        '200':
+          description: Notification settings updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationSettingsResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+  /settings/notifications/test:
+    post:
+      tags: [Settings]
+      operationId: sendNotificationTest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationTestRequest'
+      responses:
+        '200':
+          description: Test notification delivered.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationTestResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '502':
+          $ref: '#/components/responses/ErrorBadGateway'
   /jobs/active:
     get:
       tags: [Jobs]
@@ -1182,6 +1238,12 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
     ErrorValidationFailed:
       description: Validation failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ErrorBadGateway:
+      description: Upstream delivery failed.
       content:
         application/json:
           schema:
@@ -2293,6 +2355,54 @@ components:
         updated:
           type: boolean
       required: [updated]
+    NotificationEventToggles:
+      type: object
+      properties:
+        job_failed:
+          type: boolean
+        job_succeeded_with_warnings:
+          type: boolean
+        maintenance_succeeded:
+          type: boolean
+      required: [job_failed, job_succeeded_with_warnings, maintenance_succeeded]
+    NotificationSettingsRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        webhook_url:
+          type: string
+        events:
+          $ref: '#/components/schemas/NotificationEventToggles'
+      required: [enabled, webhook_url, events]
+    NotificationSettingsResponse:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        configured:
+          type: boolean
+        webhook_url:
+          type: string
+        events:
+          $ref: '#/components/schemas/NotificationEventToggles'
+      required: [enabled, configured, webhook_url, events]
+    NotificationTestRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        webhook_url:
+          type: string
+        events:
+          $ref: '#/components/schemas/NotificationEventToggles'
+      required: [enabled, webhook_url, events]
+    NotificationTestResponse:
+      type: object
+      properties:
+        sent:
+          type: boolean
+      required: [sent]
     JobEnvelopeResponse:
       type: object
       properties:

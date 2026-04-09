@@ -21,6 +21,7 @@ type Service struct {
 	lockedByID map[string]string
 	locksByJob map[string][]string
 	subsByJob  map[string]map[chan store.JobEvent]struct{}
+	onTerminal func(store.Job)
 }
 
 func NewService(jobStore *store.Store) *Service {
@@ -30,6 +31,10 @@ func NewService(jobStore *store.Store) *Service {
 		locksByJob: map[string][]string{},
 		subsByJob:  map[string]map[chan store.JobEvent]struct{}{},
 	}
+}
+
+func (s *Service) SetTerminalHook(hook func(store.Job)) {
+	s.onTerminal = hook
 }
 
 func (s *Service) Start(ctx context.Context, stackID, action, requestedBy string) (store.Job, error) {
@@ -77,6 +82,9 @@ func (s *Service) FinishSucceeded(ctx context.Context, job store.Job) (store.Job
 	if err := s.PublishEvent(ctx, job, "job_finished", "Job finished successfully.", "", nil); err != nil {
 		return store.Job{}, err
 	}
+	if s.onTerminal != nil {
+		s.onTerminal(job)
+	}
 	return job, nil
 }
 
@@ -96,6 +104,9 @@ func (s *Service) FinishFailed(ctx context.Context, job store.Job, errorCode, er
 	}
 	if err := s.PublishEvent(ctx, job, "job_finished", "Job finished with errors.", "", nil); err != nil {
 		return store.Job{}, err
+	}
+	if s.onTerminal != nil {
+		s.onTerminal(job)
 	}
 	return job, nil
 }

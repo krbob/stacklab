@@ -74,6 +74,35 @@ export interface MetaResponse {
   }
 }
 
+export interface NotificationEventToggles {
+  job_failed: boolean
+  job_succeeded_with_warnings: boolean
+  maintenance_succeeded: boolean
+}
+
+export interface NotificationSettingsResponse {
+  enabled: boolean
+  configured: boolean
+  webhook_url: string
+  events: NotificationEventToggles
+}
+
+export interface NotificationSettingsUpdateRequest {
+  enabled: boolean
+  webhook_url: string
+  events: NotificationEventToggles
+}
+
+export interface NotificationTestRequest {
+  enabled: boolean
+  webhook_url: string
+  events: NotificationEventToggles
+}
+
+export interface NotificationTestResponse {
+  sent: boolean
+}
+
 export interface PortMapping {
   published: number
   target: number

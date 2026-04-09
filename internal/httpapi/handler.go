@@ -22,6 +22,7 @@ import (
 	"stacklab/internal/hostinfo"
 	"stacklab/internal/jobs"
 	"stacklab/internal/maintenance"
+	"stacklab/internal/notifications"
 	"stacklab/internal/stacks"
 	"stacklab/internal/stackworkspace"
 	"stacklab/internal/store"
@@ -33,20 +34,21 @@ import (
 )
 
 type Handler struct {
-	cfg         config.Config
-	logger      *slog.Logger
-	mux         *http.ServeMux
-	auth        *auth.Service
-	audit       *audit.Service
-	jobs        *jobs.Service
-	terminals   *terminal.Service
-	stackReader *stacks.ServiceReader
-	hostInfo    hostInfoReader
-	dockerAdmin dockerAdminReader
-	configFiles configWorkspaceReader
-	stackFiles  stackWorkspaceReader
-	gitStatus   gitWorkspaceReader
-	maintenance maintenanceReader
+	cfg           config.Config
+	logger        *slog.Logger
+	mux           *http.ServeMux
+	auth          *auth.Service
+	audit         *audit.Service
+	jobs          *jobs.Service
+	terminals     *terminal.Service
+	stackReader   *stacks.ServiceReader
+	hostInfo      hostInfoReader
+	dockerAdmin   dockerAdminReader
+	configFiles   configWorkspaceReader
+	stackFiles    stackWorkspaceReader
+	gitStatus     gitWorkspaceReader
+	maintenance   maintenanceReader
+	notifications notificationsManager
 }
 
 type hostInfoReader interface {
@@ -94,14 +96,21 @@ type maintenanceReader interface {
 	RunPruneStep(ctx context.Context, action string) (string, error)
 }
 
-func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Service, auditService *audit.Service, jobService *jobs.Service) (http.Handler, error) {
+type notificationsManager interface {
+	GetSettings(ctx context.Context) (notifications.SettingsResponse, error)
+	UpdateSettings(ctx context.Context, request notifications.UpdateSettingsRequest) (notifications.SettingsResponse, error)
+	SendTest(ctx context.Context, request notifications.TestRequest) (notifications.TestResponse, error)
+}
+
+func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Service, auditService *audit.Service, jobService *jobs.Service, notificationsService notificationsManager) (http.Handler, error) {
 	handler := &Handler{
-		cfg:    cfg,
-		logger: logger,
-		mux:    http.NewServeMux(),
-		auth:   authService,
-		audit:  auditService,
-		jobs:   jobService,
+		cfg:           cfg,
+		logger:        logger,
+		mux:           http.NewServeMux(),
+		auth:          authService,
+		audit:         auditService,
+		jobs:          jobService,
+		notifications: notificationsService,
 		terminals: terminal.NewService(logger, terminal.Config{
 			MaxSessionsPerOwner: 5,
 			IdleTimeout:         30 * time.Minute,
@@ -179,6 +188,9 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("POST /api/stacks/{stackId}/actions/{action}", h.withAuth(h.handleRunStackAction))
 	h.mux.HandleFunc("GET /api/stacks/{stackId}/audit", h.withAuth(h.handleListStackAudit))
 	h.mux.HandleFunc("GET /api/audit", h.withAuth(h.handleListAudit))
+	h.mux.HandleFunc("GET /api/settings/notifications", h.withAuth(h.handleGetNotificationSettings))
+	h.mux.HandleFunc("PUT /api/settings/notifications", h.withAuth(h.handleUpdateNotificationSettings))
+	h.mux.HandleFunc("POST /api/settings/notifications/test", h.withAuth(h.handleSendNotificationTest))
 	h.mux.HandleFunc("POST /api/settings/password", h.withAuth(h.handleUpdatePassword))
 	h.mux.HandleFunc("GET /api/jobs/{jobId}", h.withAuth(h.handleGetJob))
 	h.mux.HandleFunc("/api/", h.withAuth(h.handleAPINotImplemented))
@@ -1912,6 +1924,99 @@ func (h *Handler) handleListAudit(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("list audit failed", slog.String("err", err.Error()))
 		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load audit entries.", nil)
 		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleGetNotificationSettings(w http.ResponseWriter, r *http.Request) {
+	if h.notifications == nil {
+		writeError(w, http.StatusNotImplemented, "not_implemented", "Notifications are not configured yet.", nil)
+		return
+	}
+
+	response, err := h.notifications.GetSettings(r.Context())
+	if err != nil {
+		h.logger.Error("get notification settings failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load notification settings.", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleUpdateNotificationSettings(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+	if h.notifications == nil {
+		writeError(w, http.StatusNotImplemented, "not_implemented", "Notifications are not configured yet.", nil)
+		return
+	}
+
+	var request notifications.UpdateSettingsRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	requestedAt := time.Now().UTC()
+	response, err := h.notifications.UpdateSettings(r.Context(), request)
+	if err != nil {
+		switch {
+		case errors.Is(err, notifications.ErrInvalidConfig):
+			writeError(w, http.StatusBadRequest, "validation_failed", err.Error(), nil)
+		default:
+			h.logger.Error("update notification settings failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to update notification settings.", nil)
+		}
+		return
+	}
+
+	finishedAt := time.Now().UTC()
+	if err := h.audit.RecordSystemEvent(r.Context(), "update_notification_settings", "local", "succeeded", requestedAt, &finishedAt, map[string]any{
+		"enabled":    response.Enabled,
+		"configured": response.Configured,
+	}); err != nil {
+		h.logger.Warn("record notification settings audit failed", slog.String("err", err.Error()))
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleSendNotificationTest(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+	if h.notifications == nil {
+		writeError(w, http.StatusNotImplemented, "not_implemented", "Notifications are not configured yet.", nil)
+		return
+	}
+
+	var request notifications.TestRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	requestedAt := time.Now().UTC()
+	response, err := h.notifications.SendTest(r.Context(), request)
+	if err != nil {
+		switch {
+		case errors.Is(err, notifications.ErrInvalidConfig):
+			writeError(w, http.StatusBadRequest, "validation_failed", err.Error(), nil)
+		default:
+			h.logger.Warn("send notification test failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusBadGateway, "delivery_failed", "Failed to deliver the test notification.", nil)
+		}
+		return
+	}
+
+	finishedAt := time.Now().UTC()
+	if err := h.audit.RecordSystemEvent(r.Context(), "send_notification_test", "local", "succeeded", requestedAt, &finishedAt, nil); err != nil {
+		h.logger.Warn("record notification test audit failed", slog.String("err", err.Error()))
 	}
 
 	writeJSON(w, http.StatusOK, response)

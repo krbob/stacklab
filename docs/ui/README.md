@@ -11,6 +11,7 @@ This section contains information architecture, screens, and UI-facing contracts
 - [global-activity-handoff.md](global-activity-handoff.md) — app-wide background job visibility, collapsed chrome activity, and active job list guidance
 - [job-detail-handoff.md](job-detail-handoff.md) — shared job detail guidance for audit/history/global activity links
 - [host-observability-handoff.md](host-observability-handoff.md) — route and screen guidance for host overview and Stacklab service logs
+- [notifications-handoff.md](notifications-handoff.md) — route and screen guidance for outgoing webhook notifications inside settings
 - [docker-admin-handoff.md](docker-admin-handoff.md) — route and screen guidance for read-only Docker daemon administration
 - [config-workspace-handoff.md](config-workspace-handoff.md) — route and screen guidance for `/opt/stacklab/config` browsing and editing
 - [git-workspace-handoff.md](git-workspace-handoff.md) — route and screen guidance for local Git change visibility inside `/config`

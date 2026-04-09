@@ -210,6 +210,26 @@ func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
 	auditResponse := performJSONRequest(t, handler, http.MethodGet, "/api/audit", nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/audit", nil, cookies, auditResponse)
 
+	webhookServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer webhookServer.Close()
+
+	notificationSettingsResponse := performJSONRequest(t, handler, http.MethodGet, "/api/settings/notifications", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/settings/notifications", nil, cookies, notificationSettingsResponse)
+
+	notificationSettingsBody := map[string]any{
+		"enabled":     true,
+		"webhook_url": webhookServer.URL,
+		"events": map[string]any{
+			"job_failed":                  true,
+			"job_succeeded_with_warnings": true,
+			"maintenance_succeeded":       false,
+		},
+	}
+	notificationUpdateResponse := performJSONRequest(t, handler, http.MethodPut, "/api/settings/notifications", notificationSettingsBody, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodPut, "/api/settings/notifications", notificationSettingsBody, cookies, notificationUpdateResponse)
+
 	stacks.ResetComposeCLICacheForTests()
 	t.Cleanup(stacks.ResetComposeCLICacheForTests)
 	shimDir := t.TempDir()
@@ -263,6 +283,9 @@ func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
 
 	maintenanceResponse := performJSONRequest(t, handler, http.MethodPost, "/api/maintenance/update-stacks", maintenanceBody, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodPost, "/api/maintenance/update-stacks", maintenanceBody, cookies, maintenanceResponse)
+
+	notificationTestResponse := performJSONRequest(t, handler, http.MethodPost, "/api/settings/notifications/test", notificationSettingsBody, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodPost, "/api/settings/notifications/test", notificationSettingsBody, cookies, notificationTestResponse)
 
 	pruneBody := map[string]any{
 		"scope": map[string]any{

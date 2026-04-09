@@ -37,7 +37,7 @@ There is no deeper nesting. Every screen is reachable in at most two clicks from
 | **Maintenance** | `/maintenance` | Bulk update, images inventory, and cleanup workflows |
 | **Docker** | `/docker` | Docker daemon status, Engine metadata, and read-only `daemon.json` visibility |
 | **Audit** | `/audit` | Global audit log of all mutating actions |
-| **Settings** | `/settings` | Application settings, auth, preferences, and later update schedules |
+| **Settings** | `/settings` | Application settings, auth, notifications, preferences, and later update schedules |
 
 The sidebar is collapsible on tablet widths (below 1024px) to a narrow icon bar.
 
