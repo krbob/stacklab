@@ -17,6 +17,7 @@ import (
 	"stacklab/internal/auth"
 	"stacklab/internal/config"
 	"stacklab/internal/configworkspace"
+	"stacklab/internal/dockeradmin"
 	"stacklab/internal/gitworkspace"
 	"stacklab/internal/hostinfo"
 	"stacklab/internal/jobs"
@@ -39,6 +40,7 @@ type Handler struct {
 	terminals   *terminal.Service
 	stackReader *stacks.ServiceReader
 	hostInfo    hostInfoReader
+	dockerAdmin dockerAdminReader
 	configFiles configWorkspaceReader
 	gitStatus   gitWorkspaceReader
 	maintenance maintenanceReader
@@ -47,6 +49,11 @@ type Handler struct {
 type hostInfoReader interface {
 	Overview(ctx context.Context) (hostinfo.OverviewResponse, error)
 	StacklabLogs(ctx context.Context, query hostinfo.LogsQuery) (hostinfo.StacklabLogsResponse, error)
+}
+
+type dockerAdminReader interface {
+	Overview(ctx context.Context) (dockeradmin.OverviewResponse, error)
+	DaemonConfig(ctx context.Context) (dockeradmin.DaemonConfigResponse, error)
 }
 
 type configWorkspaceReader interface {
@@ -93,6 +100,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Servic
 		}),
 		stackReader: stacks.NewServiceReader(cfg, logger),
 		hostInfo:    hostinfo.NewService(cfg, time.Now().UTC()),
+		dockerAdmin: dockeradmin.NewService(cfg),
 		configFiles: configworkspace.NewService(cfg),
 		gitStatus:   gitworkspace.NewService(cfg),
 		maintenance: maintenance.NewService(),
@@ -112,6 +120,8 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/meta", h.withAuth(h.handleMeta))
 	h.mux.HandleFunc("GET /api/host/overview", h.withAuth(h.handleHostOverview))
 	h.mux.HandleFunc("GET /api/host/stacklab-logs", h.withAuth(h.handleStacklabLogs))
+	h.mux.HandleFunc("GET /api/docker/admin/overview", h.withAuth(h.handleDockerAdminOverview))
+	h.mux.HandleFunc("GET /api/docker/admin/daemon-config", h.withAuth(h.handleDockerAdminDaemonConfig))
 	h.mux.HandleFunc("GET /api/config/workspace/tree", h.withAuth(h.handleConfigWorkspaceTree))
 	h.mux.HandleFunc("GET /api/config/workspace/file", h.withAuth(h.handleConfigWorkspaceFile))
 	h.mux.HandleFunc("PUT /api/config/workspace/file", h.withAuth(h.handlePutConfigWorkspaceFile))
@@ -261,6 +271,28 @@ func (h *Handler) handleStacklabLogs(w http.ResponseWriter, r *http.Request) {
 		}
 		h.logger.Error("stacklab logs failed", slog.String("err", err.Error()))
 		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load Stacklab service logs.", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleDockerAdminOverview(w http.ResponseWriter, r *http.Request) {
+	response, err := h.dockerAdmin.Overview(r.Context())
+	if err != nil {
+		h.logger.Error("docker admin overview failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load Docker admin overview.", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleDockerAdminDaemonConfig(w http.ResponseWriter, r *http.Request) {
+	response, err := h.dockerAdmin.DaemonConfig(r.Context())
+	if err != nil {
+		h.logger.Error("docker daemon config failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load Docker daemon config.", nil)
 		return
 	}
 

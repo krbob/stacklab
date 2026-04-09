@@ -16,6 +16,8 @@ type Config struct {
 	FrontendDistDir         string
 	BootstrapPassword       string
 	SystemdUnitName         string
+	DockerSystemdUnitName   string
+	DockerDaemonConfigPath  string
 	SessionCookieName       string
 	SessionIdleTimeout      time.Duration
 	SessionAbsoluteLifetime time.Duration
@@ -34,6 +36,8 @@ func Load() Config {
 		FrontendDistDir:         getenv("STACKLAB_FRONTEND_DIST", filepath.Join("frontend", "dist")),
 		BootstrapPassword:       getenv("STACKLAB_BOOTSTRAP_PASSWORD", ""),
 		SystemdUnitName:         getenv("STACKLAB_SYSTEMD_UNIT", "stacklab"),
+		DockerSystemdUnitName:   getenv("STACKLAB_DOCKER_SYSTEMD_UNIT", "docker.service"),
+		DockerDaemonConfigPath:  getenv("STACKLAB_DOCKER_DAEMON_CONFIG_PATH", "/etc/docker/daemon.json"),
 		SessionCookieName:       getenv("STACKLAB_SESSION_COOKIE_NAME", "stacklab_session"),
 		SessionIdleTimeout:      parseDuration(getenv("STACKLAB_SESSION_IDLE_TIMEOUT", "12h"), 12*time.Hour),
 		SessionAbsoluteLifetime: parseDuration(getenv("STACKLAB_SESSION_ABSOLUTE_LIFETIME", "168h"), 7*24*time.Hour),

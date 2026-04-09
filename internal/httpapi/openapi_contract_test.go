@@ -49,6 +49,12 @@ func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
 	metaResponse := performJSONRequest(t, handler, http.MethodGet, "/api/meta", nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/meta", nil, cookies, metaResponse)
 
+	dockerOverviewResponse := performJSONRequest(t, handler, http.MethodGet, "/api/docker/admin/overview", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/docker/admin/overview", nil, cookies, dockerOverviewResponse)
+
+	dockerConfigResponse := performJSONRequest(t, handler, http.MethodGet, "/api/docker/admin/daemon-config", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/docker/admin/daemon-config", nil, cookies, dockerConfigResponse)
+
 	configRoot := filepath.Join(cfg.RootDir, "config")
 	if err := os.MkdirAll(filepath.Join(configRoot, "nextcloud"), 0o755); err != nil {
 		t.Fatalf("MkdirAll(config nextcloud) error = %v", err)

@@ -12,6 +12,7 @@ tags:
   - name: Auth
   - name: Meta
   - name: Host
+  - name: Docker
   - name: Config
   - name: Git
   - name: Maintenance
@@ -111,6 +112,32 @@ paths:
           $ref: '#/components/responses/ErrorUnauthorized'
         '400':
           $ref: '#/components/responses/ErrorValidationFailed'
+  /docker/admin/overview:
+    get:
+      tags: [Docker]
+      operationId: getDockerAdminOverview
+      responses:
+        '200':
+          description: Docker daemon administration overview.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DockerAdminOverviewResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+  /docker/admin/daemon-config:
+    get:
+      tags: [Docker]
+      operationId: getDockerAdminDaemonConfig
+      responses:
+        '200':
+          description: Read-only Docker daemon config file view.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DockerDaemonConfigResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
   /config/workspace/tree:
     get:
       tags: [Config]
@@ -1040,6 +1067,125 @@ components:
         cursor:
           type: string
       required: [timestamp, level, message, cursor]
+    DockerAdminOverviewResponse:
+      type: object
+      properties:
+        service:
+          $ref: '#/components/schemas/DockerServiceStatus'
+        engine:
+          $ref: '#/components/schemas/DockerEngineStatus'
+        daemon_config:
+          $ref: '#/components/schemas/DockerDaemonConfigMeta'
+      required: [service, engine, daemon_config]
+    DockerServiceStatus:
+      type: object
+      properties:
+        manager:
+          type: string
+        supported:
+          type: boolean
+        unit_name:
+          type: string
+        load_state:
+          type: string
+        active_state:
+          type: string
+        sub_state:
+          type: string
+        unit_file_state:
+          type: string
+        fragment_path:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        message:
+          type: string
+          nullable: true
+      required: [manager, supported, unit_name, load_state, active_state, sub_state, unit_file_state, fragment_path]
+    DockerEngineStatus:
+      type: object
+      properties:
+        available:
+          type: boolean
+        version:
+          type: string
+        api_version:
+          type: string
+        compose_version:
+          type: string
+        root_dir:
+          type: string
+        driver:
+          type: string
+        logging_driver:
+          type: string
+        cgroup_driver:
+          type: string
+        message:
+          type: string
+          nullable: true
+      required: [available, version, api_version, compose_version, root_dir, driver, logging_driver, cgroup_driver]
+    DockerDaemonConfigSummary:
+      type: object
+      properties:
+        dns:
+          type: array
+          items:
+            type: string
+        registry_mirrors:
+          type: array
+          items:
+            type: string
+        insecure_registries:
+          type: array
+          items:
+            type: string
+        log_driver:
+          type: string
+        data_root:
+          type: string
+        live_restore:
+          type: boolean
+          nullable: true
+      required: [dns, registry_mirrors, insecure_registries, log_driver, data_root]
+    DockerDaemonConfigMeta:
+      type: object
+      properties:
+        path:
+          type: string
+        exists:
+          type: boolean
+        permissions:
+          $ref: '#/components/schemas/FilePermissionsNullable'
+        size_bytes:
+          type: integer
+          nullable: true
+        modified_at:
+          type: string
+          format: date-time
+          nullable: true
+        valid_json:
+          type: boolean
+        parse_error:
+          type: string
+          nullable: true
+        configured_keys:
+          type: array
+          items:
+            type: string
+        summary:
+          $ref: '#/components/schemas/DockerDaemonConfigSummary'
+      required: [path, exists, valid_json, configured_keys, summary]
+    DockerDaemonConfigResponse:
+      allOf:
+        - $ref: '#/components/schemas/DockerDaemonConfigMeta'
+        - type: object
+          properties:
+            content:
+              type: string
+              nullable: true
     ConfigEntryType:
       type: string
       enum: [directory, text_file, binary_file, unknown_file]

@@ -4,6 +4,8 @@ import type {
   ConfigFileSaveResponse,
   ConfigTreeResponse,
   DefinitionResponse,
+  DockerAdminOverviewResponse,
+  DockerDaemonConfigResponse,
   GitCommitRequest,
   GitCommitResponse,
   GitDiffResponse,
@@ -102,6 +104,14 @@ export function getStacklabLogs(params?: { limit?: number; cursor?: string; leve
   if (params?.q) search.set('q', params.q)
   const qs = search.toString()
   return request(`/api/host/stacklab-logs${qs ? `?${qs}` : ''}`)
+}
+
+export function getDockerAdminOverview(): Promise<DockerAdminOverviewResponse> {
+  return request('/api/docker/admin/overview')
+}
+
+export function getDockerDaemonConfig(): Promise<DockerDaemonConfigResponse> {
+  return request('/api/docker/admin/daemon-config')
 }
 
 // --- Git workspace ---

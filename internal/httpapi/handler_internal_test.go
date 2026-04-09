@@ -19,6 +19,7 @@ import (
 	"stacklab/internal/auth"
 	"stacklab/internal/config"
 	"stacklab/internal/configworkspace"
+	"stacklab/internal/dockeradmin"
 	"stacklab/internal/gitworkspace"
 	"stacklab/internal/hostinfo"
 	"stacklab/internal/jobs"
@@ -36,6 +37,13 @@ type fakeHostInfo struct {
 	lastLogsQuery    hostinfo.LogsQuery
 }
 
+type fakeDockerAdmin struct {
+	overviewResponse     dockeradmin.OverviewResponse
+	overviewError        error
+	daemonConfigResponse dockeradmin.DaemonConfigResponse
+	daemonConfigError    error
+}
+
 func (f *fakeHostInfo) Overview(ctx context.Context) (hostinfo.OverviewResponse, error) {
 	return f.overviewResponse, f.overviewError
 }
@@ -43,6 +51,14 @@ func (f *fakeHostInfo) Overview(ctx context.Context) (hostinfo.OverviewResponse,
 func (f *fakeHostInfo) StacklabLogs(ctx context.Context, query hostinfo.LogsQuery) (hostinfo.StacklabLogsResponse, error) {
 	f.lastLogsQuery = query
 	return f.logsResponse, f.logsError
+}
+
+func (f *fakeDockerAdmin) Overview(ctx context.Context) (dockeradmin.OverviewResponse, error) {
+	return f.overviewResponse, f.overviewError
+}
+
+func (f *fakeDockerAdmin) DaemonConfig(ctx context.Context) (dockeradmin.DaemonConfigResponse, error) {
+	return f.daemonConfigResponse, f.daemonConfigError
 }
 
 func TestHandlerPutDefinitionReturnsStackLockedWhenAnotherJobOwnsStack(t *testing.T) {
@@ -172,6 +188,78 @@ func TestHandlerStacklabLogsRejectsInvalidLimit(t *testing.T) {
 	response := performInternalJSONRequest(t, served, http.MethodGet, "/api/host/stacklab-logs?limit=0", nil, cookies)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("GET /api/host/stacklab-logs?limit=0 status = %d, want %d; body=%s", response.Code, http.StatusBadRequest, response.Body.String())
+	}
+}
+
+func TestHandlerDockerAdminOverviewAndDaemonConfig(t *testing.T) {
+	t.Parallel()
+
+	handler, served, _ := newInternalTestHandler(t)
+	docker := &fakeDockerAdmin{
+		overviewResponse: dockeradmin.OverviewResponse{
+			Service: dockeradmin.ServiceStatus{
+				Manager:       "systemd",
+				Supported:     true,
+				UnitName:      "docker.service",
+				LoadState:     "loaded",
+				ActiveState:   "active",
+				SubState:      "running",
+				UnitFileState: "enabled",
+				FragmentPath:  "/lib/systemd/system/docker.service",
+			},
+			Engine: dockeradmin.EngineStatus{
+				Available:      true,
+				Version:        "28.5.1",
+				ComposeVersion: "2.39.2",
+			},
+			DaemonConfig: dockeradmin.DaemonConfigMeta{
+				Path:           "/etc/docker/daemon.json",
+				Exists:         true,
+				ValidJSON:      true,
+				ConfiguredKeys: []string{"dns"},
+				Summary: dockeradmin.DaemonConfigSummary{
+					DNS:                []string{"192.168.1.2"},
+					RegistryMirrors:    []string{},
+					InsecureRegistries: []string{},
+				},
+			},
+		},
+		daemonConfigResponse: dockeradmin.DaemonConfigResponse{
+			DaemonConfigMeta: dockeradmin.DaemonConfigMeta{
+				Path:           "/etc/docker/daemon.json",
+				Exists:         true,
+				ValidJSON:      true,
+				ConfiguredKeys: []string{"dns"},
+				Summary: dockeradmin.DaemonConfigSummary{
+					DNS:                []string{"192.168.1.2"},
+					RegistryMirrors:    []string{},
+					InsecureRegistries: []string{},
+				},
+			},
+			Content: pointerTo(`{"dns":["192.168.1.2"]}`),
+		},
+	}
+	handler.dockerAdmin = docker
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	overviewResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/docker/admin/overview", nil, cookies)
+	if overviewResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/docker/admin/overview status = %d, want %d; body=%s", overviewResponse.Code, http.StatusOK, overviewResponse.Body.String())
+	}
+	var overviewPayload dockeradmin.OverviewResponse
+	decodeInternalResponse(t, overviewResponse, &overviewPayload)
+	if !overviewPayload.Engine.Available || overviewPayload.DaemonConfig.Path != "/etc/docker/daemon.json" {
+		t.Fatalf("unexpected docker admin overview payload: %#v", overviewPayload)
+	}
+
+	configResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/docker/admin/daemon-config", nil, cookies)
+	if configResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/docker/admin/daemon-config status = %d, want %d; body=%s", configResponse.Code, http.StatusOK, configResponse.Body.String())
+	}
+	var configPayload dockeradmin.DaemonConfigResponse
+	decodeInternalResponse(t, configResponse, &configPayload)
+	if configPayload.Content == nil || !strings.Contains(*configPayload.Content, "192.168.1.2") {
+		t.Fatalf("unexpected docker daemon config payload: %#v", configPayload)
 	}
 }
 
@@ -822,6 +910,8 @@ func newInternalTestHandler(t *testing.T) (*Handler, http.Handler, config.Config
 		FrontendDistDir:         filepath.Join(tempDir, "frontend"),
 		BootstrapPassword:       "secret",
 		SystemdUnitName:         "stacklab",
+		DockerSystemdUnitName:   "docker.service",
+		DockerDaemonConfigPath:  filepath.Join(tempDir, "docker", "daemon.json"),
 		SessionCookieName:       "stacklab_session",
 		SessionIdleTimeout:      30 * time.Minute,
 		SessionAbsoluteLifetime: 24 * time.Hour,
@@ -862,6 +952,7 @@ func newInternalTestHandler(t *testing.T) (*Handler, http.Handler, config.Config
 		}, func(event terminal.LifecycleEvent) {}),
 		stackReader: stacks.NewServiceReader(cfg, logger),
 		hostInfo:    hostinfo.NewService(cfg, time.Unix(1_712_598_000, 0).UTC()),
+		dockerAdmin: dockeradmin.NewService(cfg),
 		configFiles: configworkspace.NewService(cfg),
 		gitStatus:   gitworkspace.NewService(cfg),
 		maintenance: maintenance.NewService(),
@@ -869,6 +960,10 @@ func newInternalTestHandler(t *testing.T) (*Handler, http.Handler, config.Config
 	handler.registerRoutes()
 
 	return handler, handler.withLogging(handler.mux), cfg
+}
+
+func pointerTo[T any](value T) *T {
+	return &value
 }
 
 func runInternalGit(t *testing.T, dir string, args ...string) {

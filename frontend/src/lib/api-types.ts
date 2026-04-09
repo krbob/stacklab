@@ -309,6 +309,62 @@ export interface StacklabLogsResponse {
   has_more: boolean
 }
 
+export interface DockerServiceStatus {
+  manager: string
+  supported: boolean
+  unit_name: string
+  load_state: string
+  active_state: string
+  sub_state: string
+  unit_file_state: string
+  fragment_path: string
+  started_at?: string | null
+  message?: string | null
+}
+
+export interface DockerEngineStatus {
+  available: boolean
+  version: string
+  api_version: string
+  compose_version: string
+  root_dir: string
+  driver: string
+  logging_driver: string
+  cgroup_driver: string
+  message?: string | null
+}
+
+export interface DockerDaemonConfigSummary {
+  dns: string[]
+  registry_mirrors: string[]
+  insecure_registries: string[]
+  log_driver: string
+  data_root: string
+  live_restore?: boolean | null
+}
+
+export interface DockerDaemonConfigMeta {
+  path: string
+  exists: boolean
+  permissions?: FilePermissions | null
+  size_bytes?: number | null
+  modified_at?: string | null
+  valid_json: boolean
+  parse_error?: string | null
+  configured_keys: string[]
+  summary: DockerDaemonConfigSummary
+}
+
+export interface DockerAdminOverviewResponse {
+  service: DockerServiceStatus
+  engine: DockerEngineStatus
+  daemon_config: DockerDaemonConfigMeta
+}
+
+export interface DockerDaemonConfigResponse extends DockerDaemonConfigMeta {
+  content?: string | null
+}
+
 export interface FilePermissions {
   owner_uid: number | null
   owner_name: string | null

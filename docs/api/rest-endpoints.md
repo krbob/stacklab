@@ -220,6 +220,116 @@ Response:
 }
 ```
 
+## `GET /api/docker/admin/overview`
+
+Purpose:
+
+- fetch Docker daemon administration metadata for the dedicated Docker page
+
+Response:
+
+```json
+{
+  "service": {
+    "manager": "systemd",
+    "supported": true,
+    "unit_name": "docker.service",
+    "load_state": "loaded",
+    "active_state": "active",
+    "sub_state": "running",
+    "unit_file_state": "enabled",
+    "fragment_path": "/lib/systemd/system/docker.service",
+    "started_at": "2026-04-09T08:00:00Z"
+  },
+  "engine": {
+    "available": true,
+    "version": "28.5.1",
+    "api_version": "1.51",
+    "compose_version": "2.39.2",
+    "root_dir": "/var/lib/docker",
+    "driver": "overlay2",
+    "logging_driver": "json-file",
+    "cgroup_driver": "systemd"
+  },
+  "daemon_config": {
+    "path": "/etc/docker/daemon.json",
+    "exists": true,
+    "permissions": {
+      "owner_uid": 0,
+      "owner_name": "root",
+      "group_gid": 0,
+      "group_name": "root",
+      "mode": "0644",
+      "readable": true,
+      "writable": false
+    },
+    "size_bytes": 84,
+    "modified_at": "2026-04-08T19:20:00Z",
+    "valid_json": true,
+    "configured_keys": ["dns", "log-driver"],
+    "summary": {
+      "dns": ["192.168.1.2"],
+      "registry_mirrors": [],
+      "insecure_registries": [],
+      "log_driver": "json-file",
+      "data_root": "",
+      "live_restore": null
+    }
+  }
+}
+```
+
+Notes:
+
+- returns `200` even in degraded environments
+- unsupported `systemd` or unavailable Docker Engine should be represented in the payload, not as a generic hard failure
+
+## `GET /api/docker/admin/daemon-config`
+
+Purpose:
+
+- fetch the current Docker `daemon.json` file in a read-only browser-safe shape
+
+Response:
+
+```json
+{
+  "path": "/etc/docker/daemon.json",
+  "exists": true,
+  "permissions": {
+    "owner_uid": 0,
+    "owner_name": "root",
+    "group_gid": 0,
+    "group_name": "root",
+    "mode": "0644",
+    "readable": true,
+    "writable": false
+  },
+  "size_bytes": 84,
+  "modified_at": "2026-04-08T19:20:00Z",
+  "valid_json": true,
+  "configured_keys": ["dns", "log-driver"],
+  "summary": {
+    "dns": ["192.168.1.2"],
+    "registry_mirrors": [],
+    "insecure_registries": [],
+    "log_driver": "json-file",
+    "data_root": "",
+    "live_restore": null
+  },
+  "content": "{\n  \"dns\": [\"192.168.1.2\"],\n  \"log-driver\": \"json-file\"\n}\n"
+}
+```
+
+Notes:
+
+- if `daemon.json` is missing, this still returns `200` with `exists = false`
+- if the file contains invalid JSON, the response should include:
+  - `valid_json = false`
+  - `parse_error`
+  - raw `content`
+- this milestone is strictly read-only; there is no save/apply endpoint yet
+
 ## `GET /api/config/workspace/tree`
 
 Purpose:
