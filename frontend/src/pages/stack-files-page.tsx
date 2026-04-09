@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import { useOutletContext, useNavigate } from 'react-router-dom'
 import { File, FileQuestion, FileWarning, Folder, Hammer, Plus } from 'lucide-react'
-import { getStackWorkspaceTree, getStackWorkspaceFile, saveStackWorkspaceFile } from '@/lib/api-client'
+import { getStackWorkspaceTree, getStackWorkspaceFile, saveStackWorkspaceFile, repairStackWorkspacePermissions } from '@/lib/api-client'
 import type { StackDetailResponse, StackWorkspaceTreeEntry, StackWorkspaceFileResponse } from '@/lib/api-types'
 import { useApi } from '@/hooks/use-api'
 import { YamlEditor } from '@/components/yaml-editor'
@@ -182,7 +182,17 @@ export function StackFilesPage() {
             {saveMessage && <div className={cn('mt-2 text-xs', saveMessage.type === 'success' ? 'text-emerald-400' : 'text-red-400')}>{saveMessage.text}</div>}
             <div className="mt-3 flex-1" style={{ minHeight: '300px' }}>
               {selectedFile.blocked_reason ? (
-                <BlockedFileCard blockedReason={selectedFile.blocked_reason} permissions={selectedFile.permissions} />
+                <BlockedFileCard
+                  blockedReason={selectedFile.blocked_reason}
+                  permissions={selectedFile.permissions}
+                  repairCapability={selectedFile.repair_capability}
+                  onRepair={selectedFile.repair_capability?.supported ? async (recursive) => {
+                    const result = await repairStackWorkspacePermissions(stack.id, { path: selectedFile.path, recursive })
+                    openFile(selectedFile.path)
+                    refetchTree()
+                    return result
+                  } : undefined}
+                />
               ) : selectedFile.type === 'text_file' ? (
                 <YamlEditor value={editContent} onChange={setEditContent} readOnly={!selectedFile.writable} />
               ) : (

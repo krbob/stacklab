@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { File, FileQuestion, FileWarning, Folder, FolderKanban, GitBranch, Plus } from 'lucide-react'
-import { getConfigTree, getConfigFile, saveConfigFile, getGitWorkspaceStatus, getGitWorkspaceDiff } from '@/lib/api-client'
+import { getConfigTree, getConfigFile, saveConfigFile, repairConfigWorkspacePermissions, getGitWorkspaceStatus, getGitWorkspaceDiff } from '@/lib/api-client'
 import type { ConfigTreeEntry, ConfigFileResponse, GitStatusItem, GitDiffResponse } from '@/lib/api-types'
 import { YamlEditor } from '@/components/yaml-editor'
 import { DiffView } from '@/components/diff-view'
@@ -452,7 +452,18 @@ export function ConfigPage() {
                 {saveMessage && <div className={cn('mt-2 text-xs', saveMessage.type === 'success' ? 'text-emerald-400' : 'text-red-400')}>{saveMessage.text}</div>}
                 <div className="mt-3 flex-1" style={{ minHeight: '400px' }}>
                   {selectedFile.blocked_reason ? (
-                    <BlockedFileCard blockedReason={selectedFile.blocked_reason} permissions={selectedFile.permissions} />
+                    <BlockedFileCard
+                      blockedReason={selectedFile.blocked_reason}
+                      permissions={selectedFile.permissions}
+                      repairCapability={selectedFile.repair_capability}
+                      onRepair={selectedFile.repair_capability?.supported ? async (recursive) => {
+                        const result = await repairConfigWorkspacePermissions({ path: selectedFile.path, recursive })
+                        // Refresh file and tree after repair
+                        openFile(selectedFile.path)
+                        loadTree(treePath)
+                        return result
+                      } : undefined}
+                    />
                   ) : selectedFile.type === 'text_file' ? (
                     <YamlEditor value={editContent} onChange={setEditContent} readOnly={!selectedFile.writable} />
                   ) : (
