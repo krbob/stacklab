@@ -15,6 +15,7 @@ Do not add yet:
 - email
 - notification inbox
 - log anomaly rules
+- Stacklab self-health alerts from `journald`
 
 Backend state now available:
 
@@ -77,3 +78,12 @@ Copy guidance:
 - `post_update_recovery_failed` should be explained in operator language, not internal job language
 - preferred phrasing:
   - “Notify when an update finishes but a stack does not recover”
+
+Follow-up after this slice:
+
+- `stacklab_service_error`
+- source:
+  - `journalctl -u stacklab`
+- intent:
+  - notify when Stacklab itself starts logging new `error` / `fatal` entries
+- this should be a later checkbox under a separate “Stacklab” or “Self-health” grouping, not mixed silently into the current v2 UI

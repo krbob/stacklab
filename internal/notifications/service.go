@@ -13,13 +13,17 @@ import (
 	"strings"
 	"time"
 
+	"stacklab/internal/hostinfo"
 	"stacklab/internal/stacks"
 	"stacklab/internal/store"
 )
 
 const (
-	settingsKey       = "notifications_v2"
-	legacySettingsKey = "notifications_webhook_v1"
+	settingsKey                  = "notifications_v2"
+	legacySettingsKey            = "notifications_webhook_v1"
+	stacklabJournalStateKey      = "notifications_stacklab_journal_state_v1"
+	stacklabJournalPollLimit     = 200
+	stacklabJournalMaxBatchFetch = 5
 )
 
 var ErrInvalidConfig = errors.New("invalid notification config")
@@ -34,6 +38,10 @@ type StackInspector interface {
 	Get(ctx context.Context, stackID string) (stacks.StackDetailResponse, error)
 }
 
+type StacklabLogReader interface {
+	StacklabLogs(ctx context.Context, query hostinfo.LogsQuery) (hostinfo.StacklabLogsResponse, error)
+}
+
 type webhookSender func(ctx context.Context, target string, payload WebhookPayload) error
 type telegramSender func(ctx context.Context, botToken, chatID, text string) error
 
@@ -42,6 +50,7 @@ type EventToggles struct {
 	JobSucceededWithWarnings bool `json:"job_succeeded_with_warnings"`
 	MaintenanceSucceeded     bool `json:"maintenance_succeeded"`
 	PostUpdateRecoveryFailed bool `json:"post_update_recovery_failed"`
+	StacklabServiceError     bool `json:"stacklab_service_error"`
 }
 
 type Settings struct {
@@ -130,13 +139,14 @@ type TestResponse struct {
 }
 
 type WebhookPayload struct {
-	Event        string             `json:"event"`
-	SentAt       time.Time          `json:"sent_at"`
-	Source       string             `json:"source"`
-	Summary      string             `json:"summary"`
-	Job          *WebhookJob        `json:"job,omitempty"`
-	WarningCount int                `json:"warning_count,omitempty"`
-	PostUpdate   *PostUpdateSummary `json:"post_update,omitempty"`
+	Event           string                `json:"event"`
+	SentAt          time.Time             `json:"sent_at"`
+	Source          string                `json:"source"`
+	Summary         string                `json:"summary"`
+	Job             *WebhookJob           `json:"job,omitempty"`
+	WarningCount    int                   `json:"warning_count,omitempty"`
+	PostUpdate      *PostUpdateSummary    `json:"post_update,omitempty"`
+	StacklabService *StacklabServiceAlert `json:"stacklab_service,omitempty"`
 }
 
 type WebhookJob struct {
@@ -166,13 +176,31 @@ type PostUpdateFailure struct {
 	Reason                  string `json:"reason,omitempty"`
 }
 
+type StacklabServiceAlert struct {
+	EntryCount      int       `json:"entry_count"`
+	FirstTimestamp  time.Time `json:"first_timestamp,omitempty"`
+	LastTimestamp   time.Time `json:"last_timestamp,omitempty"`
+	SampleMessages  []string  `json:"sample_messages,omitempty"`
+	LatestCursor    string    `json:"latest_cursor,omitempty"`
+	CooldownSeconds int       `json:"cooldown_seconds,omitempty"`
+}
+
+type stacklabJournalState struct {
+	Cursor          string    `json:"cursor"`
+	LastFingerprint string    `json:"last_fingerprint,omitempty"`
+	LastNotifiedAt  time.Time `json:"last_notified_at,omitempty"`
+}
+
 type Service struct {
 	store          Store
 	logger         *slog.Logger
 	stackInspector StackInspector
+	stacklabLogs   StacklabLogReader
 	sendWebhook    webhookSender
 	sendTelegram   telegramSender
 	now            func() time.Time
+	pollInterval   time.Duration
+	alertCooldown  time.Duration
 }
 
 func NewService(settingStore Store, logger *slog.Logger) *Service {
@@ -228,12 +256,25 @@ func NewService(settingStore Store, logger *slog.Logger) *Service {
 			}
 			return nil
 		},
-		now: time.Now().UTC,
+		now:           time.Now().UTC,
+		pollInterval:  30 * time.Second,
+		alertCooldown: 15 * time.Minute,
 	}
 }
 
 func (s *Service) SetStackInspector(inspector StackInspector) {
 	s.stackInspector = inspector
+}
+
+func (s *Service) SetStacklabLogReader(reader StacklabLogReader) {
+	s.stacklabLogs = reader
+}
+
+func (s *Service) StartBackground(ctx context.Context) {
+	if s.stacklabLogs == nil {
+		return
+	}
+	go s.runStacklabSelfHealthLoop(ctx)
 }
 
 func (s *Service) GetSettings(ctx context.Context) (SettingsResponse, error) {
@@ -315,7 +356,12 @@ func (s *Service) DispatchJob(ctx context.Context, job store.Job) error {
 		return nil
 	}
 
+	return s.dispatchPayload(ctx, settings, payload)
+}
+
+func (s *Service) dispatchPayload(ctx context.Context, settings Settings, payload WebhookPayload) error {
 	var errs []error
+
 	if settings.Channels.Webhook.Enabled && settings.Channels.Webhook.URL != "" {
 		if err := s.sendWebhook(ctx, settings.Channels.Webhook.URL, payload); err != nil {
 			errs = append(errs, err)
@@ -460,6 +506,7 @@ func defaultSettings() Settings {
 			JobSucceededWithWarnings: true,
 			MaintenanceSucceeded:     false,
 			PostUpdateRecoveryFailed: false,
+			StacklabServiceError:     false,
 		},
 		Channels: Channels{
 			Webhook: WebhookSettings{
@@ -547,6 +594,8 @@ func buildSummary(eventType string, job store.Job, warningCount int) string {
 		return "Stacklab maintenance completed: " + target
 	case "post_update_recovery_failed":
 		return "Stacklab post-update recovery failed: " + target
+	case "stacklab_service_error":
+		return "Stacklab service logged new errors"
 	default:
 		return "Stacklab notification"
 	}
@@ -677,5 +726,254 @@ func buildTelegramText(payload WebhookPayload) string {
 			lines = append(lines, fmt.Sprintf("- %s (%s)", failed.StackID, reason))
 		}
 	}
+	if payload.StacklabService != nil {
+		lines = append(lines, fmt.Sprintf("Entries: %d", payload.StacklabService.EntryCount))
+		if len(payload.StacklabService.SampleMessages) > 0 {
+			lines = append(lines, "Samples:")
+			for _, message := range payload.StacklabService.SampleMessages {
+				lines = append(lines, fmt.Sprintf("- %s", message))
+			}
+		}
+	}
 	return strings.Join(lines, "\n")
+}
+
+func hasConfiguredNotificationChannel(settings Settings) bool {
+	if settings.Channels.Webhook.Enabled && settings.Channels.Webhook.URL != "" {
+		return true
+	}
+	if settings.Channels.Telegram.Enabled && settings.Channels.Telegram.BotToken != "" && settings.Channels.Telegram.ChatID != "" {
+		return true
+	}
+	return false
+}
+
+func (s *Service) runStacklabSelfHealthLoop(ctx context.Context) {
+	if err := s.pollStacklabServiceErrors(ctx); err != nil && s.logger != nil {
+		s.logger.Debug("stacklab self-health poll failed", slog.String("err", err.Error()))
+	}
+
+	ticker := time.NewTicker(s.pollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := s.pollStacklabServiceErrors(ctx); err != nil && s.logger != nil {
+				s.logger.Debug("stacklab self-health poll failed", slog.String("err", err.Error()))
+			}
+		}
+	}
+}
+
+func (s *Service) pollStacklabServiceErrors(ctx context.Context) error {
+	if s.stacklabLogs == nil {
+		return nil
+	}
+
+	state, err := s.loadStacklabJournalState(ctx)
+	if err != nil {
+		return err
+	}
+
+	if state.Cursor == "" {
+		latest, err := s.stacklabLogs.StacklabLogs(ctx, hostinfo.LogsQuery{Limit: 1})
+		if err != nil {
+			if errors.Is(err, hostinfo.ErrLogsUnavailable) {
+				return nil
+			}
+			return err
+		}
+		if len(latest.Items) == 0 {
+			return nil
+		}
+		state.Cursor = latest.Items[len(latest.Items)-1].Cursor
+		return s.saveStacklabJournalState(ctx, state)
+	}
+
+	entries, nextCursor, err := s.fetchNewStacklabLogEntries(ctx, state.Cursor)
+	if err != nil {
+		if errors.Is(err, hostinfo.ErrLogsUnavailable) {
+			return nil
+		}
+		return err
+	}
+	if nextCursor != "" {
+		state.Cursor = nextCursor
+	}
+	if len(entries) == 0 {
+		return s.saveStacklabJournalState(ctx, state)
+	}
+
+	errorEntries := filterStacklabErrorEntries(entries)
+	if len(errorEntries) == 0 {
+		return s.saveStacklabJournalState(ctx, state)
+	}
+
+	settings, err := s.loadSettings(ctx)
+	if err != nil {
+		return err
+	}
+	if !settings.Events.StacklabServiceError {
+		return s.saveStacklabJournalState(ctx, state)
+	}
+	if !hasConfiguredNotificationChannel(settings) {
+		return s.saveStacklabJournalState(ctx, state)
+	}
+
+	fingerprint := stacklabErrorFingerprint(errorEntries)
+	now := s.now()
+	if state.LastFingerprint == fingerprint && !state.LastNotifiedAt.IsZero() && now.Sub(state.LastNotifiedAt) < s.alertCooldown {
+		return s.saveStacklabJournalState(ctx, state)
+	}
+
+	payload := buildStacklabServiceErrorPayload(errorEntries, nextCursor, int(s.alertCooldown.Seconds()), now)
+	if err := s.dispatchPayload(ctx, settings, payload); err != nil && s.logger != nil {
+		s.logger.Warn("dispatch stacklab self-health notification failed", slog.String("err", err.Error()))
+	}
+
+	state.LastFingerprint = fingerprint
+	state.LastNotifiedAt = now
+	return s.saveStacklabJournalState(ctx, state)
+}
+
+func (s *Service) fetchNewStacklabLogEntries(ctx context.Context, cursor string) ([]hostinfo.StacklabLogEntry, string, error) {
+	currentCursor := cursor
+	entries := make([]hostinfo.StacklabLogEntry, 0)
+
+	for range stacklabJournalMaxBatchFetch {
+		response, err := s.stacklabLogs.StacklabLogs(ctx, hostinfo.LogsQuery{
+			Limit:  stacklabJournalPollLimit,
+			Cursor: currentCursor,
+		})
+		if err != nil {
+			return nil, currentCursor, err
+		}
+		if len(response.Items) == 0 {
+			break
+		}
+		entries = append(entries, response.Items...)
+		currentCursor = response.Items[len(response.Items)-1].Cursor
+		if !response.HasMore {
+			break
+		}
+	}
+
+	return entries, currentCursor, nil
+}
+
+func filterStacklabErrorEntries(entries []hostinfo.StacklabLogEntry) []hostinfo.StacklabLogEntry {
+	filtered := make([]hostinfo.StacklabLogEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Level == "error" {
+			filtered = append(filtered, entry)
+		}
+	}
+	return filtered
+}
+
+func stacklabErrorFingerprint(entries []hostinfo.StacklabLogEntry) string {
+	counts := map[string]int{}
+	for _, entry := range entries {
+		message := normalizeStacklabErrorMessage(entry.Message)
+		if message == "" {
+			continue
+		}
+		counts[message]++
+	}
+	keys := make([]string, 0, len(counts))
+	for message, count := range counts {
+		keys = append(keys, fmt.Sprintf("%s#%d", message, count))
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, "|")
+}
+
+func normalizeStacklabErrorMessage(message string) string {
+	normalized := strings.TrimSpace(strings.ToLower(message))
+	normalized = strings.Join(strings.Fields(normalized), " ")
+	return normalized
+}
+
+func buildStacklabServiceErrorPayload(entries []hostinfo.StacklabLogEntry, nextCursor string, cooldownSeconds int, sentAt time.Time) WebhookPayload {
+	samples := summarizeStacklabErrorMessages(entries)
+	firstTimestamp := entries[0].Timestamp
+	lastTimestamp := entries[len(entries)-1].Timestamp
+	return WebhookPayload{
+		Event:   "stacklab_service_error",
+		SentAt:  sentAt,
+		Source:  "stacklab",
+		Summary: fmt.Sprintf("Stacklab service logged %d new errors", len(entries)),
+		StacklabService: &StacklabServiceAlert{
+			EntryCount:      len(entries),
+			FirstTimestamp:  firstTimestamp,
+			LastTimestamp:   lastTimestamp,
+			SampleMessages:  samples,
+			LatestCursor:    nextCursor,
+			CooldownSeconds: cooldownSeconds,
+		},
+	}
+}
+
+func summarizeStacklabErrorMessages(entries []hostinfo.StacklabLogEntry) []string {
+	counts := map[string]int{}
+	for _, entry := range entries {
+		message := strings.TrimSpace(entry.Message)
+		if message == "" {
+			continue
+		}
+		counts[message]++
+	}
+	type messageCount struct {
+		message string
+		count   int
+	}
+	summary := make([]messageCount, 0, len(counts))
+	for message, count := range counts {
+		summary = append(summary, messageCount{message: message, count: count})
+	}
+	sort.Slice(summary, func(i, j int) bool {
+		if summary[i].count == summary[j].count {
+			return summary[i].message < summary[j].message
+		}
+		return summary[i].count > summary[j].count
+	})
+	limit := 3
+	if len(summary) < limit {
+		limit = len(summary)
+	}
+	out := make([]string, 0, limit)
+	for _, item := range summary[:limit] {
+		if item.count > 1 {
+			out = append(out, fmt.Sprintf("%s (x%d)", item.message, item.count))
+			continue
+		}
+		out = append(out, item.message)
+	}
+	return out
+}
+
+func (s *Service) loadStacklabJournalState(ctx context.Context) (stacklabJournalState, error) {
+	raw, ok, err := s.store.AppSetting(ctx, stacklabJournalStateKey)
+	if err != nil {
+		return stacklabJournalState{}, err
+	}
+	if !ok {
+		return stacklabJournalState{}, nil
+	}
+	var state stacklabJournalState
+	if err := json.Unmarshal([]byte(raw), &state); err != nil {
+		return stacklabJournalState{}, fmt.Errorf("parse stacklab journal state: %w", err)
+	}
+	return state, nil
+}
+
+func (s *Service) saveStacklabJournalState(ctx context.Context, state stacklabJournalState) error {
+	payload, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("marshal stacklab journal state: %w", err)
+	}
+	return s.store.SetAppSetting(ctx, stacklabJournalStateKey, string(payload), s.now())
 }

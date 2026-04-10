@@ -10,6 +10,7 @@ import (
 	"stacklab/internal/audit"
 	"stacklab/internal/auth"
 	"stacklab/internal/config"
+	"stacklab/internal/hostinfo"
 	"stacklab/internal/httpapi"
 	"stacklab/internal/jobs"
 	"stacklab/internal/notifications"
@@ -41,6 +42,7 @@ func main() {
 	jobService := jobs.NewService(authStore)
 	notificationService := notifications.NewService(authStore, logger)
 	notificationService.SetStackInspector(stacks.NewServiceReader(cfg, logger))
+	notificationService.SetStacklabLogReader(hostinfo.NewService(cfg, time.Now().UTC()))
 	jobService.SetTerminalHook(notificationService.DispatchJobAsync)
 	if err := authService.Bootstrap(context.Background()); err != nil {
 		if errors.Is(err, auth.ErrNotConfigured) {
@@ -75,6 +77,7 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	notificationService.StartBackground(ctx)
 
 	go func() {
 		<-ctx.Done()

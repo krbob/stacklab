@@ -1883,7 +1883,8 @@ Response:
     "job_failed": true,
     "job_succeeded_with_warnings": true,
     "maintenance_succeeded": false,
-    "post_update_recovery_failed": false
+    "post_update_recovery_failed": false,
+    "stacklab_service_error": false
   },
   "channels": {
     "webhook": {
@@ -1910,6 +1911,7 @@ Notes:
   - notify on successful jobs with warnings
   - do not notify on successful maintenance by default
   - do not notify on post-update recovery failures by default until the UI exposes it
+  - do not notify on Stacklab self-health errors by default until the UI exposes it
 
 ## `PUT /api/settings/notifications`
 
@@ -1927,7 +1929,8 @@ Request:
     "job_failed": true,
     "job_succeeded_with_warnings": true,
     "maintenance_succeeded": true,
-    "post_update_recovery_failed": true
+    "post_update_recovery_failed": true,
+    "stacklab_service_error": true
   },
   "channels": {
     "webhook": {
@@ -1954,7 +1957,8 @@ Response:
     "job_failed": true,
     "job_succeeded_with_warnings": true,
     "maintenance_succeeded": true,
-    "post_update_recovery_failed": true
+    "post_update_recovery_failed": true,
+    "stacklab_service_error": true
   },
   "channels": {
     "webhook": {
@@ -1998,7 +2002,8 @@ Request:
     "job_failed": true,
     "job_succeeded_with_warnings": true,
     "maintenance_succeeded": false,
-    "post_update_recovery_failed": false
+    "post_update_recovery_failed": false,
+    "stacklab_service_error": false
   },
   "channels": {
     "telegram": {

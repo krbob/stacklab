@@ -2366,6 +2366,8 @@ components:
           type: boolean
         post_update_recovery_failed:
           type: boolean
+        stacklab_service_error:
+          type: boolean
       required: [job_failed, job_succeeded_with_warnings, maintenance_succeeded]
     NotificationWebhookChannel:
       type: object

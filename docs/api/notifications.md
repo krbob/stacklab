@@ -18,6 +18,7 @@ Current event toggles:
 - `job_succeeded_with_warnings`
 - `maintenance_succeeded`
 - `post_update_recovery_failed`
+- `stacklab_service_error`
 
 Supported terminal events:
 
@@ -25,6 +26,7 @@ Supported terminal events:
 - `job_succeeded_with_warnings`
 - `maintenance_succeeded`
 - `post_update_recovery_failed`
+- `stacklab_service_error`
 - `test_notification`
 
 Current channels:
@@ -124,6 +126,32 @@ Payload extension for post-update failures:
         "reason": "stack_not_healthy_after_update"
       }
     ]
+  }
+}
+```
+
+Stacklab self-health errors:
+
+- sourced from `journalctl -u stacklab`
+- detected in the background with a persisted cursor
+- older journal entries are ignored on first startup so Stacklab does not page historical errors immediately
+- delivery is deduplicated for a cooldown window so repeated identical bursts do not spam the operator
+
+Payload extension for Stacklab self-health errors:
+
+```json
+{
+  "event": "stacklab_service_error",
+  "summary": "Stacklab service logged 2 new errors",
+  "stacklab_service": {
+    "entry_count": 2,
+    "first_timestamp": "2026-04-10T08:14:00Z",
+    "last_timestamp": "2026-04-10T08:14:05Z",
+    "sample_messages": [
+      "failed to bind socket (x2)"
+    ],
+    "latest_cursor": "s=cursor-4",
+    "cooldown_seconds": 900
   }
 }
 ```

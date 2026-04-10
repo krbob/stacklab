@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"stacklab/internal/hostinfo"
 	"stacklab/internal/stacks"
 	"stacklab/internal/store"
 )
@@ -102,6 +103,175 @@ func TestServiceGetUpdateAndDispatchJob(t *testing.T) {
 	}
 	if !testResult.Sent || testResult.Channel != "webhook" || len(sent) != 2 || sent[1].Event != "test_notification" {
 		t.Fatalf("unexpected test payload sequence: %#v", sent)
+	}
+}
+
+func TestPollStacklabServiceErrorsPrimesCursorWithoutSending(t *testing.T) {
+	t.Parallel()
+
+	testStore := openNotificationTestStore(t)
+	service := NewService(testStore, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	service.SetStacklabLogReader(&fakeStacklabLogReader{
+		responses: []hostinfo.StacklabLogsResponse{
+			{
+				Items: []hostinfo.StacklabLogEntry{
+					{Cursor: "s=cursor-1", Level: "info", Message: "started", Timestamp: time.Date(2026, 4, 10, 8, 0, 0, 0, time.UTC)},
+				},
+			},
+		},
+	})
+
+	sent := 0
+	service.sendWebhook = func(_ context.Context, _ string, _ WebhookPayload) error {
+		sent++
+		return nil
+	}
+
+	if err := service.pollStacklabServiceErrors(context.Background()); err != nil {
+		t.Fatalf("pollStacklabServiceErrors() error = %v", err)
+	}
+	if sent != 0 {
+		t.Fatalf("sent = %d, want 0", sent)
+	}
+
+	state, err := service.loadStacklabJournalState(context.Background())
+	if err != nil {
+		t.Fatalf("loadStacklabJournalState() error = %v", err)
+	}
+	if state.Cursor != "s=cursor-1" {
+		t.Fatalf("state.Cursor = %q, want %q", state.Cursor, "s=cursor-1")
+	}
+}
+
+func TestPollStacklabServiceErrorsSendsAlert(t *testing.T) {
+	t.Parallel()
+
+	testStore := openNotificationTestStore(t)
+	service := NewService(testStore, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	service.now = func() time.Time {
+		return time.Date(2026, 4, 10, 8, 15, 0, 0, time.UTC)
+	}
+	service.SetStacklabLogReader(&fakeStacklabLogReader{
+		responses: []hostinfo.StacklabLogsResponse{
+			{
+				Items: []hostinfo.StacklabLogEntry{
+					{Cursor: "s=cursor-2", Level: "error", Message: "failed to bind socket", Timestamp: time.Date(2026, 4, 10, 8, 14, 0, 0, time.UTC)},
+					{Cursor: "s=cursor-3", Level: "error", Message: "failed to bind socket", Timestamp: time.Date(2026, 4, 10, 8, 14, 5, 0, time.UTC)},
+					{Cursor: "s=cursor-4", Level: "info", Message: "retrying", Timestamp: time.Date(2026, 4, 10, 8, 14, 6, 0, time.UTC)},
+				},
+			},
+		},
+	})
+
+	_, err := service.UpdateSettings(context.Background(), UpdateSettingsRequest{
+		Channels: &ChannelsRequest{
+			Webhook: &WebhookRequest{
+				Enabled: true,
+				URL:     "https://hooks.example.test/stacklab",
+			},
+		},
+		Events: EventToggles{
+			JobFailed:                true,
+			JobSucceededWithWarnings: true,
+			MaintenanceSucceeded:     false,
+			PostUpdateRecoveryFailed: false,
+			StacklabServiceError:     true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateSettings() error = %v", err)
+	}
+
+	if err := service.saveStacklabJournalState(context.Background(), stacklabJournalState{Cursor: "s=cursor-1"}); err != nil {
+		t.Fatalf("saveStacklabJournalState() error = %v", err)
+	}
+
+	var sent []WebhookPayload
+	service.sendWebhook = func(_ context.Context, _ string, payload WebhookPayload) error {
+		sent = append(sent, payload)
+		return nil
+	}
+
+	if err := service.pollStacklabServiceErrors(context.Background()); err != nil {
+		t.Fatalf("pollStacklabServiceErrors() error = %v", err)
+	}
+	if len(sent) != 1 {
+		t.Fatalf("sent = %d, want 1", len(sent))
+	}
+	if sent[0].Event != "stacklab_service_error" || sent[0].StacklabService == nil || sent[0].StacklabService.EntryCount != 2 {
+		t.Fatalf("unexpected payload: %#v", sent[0])
+	}
+	if len(sent[0].StacklabService.SampleMessages) == 0 || sent[0].StacklabService.SampleMessages[0] != "failed to bind socket (x2)" {
+		t.Fatalf("unexpected sample messages: %#v", sent[0].StacklabService.SampleMessages)
+	}
+
+	state, err := service.loadStacklabJournalState(context.Background())
+	if err != nil {
+		t.Fatalf("loadStacklabJournalState() error = %v", err)
+	}
+	if state.Cursor != "s=cursor-4" {
+		t.Fatalf("state.Cursor = %q, want %q", state.Cursor, "s=cursor-4")
+	}
+	if state.LastFingerprint == "" || state.LastNotifiedAt.IsZero() {
+		t.Fatalf("unexpected state after alert: %#v", state)
+	}
+}
+
+func TestPollStacklabServiceErrorsDedupesDuringCooldown(t *testing.T) {
+	t.Parallel()
+
+	testStore := openNotificationTestStore(t)
+	service := NewService(testStore, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	now := time.Date(2026, 4, 10, 8, 15, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	entries := []hostinfo.StacklabLogEntry{
+		{Cursor: "s=cursor-2", Level: "error", Message: "failed to bind socket", Timestamp: time.Date(2026, 4, 10, 8, 14, 0, 0, time.UTC)},
+		{Cursor: "s=cursor-3", Level: "error", Message: "failed to bind socket", Timestamp: time.Date(2026, 4, 10, 8, 14, 5, 0, time.UTC)},
+	}
+	service.SetStacklabLogReader(&fakeStacklabLogReader{
+		responses: []hostinfo.StacklabLogsResponse{
+			{Items: entries},
+		},
+	})
+
+	_, err := service.UpdateSettings(context.Background(), UpdateSettingsRequest{
+		Channels: &ChannelsRequest{
+			Webhook: &WebhookRequest{
+				Enabled: true,
+				URL:     "https://hooks.example.test/stacklab",
+			},
+		},
+		Events: EventToggles{
+			JobFailed:                true,
+			JobSucceededWithWarnings: true,
+			MaintenanceSucceeded:     false,
+			PostUpdateRecoveryFailed: false,
+			StacklabServiceError:     true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateSettings() error = %v", err)
+	}
+
+	if err := service.saveStacklabJournalState(context.Background(), stacklabJournalState{
+		Cursor:          "s=cursor-1",
+		LastFingerprint: stacklabErrorFingerprint(entries),
+		LastNotifiedAt:  now.Add(-5 * time.Minute),
+	}); err != nil {
+		t.Fatalf("saveStacklabJournalState() error = %v", err)
+	}
+
+	sent := 0
+	service.sendWebhook = func(_ context.Context, _ string, _ WebhookPayload) error {
+		sent++
+		return nil
+	}
+
+	if err := service.pollStacklabServiceErrors(context.Background()); err != nil {
+		t.Fatalf("pollStacklabServiceErrors() error = %v", err)
+	}
+	if sent != 0 {
+		t.Fatalf("sent = %d, want 0", sent)
 	}
 }
 
@@ -331,4 +501,25 @@ func (f fakeStackInspector) Get(_ context.Context, stackID string) (stacks.Stack
 		return item, nil
 	}
 	return stacks.StackDetailResponse{}, stacks.ErrNotFound
+}
+
+type fakeStacklabLogReader struct {
+	responses []hostinfo.StacklabLogsResponse
+	errors    []error
+	calls     int
+}
+
+func (f *fakeStacklabLogReader) StacklabLogs(_ context.Context, _ hostinfo.LogsQuery) (hostinfo.StacklabLogsResponse, error) {
+	if f.calls < len(f.errors) && f.errors[f.calls] != nil {
+		err := f.errors[f.calls]
+		f.calls++
+		return hostinfo.StacklabLogsResponse{}, err
+	}
+	if f.calls < len(f.responses) {
+		response := f.responses[f.calls]
+		f.calls++
+		return response, nil
+	}
+	f.calls++
+	return hostinfo.StacklabLogsResponse{}, nil
 }
