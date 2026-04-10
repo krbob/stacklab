@@ -87,3 +87,16 @@ Follow-up after this slice:
 - intent:
   - notify when Stacklab itself starts logging new `error` / `fatal` entries
 - this should be a later checkbox under a separate “Stacklab” or “Self-health” grouping, not mixed silently into the current v2 UI
+
+Next follow-up after Stacklab self-health:
+
+- `runtime_health_degraded`
+- source:
+  - current runtime state of managed stacks
+- first triggers:
+  - one or more containers become `unhealthy`
+  - one or more containers enter `restarting`
+- preferred UI grouping:
+  - separate “Runtime” or “Stacks” subsection under events
+- preferred operator copy:
+  - “A stack becomes unhealthy or enters a restart loop”

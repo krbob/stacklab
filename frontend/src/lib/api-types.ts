@@ -80,6 +80,7 @@ export interface NotificationEventToggles {
   maintenance_succeeded: boolean
   post_update_recovery_failed?: boolean
   stacklab_service_error?: boolean
+  runtime_health_degraded?: boolean
 }
 
 export interface NotificationWebhookChannel {

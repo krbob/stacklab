@@ -19,14 +19,16 @@ Current event toggles:
 - `maintenance_succeeded`
 - `post_update_recovery_failed`
 - `stacklab_service_error`
+- `runtime_health_degraded`
 
-Supported terminal events:
+Supported event types:
 
 - `job_failed`
 - `job_succeeded_with_warnings`
 - `maintenance_succeeded`
 - `post_update_recovery_failed`
 - `stacklab_service_error`
+- `runtime_health_degraded`
 - `test_notification`
 
 Current channels:
@@ -152,6 +154,51 @@ Payload extension for Stacklab self-health errors:
     ],
     "latest_cursor": "s=cursor-4",
     "cooldown_seconds": 900
+  }
+}
+```
+
+Runtime health degradation:
+
+- sourced from the current runtime state of managed stacks
+- detected in the background with a persisted baseline fingerprint
+- the first observed degraded state is treated as baseline and does not immediately page the operator
+- repeated identical degradations are deduplicated for a cooldown window
+
+Current triggers:
+
+- one or more containers report `unhealthy`
+- one or more containers are in `restarting`
+
+Payload extension for runtime health degradation:
+
+```json
+{
+  "event": "runtime_health_degraded",
+  "summary": "2 stack(s) became unhealthy",
+  "runtime_health": {
+    "affected_stacks": [
+      {
+        "stack_id": "demo",
+        "runtime_state": "error",
+        "display_state": "error",
+        "unhealthy_container_count": 1,
+        "restarting_container_count": 0,
+        "running_container_count": 1,
+        "total_container_count": 1,
+        "reasons": ["unhealthy_containers"]
+      },
+      {
+        "stack_id": "worker",
+        "runtime_state": "error",
+        "display_state": "error",
+        "unhealthy_container_count": 0,
+        "restarting_container_count": 1,
+        "running_container_count": 0,
+        "total_container_count": 1,
+        "reasons": ["restart_loop"]
+      }
+    ]
   }
 }
 ```

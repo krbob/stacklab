@@ -22,6 +22,7 @@ const (
 	settingsKey                  = "notifications_v2"
 	legacySettingsKey            = "notifications_webhook_v1"
 	stacklabJournalStateKey      = "notifications_stacklab_journal_state_v1"
+	runtimeHealthStateKey        = "notifications_runtime_health_state_v1"
 	stacklabJournalPollLimit     = 200
 	stacklabJournalMaxBatchFetch = 5
 )
@@ -35,6 +36,7 @@ type Store interface {
 }
 
 type StackInspector interface {
+	List(ctx context.Context, query stacks.ListQuery) (stacks.StackListResponse, error)
 	Get(ctx context.Context, stackID string) (stacks.StackDetailResponse, error)
 }
 
@@ -51,6 +53,7 @@ type EventToggles struct {
 	MaintenanceSucceeded     bool `json:"maintenance_succeeded"`
 	PostUpdateRecoveryFailed bool `json:"post_update_recovery_failed"`
 	StacklabServiceError     bool `json:"stacklab_service_error"`
+	RuntimeHealthDegraded    bool `json:"runtime_health_degraded"`
 }
 
 type Settings struct {
@@ -147,6 +150,7 @@ type WebhookPayload struct {
 	WarningCount    int                   `json:"warning_count,omitempty"`
 	PostUpdate      *PostUpdateSummary    `json:"post_update,omitempty"`
 	StacklabService *StacklabServiceAlert `json:"stacklab_service,omitempty"`
+	RuntimeHealth   *RuntimeHealthSummary `json:"runtime_health,omitempty"`
 }
 
 type WebhookJob struct {
@@ -189,6 +193,26 @@ type stacklabJournalState struct {
 	Cursor          string    `json:"cursor"`
 	LastFingerprint string    `json:"last_fingerprint,omitempty"`
 	LastNotifiedAt  time.Time `json:"last_notified_at,omitempty"`
+}
+
+type runtimeHealthState struct {
+	Fingerprint    string    `json:"fingerprint,omitempty"`
+	LastNotifiedAt time.Time `json:"last_notified_at,omitempty"`
+}
+
+type RuntimeHealthSummary struct {
+	AffectedStacks []RuntimeHealthFailure `json:"affected_stacks"`
+}
+
+type RuntimeHealthFailure struct {
+	StackID                  string   `json:"stack_id"`
+	RuntimeState             string   `json:"runtime_state,omitempty"`
+	DisplayState             string   `json:"display_state,omitempty"`
+	UnhealthyContainerCount  int      `json:"unhealthy_container_count,omitempty"`
+	RestartingContainerCount int      `json:"restarting_container_count,omitempty"`
+	RunningContainerCount    int      `json:"running_container_count,omitempty"`
+	TotalContainerCount      int      `json:"total_container_count,omitempty"`
+	Reasons                  []string `json:"reasons,omitempty"`
 }
 
 type Service struct {
@@ -507,6 +531,7 @@ func defaultSettings() Settings {
 			MaintenanceSucceeded:     false,
 			PostUpdateRecoveryFailed: false,
 			StacklabServiceError:     false,
+			RuntimeHealthDegraded:    false,
 		},
 		Channels: Channels{
 			Webhook: WebhookSettings{
@@ -596,6 +621,8 @@ func buildSummary(eventType string, job store.Job, warningCount int) string {
 		return "Stacklab post-update recovery failed: " + target
 	case "stacklab_service_error":
 		return "Stacklab service logged new errors"
+	case "runtime_health_degraded":
+		return "One or more stacks became unhealthy"
 	default:
 		return "Stacklab notification"
 	}
@@ -735,6 +762,16 @@ func buildTelegramText(payload WebhookPayload) string {
 			}
 		}
 	}
+	if payload.RuntimeHealth != nil && len(payload.RuntimeHealth.AffectedStacks) > 0 {
+		lines = append(lines, "Affected stacks:")
+		for _, affected := range payload.RuntimeHealth.AffectedStacks {
+			reason := strings.Join(affected.Reasons, ", ")
+			if reason == "" {
+				reason = affected.RuntimeState
+			}
+			lines = append(lines, fmt.Sprintf("- %s (%s)", affected.StackID, reason))
+		}
+	}
 	return strings.Join(lines, "\n")
 }
 
@@ -752,6 +789,9 @@ func (s *Service) runStacklabSelfHealthLoop(ctx context.Context) {
 	if err := s.pollStacklabServiceErrors(ctx); err != nil && s.logger != nil {
 		s.logger.Debug("stacklab self-health poll failed", slog.String("err", err.Error()))
 	}
+	if err := s.pollRuntimeHealthAlerts(ctx); err != nil && s.logger != nil {
+		s.logger.Debug("runtime health poll failed", slog.String("err", err.Error()))
+	}
 
 	ticker := time.NewTicker(s.pollInterval)
 	defer ticker.Stop()
@@ -763,6 +803,9 @@ func (s *Service) runStacklabSelfHealthLoop(ctx context.Context) {
 		case <-ticker.C:
 			if err := s.pollStacklabServiceErrors(ctx); err != nil && s.logger != nil {
 				s.logger.Debug("stacklab self-health poll failed", slog.String("err", err.Error()))
+			}
+			if err := s.pollRuntimeHealthAlerts(ctx); err != nil && s.logger != nil {
+				s.logger.Debug("runtime health poll failed", slog.String("err", err.Error()))
 			}
 		}
 	}
@@ -976,4 +1019,154 @@ func (s *Service) saveStacklabJournalState(ctx context.Context, state stacklabJo
 		return fmt.Errorf("marshal stacklab journal state: %w", err)
 	}
 	return s.store.SetAppSetting(ctx, stacklabJournalStateKey, string(payload), s.now())
+}
+
+func (s *Service) pollRuntimeHealthAlerts(ctx context.Context) error {
+	if s.stackInspector == nil {
+		return nil
+	}
+
+	current, err := s.inspectRuntimeHealth(ctx)
+	if err != nil {
+		return err
+	}
+
+	state, err := s.loadRuntimeHealthState(ctx)
+	if err != nil {
+		return err
+	}
+
+	fingerprint := runtimeHealthFingerprint(current)
+	if fingerprint == "" {
+		if state.Fingerprint == "" && state.LastNotifiedAt.IsZero() {
+			return nil
+		}
+		return s.saveRuntimeHealthState(ctx, runtimeHealthState{})
+	}
+
+	if state.Fingerprint == "" && state.LastNotifiedAt.IsZero() {
+		return s.saveRuntimeHealthState(ctx, runtimeHealthState{Fingerprint: fingerprint})
+	}
+
+	settings, err := s.loadSettings(ctx)
+	if err != nil {
+		return err
+	}
+	if !settings.Events.RuntimeHealthDegraded {
+		return s.saveRuntimeHealthState(ctx, runtimeHealthState{Fingerprint: fingerprint, LastNotifiedAt: state.LastNotifiedAt})
+	}
+	if !hasConfiguredNotificationChannel(settings) {
+		return s.saveRuntimeHealthState(ctx, runtimeHealthState{Fingerprint: fingerprint, LastNotifiedAt: state.LastNotifiedAt})
+	}
+
+	now := s.now()
+	if state.Fingerprint == fingerprint && !state.LastNotifiedAt.IsZero() && now.Sub(state.LastNotifiedAt) < s.alertCooldown {
+		return s.saveRuntimeHealthState(ctx, runtimeHealthState{Fingerprint: fingerprint, LastNotifiedAt: state.LastNotifiedAt})
+	}
+
+	payload := WebhookPayload{
+		Event:         "runtime_health_degraded",
+		SentAt:        now,
+		Source:        "stacklab",
+		Summary:       fmt.Sprintf("%d stack(s) became unhealthy", len(current)),
+		RuntimeHealth: &RuntimeHealthSummary{AffectedStacks: current},
+	}
+	if err := s.dispatchPayload(ctx, settings, payload); err != nil && s.logger != nil {
+		s.logger.Warn("dispatch runtime health notification failed", slog.String("err", err.Error()))
+	}
+
+	return s.saveRuntimeHealthState(ctx, runtimeHealthState{
+		Fingerprint:    fingerprint,
+		LastNotifiedAt: now,
+	})
+}
+
+func (s *Service) inspectRuntimeHealth(ctx context.Context) ([]RuntimeHealthFailure, error) {
+	list, err := s.stackInspector.List(ctx, stacks.ListQuery{})
+	if err != nil {
+		return nil, err
+	}
+
+	failures := make([]RuntimeHealthFailure, 0)
+	for _, item := range list.Items {
+		detail, err := s.stackInspector.Get(ctx, item.ID)
+		if err != nil {
+			continue
+		}
+
+		restartingCount := 0
+		runningCount := 0
+		for _, container := range detail.Stack.Containers {
+			if container.Status == "restarting" {
+				restartingCount++
+			}
+			if container.Status == "running" {
+				runningCount++
+			}
+		}
+
+		reasons := make([]string, 0, 2)
+		if detail.Stack.HealthSummary.UnhealthyContainerCount > 0 {
+			reasons = append(reasons, "unhealthy_containers")
+		}
+		if restartingCount > 0 {
+			reasons = append(reasons, "restart_loop")
+		}
+		if len(reasons) == 0 {
+			continue
+		}
+
+		failures = append(failures, RuntimeHealthFailure{
+			StackID:                  detail.Stack.ID,
+			RuntimeState:             string(detail.Stack.RuntimeState),
+			DisplayState:             string(detail.Stack.DisplayState),
+			UnhealthyContainerCount:  detail.Stack.HealthSummary.UnhealthyContainerCount,
+			RestartingContainerCount: restartingCount,
+			RunningContainerCount:    runningCount,
+			TotalContainerCount:      len(detail.Stack.Containers),
+			Reasons:                  reasons,
+		})
+	}
+
+	sort.Slice(failures, func(i, j int) bool {
+		return failures[i].StackID < failures[j].StackID
+	})
+	return failures, nil
+}
+
+func runtimeHealthFingerprint(failures []RuntimeHealthFailure) string {
+	if len(failures) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(failures))
+	for _, failure := range failures {
+		reasons := append([]string(nil), failure.Reasons...)
+		sort.Strings(reasons)
+		parts = append(parts, fmt.Sprintf("%s|%s|%d|%d", failure.StackID, strings.Join(reasons, ","), failure.UnhealthyContainerCount, failure.RestartingContainerCount))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ";")
+}
+
+func (s *Service) loadRuntimeHealthState(ctx context.Context) (runtimeHealthState, error) {
+	raw, ok, err := s.store.AppSetting(ctx, runtimeHealthStateKey)
+	if err != nil {
+		return runtimeHealthState{}, err
+	}
+	if !ok {
+		return runtimeHealthState{}, nil
+	}
+	var state runtimeHealthState
+	if err := json.Unmarshal([]byte(raw), &state); err != nil {
+		return runtimeHealthState{}, fmt.Errorf("parse runtime health state: %w", err)
+	}
+	return state, nil
+}
+
+func (s *Service) saveRuntimeHealthState(ctx context.Context, state runtimeHealthState) error {
+	payload, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("marshal runtime health state: %w", err)
+	}
+	return s.store.SetAppSetting(ctx, runtimeHealthStateKey, string(payload), s.now())
 }

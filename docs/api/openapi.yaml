@@ -2368,6 +2368,8 @@ components:
           type: boolean
         stacklab_service_error:
           type: boolean
+        runtime_health_degraded:
+          type: boolean
       required: [job_failed, job_succeeded_with_warnings, maintenance_succeeded]
     NotificationWebhookChannel:
       type: object

@@ -3,6 +3,7 @@ package notifications
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"testing"
@@ -32,7 +33,7 @@ func TestServiceGetUpdateAndDispatchJob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSettings() error = %v", err)
 	}
-	if settings.Enabled || !settings.Events.JobFailed || !settings.Events.JobSucceededWithWarnings || settings.Events.PostUpdateRecoveryFailed {
+	if settings.Enabled || !settings.Events.JobFailed || !settings.Events.JobSucceededWithWarnings || settings.Events.PostUpdateRecoveryFailed || settings.Events.RuntimeHealthDegraded {
 		t.Fatalf("unexpected default settings: %#v", settings)
 	}
 
@@ -275,6 +276,165 @@ func TestPollStacklabServiceErrorsDedupesDuringCooldown(t *testing.T) {
 	}
 }
 
+func TestPollRuntimeHealthAlertsPrimesBaselineWithoutSending(t *testing.T) {
+	t.Parallel()
+
+	testStore := openNotificationTestStore(t)
+	service := NewService(testStore, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	service.SetStackInspector(fakeStackInspector{
+		items: map[string]stacks.StackDetailResponse{
+			"demo": runtimeHealthStack("demo", 1, 0),
+		},
+	})
+
+	sent := 0
+	service.sendWebhook = func(_ context.Context, _ string, _ WebhookPayload) error {
+		sent++
+		return nil
+	}
+
+	if err := service.pollRuntimeHealthAlerts(context.Background()); err != nil {
+		t.Fatalf("pollRuntimeHealthAlerts() error = %v", err)
+	}
+	if sent != 0 {
+		t.Fatalf("sent = %d, want 0", sent)
+	}
+
+	state, err := service.loadRuntimeHealthState(context.Background())
+	if err != nil {
+		t.Fatalf("loadRuntimeHealthState() error = %v", err)
+	}
+	if state.Fingerprint == "" {
+		t.Fatalf("expected baseline fingerprint to be saved")
+	}
+}
+
+func TestPollRuntimeHealthAlertsSendsOnNewDegradation(t *testing.T) {
+	t.Parallel()
+
+	testStore := openNotificationTestStore(t)
+	service := NewService(testStore, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	now := time.Date(2026, 4, 10, 9, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	service.SetStackInspector(fakeStackInspector{
+		items: map[string]stacks.StackDetailResponse{
+			"demo":    runtimeHealthStack("demo", 1, 0),
+			"worker":  runtimeHealthStack("worker", 0, 1),
+			"healthy": runtimeHealthHealthyStack("healthy"),
+		},
+	})
+
+	_, err := service.UpdateSettings(context.Background(), UpdateSettingsRequest{
+		Channels: &ChannelsRequest{
+			Webhook: &WebhookRequest{
+				Enabled: true,
+				URL:     "https://hooks.example.test/stacklab",
+			},
+		},
+		Events: EventToggles{
+			JobFailed:                true,
+			JobSucceededWithWarnings: true,
+			MaintenanceSucceeded:     false,
+			PostUpdateRecoveryFailed: false,
+			StacklabServiceError:     false,
+			RuntimeHealthDegraded:    true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateSettings() error = %v", err)
+	}
+	if err := service.saveRuntimeHealthState(context.Background(), runtimeHealthState{Fingerprint: "healthy-baseline"}); err != nil {
+		t.Fatalf("saveRuntimeHealthState() error = %v", err)
+	}
+
+	var sent []WebhookPayload
+	service.sendWebhook = func(_ context.Context, _ string, payload WebhookPayload) error {
+		sent = append(sent, payload)
+		return nil
+	}
+
+	if err := service.pollRuntimeHealthAlerts(context.Background()); err != nil {
+		t.Fatalf("pollRuntimeHealthAlerts() error = %v", err)
+	}
+	if len(sent) != 1 {
+		t.Fatalf("sent = %d, want 1", len(sent))
+	}
+	if sent[0].Event != "runtime_health_degraded" || sent[0].RuntimeHealth == nil || len(sent[0].RuntimeHealth.AffectedStacks) != 2 {
+		t.Fatalf("unexpected payload: %#v", sent[0])
+	}
+
+	state, err := service.loadRuntimeHealthState(context.Background())
+	if err != nil {
+		t.Fatalf("loadRuntimeHealthState() error = %v", err)
+	}
+	if state.Fingerprint == "" || state.LastNotifiedAt.IsZero() {
+		t.Fatalf("unexpected runtime health state: %#v", state)
+	}
+}
+
+func TestPollRuntimeHealthAlertsDedupesDuringCooldown(t *testing.T) {
+	t.Parallel()
+
+	testStore := openNotificationTestStore(t)
+	service := NewService(testStore, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	now := time.Date(2026, 4, 10, 9, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	failures := []RuntimeHealthFailure{{
+		StackID:                  "demo",
+		RuntimeState:             string(stacks.RuntimeStateError),
+		DisplayState:             string(stacks.RuntimeStateError),
+		UnhealthyContainerCount:  1,
+		RestartingContainerCount: 0,
+		RunningContainerCount:    0,
+		TotalContainerCount:      1,
+		Reasons:                  []string{"unhealthy_containers"},
+	}}
+	service.SetStackInspector(fakeStackInspector{
+		items: map[string]stacks.StackDetailResponse{
+			"demo": runtimeHealthStack("demo", 1, 0),
+		},
+	})
+
+	_, err := service.UpdateSettings(context.Background(), UpdateSettingsRequest{
+		Channels: &ChannelsRequest{
+			Webhook: &WebhookRequest{
+				Enabled: true,
+				URL:     "https://hooks.example.test/stacklab",
+			},
+		},
+		Events: EventToggles{
+			JobFailed:                true,
+			JobSucceededWithWarnings: true,
+			MaintenanceSucceeded:     false,
+			PostUpdateRecoveryFailed: false,
+			StacklabServiceError:     false,
+			RuntimeHealthDegraded:    true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateSettings() error = %v", err)
+	}
+	if err := service.saveRuntimeHealthState(context.Background(), runtimeHealthState{
+		Fingerprint:    runtimeHealthFingerprint(failures),
+		LastNotifiedAt: now.Add(-5 * time.Minute),
+	}); err != nil {
+		t.Fatalf("saveRuntimeHealthState() error = %v", err)
+	}
+
+	sent := 0
+	service.sendWebhook = func(_ context.Context, _ string, _ WebhookPayload) error {
+		sent++
+		return nil
+	}
+
+	if err := service.pollRuntimeHealthAlerts(context.Background()); err != nil {
+		t.Fatalf("pollRuntimeHealthAlerts() error = %v", err)
+	}
+	if sent != 0 {
+		t.Fatalf("sent = %d, want 0", sent)
+	}
+}
+
 func TestValidateSettings(t *testing.T) {
 	t.Parallel()
 
@@ -496,11 +656,73 @@ type fakeStackInspector struct {
 	items map[string]stacks.StackDetailResponse
 }
 
+func (f fakeStackInspector) List(_ context.Context, _ stacks.ListQuery) (stacks.StackListResponse, error) {
+	items := make([]stacks.StackListItem, 0, len(f.items))
+	for _, item := range f.items {
+		items = append(items, stacks.StackListItem{
+			StackHeader: item.Stack.StackHeader,
+		})
+	}
+	return stacks.StackListResponse{Items: items}, nil
+}
+
 func (f fakeStackInspector) Get(_ context.Context, stackID string) (stacks.StackDetailResponse, error) {
 	if item, ok := f.items[stackID]; ok {
 		return item, nil
 	}
 	return stacks.StackDetailResponse{}, stacks.ErrNotFound
+}
+
+func runtimeHealthHealthyStack(stackID string) stacks.StackDetailResponse {
+	return stacks.StackDetailResponse{
+		Stack: stacks.StackDetail{
+			StackHeader: stacks.StackHeader{
+				ID:            stackID,
+				DisplayState:  stacks.RuntimeStateRunning,
+				RuntimeState:  stacks.RuntimeStateRunning,
+				HealthSummary: stacks.HealthSummary{},
+			},
+			Containers: []stacks.Container{
+				{ID: stackID + "-c1", Status: "running"},
+			},
+		},
+	}
+}
+
+func runtimeHealthStack(stackID string, unhealthyCount, restartingCount int) stacks.StackDetailResponse {
+	containers := make([]stacks.Container, 0, max(1, unhealthyCount+restartingCount))
+	for i := 0; i < unhealthyCount; i++ {
+		status := "running"
+		health := "unhealthy"
+		containers = append(containers, stacks.Container{
+			ID:           fmt.Sprintf("%s-u%d", stackID, i),
+			Status:       status,
+			HealthStatus: &health,
+		})
+	}
+	for i := 0; i < restartingCount; i++ {
+		containers = append(containers, stacks.Container{
+			ID:     fmt.Sprintf("%s-r%d", stackID, i),
+			Status: "restarting",
+		})
+	}
+	runtimeState := stacks.RuntimeStateRunning
+	if restartingCount > 0 {
+		runtimeState = stacks.RuntimeStateError
+	}
+	return stacks.StackDetailResponse{
+		Stack: stacks.StackDetail{
+			StackHeader: stacks.StackHeader{
+				ID:           stackID,
+				DisplayState: runtimeState,
+				RuntimeState: runtimeState,
+				HealthSummary: stacks.HealthSummary{
+					UnhealthyContainerCount: unhealthyCount,
+				},
+			},
+			Containers: containers,
+		},
+	}
 }
 
 type fakeStacklabLogReader struct {
