@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { getMeta, changePassword, getNotificationSettings, updateNotificationSettings, sendNotificationTest, getMaintenanceSchedules, updateMaintenanceSchedules } from '@/lib/api-client'
+import { getMeta, changePassword, getNotificationSettings, updateNotificationSettings, sendNotificationTest, getMaintenanceSchedules, updateMaintenanceSchedules, getStacks } from '@/lib/api-client'
 import { useJobDrawer } from '@/hooks/use-job-drawer'
-import type { MetaResponse, MaintenanceSchedulesResponse, ScheduleFrequency, ScheduleWeekday } from '@/lib/api-types'
+import type { MetaResponse, MaintenanceSchedulesResponse, ScheduleFrequency, ScheduleWeekday, StackListItem } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
 
 export function SettingsPage() {
@@ -346,6 +346,7 @@ function SchedulesSection() {
   const { openJob } = useJobDrawer()
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<MaintenanceSchedulesResponse | null>(null)
+  const [stackOptions, setStackOptions] = useState<StackListItem[]>([])
   const [savingSchedules, setSavingSchedules] = useState(false)
   const [saveResult, setSaveResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
@@ -355,6 +356,7 @@ function SchedulesSection() {
   const [updateTime, setUpdateTime] = useState('03:30')
   const [updateWeekdays, setUpdateWeekdays] = useState<ScheduleWeekday[]>(['sat'])
   const [updateTargetMode, setUpdateTargetMode] = useState<'all' | 'selected'>('all')
+  const [updateTargetStacks, setUpdateTargetStacks] = useState<string[]>([])
   const [updatePull, setUpdatePull] = useState(true)
   const [updateBuild, setUpdateBuild] = useState(true)
   const [updateOrphans, setUpdateOrphans] = useState(true)
@@ -372,33 +374,44 @@ function SchedulesSection() {
   const [pruneVolumes, setPruneVolumes] = useState(false)
 
   useEffect(() => {
-    getMaintenanceSchedules()
-      .then((s) => {
-        setData(s)
-        setUpdateEnabled(s.update.enabled)
-        setUpdateFreq(s.update.frequency)
-        setUpdateTime(s.update.time)
-        setUpdateWeekdays(s.update.weekdays ?? ['sat'])
-        setUpdateTargetMode(s.update.target.mode)
-        setUpdatePull(s.update.options.pull_images)
-        setUpdateBuild(s.update.options.build_images)
-        setUpdateOrphans(s.update.options.remove_orphans)
-        setUpdatePrune(s.update.options.prune_after)
-        setUpdatePruneVol(s.update.options.include_volumes)
-        setPruneEnabled(s.prune.enabled)
-        setPruneFreq(s.prune.frequency)
-        setPruneTime(s.prune.time)
-        setPruneWeekdays(s.prune.weekdays ?? ['sun'])
-        setPruneImages(s.prune.scope.images)
-        setPruneBuildCache(s.prune.scope.build_cache)
-        setPruneStopped(s.prune.scope.stopped_containers)
-        setPruneVolumes(s.prune.scope.volumes)
+    Promise.allSettled([getMaintenanceSchedules(), getStacks()])
+      .then(([schedulesResult, stacksResult]) => {
+        if (schedulesResult.status === 'fulfilled') {
+          const s = schedulesResult.value
+          setData(s)
+          setUpdateEnabled(s.update.enabled)
+          setUpdateFreq(s.update.frequency)
+          setUpdateTime(s.update.time)
+          setUpdateWeekdays(s.update.weekdays ?? ['sat'])
+          setUpdateTargetMode(s.update.target.mode)
+          setUpdateTargetStacks(s.update.target.stack_ids ?? [])
+          setUpdatePull(s.update.options.pull_images)
+          setUpdateBuild(s.update.options.build_images)
+          setUpdateOrphans(s.update.options.remove_orphans)
+          setUpdatePrune(s.update.options.prune_after)
+          setUpdatePruneVol(s.update.options.include_volumes)
+          setPruneEnabled(s.prune.enabled)
+          setPruneFreq(s.prune.frequency)
+          setPruneTime(s.prune.time)
+          setPruneWeekdays(s.prune.weekdays ?? ['sun'])
+          setPruneImages(s.prune.scope.images)
+          setPruneBuildCache(s.prune.scope.build_cache)
+          setPruneStopped(s.prune.scope.stopped_containers)
+          setPruneVolumes(s.prune.scope.volumes)
+        }
+        if (stacksResult.status === 'fulfilled') {
+          setStackOptions(stacksResult.value.items)
+        }
       })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
 
   const handleSave = useCallback(async () => {
+    if (updateTargetMode === 'selected' && updateTargetStacks.length === 0) {
+      setSaveResult({ type: 'error', text: 'Select at least one stack for scheduled updates' })
+      return
+    }
     setSavingSchedules(true)
     setSaveResult(null)
     try {
@@ -408,7 +421,10 @@ function SchedulesSection() {
           frequency: updateFreq,
           time: updateTime,
           weekdays: updateFreq === 'weekly' ? updateWeekdays : undefined,
-          target: { mode: updateTargetMode },
+          target: {
+            mode: updateTargetMode,
+            stack_ids: updateTargetMode === 'selected' ? updateTargetStacks : undefined,
+          },
           options: {
             pull_images: updatePull,
             build_images: updateBuild,
@@ -437,7 +453,7 @@ function SchedulesSection() {
     } finally {
       setSavingSchedules(false)
     }
-  }, [updateEnabled, updateFreq, updateTime, updateWeekdays, updateTargetMode, updatePull, updateBuild, updateOrphans, updatePrune, updatePruneVol, pruneEnabled, pruneFreq, pruneTime, pruneWeekdays, pruneImages, pruneBuildCache, pruneStopped, pruneVolumes])
+  }, [updateEnabled, updateFreq, updateTime, updateWeekdays, updateTargetMode, updateTargetStacks, updatePull, updateBuild, updateOrphans, updatePrune, updatePruneVol, pruneEnabled, pruneFreq, pruneTime, pruneWeekdays, pruneImages, pruneBuildCache, pruneStopped, pruneVolumes])
 
   if (loading) {
     return (
@@ -480,6 +496,36 @@ function SchedulesSection() {
               Selected stacks
             </label>
           </div>
+
+          {updateTargetMode === 'selected' && (
+            <div className="space-y-2 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-3">
+              {stackOptions.length > 0 ? (
+                <div className="space-y-1.5">
+                  {stackOptions.map((stack) => (
+                    <label key={stack.id} className="flex items-center justify-between gap-3 text-xs text-[var(--text)]">
+                      <span className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          aria-label={stack.id}
+                          checked={updateTargetStacks.includes(stack.id)}
+                          onChange={(e) => setUpdateTargetStacks((current) => (
+                            e.target.checked
+                              ? [...current, stack.id]
+                              : current.filter((id) => id !== stack.id)
+                          ))}
+                          className="rounded"
+                        />
+                        <span className="font-mono">{stack.id}</span>
+                      </span>
+                      <span className="text-[var(--muted)]">{stack.display_state}</span>
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-[var(--muted)]">No stacks available.</p>
+              )}
+            </div>
+          )}
 
           <div className="space-y-1 text-xs text-[var(--muted)]">
             <label className="flex items-center gap-2"><input type="checkbox" checked={updatePull} onChange={(e) => setUpdatePull(e.target.checked)} className="rounded" />Pull images</label>

@@ -7,6 +7,9 @@ const mockChangePassword = vi.fn();
 const mockGetNotificationSettings = vi.fn();
 const mockUpdateNotificationSettings = vi.fn();
 const mockSendNotificationTest = vi.fn();
+const mockGetMaintenanceSchedules = vi.fn();
+const mockUpdateMaintenanceSchedules = vi.fn();
+const mockGetStacks = vi.fn();
 
 vi.mock("@/lib/api-client", () => ({
   getMeta: () => mockGetMeta(),
@@ -16,12 +19,10 @@ vi.mock("@/lib/api-client", () => ({
     mockUpdateNotificationSettings(...args),
   sendNotificationTest: (...args: unknown[]) =>
     mockSendNotificationTest(...args),
-  getMaintenanceSchedules: () => Promise.resolve({
-    timezone: 'host_local',
-    update: { enabled: false, frequency: 'weekly', time: '03:30', weekdays: ['sat'], target: { mode: 'all' }, options: { pull_images: true, build_images: true, remove_orphans: true, prune_after: false, include_volumes: false }, status: {} },
-    prune: { enabled: false, frequency: 'weekly', time: '04:30', weekdays: ['sun'], scope: { images: true, build_cache: true, stopped_containers: true, volumes: false }, status: {} },
-  }),
-  updateMaintenanceSchedules: vi.fn(),
+  getMaintenanceSchedules: () => mockGetMaintenanceSchedules(),
+  updateMaintenanceSchedules: (...args: unknown[]) =>
+    mockUpdateMaintenanceSchedules(...args),
+  getStacks: (...args: unknown[]) => mockGetStacks(...args),
 }));
 
 vi.mock("@/hooks/use-job-drawer", () => ({
@@ -53,6 +54,34 @@ describe("SettingsPage", () => {
         post_update_recovery_failed: false,
         stacklab_service_error: false,
         runtime_health_degraded: false,
+      },
+    });
+    mockGetMaintenanceSchedules.mockResolvedValue({
+      timezone: 'host_local',
+      update: { enabled: false, frequency: 'weekly', time: '03:30', weekdays: ['sat'], target: { mode: 'all' }, options: { pull_images: true, build_images: true, remove_orphans: true, prune_after: false, include_volumes: false }, status: {} },
+      prune: { enabled: false, frequency: 'weekly', time: '04:30', weekdays: ['sun'], scope: { images: true, build_cache: true, stopped_containers: true, volumes: false }, status: {} },
+    });
+    mockUpdateMaintenanceSchedules.mockReset();
+    mockGetStacks.mockResolvedValue({
+      items: [
+        {
+          id: 'demo',
+          name: 'demo',
+          display_state: 'running',
+          runtime_state: 'running',
+          config_state: 'in_sync',
+          activity_state: 'idle',
+          health_summary: { healthy_container_count: 1, unhealthy_container_count: 0, unknown_health_container_count: 0 },
+          service_count: { defined: 1, running: 1 },
+          last_action: null,
+        },
+      ],
+      summary: {
+        stack_count: 1,
+        running_count: 1,
+        stopped_count: 0,
+        error_count: 0,
+        container_count: { running: 1, total: 1 },
       },
     });
   });
@@ -157,5 +186,57 @@ describe("SettingsPage", () => {
         }),
       );
     });
+  });
+
+  it("saves maintenance schedule with selected stacks", async () => {
+    mockUpdateMaintenanceSchedules.mockResolvedValue({
+      timezone: 'host_local',
+      update: {
+        enabled: true,
+        frequency: 'weekly',
+        time: '03:30',
+        weekdays: ['sat'],
+        target: { mode: 'selected', stack_ids: ['demo'] },
+        options: { pull_images: true, build_images: true, remove_orphans: true, prune_after: false, include_volumes: false },
+        status: {},
+      },
+      prune: {
+        enabled: false,
+        frequency: 'weekly',
+        time: '04:30',
+        weekdays: ['sun'],
+        scope: { images: true, build_cache: true, stopped_containers: true, volumes: false },
+        status: {},
+      },
+    });
+
+    render(<SettingsPage />);
+    await screen.findByText("Maintenance schedules");
+
+    fireEvent.click(screen.getByLabelText("Scheduled stack update"));
+    fireEvent.click(screen.getByLabelText("Selected stacks"));
+    fireEvent.click(screen.getByLabelText("demo"));
+    fireEvent.click(screen.getByText("Save schedules"));
+
+    await waitFor(() => {
+      expect(mockUpdateMaintenanceSchedules).toHaveBeenCalledWith(
+        expect.objectContaining({
+          update: expect.objectContaining({
+            target: { mode: 'selected', stack_ids: ['demo'] },
+          }),
+        }),
+      );
+    });
+  });
+
+  it("shows validation error when selected stacks is empty", async () => {
+    render(<SettingsPage />);
+    await screen.findByText("Maintenance schedules");
+
+    fireEvent.click(screen.getByLabelText("Selected stacks"));
+    fireEvent.click(screen.getByText("Save schedules"));
+
+    expect(await screen.findByText("Select at least one stack for scheduled updates")).toBeInTheDocument();
+    expect(mockUpdateMaintenanceSchedules).not.toHaveBeenCalled();
   });
 });
