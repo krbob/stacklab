@@ -141,6 +141,60 @@ export interface NotificationTestResponse {
   channel?: 'webhook' | 'telegram'
 }
 
+export type ScheduleFrequency = 'daily' | 'weekly'
+export type ScheduleWeekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
+
+export interface MaintenanceScheduleStatus {
+  next_run_at?: string
+  last_triggered_at?: string
+  last_scheduled_for?: string
+  last_result?: string
+  last_message?: string
+  last_job_id?: string
+}
+
+export interface MaintenanceUpdateScheduleConfig {
+  enabled: boolean
+  frequency: ScheduleFrequency
+  time: string
+  weekdays?: ScheduleWeekday[]
+  target: {
+    mode: 'selected' | 'all'
+    stack_ids?: string[]
+  }
+  options: {
+    pull_images: boolean
+    build_images: boolean
+    remove_orphans: boolean
+    prune_after: boolean
+    include_volumes: boolean
+  }
+}
+
+export interface MaintenancePruneScheduleConfig {
+  enabled: boolean
+  frequency: ScheduleFrequency
+  time: string
+  weekdays?: ScheduleWeekday[]
+  scope: {
+    images: boolean
+    build_cache: boolean
+    stopped_containers: boolean
+    volumes: boolean
+  }
+}
+
+export interface MaintenanceSchedulesResponse {
+  timezone: string
+  update: MaintenanceUpdateScheduleConfig & { status: MaintenanceScheduleStatus }
+  prune: MaintenancePruneScheduleConfig & { status: MaintenanceScheduleStatus }
+}
+
+export interface MaintenanceSchedulesUpdateRequest {
+  update: MaintenanceUpdateScheduleConfig
+  prune: MaintenancePruneScheduleConfig
+}
+
 export interface PortMapping {
   published: number
   target: number

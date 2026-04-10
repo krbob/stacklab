@@ -418,6 +418,22 @@ func (s *Service) RunPruneStep(ctx context.Context, action string) (string, erro
 	return trimmed, nil
 }
 
+func (s *Service) RunSystemPrune(ctx context.Context, includeVolumes bool) (string, error) {
+	args := []string{"system", "prune", "-af"}
+	if includeVolumes {
+		args = append(args, "--volumes")
+	}
+	output, err := s.runCommand(ctx, "docker", args...)
+	trimmed := strings.TrimSpace(string(output))
+	if err != nil {
+		if trimmed == "" {
+			trimmed = err.Error()
+		}
+		return trimmed, errors.New(trimmed)
+	}
+	return trimmed, nil
+}
+
 func (s *Service) networkByName(ctx context.Context, name string, managedStackIDs []string) (NetworkItem, error) {
 	networks, err := s.Networks(ctx, NetworksQuery{
 		Usage:           ImageUsageAll,

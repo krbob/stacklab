@@ -5,12 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"stacklab/internal/audit"
@@ -22,7 +20,9 @@ import (
 	"stacklab/internal/hostinfo"
 	"stacklab/internal/jobs"
 	"stacklab/internal/maintenance"
+	"stacklab/internal/maintenancejobs"
 	"stacklab/internal/notifications"
+	"stacklab/internal/scheduler"
 	"stacklab/internal/stacks"
 	"stacklab/internal/stackworkspace"
 	"stacklab/internal/store"
@@ -34,21 +34,23 @@ import (
 )
 
 type Handler struct {
-	cfg           config.Config
-	logger        *slog.Logger
-	mux           *http.ServeMux
-	auth          *auth.Service
-	audit         *audit.Service
-	jobs          *jobs.Service
-	terminals     *terminal.Service
-	stackReader   *stacks.ServiceReader
-	hostInfo      hostInfoReader
-	dockerAdmin   dockerAdminReader
-	configFiles   configWorkspaceReader
-	stackFiles    stackWorkspaceReader
-	gitStatus     gitWorkspaceReader
-	maintenance   maintenanceReader
-	notifications notificationsManager
+	cfg             config.Config
+	logger          *slog.Logger
+	mux             *http.ServeMux
+	auth            *auth.Service
+	audit           *audit.Service
+	jobs            *jobs.Service
+	terminals       *terminal.Service
+	stackReader     *stacks.ServiceReader
+	hostInfo        hostInfoReader
+	dockerAdmin     dockerAdminReader
+	configFiles     configWorkspaceReader
+	stackFiles      stackWorkspaceReader
+	gitStatus       gitWorkspaceReader
+	maintenance     maintenanceReader
+	maintenanceJobs *maintenancejobs.Service
+	notifications   notificationsManager
+	schedules       schedulerManager
 }
 
 type hostInfoReader interface {
@@ -102,7 +104,14 @@ type notificationsManager interface {
 	SendTest(ctx context.Context, request notifications.TestRequest) (notifications.TestResponse, error)
 }
 
-func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Service, auditService *audit.Service, jobService *jobs.Service, notificationsService notificationsManager) (http.Handler, error) {
+type schedulerManager interface {
+	GetSettings(ctx context.Context) (scheduler.SettingsResponse, error)
+	UpdateSettings(ctx context.Context, request scheduler.UpdateSettingsRequest) (scheduler.SettingsResponse, error)
+}
+
+func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Service, auditService *audit.Service, jobService *jobs.Service, notificationsService notificationsManager, scheduleService schedulerManager) (http.Handler, error) {
+	stackReader := stacks.NewServiceReader(cfg, logger)
+	maintenanceService := maintenance.NewService()
 	handler := &Handler{
 		cfg:           cfg,
 		logger:        logger,
@@ -126,13 +135,15 @@ func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Servic
 			result := "succeeded"
 			_ = auditService.RecordTerminalEvent(context.Background(), event.StackID, event.SessionID, event.ContainerID, "local", action, result, details)
 		}),
-		stackReader: stacks.NewServiceReader(cfg, logger),
-		hostInfo:    hostinfo.NewService(cfg, time.Now().UTC()),
-		dockerAdmin: dockeradmin.NewService(cfg),
-		configFiles: configworkspace.NewService(cfg),
-		stackFiles:  stackworkspace.NewService(cfg),
-		gitStatus:   gitworkspace.NewService(cfg),
-		maintenance: maintenance.NewService(),
+		stackReader:     stackReader,
+		hostInfo:        hostinfo.NewService(cfg, time.Now().UTC()),
+		dockerAdmin:     dockeradmin.NewService(cfg),
+		configFiles:     configworkspace.NewService(cfg),
+		stackFiles:      stackworkspace.NewService(cfg),
+		gitStatus:       gitworkspace.NewService(cfg),
+		maintenance:     maintenanceService,
+		maintenanceJobs: maintenancejobs.NewService(logger, jobService, auditService, stackReader, maintenanceService),
+		schedules:       scheduleService,
 	}
 
 	handler.registerRoutes()
@@ -191,6 +202,8 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/settings/notifications", h.withAuth(h.handleGetNotificationSettings))
 	h.mux.HandleFunc("PUT /api/settings/notifications", h.withAuth(h.handleUpdateNotificationSettings))
 	h.mux.HandleFunc("POST /api/settings/notifications/test", h.withAuth(h.handleSendNotificationTest))
+	h.mux.HandleFunc("GET /api/settings/maintenance-schedules", h.withAuth(h.handleGetMaintenanceSchedules))
+	h.mux.HandleFunc("PUT /api/settings/maintenance-schedules", h.withAuth(h.handleUpdateMaintenanceSchedules))
 	h.mux.HandleFunc("POST /api/settings/password", h.withAuth(h.handleUpdatePassword))
 	h.mux.HandleFunc("GET /api/jobs/{jobId}", h.withAuth(h.handleGetJob))
 	h.mux.HandleFunc("/api/", h.withAuth(h.handleAPINotImplemented))
@@ -791,98 +804,33 @@ func (h *Handler) handleUpdateStacksMaintenance(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	targetStackIDs, err := h.resolveMaintenanceTargetStacks(r.Context(), request.Target.Mode, request.Target.StackIDs)
+	job, err := h.maintenanceJobs.RunUpdate(r.Context(), maintenancejobs.UpdateRequest{
+		Target: maintenancejobs.UpdateTarget{
+			Mode:     request.Target.Mode,
+			StackIDs: request.Target.StackIDs,
+		},
+		Options: maintenancejobs.UpdateOptions{
+			PullImages:     options.PullImages,
+			BuildImages:    options.BuildImages,
+			RemoveOrphans:  options.RemoveOrphans,
+			PruneAfter:     options.PruneAfter,
+			IncludeVolumes: options.IncludeVolumes,
+		},
+		Trigger: "manual",
+	}, "local")
 	if err != nil {
 		switch {
 		case errors.Is(err, stacks.ErrNotFound):
 			writeError(w, http.StatusNotFound, "not_found", err.Error(), nil)
 		case errors.Is(err, stacks.ErrInvalidState):
 			writeError(w, http.StatusConflict, "invalid_state", err.Error(), nil)
-		default:
-			writeError(w, http.StatusBadRequest, "validation_failed", err.Error(), nil)
-		}
-		return
-	}
-
-	workflow, err := h.buildMaintenanceWorkflow(r.Context(), targetStackIDs, options)
-	if err != nil {
-		switch {
-		case errors.Is(err, stacks.ErrNotFound):
-			writeError(w, http.StatusNotFound, "not_found", err.Error(), nil)
-		case errors.Is(err, stacks.ErrInvalidState):
-			writeError(w, http.StatusConflict, "invalid_state", err.Error(), nil)
-		default:
-			h.logger.Error("build maintenance workflow failed", slog.String("err", err.Error()))
-			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to prepare maintenance workflow.", nil)
-		}
-		return
-	}
-
-	job, err := h.jobs.StartWithLocks(r.Context(), "", "update_stacks", "local", targetStackIDs)
-	if err != nil {
-		switch {
 		case errors.Is(err, jobs.ErrStackLocked):
 			writeError(w, http.StatusConflict, "stack_locked", "Another job is already mutating one of the selected stacks.", nil)
 		default:
-			h.logger.Error("start maintenance job failed", slog.String("err", err.Error()))
-			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create job.", nil)
+			h.logger.Error("run maintenance job failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusBadRequest, "validation_failed", err.Error(), nil)
 		}
 		return
-	}
-
-	if len(workflow) > 0 {
-		workflow = markWorkflowRunning(workflow, 0)
-		updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow)
-		if updateErr != nil {
-			h.logger.Error("update maintenance workflow failed", slog.String("job_id", job.ID), slog.String("err", updateErr.Error()))
-			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to initialize maintenance workflow.", nil)
-			return
-		}
-		job = updatedJob
-		_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", maintenanceStepMessage("Starting", workflow[0]), "", workflowStepRef(workflow, 0))
-	}
-
-	for index, step := range workflow {
-		output, runErr := h.runMaintenanceWorkflowStep(r.Context(), step, options)
-		if trimmed := strings.TrimSpace(output); trimmed != "" {
-			_ = h.jobs.PublishEvent(r.Context(), job, "job_log", maintenanceStepMessage("Output", step), trimmed, workflowStepRef(workflow, index))
-		}
-		if runErr != nil {
-			workflow = markWorkflowFailed(workflow, index)
-			if updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow); updateErr == nil {
-				job = updatedJob
-			}
-			job, _ = h.jobs.FinishFailed(r.Context(), job, "update_stacks_failed", runErr.Error())
-			if err := h.audit.RecordJob(r.Context(), job, maintenanceAuditDetails(request.Target.Mode, targetStackIDs, options)); err != nil {
-				h.logger.Warn("record maintenance audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
-			}
-			writeJSON(w, http.StatusOK, map[string]any{"job": job})
-			return
-		}
-
-		workflow = markWorkflowSucceeded(workflow, index)
-		_ = h.jobs.PublishEvent(r.Context(), job, "job_step_finished", maintenanceStepMessage("Finished", step), "", workflowStepRef(workflow, index))
-		if index+1 < len(workflow) {
-			workflow = markWorkflowRunning(workflow, index+1)
-			_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", maintenanceStepMessage("Starting", workflow[index+1]), "", workflowStepRef(workflow, index+1))
-		}
-		updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow)
-		if updateErr != nil {
-			h.logger.Error("update maintenance workflow progress failed", slog.String("job_id", job.ID), slog.String("err", updateErr.Error()))
-			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to update maintenance workflow.", nil)
-			return
-		}
-		job = updatedJob
-	}
-
-	job, err = h.jobs.FinishSucceeded(r.Context(), job)
-	if err != nil {
-		h.logger.Error("finish maintenance job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
-		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to finalize job.", nil)
-		return
-	}
-	if err := h.audit.RecordJob(r.Context(), job, maintenanceAuditDetails(request.Target.Mode, targetStackIDs, options)); err != nil {
-		h.logger.Warn("record maintenance audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"job": job})
@@ -1216,72 +1164,19 @@ func (h *Handler) handleMaintenancePrune(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	workflow := buildPruneWorkflow(request.Scope)
-	job, err := h.jobs.StartWithLocks(r.Context(), "", "prune", "local", lockStackIDs)
+	job, err := h.maintenanceJobs.RunPrune(r.Context(), maintenancejobs.PruneRequest{
+		Scope:   request.Scope,
+		Trigger: "manual",
+	}, "local", lockStackIDs)
 	if err != nil {
 		switch {
 		case errors.Is(err, jobs.ErrStackLocked):
 			writeError(w, http.StatusConflict, "conflict", "Another global or stack maintenance job is already running.", nil)
 		default:
-			h.logger.Error("start prune job failed", slog.String("err", err.Error()))
-			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create job.", nil)
+			h.logger.Error("run prune job failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusBadRequest, "validation_failed", err.Error(), nil)
 		}
 		return
-	}
-
-	if len(workflow) > 0 {
-		workflow = markWorkflowRunning(workflow, 0)
-		updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow)
-		if updateErr != nil {
-			h.logger.Error("initialize prune workflow failed", slog.String("job_id", job.ID), slog.String("err", updateErr.Error()))
-			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to initialize prune workflow.", nil)
-			return
-		}
-		job = updatedJob
-		_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", pruneStepMessage("Starting", workflow[0]), "", workflowStepRef(workflow, 0))
-	}
-
-	for index, step := range workflow {
-		output, runErr := h.maintenance.RunPruneStep(r.Context(), step.Action)
-		if trimmed := strings.TrimSpace(output); trimmed != "" {
-			_ = h.jobs.PublishEvent(r.Context(), job, "job_log", pruneStepMessage("Output", step), trimmed, workflowStepRef(workflow, index))
-		}
-		if runErr != nil {
-			workflow = markWorkflowFailed(workflow, index)
-			if updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow); updateErr == nil {
-				job = updatedJob
-			}
-			job, _ = h.jobs.FinishFailed(r.Context(), job, "prune_failed", runErr.Error())
-			if err := h.audit.RecordJob(r.Context(), job, pruneAuditDetails(request.Scope)); err != nil {
-				h.logger.Warn("record prune audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
-			}
-			writeJSON(w, http.StatusOK, map[string]any{"job": job})
-			return
-		}
-
-		workflow = markWorkflowSucceeded(workflow, index)
-		_ = h.jobs.PublishEvent(r.Context(), job, "job_step_finished", pruneStepMessage("Finished", step), "", workflowStepRef(workflow, index))
-		if index+1 < len(workflow) {
-			workflow = markWorkflowRunning(workflow, index+1)
-			_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", pruneStepMessage("Starting", workflow[index+1]), "", workflowStepRef(workflow, index+1))
-		}
-		updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow)
-		if updateErr != nil {
-			h.logger.Error("update prune workflow failed", slog.String("job_id", job.ID), slog.String("err", updateErr.Error()))
-			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to update prune workflow.", nil)
-			return
-		}
-		job = updatedJob
-	}
-
-	job, err = h.jobs.FinishSucceeded(r.Context(), job)
-	if err != nil {
-		h.logger.Error("finish prune job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
-		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to finalize job.", nil)
-		return
-	}
-	if err := h.audit.RecordJob(r.Context(), job, pruneAuditDetails(request.Scope)); err != nil {
-		h.logger.Warn("record prune audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"job": job})
@@ -2022,6 +1917,46 @@ func (h *Handler) handleSendNotificationTest(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, response)
 }
 
+func (h *Handler) handleGetMaintenanceSchedules(w http.ResponseWriter, r *http.Request) {
+	response, err := h.schedules.GetSettings(r.Context())
+	if err != nil {
+		h.logger.Error("get maintenance schedules failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load maintenance schedules.", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleUpdateMaintenanceSchedules(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request scheduler.UpdateSettingsRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	requestedAt := time.Now().UTC()
+	response, err := h.schedules.UpdateSettings(r.Context(), request)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", err.Error(), nil)
+		return
+	}
+
+	finishedAt := time.Now().UTC()
+	if err := h.audit.RecordSystemEvent(r.Context(), "update_maintenance_schedules", "local", "succeeded", requestedAt, &finishedAt, map[string]any{
+		"update_enabled": response.Update.Enabled,
+		"prune_enabled":  response.Prune.Enabled,
+	}); err != nil {
+		h.logger.Warn("record maintenance schedules audit failed", slog.String("err", err.Error()))
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
 func (h *Handler) handleRunStackAction(w http.ResponseWriter, r *http.Request) {
 	if !auth.SameOrigin(r) {
 		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
@@ -2482,68 +2417,6 @@ func parseOptionalBool(value string, fallback bool) bool {
 	}
 }
 
-func (h *Handler) resolveMaintenanceTargetStacks(ctx context.Context, mode string, stackIDs []string) ([]string, error) {
-	switch mode {
-	case "selected":
-		if len(stackIDs) == 0 {
-			return nil, errors.New("target.stack_ids must be non-empty when mode = selected")
-		}
-		deduped := dedupeSortedStackIDs(stackIDs)
-		for _, stackID := range deduped {
-			detail, err := h.stackReader.Get(ctx, stackID)
-			if err != nil {
-				if errors.Is(err, stacks.ErrNotFound) {
-					return nil, fmt.Errorf("%w: stack %q was not found", stacks.ErrNotFound, stackID)
-				}
-				return nil, err
-			}
-			if !containsString(detail.Stack.AvailableActions, "up") {
-				return nil, fmt.Errorf("%w: stack %q cannot be updated in its current state", stacks.ErrInvalidState, stackID)
-			}
-		}
-		return deduped, nil
-	case "all":
-		list, err := h.stackReader.List(ctx, stacks.ListQuery{})
-		if err != nil {
-			return nil, err
-		}
-		candidates := make([]string, 0, len(list.Items))
-		for _, item := range list.Items {
-			detail, err := h.stackReader.Get(ctx, item.ID)
-			if err != nil {
-				return nil, err
-			}
-			if containsString(detail.Stack.AvailableActions, "up") {
-				candidates = append(candidates, item.ID)
-			}
-		}
-		if len(candidates) == 0 {
-			return nil, errors.New("no updatable stacks found")
-		}
-		sort.Strings(candidates)
-		return candidates, nil
-	default:
-		return nil, errors.New("target.mode must be one of: selected, all")
-	}
-}
-
-func dedupeSortedStackIDs(stackIDs []string) []string {
-	unique := map[string]struct{}{}
-	for _, stackID := range stackIDs {
-		stackID = strings.TrimSpace(stackID)
-		if stackID == "" {
-			continue
-		}
-		unique[stackID] = struct{}{}
-	}
-	result := make([]string, 0, len(unique))
-	for stackID := range unique {
-		result = append(result, stackID)
-	}
-	sort.Strings(result)
-	return result
-}
-
 func (h *Handler) listManagedStackIDs(ctx context.Context) ([]string, error) {
 	list, err := h.stackReader.List(ctx, stacks.ListQuery{})
 	if err != nil {
@@ -2555,139 +2428,4 @@ func (h *Handler) listManagedStackIDs(ctx context.Context) ([]string, error) {
 	}
 	sort.Strings(result)
 	return result, nil
-}
-
-func (h *Handler) buildMaintenanceWorkflow(ctx context.Context, stackIDs []string, options resolvedMaintenanceOptions) ([]store.JobWorkflowStep, error) {
-	steps := make([]store.JobWorkflowStep, 0, len(stackIDs)*3+1)
-	for _, stackID := range stackIDs {
-		if options.PullImages {
-			steps = append(steps, store.JobWorkflowStep{Action: "pull", State: "queued", TargetStackID: stackID})
-		}
-		if options.BuildImages {
-			needsBuild, err := h.stackReader.MaintenanceNeedsBuild(ctx, stackID)
-			if err != nil {
-				return nil, err
-			}
-			if needsBuild {
-				steps = append(steps, store.JobWorkflowStep{Action: "build", State: "queued", TargetStackID: stackID})
-			}
-		}
-		steps = append(steps, store.JobWorkflowStep{Action: "up", State: "queued", TargetStackID: stackID})
-	}
-	if options.PruneAfter {
-		steps = append(steps, store.JobWorkflowStep{Action: "prune", State: "queued"})
-	}
-	return steps, nil
-}
-
-func (h *Handler) runMaintenanceWorkflowStep(ctx context.Context, step store.JobWorkflowStep, options resolvedMaintenanceOptions) (string, error) {
-	if step.Action == "prune" {
-		return runDockerSystemPrune(ctx, options.IncludeVolumes)
-	}
-	return h.stackReader.RunMaintenanceStep(ctx, step.TargetStackID, step.Action, stacks.MaintenanceStepOptions{
-		RemoveOrphans: options.RemoveOrphans,
-	})
-}
-
-func runDockerSystemPrune(ctx context.Context, includeVolumes bool) (string, error) {
-	args := []string{"system", "prune", "-af"}
-	if includeVolumes {
-		args = append(args, "--volumes")
-	}
-	cmd := exec.CommandContext(ctx, "docker", args...)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		message := strings.TrimSpace(string(output))
-		if message == "" {
-			message = err.Error()
-		}
-		return strings.TrimSpace(string(output)), errors.New(message)
-	}
-	return strings.TrimSpace(string(output)), nil
-}
-
-func buildPruneWorkflow(scope maintenance.PruneScope) []store.JobWorkflowStep {
-	steps := []store.JobWorkflowStep{}
-	if scope.Images {
-		steps = append(steps, store.JobWorkflowStep{Action: "prune_images", State: "queued"})
-	}
-	if scope.BuildCache {
-		steps = append(steps, store.JobWorkflowStep{Action: "prune_build_cache", State: "queued"})
-	}
-	if scope.StoppedContainers {
-		steps = append(steps, store.JobWorkflowStep{Action: "prune_stopped_containers", State: "queued"})
-	}
-	if scope.Volumes {
-		steps = append(steps, store.JobWorkflowStep{Action: "prune_volumes", State: "queued"})
-	}
-	return steps
-}
-
-func pruneStepMessage(prefix string, step store.JobWorkflowStep) string {
-	return prefix + " " + strings.ToLower(maintenanceActionLabel(step.Action)) + "."
-}
-
-func pruneAuditDetails(scope maintenance.PruneScope) map[string]any {
-	return map[string]any{
-		"scope": map[string]any{
-			"images":             scope.Images,
-			"build_cache":        scope.BuildCache,
-			"stopped_containers": scope.StoppedContainers,
-			"volumes":            scope.Volumes,
-		},
-	}
-}
-
-func maintenanceStepMessage(prefix string, step store.JobWorkflowStep) string {
-	label := maintenanceActionLabel(step.Action)
-	if step.TargetStackID == "" {
-		return prefix + " " + strings.ToLower(label) + "."
-	}
-	return prefix + " " + strings.ToLower(label) + " for " + step.TargetStackID + "."
-}
-
-func maintenanceAuditDetails(mode string, stackIDs []string, options resolvedMaintenanceOptions) map[string]any {
-	return map[string]any{
-		"target_mode": mode,
-		"stack_ids":   stackIDs,
-		"options": map[string]any{
-			"pull_images":     options.PullImages,
-			"build_images":    options.BuildImages,
-			"remove_orphans":  options.RemoveOrphans,
-			"prune_after":     options.PruneAfter,
-			"include_volumes": options.IncludeVolumes,
-		},
-	}
-}
-
-func maintenanceActionLabel(action string) string {
-	switch action {
-	case "pull":
-		return "Pull"
-	case "build":
-		return "Build"
-	case "up":
-		return "Up"
-	case "prune":
-		return "Prune"
-	case "prune_images":
-		return "Prune images"
-	case "prune_build_cache":
-		return "Prune build cache"
-	case "prune_stopped_containers":
-		return "Prune stopped containers"
-	case "prune_volumes":
-		return "Prune volumes"
-	default:
-		return action
-	}
-}
-
-func containsString(values []string, candidate string) bool {
-	for _, value := range values {
-		if value == candidate {
-			return true
-		}
-	}
-	return false
 }

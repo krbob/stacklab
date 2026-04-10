@@ -24,6 +24,8 @@ import type {
   JobRef,
   MaintenanceCreateNetworkRequest,
   MaintenanceCreateNetworkResponse,
+  MaintenanceSchedulesResponse,
+  MaintenanceSchedulesUpdateRequest,
   MaintenanceCreateVolumeRequest,
   MaintenanceCreateVolumeResponse,
   MaintenanceDeleteNetworkResponse,
@@ -130,6 +132,17 @@ export function updateNotificationSettings(requestBody: NotificationSettingsUpda
 export function sendNotificationTest(requestBody: NotificationTestRequest): Promise<NotificationTestResponse> {
   return request('/api/settings/notifications/test', {
     method: 'POST',
+    body: JSON.stringify(requestBody),
+  })
+}
+
+export function getMaintenanceSchedules(): Promise<MaintenanceSchedulesResponse> {
+  return request('/api/settings/maintenance-schedules')
+}
+
+export function updateMaintenanceSchedules(requestBody: MaintenanceSchedulesUpdateRequest): Promise<MaintenanceSchedulesResponse> {
+  return request('/api/settings/maintenance-schedules', {
+    method: 'PUT',
     body: JSON.stringify(requestBody),
   })
 }

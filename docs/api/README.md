@@ -13,3 +13,4 @@ Current focused additions:
 - `git-workspace.md`
 - `maintenance-workflows.md`
 - `maintenance-inventory.md`
+- `maintenance-schedules.md`

@@ -452,6 +452,52 @@ UI developer input needed:
   - elapsed time per step
   - step-local collapsible output
 
+## Milestone 14: Scheduled Maintenance Policies
+
+Goal:
+
+- let operators move routine update and cleanup windows into Stacklab without leaving the product for host cron or ad-hoc timers
+
+Scope:
+
+- one scheduled update policy
+- one scheduled prune policy
+- host-local time only
+- cadence:
+  - daily
+  - weekly
+- runtime status:
+  - next run
+  - last run
+  - skipped/failed/succeeded result
+
+Important constraint:
+
+- do not introduce a generic cron editor
+- do not auto-retry skipped runs in the first slice
+- keep automatic prune explicit and separately configurable
+
+Backend work:
+
+- persistent schedule settings in SQLite
+- background dispatcher inside Stacklab
+- reuse existing `update_stacks` and `prune` workflows
+- scheduled runs should feed:
+  - jobs
+  - audit
+  - global activity
+  - notifications
+
+UI developer input needed:
+
+- yes
+- placement:
+  - `/settings`
+  - or `/maintenance`
+- shape:
+  - two fixed cards
+  - or a lightweight policy list
+
 ## Packaging Track
 
 `.deb` packaging and later APT publication should start after the next product-shaping operator milestones are substantially complete.

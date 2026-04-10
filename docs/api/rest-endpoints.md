@@ -2033,6 +2033,120 @@ Error behavior:
 
 - invalid channel config or malformed payload -> `400 validation_failed`
 - upstream delivery failure -> `502 delivery_failed`
+
+## `GET /api/settings/maintenance-schedules`
+
+Purpose:
+
+- fetch scheduled maintenance policies and their current runtime status
+
+Response:
+
+```json
+{
+  "timezone": "host_local",
+  "update": {
+    "enabled": false,
+    "frequency": "weekly",
+    "time": "03:30",
+    "weekdays": ["sat"],
+    "target": {
+      "mode": "all"
+    },
+    "options": {
+      "pull_images": true,
+      "build_images": true,
+      "remove_orphans": true,
+      "prune_after": false,
+      "include_volumes": false
+    },
+    "status": {
+      "next_run_at": "2026-04-11T03:30:00Z"
+    }
+  },
+  "prune": {
+    "enabled": false,
+    "frequency": "weekly",
+    "time": "04:30",
+    "weekdays": ["sun"],
+    "scope": {
+      "images": true,
+      "build_cache": true,
+      "stopped_containers": true,
+      "volumes": false
+    },
+    "status": {
+      "next_run_at": "2026-04-12T04:30:00Z"
+    }
+  }
+}
+```
+
+Notes:
+
+- schedules run in host local time
+- runtime status is informational and read-only
+- `last_result` may be:
+  - `running`
+  - `succeeded`
+  - `failed`
+  - `skipped`
+
+## `PUT /api/settings/maintenance-schedules`
+
+Purpose:
+
+- persist scheduled update and cleanup policies
+
+Request:
+
+```json
+{
+  "update": {
+    "enabled": true,
+    "frequency": "weekly",
+    "time": "03:30",
+    "weekdays": ["sat"],
+    "target": {
+      "mode": "selected",
+      "stack_ids": ["demo", "traefik"]
+    },
+    "options": {
+      "pull_images": true,
+      "build_images": true,
+      "remove_orphans": true,
+      "prune_after": false,
+      "include_volumes": false
+    }
+  },
+  "prune": {
+    "enabled": true,
+    "frequency": "weekly",
+    "time": "04:30",
+    "weekdays": ["sun"],
+    "scope": {
+      "images": true,
+      "build_cache": true,
+      "stopped_containers": true,
+      "volumes": false
+    }
+  }
+}
+```
+
+Response:
+
+- same shape as `GET /api/settings/maintenance-schedules`
+
+Validation:
+
+- `frequency` must be `daily` or `weekly`
+- `time` must be `HH:MM`
+- weekly schedules require at least one weekday
+- update target mode must be `all` or `selected`
+- selected update target requires non-empty `stack_ids`
+- `include_volumes = true` requires `prune_after = true`
+- prune scope must enable at least one category
 - test send does not persist settings
 
 Webhook payload:

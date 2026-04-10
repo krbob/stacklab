@@ -1103,6 +1103,39 @@ paths:
           $ref: '#/components/responses/ErrorUnauthorized'
         '502':
           $ref: '#/components/responses/ErrorBadGateway'
+  /settings/maintenance-schedules:
+    get:
+      tags: [Settings]
+      operationId: getMaintenanceSchedules
+      responses:
+        '200':
+          description: Current scheduled maintenance policies.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceSchedulesResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+    put:
+      tags: [Settings]
+      operationId: updateMaintenanceSchedules
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MaintenanceSchedulesRequest'
+      responses:
+        '200':
+          description: Scheduled maintenance policies updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceSchedulesResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
   /jobs/active:
     get:
       tags: [Jobs]
@@ -2476,6 +2509,120 @@ components:
           type: string
           enum: [webhook, telegram]
       required: [sent, channel]
+    MaintenanceScheduleFrequency:
+      type: string
+      enum: [daily, weekly]
+    MaintenanceScheduleWeekday:
+      type: string
+      enum: [mon, tue, wed, thu, fri, sat, sun]
+    MaintenanceScheduleStatus:
+      type: object
+      properties:
+        next_run_at:
+          type: string
+          format: date-time
+        last_triggered_at:
+          type: string
+          format: date-time
+        last_scheduled_for:
+          type: string
+          format: date-time
+        last_result:
+          type: string
+          enum: [running, succeeded, failed, skipped]
+        last_message:
+          type: string
+        last_job_id:
+          type: string
+    MaintenanceUpdateScheduleConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        frequency:
+          $ref: '#/components/schemas/MaintenanceScheduleFrequency'
+        time:
+          type: string
+        weekdays:
+          type: array
+          items:
+            $ref: '#/components/schemas/MaintenanceScheduleWeekday'
+        target:
+          type: object
+          properties:
+            mode:
+              type: string
+              enum: [selected, all]
+            stack_ids:
+              type: array
+              items:
+                type: string
+          required: [mode]
+        options:
+          type: object
+          properties:
+            pull_images:
+              type: boolean
+            build_images:
+              type: boolean
+            remove_orphans:
+              type: boolean
+            prune_after:
+              type: boolean
+            include_volumes:
+              type: boolean
+          required: [pull_images, build_images, remove_orphans, prune_after, include_volumes]
+      required: [enabled, frequency, time, target, options]
+    MaintenancePruneScheduleConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        frequency:
+          $ref: '#/components/schemas/MaintenanceScheduleFrequency'
+        time:
+          type: string
+        weekdays:
+          type: array
+          items:
+            $ref: '#/components/schemas/MaintenanceScheduleWeekday'
+        scope:
+          $ref: '#/components/schemas/MaintenancePruneScope'
+      required: [enabled, frequency, time, scope]
+    MaintenanceUpdateSchedulePolicy:
+      allOf:
+        - $ref: '#/components/schemas/MaintenanceUpdateScheduleConfig'
+        - type: object
+          properties:
+            status:
+              $ref: '#/components/schemas/MaintenanceScheduleStatus'
+          required: [status]
+    MaintenancePruneSchedulePolicy:
+      allOf:
+        - $ref: '#/components/schemas/MaintenancePruneScheduleConfig'
+        - type: object
+          properties:
+            status:
+              $ref: '#/components/schemas/MaintenanceScheduleStatus'
+          required: [status]
+    MaintenanceSchedulesRequest:
+      type: object
+      properties:
+        update:
+          $ref: '#/components/schemas/MaintenanceUpdateScheduleConfig'
+        prune:
+          $ref: '#/components/schemas/MaintenancePruneScheduleConfig'
+      required: [update, prune]
+    MaintenanceSchedulesResponse:
+      type: object
+      properties:
+        timezone:
+          type: string
+        update:
+          $ref: '#/components/schemas/MaintenanceUpdateSchedulePolicy'
+        prune:
+          $ref: '#/components/schemas/MaintenancePruneSchedulePolicy'
+      required: [timezone, update, prune]
     JobEnvelopeResponse:
       type: object
       properties:
@@ -2924,18 +3071,20 @@ components:
       type: object
       properties:
         scope:
-          type: object
-          properties:
-            images:
-              type: boolean
-            build_cache:
-              type: boolean
-            stopped_containers:
-              type: boolean
-            volumes:
-              type: boolean
-          required: [images, build_cache, stopped_containers, volumes]
+          $ref: '#/components/schemas/MaintenancePruneScope'
       required: [scope]
+    MaintenancePruneScope:
+      type: object
+      properties:
+        images:
+          type: boolean
+        build_cache:
+          type: boolean
+        stopped_containers:
+          type: boolean
+        volumes:
+          type: boolean
+      required: [images, build_cache, stopped_containers, volumes]
     ErrorResponse:
       type: object
       properties:

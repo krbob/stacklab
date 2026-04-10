@@ -230,6 +230,42 @@ func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
 	notificationUpdateResponse := performJSONRequest(t, handler, http.MethodPut, "/api/settings/notifications", notificationSettingsBody, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodPut, "/api/settings/notifications", notificationSettingsBody, cookies, notificationUpdateResponse)
 
+	maintenanceSchedulesResponse := performJSONRequest(t, handler, http.MethodGet, "/api/settings/maintenance-schedules", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/settings/maintenance-schedules", nil, cookies, maintenanceSchedulesResponse)
+
+	maintenanceSchedulesBody := map[string]any{
+		"update": map[string]any{
+			"enabled":   true,
+			"frequency": "weekly",
+			"time":      "03:30",
+			"weekdays":  []string{"sat"},
+			"target": map[string]any{
+				"mode": "all",
+			},
+			"options": map[string]any{
+				"pull_images":     true,
+				"build_images":    true,
+				"remove_orphans":  true,
+				"prune_after":     false,
+				"include_volumes": false,
+			},
+		},
+		"prune": map[string]any{
+			"enabled":   true,
+			"frequency": "weekly",
+			"time":      "04:30",
+			"weekdays":  []string{"sun"},
+			"scope": map[string]any{
+				"images":             true,
+				"build_cache":        true,
+				"stopped_containers": true,
+				"volumes":            false,
+			},
+		},
+	}
+	maintenanceSchedulesUpdateResponse := performJSONRequest(t, handler, http.MethodPut, "/api/settings/maintenance-schedules", maintenanceSchedulesBody, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodPut, "/api/settings/maintenance-schedules", maintenanceSchedulesBody, cookies, maintenanceSchedulesUpdateResponse)
+
 	stacks.ResetComposeCLICacheForTests()
 	t.Cleanup(stacks.ResetComposeCLICacheForTests)
 	shimDir := t.TempDir()

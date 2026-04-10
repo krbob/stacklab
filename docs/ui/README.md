@@ -19,6 +19,7 @@ This section contains information architecture, screens, and UI-facing contracts
 - [workspace-permissions-handoff.md](workspace-permissions-handoff.md) — blocked-file semantics for config and Git views when containers create unreadable files
 - [maintenance-workflows-handoff.md](maintenance-workflows-handoff.md) — route and screen guidance for bulk stack update workflows
 - [maintenance-inventory-handoff.md](maintenance-inventory-handoff.md) — route and screen guidance for image inventory and prune flows inside `/maintenance`
+- [maintenance-schedules-handoff.md](maintenance-schedules-handoff.md) — route and screen guidance for scheduled update and cleanup policies
 - [browser-e2e-handoff.md](browser-e2e-handoff.md) — backend harness, fixture root, and CI shape for browser E2E smoke
 
 ## Frontend Stack
