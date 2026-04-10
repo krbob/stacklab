@@ -103,6 +103,7 @@ function NotificationsSection() {
   const [maintenanceSucceeded, setMaintenanceSucceeded] = useState(false)
   const [recoveryFailed, setRecoveryFailed] = useState(false)
   const [serviceError, setServiceError] = useState(false)
+  const [runtimeHealthDegraded, setRuntimeHealthDegraded] = useState(false)
 
   const [savingNotif, setSavingNotif] = useState(false)
   const [saveResult, setSaveResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -113,7 +114,7 @@ function NotificationsSection() {
 
   const [savedState, setSavedState] = useState('')
 
-  const currentState = JSON.stringify({ enabled, webhookEnabled, webhookUrl, telegramEnabled, telegramBotToken, telegramChatId, jobFailed, jobWarnings, maintenanceSucceeded, recoveryFailed, serviceError })
+  const currentState = JSON.stringify({ enabled, webhookEnabled, webhookUrl, telegramEnabled, telegramBotToken, telegramChatId, jobFailed, jobWarnings, maintenanceSucceeded, recoveryFailed, serviceError, runtimeHealthDegraded })
   const isDirty = currentState !== savedState
 
   useEffect(() => {
@@ -130,6 +131,7 @@ function NotificationsSection() {
         setMaintenanceSucceeded(s.events.maintenance_succeeded)
         setRecoveryFailed(s.events.post_update_recovery_failed ?? false)
         setServiceError(s.events.stacklab_service_error ?? false)
+        setRuntimeHealthDegraded(s.events.runtime_health_degraded ?? false)
         const state = JSON.stringify({
           enabled: s.enabled,
           webhookEnabled: s.channels?.webhook.enabled ?? s.enabled,
@@ -142,6 +144,7 @@ function NotificationsSection() {
           maintenanceSucceeded: s.events.maintenance_succeeded,
           recoveryFailed: s.events.post_update_recovery_failed ?? false,
           serviceError: s.events.stacklab_service_error ?? false,
+          runtimeHealthDegraded: s.events.runtime_health_degraded ?? false,
         })
         setSavedState(state)
       })
@@ -158,12 +161,13 @@ function NotificationsSection() {
       maintenance_succeeded: maintenanceSucceeded,
       post_update_recovery_failed: recoveryFailed,
       stacklab_service_error: serviceError,
+      runtime_health_degraded: runtimeHealthDegraded,
     },
     channels: {
       webhook: { enabled: webhookEnabled, url: webhookUrl },
       telegram: { enabled: telegramEnabled, bot_token: telegramBotToken, chat_id: telegramChatId },
     },
-  }), [enabled, webhookEnabled, webhookUrl, telegramEnabled, telegramBotToken, telegramChatId, jobFailed, jobWarnings, maintenanceSucceeded, recoveryFailed, serviceError])
+  }), [enabled, webhookEnabled, webhookUrl, telegramEnabled, telegramBotToken, telegramChatId, jobFailed, jobWarnings, maintenanceSucceeded, recoveryFailed, serviceError, runtimeHealthDegraded])
 
   const handleSave = useCallback(async () => {
     setSavingNotif(true)
@@ -296,6 +300,15 @@ function NotificationsSection() {
               <label className="flex items-center gap-2 text-xs text-[var(--text)]">
                 <input type="checkbox" checked={recoveryFailed} onChange={(e) => setRecoveryFailed(e.target.checked)} className="rounded" />
                 Update finished but stack did not recover
+              </label>
+            </div>
+          </div>
+          <div>
+            <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-[var(--muted)]">Runtime</div>
+            <div className="space-y-1.5">
+              <label className="flex items-center gap-2 text-xs text-[var(--text)]">
+                <input type="checkbox" checked={runtimeHealthDegraded} onChange={(e) => setRuntimeHealthDegraded(e.target.checked)} className="rounded" />
+                A stack becomes unhealthy or enters a restart loop
               </label>
             </div>
           </div>
