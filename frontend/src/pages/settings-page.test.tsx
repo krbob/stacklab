@@ -42,6 +42,7 @@ describe("SettingsPage", () => {
         maintenance_succeeded: false,
         post_update_recovery_failed: false,
         stacklab_service_error: false,
+        runtime_health_degraded: false,
       },
     });
   });
@@ -66,6 +67,7 @@ describe("SettingsPage", () => {
         maintenance_succeeded: true,
         post_update_recovery_failed: false,
         stacklab_service_error: true,
+        runtime_health_degraded: true,
       },
     });
 
@@ -80,6 +82,7 @@ describe("SettingsPage", () => {
       },
     );
     fireEvent.click(screen.getByText("Maintenance succeeded"));
+    fireEvent.click(screen.getByText("A stack becomes unhealthy or enters a restart loop"));
     fireEvent.click(screen.getByText("Stacklab itself starts logging errors"));
     fireEvent.click(screen.getByText("Save"));
 
@@ -93,6 +96,7 @@ describe("SettingsPage", () => {
             job_succeeded_with_warnings: true,
             maintenance_succeeded: true,
             stacklab_service_error: true,
+            runtime_health_degraded: true,
           }),
         }),
       );
@@ -112,6 +116,7 @@ describe("SettingsPage", () => {
         maintenance_succeeded: false,
         post_update_recovery_failed: false,
         stacklab_service_error: true,
+        runtime_health_degraded: true,
       },
     });
     mockSendNotificationTest.mockResolvedValue({ sent: true, channel: 'webhook' });
@@ -137,6 +142,7 @@ describe("SettingsPage", () => {
           webhook_url: "https://hooks.example.test/draft",
           events: expect.objectContaining({
             stacklab_service_error: true,
+            runtime_health_degraded: true,
           }),
         }),
       );
