@@ -198,6 +198,50 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /stacklab/update/overview:
+    get:
+      tags: [Stacklab]
+      operationId: getStacklabUpdateOverview
+      responses:
+        '200':
+          description: Stacklab self-update overview for the current install.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StacklabUpdateOverviewResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+  /stacklab/update/apply:
+    post:
+      tags: [Stacklab]
+      operationId: applyStacklabUpdate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StacklabUpdateApplyRequest'
+      responses:
+        '200':
+          description: Started Stacklab self-update workflow.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StacklabUpdateApplyResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '409':
+          description: Update is not available or another self-update is already running.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Stacklab self-update is unavailable on this install or host.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /config/workspace/tree:
     get:
       tags: [Config]
@@ -1667,6 +1711,89 @@ components:
         preview:
           $ref: '#/components/schemas/DockerDaemonConfigPreview'
       required: [write_capability, changed_keys, requires_restart, warnings, preview]
+    StacklabUpdatePackageStatus:
+      type: object
+      properties:
+        supported:
+          type: boolean
+        message:
+          type: string
+        name:
+          type: string
+        installed_version:
+          type: string
+        candidate_version:
+          type: string
+        configured_channel:
+          type: string
+        update_available:
+          type: boolean
+      required: [supported, name, update_available]
+    StacklabUpdateWriteCapability:
+      type: object
+      properties:
+        supported:
+          type: boolean
+        reason:
+          type: string
+      required: [supported]
+    StacklabUpdateRuntimeStatus:
+      type: object
+      properties:
+        job_id:
+          type: string
+        pending_finalize:
+          type: boolean
+        requested_version:
+          type: string
+        installed_version:
+          type: string
+        result:
+          type: string
+        message:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+      required: [pending_finalize]
+    StacklabUpdateOverviewResponse:
+      type: object
+      properties:
+        current_version:
+          type: string
+        install_mode:
+          type: string
+        package:
+          $ref: '#/components/schemas/StacklabUpdatePackageStatus'
+        write_capability:
+          $ref: '#/components/schemas/StacklabUpdateWriteCapability'
+        runtime:
+          $ref: '#/components/schemas/StacklabUpdateRuntimeStatus'
+      required: [current_version, install_mode, package, write_capability]
+    StacklabUpdateApplyRequest:
+      type: object
+      properties:
+        expected_candidate_version:
+          type: string
+        refresh_package_index:
+          type: boolean
+    StacklabUpdateApplyResponse:
+      type: object
+      properties:
+        started:
+          type: boolean
+        job:
+          $ref: '#/components/schemas/Job'
+        package:
+          $ref: '#/components/schemas/StacklabUpdatePackageStatus'
+        runtime:
+          $ref: '#/components/schemas/StacklabUpdateRuntimeStatus'
+      required: [started, job, package]
     ConfigEntryType:
       type: string
       enum: [directory, text_file, binary_file, unknown_file]
@@ -3101,9 +3228,8 @@ components:
         message:
           type: string
         details:
-          oneOf:
-            - type: object
-            - type: 'null'
+          type: object
+          nullable: true
       required: [code, message]
     RuntimeState:
       type: string

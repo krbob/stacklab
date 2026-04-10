@@ -180,11 +180,11 @@ Recommended non-goals for the first iteration:
 - do not SSH into the homelab host from GitHub Actions
 - do not auto-deploy from CI
 - do not create GitHub Releases automatically
-- do not build a self-updater into Stacklab itself
+- do not auto-deploy Stacklab from CI directly onto the homelab host
 
 Reasoning:
 
-- manual host-triggered upgrades are safer for an admin tool
+- manual host-triggered or operator-triggered upgrades are safer for an admin tool
 - rollback remains easier to reason about
 - the release pipeline stays transparent
 

@@ -23,6 +23,7 @@ import (
 	"stacklab/internal/maintenancejobs"
 	"stacklab/internal/notifications"
 	"stacklab/internal/scheduler"
+	"stacklab/internal/selfupdate"
 	"stacklab/internal/stacks"
 	"stacklab/internal/stackworkspace"
 	"stacklab/internal/store"
@@ -51,6 +52,7 @@ type Handler struct {
 	maintenanceJobs *maintenancejobs.Service
 	notifications   notificationsManager
 	schedules       schedulerManager
+	selfUpdate      selfUpdateManager
 }
 
 type hostInfoReader interface {
@@ -109,7 +111,12 @@ type schedulerManager interface {
 	UpdateSettings(ctx context.Context, request scheduler.UpdateSettingsRequest) (scheduler.SettingsResponse, error)
 }
 
-func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Service, auditService *audit.Service, jobService *jobs.Service, notificationsService notificationsManager, scheduleService schedulerManager) (http.Handler, error) {
+type selfUpdateManager interface {
+	Overview(ctx context.Context) (selfupdate.OverviewResponse, error)
+	Apply(ctx context.Context, request selfupdate.ApplyRequest, requestedBy string) (selfupdate.ApplyResponse, error)
+}
+
+func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Service, auditService *audit.Service, jobService *jobs.Service, notificationsService notificationsManager, scheduleService schedulerManager, selfUpdateService selfUpdateManager) (http.Handler, error) {
 	stackReader := stacks.NewServiceReader(cfg, logger)
 	maintenanceService := maintenance.NewService()
 	handler := &Handler{
@@ -144,6 +151,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Servic
 		maintenance:     maintenanceService,
 		maintenanceJobs: maintenancejobs.NewService(logger, jobService, auditService, stackReader, maintenanceService),
 		schedules:       scheduleService,
+		selfUpdate:      selfUpdateService,
 	}
 
 	handler.registerRoutes()
@@ -164,6 +172,8 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/docker/admin/daemon-config", h.withAuth(h.handleDockerAdminDaemonConfig))
 	h.mux.HandleFunc("POST /api/docker/admin/daemon-config/validate", h.withAuth(h.handleDockerAdminValidateDaemonConfig))
 	h.mux.HandleFunc("POST /api/docker/admin/daemon-config/apply", h.withAuth(h.handleDockerAdminApplyDaemonConfig))
+	h.mux.HandleFunc("GET /api/stacklab/update/overview", h.withAuth(h.handleStacklabUpdateOverview))
+	h.mux.HandleFunc("POST /api/stacklab/update/apply", h.withAuth(h.handleStacklabUpdateApply))
 	h.mux.HandleFunc("GET /api/config/workspace/tree", h.withAuth(h.handleConfigWorkspaceTree))
 	h.mux.HandleFunc("GET /api/config/workspace/file", h.withAuth(h.handleConfigWorkspaceFile))
 	h.mux.HandleFunc("PUT /api/config/workspace/file", h.withAuth(h.handlePutConfigWorkspaceFile))
@@ -1367,6 +1377,55 @@ func (h *Handler) handleDockerAdminApplyDaemonConfig(w http.ResponseWriter, r *h
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"job": job})
+}
+
+func (h *Handler) handleStacklabUpdateOverview(w http.ResponseWriter, r *http.Request) {
+	if h.selfUpdate == nil {
+		writeError(w, http.StatusServiceUnavailable, "self_update_unavailable", "Stacklab self-update is unavailable.", nil)
+		return
+	}
+
+	response, err := h.selfUpdate.Overview(r.Context())
+	if err != nil {
+		h.logger.Error("stacklab self-update overview failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load Stacklab update status.", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleStacklabUpdateApply(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+	if h.selfUpdate == nil {
+		writeError(w, http.StatusServiceUnavailable, "self_update_unavailable", "Stacklab self-update is unavailable.", nil)
+		return
+	}
+
+	var request selfupdate.ApplyRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	response, err := h.selfUpdate.Apply(r.Context(), request, "local")
+	if err != nil {
+		switch {
+		case errors.Is(err, selfupdate.ErrUnsupported):
+			writeError(w, http.StatusServiceUnavailable, "self_update_unavailable", "Stacklab self-update is unavailable.", nil)
+		case errors.Is(err, selfupdate.ErrInvalidState):
+			writeError(w, http.StatusConflict, "invalid_state", err.Error(), nil)
+		default:
+			h.logger.Error("stacklab self-update apply failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to start Stacklab self-update.", nil)
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (h *Handler) handleListStacks(w http.ResponseWriter, r *http.Request) {

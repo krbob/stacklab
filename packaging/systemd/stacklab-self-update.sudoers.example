@@ -1,0 +1,3 @@
+# Narrow sudoers allowlist for Stacklab self-update.
+# Install into /etc/sudoers.d/stacklab-self-update after review.
+stacklab ALL=(root) NOPASSWD: /usr/lib/stacklab/bin/stacklab-self-update-helper

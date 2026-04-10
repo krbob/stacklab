@@ -17,6 +17,7 @@ import (
 	"stacklab/internal/maintenancejobs"
 	"stacklab/internal/notifications"
 	"stacklab/internal/scheduler"
+	"stacklab/internal/selfupdate"
 	"stacklab/internal/stacks"
 	"stacklab/internal/store"
 	"syscall"
@@ -50,6 +51,7 @@ func main() {
 	maintenanceService := maintenance.NewService()
 	maintenanceRunner := maintenancejobs.NewService(logger, jobService, auditService, stackReader, maintenanceService)
 	schedulerService := scheduler.NewService(authStore, auditService, maintenanceRunner, stackReader, logger)
+	selfUpdateService := selfupdate.NewService(cfg, authStore, jobService, auditService, notificationService, logger)
 	jobService.SetTerminalHook(notificationService.DispatchJobAsync)
 	if err := authService.Bootstrap(context.Background()); err != nil {
 		if errors.Is(err, auth.ErrNotConfigured) {
@@ -60,7 +62,7 @@ func main() {
 		}
 	}
 
-	handler, err := httpapi.NewHandler(cfg, logger, authService, auditService, jobService, notificationService, schedulerService)
+	handler, err := httpapi.NewHandler(cfg, logger, authService, auditService, jobService, notificationService, schedulerService, selfUpdateService)
 	if err != nil {
 		logger.Error("failed to initialize HTTP handler", slog.String("err", err.Error()))
 		os.Exit(1)
@@ -86,6 +88,7 @@ func main() {
 	defer stop()
 	notificationService.StartBackground(ctx)
 	schedulerService.StartBackground(ctx)
+	selfUpdateService.StartBackground(ctx)
 
 	go func() {
 		<-ctx.Done()

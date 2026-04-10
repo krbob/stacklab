@@ -28,6 +28,7 @@ import (
 	"stacklab/internal/maintenancejobs"
 	"stacklab/internal/notifications"
 	"stacklab/internal/scheduler"
+	"stacklab/internal/selfupdate"
 	"stacklab/internal/stacks"
 	"stacklab/internal/stackworkspace"
 	"stacklab/internal/store"
@@ -62,6 +63,13 @@ type fakeConfigWorkspaceReader struct {
 type fakeStackWorkspaceReader struct {
 	repairResponse stackworkspace.RepairPermissionsResponse
 	repairError    error
+}
+
+type fakeSelfUpdate struct {
+	overviewResponse selfupdate.OverviewResponse
+	overviewError    error
+	applyResponse    selfupdate.ApplyResponse
+	applyError       error
 }
 
 func (f *fakeHostInfo) Overview(ctx context.Context) (hostinfo.OverviewResponse, error) {
@@ -119,6 +127,14 @@ func (f *fakeStackWorkspaceReader) SaveFile(ctx context.Context, stackID string,
 
 func (f *fakeStackWorkspaceReader) RepairPermissions(ctx context.Context, stackID string, request stackworkspace.RepairPermissionsRequest) (stackworkspace.RepairPermissionsResponse, error) {
 	return f.repairResponse, f.repairError
+}
+
+func (f *fakeSelfUpdate) Overview(ctx context.Context) (selfupdate.OverviewResponse, error) {
+	return f.overviewResponse, f.overviewError
+}
+
+func (f *fakeSelfUpdate) Apply(ctx context.Context, request selfupdate.ApplyRequest, requestedBy string) (selfupdate.ApplyResponse, error) {
+	return f.applyResponse, f.applyError
 }
 
 func TestHandlerPutDefinitionReturnsStackLockedWhenAnotherJobOwnsStack(t *testing.T) {
@@ -386,6 +402,81 @@ func TestHandlerDockerAdminOverviewAndDaemonConfig(t *testing.T) {
 	decodeInternalResponse(t, applyResponse, &applyPayload)
 	if applyPayload.Job.Action != "apply_docker_daemon_config" || applyPayload.Job.State != "succeeded" {
 		t.Fatalf("unexpected docker daemon apply payload: %#v", applyPayload)
+	}
+}
+
+func TestHandlerStacklabUpdateOverviewAndApply(t *testing.T) {
+	t.Parallel()
+
+	handler, served, _ := newInternalTestHandler(t)
+	update := &fakeSelfUpdate{
+		overviewResponse: selfupdate.OverviewResponse{
+			CurrentVersion: "2026.04.0",
+			InstallMode:    "apt",
+			Package: selfupdate.PackageStatus{
+				Supported:         true,
+				Name:              "stacklab",
+				InstalledVersion:  "2026.04.0",
+				CandidateVersion:  "2026.04.1",
+				ConfiguredChannel: "stable",
+				UpdateAvailable:   true,
+			},
+			WriteCapability: selfupdate.WriteCapability{
+				Supported: true,
+			},
+			Runtime: &selfupdate.RuntimeStatus{
+				JobID:           "job_update",
+				PendingFinalize: false,
+			},
+		},
+		applyResponse: selfupdate.ApplyResponse{
+			Started: true,
+			Job: store.Job{
+				ID:      "job_update",
+				Action:  "self_update_stacklab",
+				State:   "running",
+				StackID: "",
+			},
+			Package: selfupdate.PackageStatus{
+				Supported:         true,
+				Name:              "stacklab",
+				InstalledVersion:  "2026.04.0",
+				CandidateVersion:  "2026.04.1",
+				ConfiguredChannel: "stable",
+				UpdateAvailable:   true,
+			},
+			Runtime: &selfupdate.RuntimeStatus{
+				JobID:            "job_update",
+				PendingFinalize:  false,
+				RequestedVersion: "2026.04.1",
+			},
+		},
+	}
+	handler.selfUpdate = update
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	overviewResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/stacklab/update/overview", nil, cookies)
+	if overviewResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/stacklab/update/overview status = %d, want %d; body=%s", overviewResponse.Code, http.StatusOK, overviewResponse.Body.String())
+	}
+	var overviewPayload selfupdate.OverviewResponse
+	decodeInternalResponse(t, overviewResponse, &overviewPayload)
+	if overviewPayload.InstallMode != "apt" || overviewPayload.Package.CandidateVersion != "2026.04.1" {
+		t.Fatalf("unexpected stacklab update overview payload: %#v", overviewPayload)
+	}
+
+	applyBody := map[string]any{
+		"expected_candidate_version": "2026.04.1",
+		"refresh_package_index":      true,
+	}
+	applyResponse := performInternalJSONRequest(t, served, http.MethodPost, "/api/stacklab/update/apply", applyBody, cookies)
+	if applyResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/stacklab/update/apply status = %d, want %d; body=%s", applyResponse.Code, http.StatusOK, applyResponse.Body.String())
+	}
+	var applyPayload selfupdate.ApplyResponse
+	decodeInternalResponse(t, applyResponse, &applyPayload)
+	if !applyPayload.Started || applyPayload.Job.Action != "self_update_stacklab" {
+		t.Fatalf("unexpected stacklab update apply payload: %#v", applyPayload)
 	}
 }
 

@@ -7,6 +7,7 @@ Current focused additions:
 - `host-observability.md`
 - `notifications.md`
 - `docker-admin.md`
+- `self-update.md`
 - `global-activity.md`
 - `job-detail.md`
 - `config-workspace.md`

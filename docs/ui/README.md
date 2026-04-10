@@ -14,6 +14,7 @@ This section contains information architecture, screens, and UI-facing contracts
 - [notifications-handoff.md](notifications-handoff.md) — route and screen guidance for outgoing webhook notifications inside settings
 - [notifications-v2-handoff.md](notifications-v2-handoff.md) — route and screen guidance for Telegram and post-update recovery alerts
 - [docker-admin-handoff.md](docker-admin-handoff.md) — route and screen guidance for read-only Docker daemon administration
+- [self-update-handoff.md](self-update-handoff.md) — route and screen guidance for APT-backed Stacklab self-update
 - [config-workspace-handoff.md](config-workspace-handoff.md) — route and screen guidance for `/opt/stacklab/config` browsing and editing
 - [git-workspace-handoff.md](git-workspace-handoff.md) — route and screen guidance for local Git change visibility inside `/config`
 - [workspace-permissions-handoff.md](workspace-permissions-handoff.md) — blocked-file semantics for config and Git views when containers create unreadable files

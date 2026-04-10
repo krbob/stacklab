@@ -61,6 +61,7 @@ stacklab-<version>-linux-<arch>/
     stacklab.env.example
     stacklab-docker-admin.sudoers.example
     stacklab-workspace-admin.sudoers.example
+    stacklab-self-update.sudoers.example
   host-tools/
     upgrade.sh
 ```
@@ -71,11 +72,18 @@ The tarball also includes:
 
 - `bin/stacklab-docker-admin-helper`
 - `bin/stacklab-workspace-admin-helper`
+- `bin/stacklab-self-update-helper`
 - `systemd/stacklab-docker-admin.sudoers.example`
 - `systemd/stacklab-workspace-admin.sudoers.example`
+- `systemd/stacklab-self-update.sudoers.example`
 
-These are only needed if you later opt into Docker daemon apply workflows.
-If you enable Docker daemon apply or workspace permission repair through `sudo` helpers, the Stacklab unit must keep `NoNewPrivileges=false`.
+The self-update helper is included because the same release artifact also feeds
+the `.deb` build, but tarball installs themselves remain unsupported for
+Stacklab self-update.
+
+If you enable Docker daemon apply, workspace permission repair, or helper-backed
+Stacklab self-update through `sudo` helpers, the Stacklab unit must keep
+`NoNewPrivileges=false`.
 Docker daemon apply also requires `/etc/docker` in `ReadWritePaths`.
 The sudoers examples inside the tarball are already rewritten for the tarball
 layout and point at `/opt/stacklab/app/current/bin/...`.

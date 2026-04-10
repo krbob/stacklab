@@ -12,6 +12,9 @@ import type {
   DockerDaemonApplyRequest,
   DockerDaemonValidateRequest,
   DockerDaemonValidateResponse,
+  StacklabUpdateApplyRequest,
+  StacklabUpdateApplyResponse,
+  StacklabUpdateOverviewResponse,
   GitCommitRequest,
   GitCommitResponse,
   GitDiffResponse,
@@ -178,6 +181,17 @@ export function validateDockerDaemonConfig(requestBody: DockerDaemonValidateRequ
 
 export function applyDockerDaemonConfig(requestBody: DockerDaemonApplyRequest): Promise<{ job: JobRef }> {
   return request('/api/docker/admin/daemon-config/apply', {
+    method: 'POST',
+    body: JSON.stringify(requestBody),
+  })
+}
+
+export function getStacklabUpdateOverview(): Promise<StacklabUpdateOverviewResponse> {
+  return request('/api/stacklab/update/overview')
+}
+
+export function applyStacklabUpdate(requestBody: StacklabUpdateApplyRequest): Promise<StacklabUpdateApplyResponse> {
+  return request('/api/stacklab/update/apply', {
     method: 'POST',
     body: JSON.stringify(requestBody),
   })

@@ -588,6 +588,52 @@ export interface DockerDaemonValidateResponse {
   preview: DockerDaemonConfigPreview
 }
 
+export interface StacklabUpdatePackageStatus {
+  supported: boolean
+  message?: string
+  name: string
+  installed_version?: string
+  candidate_version?: string
+  configured_channel?: string
+  update_available: boolean
+}
+
+export interface StacklabUpdateWriteCapability {
+  supported: boolean
+  reason?: string
+}
+
+export interface StacklabUpdateRuntimeStatus {
+  job_id?: string
+  pending_finalize: boolean
+  requested_version?: string
+  installed_version?: string
+  result?: string
+  message?: string
+  started_at?: string
+  finished_at?: string
+}
+
+export interface StacklabUpdateOverviewResponse {
+  current_version: string
+  install_mode: 'apt' | 'tarball' | 'unknown' | string
+  package: StacklabUpdatePackageStatus
+  write_capability: StacklabUpdateWriteCapability
+  runtime?: StacklabUpdateRuntimeStatus | null
+}
+
+export interface StacklabUpdateApplyRequest {
+  expected_candidate_version?: string
+  refresh_package_index?: boolean
+}
+
+export interface StacklabUpdateApplyResponse {
+  started: boolean
+  job: JobRef
+  package: StacklabUpdatePackageStatus
+  runtime?: StacklabUpdateRuntimeStatus | null
+}
+
 export interface FilePermissions {
   owner_uid: number | null
   owner_name: string | null

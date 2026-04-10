@@ -567,3 +567,44 @@ UI developer input needed:
 
 - early
 - the main decision is whether this is a new stack tab or a mode inside the existing editor
+
+## Milestone 16: Stacklab Self-Update
+
+Goal:
+
+- let operators upgrade Stacklab itself from the UI on APT-managed installs
+
+Scope:
+
+- current version and package channel visibility
+- candidate version visibility
+- helper-backed `apt` upgrade workflow for the `stacklab` package only
+- restart verification after upgrade
+- result visibility through jobs, global activity, and job detail
+
+Non-goals:
+
+- tarball self-update
+- host-wide package management
+- reboot management
+- package rollback UI
+
+Backend work:
+
+- self-update overview endpoint
+- self-update apply endpoint
+- detached helper that survives process restart and writes workflow state back to SQLite
+- reconciliation on restart for audit and notifications
+- packaging and docs for the helper and sudoers example
+
+UI work:
+
+- Stacklab update card in application settings
+- unsupported/degraded states for tarball installs or missing helper capability
+- explicit `Update Stacklab` action and runtime/result visibility
+
+UI developer input needed:
+
+- yes
+- final placement and affordances inside `/settings`
+- how much advanced control to expose in v1 versus keeping update as one primary action
