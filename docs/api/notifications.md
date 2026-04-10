@@ -20,6 +20,7 @@ Current event toggles:
 - `post_update_recovery_failed`
 - `stacklab_service_error`
 - `runtime_health_degraded`
+- `runtime_log_error_burst`
 
 Supported event types:
 
@@ -29,6 +30,7 @@ Supported event types:
 - `post_update_recovery_failed`
 - `stacklab_service_error`
 - `runtime_health_degraded`
+- `runtime_log_error_burst`
 - `test_notification`
 
 Current channels:
@@ -203,12 +205,59 @@ Payload extension for runtime health degradation:
 }
 ```
 
+Runtime log error bursts:
+
+- sourced from recent `docker logs` output for managed stack containers
+- detected in the background with a persisted `last_checked_at` baseline
+- the first poll only seeds the baseline and does not immediately page historical log noise
+- repeated identical bursts are deduplicated for a cooldown window
+
+Current trigger:
+
+- a managed stack emits at least `3` new error-like log lines since the previous poll
+
+Current matching is heuristic and intentionally narrow:
+
+- matches message text containing terms like:
+  - `error`
+  - `fatal`
+  - `panic`
+  - `exception`
+  - `traceback`
+  - `critical`
+
+Payload extension for runtime log error bursts:
+
+```json
+{
+  "event": "runtime_log_error_burst",
+  "summary": "1 stack(s) started logging repeated errors",
+  "runtime_log": {
+    "window_start": "2026-04-10T09:09:30Z",
+    "window_end": "2026-04-10T09:10:00Z",
+    "affected_stacks": [
+      {
+        "stack_id": "demo",
+        "matching_entry_count": 3,
+        "container_count": 1,
+        "containers": ["demo-app"],
+        "sample_messages": [
+          "ERROR connection refused",
+          "panic in worker",
+          "fatal: task crashed"
+        ]
+      }
+    ]
+  }
+}
+```
+
 Non-goals for the current slice:
 
 - multiple channels or multiple webhook targets
 - WhatsApp native integration
-- log anomaly alerting
 - retry queues
 - batching or digests
 - notification inbox inside Stacklab
 - rich templating
+- per-stack regex rules or operator-defined log alert policies

@@ -1885,7 +1885,8 @@ Response:
     "maintenance_succeeded": false,
     "post_update_recovery_failed": false,
     "stacklab_service_error": false,
-    "runtime_health_degraded": false
+    "runtime_health_degraded": false,
+    "runtime_log_error_burst": false
   },
   "channels": {
     "webhook": {
@@ -1914,6 +1915,7 @@ Notes:
   - do not notify on post-update recovery failures by default until the UI exposes it
   - do not notify on Stacklab self-health errors by default until the UI exposes it
   - do not notify on runtime health degradation by default until the UI exposes it
+  - do not notify on runtime log error bursts by default until the UI exposes it
 
 ## `PUT /api/settings/notifications`
 
@@ -1933,7 +1935,8 @@ Request:
     "maintenance_succeeded": true,
     "post_update_recovery_failed": true,
     "stacklab_service_error": true,
-    "runtime_health_degraded": true
+    "runtime_health_degraded": true,
+    "runtime_log_error_burst": true
   },
   "channels": {
     "webhook": {
@@ -1962,7 +1965,8 @@ Response:
     "maintenance_succeeded": true,
     "post_update_recovery_failed": true,
     "stacklab_service_error": true,
-    "runtime_health_degraded": true
+    "runtime_health_degraded": true,
+    "runtime_log_error_burst": true
   },
   "channels": {
     "webhook": {
@@ -2008,7 +2012,8 @@ Request:
     "maintenance_succeeded": false,
     "post_update_recovery_failed": false,
     "stacklab_service_error": false,
-    "runtime_health_degraded": false
+    "runtime_health_degraded": false,
+    "runtime_log_error_burst": false
   },
   "channels": {
     "telegram": {

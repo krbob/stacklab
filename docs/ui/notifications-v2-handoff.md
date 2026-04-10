@@ -100,3 +100,19 @@ Next follow-up after Stacklab self-health:
   - separate “Runtime” or “Stacks” subsection under events
 - preferred operator copy:
   - “A stack becomes unhealthy or enters a restart loop”
+
+Next follow-up after runtime health:
+
+- `runtime_log_error_burst`
+- source:
+  - recent `docker logs` output for managed stack containers
+- first trigger:
+  - a stack starts logging repeated new error-like lines within one polling window
+- preferred UI grouping:
+  - same “Runtime” subsection as runtime health degradation
+- preferred operator copy:
+  - “A stack starts logging repeated errors”
+- do not expose:
+  - regex builders
+  - per-service log rules
+  - user-configurable thresholds

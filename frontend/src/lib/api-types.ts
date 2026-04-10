@@ -81,6 +81,7 @@ export interface NotificationEventToggles {
   post_update_recovery_failed?: boolean
   stacklab_service_error?: boolean
   runtime_health_degraded?: boolean
+  runtime_log_error_burst?: boolean
 }
 
 export interface NotificationWebhookChannel {

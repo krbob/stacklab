@@ -435,6 +435,182 @@ func TestPollRuntimeHealthAlertsDedupesDuringCooldown(t *testing.T) {
 	}
 }
 
+func TestPollRuntimeLogAlertsPrimesBaselineWithoutSending(t *testing.T) {
+	t.Parallel()
+
+	testStore := openNotificationTestStore(t)
+	service := NewService(testStore, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	now := time.Date(2026, 4, 10, 9, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	service.SetStackInspector(fakeStackInspector{
+		items: map[string]stacks.StackDetailResponse{
+			"demo": runtimeHealthHealthyStack("demo"),
+		},
+	})
+	service.readLogs = func(_ context.Context, _ string, _ time.Time) ([]runtimeContainerLogEntry, error) {
+		return []runtimeContainerLogEntry{{Timestamp: now, Message: "ERROR one"}}, nil
+	}
+
+	sent := 0
+	service.sendWebhook = func(_ context.Context, _ string, _ WebhookPayload) error {
+		sent++
+		return nil
+	}
+
+	if err := service.pollRuntimeLogAlerts(context.Background()); err != nil {
+		t.Fatalf("pollRuntimeLogAlerts() error = %v", err)
+	}
+	if sent != 0 {
+		t.Fatalf("sent = %d, want 0", sent)
+	}
+
+	state, err := service.loadRuntimeLogState(context.Background())
+	if err != nil {
+		t.Fatalf("loadRuntimeLogState() error = %v", err)
+	}
+	if state.LastCheckedAt.IsZero() {
+		t.Fatalf("expected baseline last_checked_at to be saved")
+	}
+}
+
+func TestPollRuntimeLogAlertsSendsOnNewBurst(t *testing.T) {
+	t.Parallel()
+
+	testStore := openNotificationTestStore(t)
+	service := NewService(testStore, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	now := time.Date(2026, 4, 10, 9, 10, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	service.SetStackInspector(fakeStackInspector{
+		items: map[string]stacks.StackDetailResponse{
+			"demo": runtimeHealthHealthyStack("demo"),
+		},
+	})
+	service.readLogs = func(_ context.Context, _ string, _ time.Time) ([]runtimeContainerLogEntry, error) {
+		return []runtimeContainerLogEntry{
+			{Timestamp: now.Add(-25 * time.Second), Message: "ERROR connection refused"},
+			{Timestamp: now.Add(-20 * time.Second), Message: "panic in worker"},
+			{Timestamp: now.Add(-15 * time.Second), Message: "fatal: task crashed"},
+		}, nil
+	}
+
+	_, err := service.UpdateSettings(context.Background(), UpdateSettingsRequest{
+		Channels: &ChannelsRequest{
+			Webhook: &WebhookRequest{
+				Enabled: true,
+				URL:     "https://hooks.example.test/stacklab",
+			},
+		},
+		Events: EventToggles{
+			JobFailed:                true,
+			JobSucceededWithWarnings: true,
+			MaintenanceSucceeded:     false,
+			PostUpdateRecoveryFailed: false,
+			StacklabServiceError:     false,
+			RuntimeHealthDegraded:    false,
+			RuntimeLogErrorBurst:     true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateSettings() error = %v", err)
+	}
+	if err := service.saveRuntimeLogState(context.Background(), runtimeLogState{LastCheckedAt: now.Add(-30 * time.Second)}); err != nil {
+		t.Fatalf("saveRuntimeLogState() error = %v", err)
+	}
+
+	var sent []WebhookPayload
+	service.sendWebhook = func(_ context.Context, _ string, payload WebhookPayload) error {
+		sent = append(sent, payload)
+		return nil
+	}
+
+	if err := service.pollRuntimeLogAlerts(context.Background()); err != nil {
+		t.Fatalf("pollRuntimeLogAlerts() error = %v", err)
+	}
+	if len(sent) != 1 {
+		t.Fatalf("sent = %d, want 1", len(sent))
+	}
+	if sent[0].Event != "runtime_log_error_burst" || sent[0].RuntimeLog == nil || len(sent[0].RuntimeLog.AffectedStacks) != 1 {
+		t.Fatalf("unexpected payload: %#v", sent[0])
+	}
+	if sent[0].RuntimeLog.AffectedStacks[0].MatchingEntryCount != 3 {
+		t.Fatalf("unexpected matching_entry_count: %#v", sent[0].RuntimeLog.AffectedStacks[0])
+	}
+}
+
+func TestPollRuntimeLogAlertsDedupesDuringCooldown(t *testing.T) {
+	t.Parallel()
+
+	testStore := openNotificationTestStore(t)
+	service := NewService(testStore, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	now := time.Date(2026, 4, 10, 9, 10, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	service.SetStackInspector(fakeStackInspector{
+		items: map[string]stacks.StackDetailResponse{
+			"demo": runtimeHealthHealthyStack("demo"),
+		},
+	})
+	service.readLogs = func(_ context.Context, _ string, _ time.Time) ([]runtimeContainerLogEntry, error) {
+		return []runtimeContainerLogEntry{
+			{Timestamp: now.Add(-25 * time.Second), Message: "ERROR connection refused"},
+			{Timestamp: now.Add(-20 * time.Second), Message: "panic in worker"},
+			{Timestamp: now.Add(-15 * time.Second), Message: "fatal: task crashed"},
+		}, nil
+	}
+
+	_, err := service.UpdateSettings(context.Background(), UpdateSettingsRequest{
+		Channels: &ChannelsRequest{
+			Webhook: &WebhookRequest{
+				Enabled: true,
+				URL:     "https://hooks.example.test/stacklab",
+			},
+		},
+		Events: EventToggles{
+			JobFailed:                true,
+			JobSucceededWithWarnings: true,
+			MaintenanceSucceeded:     false,
+			PostUpdateRecoveryFailed: false,
+			StacklabServiceError:     false,
+			RuntimeHealthDegraded:    false,
+			RuntimeLogErrorBurst:     true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateSettings() error = %v", err)
+	}
+
+	failures := []RuntimeLogFailure{{
+		StackID:            "demo",
+		MatchingEntryCount: 3,
+		ContainerCount:     1,
+		Containers:         []string{"demo-c1"},
+		SampleMessages: []string{
+			"ERROR connection refused",
+			"panic in worker",
+			"fatal: task crashed",
+		},
+	}}
+	if err := service.saveRuntimeLogState(context.Background(), runtimeLogState{
+		LastCheckedAt:  now.Add(-30 * time.Second),
+		Fingerprint:    runtimeLogFingerprint(failures),
+		LastNotifiedAt: now.Add(-5 * time.Minute),
+	}); err != nil {
+		t.Fatalf("saveRuntimeLogState() error = %v", err)
+	}
+
+	sent := 0
+	service.sendWebhook = func(_ context.Context, _ string, _ WebhookPayload) error {
+		sent++
+		return nil
+	}
+
+	if err := service.pollRuntimeLogAlerts(context.Background()); err != nil {
+		t.Fatalf("pollRuntimeLogAlerts() error = %v", err)
+	}
+	if sent != 0 {
+		t.Fatalf("sent = %d, want 0", sent)
+	}
+}
+
 func TestValidateSettings(t *testing.T) {
 	t.Parallel()
 

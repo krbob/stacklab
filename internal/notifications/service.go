@@ -1,6 +1,7 @@
 package notifications
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -9,7 +10,10 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os/exec"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,11 +27,15 @@ const (
 	legacySettingsKey            = "notifications_webhook_v1"
 	stacklabJournalStateKey      = "notifications_stacklab_journal_state_v1"
 	runtimeHealthStateKey        = "notifications_runtime_health_state_v1"
+	runtimeLogStateKey           = "notifications_runtime_log_state_v1"
 	stacklabJournalPollLimit     = 200
 	stacklabJournalMaxBatchFetch = 5
+	runtimeLogTailLimit          = 200
+	runtimeLogErrorThreshold     = 3
 )
 
 var ErrInvalidConfig = errors.New("invalid notification config")
+var runtimeLogErrorPattern = regexp.MustCompile(`(?i)\b(error|fatal|panic|exception|traceback|critical)\b`)
 
 type Store interface {
 	AppSetting(ctx context.Context, key string) (string, bool, error)
@@ -54,6 +62,7 @@ type EventToggles struct {
 	PostUpdateRecoveryFailed bool `json:"post_update_recovery_failed"`
 	StacklabServiceError     bool `json:"stacklab_service_error"`
 	RuntimeHealthDegraded    bool `json:"runtime_health_degraded"`
+	RuntimeLogErrorBurst     bool `json:"runtime_log_error_burst"`
 }
 
 type Settings struct {
@@ -151,6 +160,7 @@ type WebhookPayload struct {
 	PostUpdate      *PostUpdateSummary    `json:"post_update,omitempty"`
 	StacklabService *StacklabServiceAlert `json:"stacklab_service,omitempty"`
 	RuntimeHealth   *RuntimeHealthSummary `json:"runtime_health,omitempty"`
+	RuntimeLog      *RuntimeLogSummary    `json:"runtime_log,omitempty"`
 }
 
 type WebhookJob struct {
@@ -200,8 +210,33 @@ type runtimeHealthState struct {
 	LastNotifiedAt time.Time `json:"last_notified_at,omitempty"`
 }
 
+type runtimeLogState struct {
+	LastCheckedAt  time.Time `json:"last_checked_at,omitempty"`
+	Fingerprint    string    `json:"fingerprint,omitempty"`
+	LastNotifiedAt time.Time `json:"last_notified_at,omitempty"`
+}
+
+type runtimeContainerLogEntry struct {
+	Timestamp time.Time
+	Message   string
+}
+
 type RuntimeHealthSummary struct {
 	AffectedStacks []RuntimeHealthFailure `json:"affected_stacks"`
+}
+
+type RuntimeLogSummary struct {
+	WindowStart    time.Time           `json:"window_start,omitempty"`
+	WindowEnd      time.Time           `json:"window_end,omitempty"`
+	AffectedStacks []RuntimeLogFailure `json:"affected_stacks"`
+}
+
+type RuntimeLogFailure struct {
+	StackID            string   `json:"stack_id"`
+	MatchingEntryCount int      `json:"matching_entry_count"`
+	ContainerCount     int      `json:"container_count,omitempty"`
+	Containers         []string `json:"containers,omitempty"`
+	SampleMessages     []string `json:"sample_messages,omitempty"`
 }
 
 type RuntimeHealthFailure struct {
@@ -222,6 +257,7 @@ type Service struct {
 	stacklabLogs   StacklabLogReader
 	sendWebhook    webhookSender
 	sendTelegram   telegramSender
+	readLogs       func(ctx context.Context, containerID string, since time.Time) ([]runtimeContainerLogEntry, error)
 	now            func() time.Time
 	pollInterval   time.Duration
 	alertCooldown  time.Duration
@@ -280,6 +316,21 @@ func NewService(settingStore Store, logger *slog.Logger) *Service {
 			}
 			return nil
 		},
+		readLogs: func(ctx context.Context, containerID string, since time.Time) ([]runtimeContainerLogEntry, error) {
+			args := []string{
+				"logs",
+				"--timestamps",
+				"--since", since.UTC().Format(time.RFC3339),
+				"--tail", strconv.Itoa(runtimeLogTailLimit),
+				containerID,
+			}
+			cmd := exec.CommandContext(ctx, "docker", args...)
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				return nil, fmt.Errorf("docker logs %s: %w", containerID, err)
+			}
+			return parseRuntimeContainerLogOutput(output, since), nil
+		},
 		now:           time.Now().UTC,
 		pollInterval:  30 * time.Second,
 		alertCooldown: 15 * time.Minute,
@@ -295,7 +346,7 @@ func (s *Service) SetStacklabLogReader(reader StacklabLogReader) {
 }
 
 func (s *Service) StartBackground(ctx context.Context) {
-	if s.stacklabLogs == nil {
+	if s.stacklabLogs == nil && s.stackInspector == nil {
 		return
 	}
 	go s.runStacklabSelfHealthLoop(ctx)
@@ -532,6 +583,7 @@ func defaultSettings() Settings {
 			PostUpdateRecoveryFailed: false,
 			StacklabServiceError:     false,
 			RuntimeHealthDegraded:    false,
+			RuntimeLogErrorBurst:     false,
 		},
 		Channels: Channels{
 			Webhook: WebhookSettings{
@@ -623,6 +675,8 @@ func buildSummary(eventType string, job store.Job, warningCount int) string {
 		return "Stacklab service logged new errors"
 	case "runtime_health_degraded":
 		return "One or more stacks became unhealthy"
+	case "runtime_log_error_burst":
+		return "One or more stacks started logging repeated errors"
 	default:
 		return "Stacklab notification"
 	}
@@ -772,6 +826,15 @@ func buildTelegramText(payload WebhookPayload) string {
 			lines = append(lines, fmt.Sprintf("- %s (%s)", affected.StackID, reason))
 		}
 	}
+	if payload.RuntimeLog != nil && len(payload.RuntimeLog.AffectedStacks) > 0 {
+		lines = append(lines, "Affected stacks:")
+		for _, affected := range payload.RuntimeLog.AffectedStacks {
+			lines = append(lines, fmt.Sprintf("- %s (%d matching log lines)", affected.StackID, affected.MatchingEntryCount))
+			for _, message := range affected.SampleMessages {
+				lines = append(lines, fmt.Sprintf("  • %s", message))
+			}
+		}
+	}
 	return strings.Join(lines, "\n")
 }
 
@@ -792,6 +855,9 @@ func (s *Service) runStacklabSelfHealthLoop(ctx context.Context) {
 	if err := s.pollRuntimeHealthAlerts(ctx); err != nil && s.logger != nil {
 		s.logger.Debug("runtime health poll failed", slog.String("err", err.Error()))
 	}
+	if err := s.pollRuntimeLogAlerts(ctx); err != nil && s.logger != nil {
+		s.logger.Debug("runtime log alert poll failed", slog.String("err", err.Error()))
+	}
 
 	ticker := time.NewTicker(s.pollInterval)
 	defer ticker.Stop()
@@ -806,6 +872,9 @@ func (s *Service) runStacklabSelfHealthLoop(ctx context.Context) {
 			}
 			if err := s.pollRuntimeHealthAlerts(ctx); err != nil && s.logger != nil {
 				s.logger.Debug("runtime health poll failed", slog.String("err", err.Error()))
+			}
+			if err := s.pollRuntimeLogAlerts(ctx); err != nil && s.logger != nil {
+				s.logger.Debug("runtime log alert poll failed", slog.String("err", err.Error()))
 			}
 		}
 	}
@@ -1169,4 +1238,239 @@ func (s *Service) saveRuntimeHealthState(ctx context.Context, state runtimeHealt
 		return fmt.Errorf("marshal runtime health state: %w", err)
 	}
 	return s.store.SetAppSetting(ctx, runtimeHealthStateKey, string(payload), s.now())
+}
+
+func (s *Service) pollRuntimeLogAlerts(ctx context.Context) error {
+	if s.stackInspector == nil || s.readLogs == nil {
+		return nil
+	}
+
+	state, err := s.loadRuntimeLogState(ctx)
+	if err != nil {
+		return err
+	}
+
+	now := s.now()
+	if state.LastCheckedAt.IsZero() {
+		state.LastCheckedAt = now
+		return s.saveRuntimeLogState(ctx, state)
+	}
+
+	failures, err := s.inspectRuntimeLogFailures(ctx, state.LastCheckedAt)
+	if err != nil {
+		return err
+	}
+	if len(failures) == 0 {
+		state.LastCheckedAt = now
+		state.Fingerprint = ""
+		return s.saveRuntimeLogState(ctx, state)
+	}
+
+	fingerprint := runtimeLogFingerprint(failures)
+	settings, err := s.loadSettings(ctx)
+	if err != nil {
+		return err
+	}
+	if !settings.Events.RuntimeLogErrorBurst {
+		state.LastCheckedAt = now
+		state.Fingerprint = fingerprint
+		return s.saveRuntimeLogState(ctx, state)
+	}
+	if !hasConfiguredNotificationChannel(settings) {
+		state.LastCheckedAt = now
+		state.Fingerprint = fingerprint
+		return s.saveRuntimeLogState(ctx, state)
+	}
+	if state.Fingerprint == fingerprint && !state.LastNotifiedAt.IsZero() && now.Sub(state.LastNotifiedAt) < s.alertCooldown {
+		state.LastCheckedAt = now
+		return s.saveRuntimeLogState(ctx, state)
+	}
+
+	payload := WebhookPayload{
+		Event:   "runtime_log_error_burst",
+		SentAt:  now,
+		Source:  "stacklab",
+		Summary: fmt.Sprintf("%d stack(s) started logging repeated errors", len(failures)),
+		RuntimeLog: &RuntimeLogSummary{
+			WindowStart:    state.LastCheckedAt,
+			WindowEnd:      now,
+			AffectedStacks: failures,
+		},
+	}
+	if err := s.dispatchPayload(ctx, settings, payload); err != nil && s.logger != nil {
+		s.logger.Warn("dispatch runtime log notification failed", slog.String("err", err.Error()))
+	}
+
+	state.LastCheckedAt = now
+	state.Fingerprint = fingerprint
+	state.LastNotifiedAt = now
+	return s.saveRuntimeLogState(ctx, state)
+}
+
+func (s *Service) inspectRuntimeLogFailures(ctx context.Context, since time.Time) ([]RuntimeLogFailure, error) {
+	list, err := s.stackInspector.List(ctx, stacks.ListQuery{})
+	if err != nil {
+		return nil, err
+	}
+
+	failures := make([]RuntimeLogFailure, 0)
+	for _, item := range list.Items {
+		detail, err := s.stackInspector.Get(ctx, item.ID)
+		if err != nil {
+			continue
+		}
+
+		samples := map[string]int{}
+		containerNames := map[string]struct{}{}
+		matchCount := 0
+
+		for _, container := range detail.Stack.Containers {
+			if container.Status == "exited" || container.Status == "dead" {
+				continue
+			}
+			entries, err := s.readLogs(ctx, container.ID, since)
+			if err != nil {
+				continue
+			}
+			for _, entry := range entries {
+				if !isRuntimeLogErrorMessage(entry.Message) {
+					continue
+				}
+				matchCount++
+				containerNames[container.Name] = struct{}{}
+				message := strings.TrimSpace(entry.Message)
+				if message != "" {
+					samples[message]++
+				}
+			}
+		}
+
+		if matchCount < runtimeLogErrorThreshold {
+			continue
+		}
+
+		failures = append(failures, RuntimeLogFailure{
+			StackID:            detail.Stack.ID,
+			MatchingEntryCount: matchCount,
+			ContainerCount:     len(containerNames),
+			Containers:         sortedKeys(containerNames),
+			SampleMessages:     summarizeRuntimeLogMessages(samples),
+		})
+	}
+
+	sort.Slice(failures, func(i, j int) bool { return failures[i].StackID < failures[j].StackID })
+	return failures, nil
+}
+
+func isRuntimeLogErrorMessage(message string) bool {
+	normalized := strings.TrimSpace(message)
+	if normalized == "" {
+		return false
+	}
+	return runtimeLogErrorPattern.MatchString(normalized)
+}
+
+func parseRuntimeContainerLogOutput(output []byte, fallback time.Time) []runtimeContainerLogEntry {
+	scanner := bufio.NewScanner(bytes.NewReader(output))
+	entries := make([]runtimeContainerLogEntry, 0)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		timestamp, message := splitRuntimeLogLine(line, fallback)
+		entries = append(entries, runtimeContainerLogEntry{
+			Timestamp: timestamp,
+			Message:   message,
+		})
+	}
+	return entries
+}
+
+func splitRuntimeLogLine(line string, fallback time.Time) (time.Time, string) {
+	parts := strings.SplitN(line, " ", 2)
+	if len(parts) != 2 {
+		return fallback, line
+	}
+	timestamp, err := time.Parse(time.RFC3339Nano, parts[0])
+	if err != nil {
+		return fallback, line
+	}
+	return timestamp.UTC(), strings.TrimSpace(parts[1])
+}
+
+func summarizeRuntimeLogMessages(counts map[string]int) []string {
+	type messageCount struct {
+		message string
+		count   int
+	}
+	summary := make([]messageCount, 0, len(counts))
+	for message, count := range counts {
+		summary = append(summary, messageCount{message: message, count: count})
+	}
+	sort.Slice(summary, func(i, j int) bool {
+		if summary[i].count == summary[j].count {
+			return summary[i].message < summary[j].message
+		}
+		return summary[i].count > summary[j].count
+	})
+	limit := 3
+	if len(summary) < limit {
+		limit = len(summary)
+	}
+	out := make([]string, 0, limit)
+	for _, item := range summary[:limit] {
+		if item.count > 1 {
+			out = append(out, fmt.Sprintf("%s (x%d)", item.message, item.count))
+		} else {
+			out = append(out, item.message)
+		}
+	}
+	return out
+}
+
+func runtimeLogFingerprint(failures []RuntimeLogFailure) string {
+	if len(failures) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(failures))
+	for _, failure := range failures {
+		samples := append([]string(nil), failure.SampleMessages...)
+		sort.Strings(samples)
+		parts = append(parts, fmt.Sprintf("%s|%d|%s", failure.StackID, failure.MatchingEntryCount, strings.Join(samples, ",")))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ";")
+}
+
+func sortedKeys(values map[string]struct{}) []string {
+	keys := make([]string, 0, len(values))
+	for value := range values {
+		keys = append(keys, value)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func (s *Service) loadRuntimeLogState(ctx context.Context) (runtimeLogState, error) {
+	raw, ok, err := s.store.AppSetting(ctx, runtimeLogStateKey)
+	if err != nil {
+		return runtimeLogState{}, err
+	}
+	if !ok {
+		return runtimeLogState{}, nil
+	}
+	var state runtimeLogState
+	if err := json.Unmarshal([]byte(raw), &state); err != nil {
+		return runtimeLogState{}, fmt.Errorf("parse runtime log state: %w", err)
+	}
+	return state, nil
+}
+
+func (s *Service) saveRuntimeLogState(ctx context.Context, state runtimeLogState) error {
+	payload, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("marshal runtime log state: %w", err)
+	}
+	return s.store.SetAppSetting(ctx, runtimeLogStateKey, string(payload), s.now())
 }

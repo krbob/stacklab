@@ -351,6 +351,9 @@ Recommended event order:
    - unhealthy containers
    - restart loops
    - stack transitions into degraded states
+6. runtime log error bursts:
+   - repeated new error-like log lines from managed containers
+   - cooldown and baseline seeding to avoid spam on startup
 
 Non-goals in the first mobile alert slice:
 
@@ -366,6 +369,10 @@ Follow-up slice after the first Telegram rollout:
   - `N` error or fatal entries in `M` minutes
   - suppress repeated identical messages for a cooldown window
 - operator-facing copy focused on "Stacklab itself is unhealthy", not raw journald mechanics
+- then add runtime log error bursts sourced from managed container logs
+- keep the first version heuristic:
+  - repeated `error` / `fatal` / `panic` style lines
+  - no regex editor or per-service rules
 
 Backend work:
 
