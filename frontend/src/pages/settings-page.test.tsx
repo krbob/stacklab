@@ -40,6 +40,8 @@ describe("SettingsPage", () => {
         job_failed: true,
         job_succeeded_with_warnings: true,
         maintenance_succeeded: false,
+        post_update_recovery_failed: false,
+        stacklab_service_error: false,
       },
     });
   });
@@ -62,6 +64,8 @@ describe("SettingsPage", () => {
         job_failed: true,
         job_succeeded_with_warnings: true,
         maintenance_succeeded: true,
+        post_update_recovery_failed: false,
+        stacklab_service_error: true,
       },
     });
 
@@ -76,6 +80,7 @@ describe("SettingsPage", () => {
       },
     );
     fireEvent.click(screen.getByText("Maintenance succeeded"));
+    fireEvent.click(screen.getByText("Stacklab itself starts logging errors"));
     fireEvent.click(screen.getByText("Save"));
 
     await waitFor(() => {
@@ -87,6 +92,7 @@ describe("SettingsPage", () => {
             job_failed: true,
             job_succeeded_with_warnings: true,
             maintenance_succeeded: true,
+            stacklab_service_error: true,
           }),
         }),
       );
@@ -104,6 +110,8 @@ describe("SettingsPage", () => {
         job_failed: true,
         job_succeeded_with_warnings: true,
         maintenance_succeeded: false,
+        post_update_recovery_failed: false,
+        stacklab_service_error: true,
       },
     });
     mockSendNotificationTest.mockResolvedValue({ sent: true, channel: 'webhook' });
@@ -127,6 +135,9 @@ describe("SettingsPage", () => {
         expect.objectContaining({
           channel: 'webhook',
           webhook_url: "https://hooks.example.test/draft",
+          events: expect.objectContaining({
+            stacklab_service_error: true,
+          }),
         }),
       );
     });
