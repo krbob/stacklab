@@ -181,6 +181,31 @@ Suggested scope:
 
 ### Good Mid-Term Fits
 
+#### Mobile notifications for important failures
+
+Recommendation: `yes`
+
+Why:
+
+- Stacklab already has long-running jobs, job detail, audit, and global activity
+- operators should not need to keep the UI open during maintenance windows
+- Telegram is a pragmatic first mobile channel without requiring self-hosted notification infrastructure
+
+Suggested scope order:
+
+- generic webhook baseline first
+- Telegram as the first native mobile channel
+- post-update recovery failures before broader runtime alerts
+- Stacklab self-health alerts from the `stacklab` journald unit after that
+
+Important constraint:
+
+- Stacklab service error alerts should not mirror raw journald lines one-to-one
+- use debounce and dedupe, for example:
+  - repeated `error` or `fatal` entries within a short window
+  - suppression of identical messages during a cooldown period
+- keep container log anomaly alerts for later, after Stacklab's own self-health alerts are stable
+
 #### Git-aware stack management
 
 Recommendation: `yes`

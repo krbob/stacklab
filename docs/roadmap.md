@@ -73,6 +73,7 @@ Implemented and already exercised on Linux staging hosts:
   - Telegram first
   - `ntfy` or `Gotify` as strong later candidates for self-hosted setups
   - post-update failure alerts before broader runtime alerting
+  - Stacklab service error alerts from `journald` after Telegram and post-update alerts are stable
 - scheduled maintenance jobs only as explicit opt-in policies
 - richer live stats visualization beyond the current lightweight sparklines
 - theme toggle with system preference support
@@ -82,6 +83,9 @@ Implemented and already exercised on Linux staging hosts:
 - light internationalization groundwork, then selected translations once UI copy stabilizes
 - richer maintenance notifications and scheduled update policies
 - post-update verification alerts for stacks that fail to recover after maintenance
+- Stacklab self-health alerts later:
+  - bursts of `error` / `fatal` logs from the `stacklab` systemd unit
+  - debounce and dedupe before sending mobile notifications
 - runtime health alerts later:
   - unhealthy containers
   - restart loops

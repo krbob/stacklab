@@ -346,7 +346,8 @@ Recommended event order:
 1. post-update stack recovery failed
 2. job failed
 3. job succeeded with warnings
-4. later runtime health degradation:
+4. Stacklab self-health alerts from `journald`
+5. later runtime health degradation:
    - unhealthy containers
    - restart loops
    - stack transitions into degraded states
@@ -358,12 +359,21 @@ Non-goals in the first mobile alert slice:
 - notification inbox in the UI
 - templating or batching
 
+Follow-up slice after the first Telegram rollout:
+
+- `stacklab_service_error` event sourced from the `stacklab` systemd unit logs
+- thresholded and deduplicated delivery, for example:
+  - `N` error or fatal entries in `M` minutes
+  - suppress repeated identical messages for a cooldown window
+- operator-facing copy focused on "Stacklab itself is unhealthy", not raw journald mechanics
+
 Backend work:
 
 - notification channel abstraction above the existing webhook sender
 - Telegram channel support with test send
 - post-update verification logic tied to maintenance completion
-- debounced runtime health alert model later, only after post-update alerts are stable
+- Stacklab service error detector later, using journald access already present for Host Observability
+- debounced runtime health alert model only after post-update and Stacklab self-health alerts are stable
 
 UI developer input needed:
 
