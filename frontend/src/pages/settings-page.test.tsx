@@ -16,6 +16,16 @@ vi.mock("@/lib/api-client", () => ({
     mockUpdateNotificationSettings(...args),
   sendNotificationTest: (...args: unknown[]) =>
     mockSendNotificationTest(...args),
+  getMaintenanceSchedules: () => Promise.resolve({
+    timezone: 'host_local',
+    update: { enabled: false, frequency: 'weekly', time: '03:30', weekdays: ['sat'], target: { mode: 'all' }, options: { pull_images: true, build_images: true, remove_orphans: true, prune_after: false, include_volumes: false }, status: {} },
+    prune: { enabled: false, frequency: 'weekly', time: '04:30', weekdays: ['sun'], scope: { images: true, build_cache: true, stopped_containers: true, volumes: false }, status: {} },
+  }),
+  updateMaintenanceSchedules: vi.fn(),
+}));
+
+vi.mock("@/hooks/use-job-drawer", () => ({
+  useJobDrawer: () => ({ openJob: vi.fn(), closeJob: vi.fn(), jobId: null }),
 }));
 
 describe("SettingsPage", () => {
