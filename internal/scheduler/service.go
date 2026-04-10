@@ -101,6 +101,9 @@ func (s *Service) UpdateSettings(ctx context.Context, request UpdateSettingsRequ
 	if err := s.saveSettings(ctx, settings); err != nil {
 		return SettingsResponse{}, err
 	}
+	if err := s.resetRuntimeState(ctx, settings, s.now()); err != nil {
+		return SettingsResponse{}, err
+	}
 	return s.GetSettings(ctx)
 }
 
@@ -575,6 +578,22 @@ func (s *Service) saveSettings(ctx context.Context, settings Settings) error {
 	return s.store.SetAppSetting(ctx, settingsKey, string(payload), s.now())
 }
 
+func (s *Service) resetRuntimeState(ctx context.Context, settings Settings, now time.Time) error {
+	s.persistMu.Lock()
+	defer s.persistMu.Unlock()
+
+	state := runtimeState{
+		Update: seededScheduleRuntimeState(settings.Update.Enabled, settings.Update.Frequency, settings.Update.Time, settings.Update.Weekdays, now),
+		Prune:  seededScheduleRuntimeState(settings.Prune.Enabled, settings.Prune.Frequency, settings.Prune.Time, settings.Prune.Weekdays, now),
+	}
+
+	payload, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("marshal maintenance schedule runtime: %w", err)
+	}
+	return s.store.SetAppSetting(ctx, runtimeKey, string(payload), s.now())
+}
+
 func (s *Service) loadRuntimeState(ctx context.Context) (runtimeState, error) {
 	raw, ok, err := s.store.AppSetting(ctx, runtimeKey)
 	if err != nil {
@@ -634,5 +653,19 @@ func (s *Service) finish(scheduleKey string) {
 func (s *Service) logWarn(message string, err error) {
 	if s.logger != nil {
 		s.logger.Warn(message, slog.String("err", err.Error()))
+	}
+}
+
+func seededScheduleRuntimeState(enabled bool, frequency Frequency, timeOfDay string, weekdays []Weekday, now time.Time) scheduleRuntimeState {
+	if !enabled {
+		return scheduleRuntimeState{}
+	}
+	mostRecent, err := mostRecentScheduledAt(frequency, timeOfDay, weekdays, now.In(time.Local))
+	if err != nil {
+		return scheduleRuntimeState{}
+	}
+	mostRecentUTC := mostRecent.UTC()
+	return scheduleRuntimeState{
+		LastScheduledFor: &mostRecentUTC,
 	}
 }

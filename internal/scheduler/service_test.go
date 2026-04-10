@@ -150,6 +150,13 @@ func TestRunDueSchedulesDispatchesUpdateOncePerSlot(t *testing.T) {
 		t.Fatalf("UpdateSettings() error = %v", err)
 	}
 
+	if err := service.updateRuntime(context.Background(), "update", func(state *scheduleRuntimeState) {
+		previous := time.Date(2026, 4, 9, 3, 30, 0, 0, time.UTC)
+		state.LastScheduledFor = &previous
+	}); err != nil {
+		t.Fatalf("updateRuntime() error = %v", err)
+	}
+
 	service.runDueSchedules(context.Background())
 	<-runner.updateDone
 
@@ -212,6 +219,13 @@ func TestRunDueSchedulesDispatchesPruneWithManagedLocks(t *testing.T) {
 		t.Fatalf("UpdateSettings() error = %v", err)
 	}
 
+	if err := service.updateRuntime(context.Background(), "prune", func(state *scheduleRuntimeState) {
+		previous := time.Date(2026, 4, 9, 4, 30, 0, 0, time.UTC)
+		state.LastScheduledFor = &previous
+	}); err != nil {
+		t.Fatalf("updateRuntime() error = %v", err)
+	}
+
 	service.runDueSchedules(context.Background())
 	<-runner.pruneDone
 	if runner.pruneCalls != 1 {
@@ -219,5 +233,49 @@ func TestRunDueSchedulesDispatchesPruneWithManagedLocks(t *testing.T) {
 	}
 	if runner.pruneReq.Trigger != "scheduled" || runner.pruneReq.ScheduleKey != "prune" {
 		t.Fatalf("unexpected prune request: %#v", runner.pruneReq)
+	}
+}
+
+func TestUpdateSettingsSeedsRuntimeToAvoidImmediateCatchUp(t *testing.T) {
+	previousLocal := time.Local
+	time.Local = time.FixedZone("UTC", 0)
+	defer func() { time.Local = previousLocal }()
+
+	testStore := openSchedulerTestStore(t)
+	runner := &fakeRunner{}
+	service := NewService(testStore, audit.NewService(testStore), runner, &fakeStackLister{}, nil)
+	service.now = func() time.Time { return time.Date(2026, 4, 10, 4, 0, 0, 0, time.UTC) }
+
+	if _, err := service.UpdateSettings(context.Background(), UpdateSettingsRequest{
+		Update: UpdateScheduleConfig{
+			Enabled:   true,
+			Frequency: FrequencyDaily,
+			Time:      "03:30",
+			Target:    maintenancejobs.UpdateTarget{Mode: "all"},
+			Options: maintenancejobs.UpdateOptions{
+				PullImages:    true,
+				BuildImages:   true,
+				RemoveOrphans: true,
+			},
+		},
+		Prune: defaultSettings().Prune,
+	}); err != nil {
+		t.Fatalf("UpdateSettings() error = %v", err)
+	}
+
+	service.runDueSchedules(context.Background())
+	if runner.updateCalls != 0 {
+		t.Fatalf("updateCalls = %d, want 0", runner.updateCalls)
+	}
+
+	response, err := service.GetSettings(context.Background())
+	if err != nil {
+		t.Fatalf("GetSettings() error = %v", err)
+	}
+	if response.Update.Status.LastScheduledFor == nil || !response.Update.Status.LastScheduledFor.Equal(time.Date(2026, 4, 10, 3, 30, 0, 0, time.UTC)) {
+		t.Fatalf("last_scheduled_for = %#v, want 2026-04-10T03:30:00Z", response.Update.Status.LastScheduledFor)
+	}
+	if response.Update.Status.LastResult != "" {
+		t.Fatalf("last_result = %q, want empty", response.Update.Status.LastResult)
 	}
 }
