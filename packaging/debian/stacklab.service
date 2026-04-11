@@ -2,7 +2,6 @@
 Description=Stacklab
 After=network-online.target docker.service
 Wants=network-online.target
-Requires=docker.service
 
 [Service]
 Type=simple
@@ -20,7 +19,8 @@ NoNewPrivileges=false
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=true
-ReadWritePaths=/srv/stacklab /var/lib/stacklab
+# Include /etc/docker because the opt-in Docker admin helper runs inside this unit sandbox.
+ReadWritePaths=/srv/stacklab /var/lib/stacklab /etc/docker
 
 [Install]
 WantedBy=multi-user.target

@@ -319,7 +319,7 @@ func (s *Service) installedVersion(ctx context.Context, packageName string) (str
 }
 
 func (s *Service) candidateVersion(ctx context.Context, packageName string) (string, error) {
-	output, err := s.runCommand(ctx, "apt-cache", "policy", packageName)
+	output, err := s.runCommand(ctx, "env", "LC_ALL=C", "LANG=C", "apt-cache", "policy", packageName)
 	if err != nil {
 		return "", err
 	}

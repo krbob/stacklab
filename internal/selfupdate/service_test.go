@@ -48,7 +48,11 @@ func TestOverviewReportsPackageUpdateAvailability(t *testing.T) {
 		switch {
 		case name == "dpkg-query":
 			return []byte("ii\t2026.04.0\n"), nil
-		case name == "apt-cache":
+		case name == "env":
+			wantArgs := []string{"LC_ALL=C", "LANG=C", "apt-cache", "policy", "stacklab"}
+			if !reflect.DeepEqual(args, wantArgs) {
+				t.Fatalf("env args = %v, want %v", args, wantArgs)
+			}
 			return []byte("stacklab:\n  Installed: 2026.04.0\n  Candidate: 2026.04.1\n"), nil
 		default:
 			t.Fatalf("unexpected command %s %v", name, args)
@@ -68,6 +72,40 @@ func TestOverviewReportsPackageUpdateAvailability(t *testing.T) {
 	}
 	if response.Package.CandidateVersion != "2026.04.1" {
 		t.Fatalf("CandidateVersion = %q, want %q", response.Package.CandidateVersion, "2026.04.1")
+	}
+	if !response.Package.UpdateAvailable {
+		t.Fatalf("UpdateAvailable = false, want true")
+	}
+}
+
+func TestOverviewParsesCandidateVersionIndependentlyOfHostLocale(t *testing.T) {
+	t.Parallel()
+
+	service := newTestService(t, config.Config{
+		SelfUpdatePackageName: "stacklab",
+	})
+	service.runCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		switch {
+		case name == "dpkg-query":
+			return []byte("ii\t2026.05.0~rc1\n"), nil
+		case name == "env":
+			wantArgs := []string{"LC_ALL=C", "LANG=C", "apt-cache", "policy", "stacklab"}
+			if !reflect.DeepEqual(args, wantArgs) {
+				t.Fatalf("env args = %v, want %v", args, wantArgs)
+			}
+			return []byte("stacklab:\n  Installed: 2026.05.0~rc1\n  Candidate: 2026.05.0~rc2\n"), nil
+		default:
+			t.Fatalf("unexpected command %s %v", name, args)
+			return nil, nil
+		}
+	}
+
+	response, err := service.Overview(context.Background())
+	if err != nil {
+		t.Fatalf("Overview() error = %v", err)
+	}
+	if response.Package.CandidateVersion != "2026.05.0~rc2" {
+		t.Fatalf("CandidateVersion = %q, want %q", response.Package.CandidateVersion, "2026.05.0~rc2")
 	}
 	if !response.Package.UpdateAvailable {
 		t.Fatalf("UpdateAvailable = false, want true")
