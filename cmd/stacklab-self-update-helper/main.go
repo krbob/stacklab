@@ -379,8 +379,8 @@ func emitResult(state runtimeState) {
 
 func failJSON(err error) {
 	emitResult(runtimeState{
-		Result:   "failed",
-		Message:  err.Error(),
+		Result:     "failed",
+		Message:    err.Error(),
 		FinishedAt: ptrTime(time.Now().UTC()),
 	})
 	os.Exit(1)
