@@ -255,6 +255,9 @@ export function ConfigPage() {
       {/* Left panel */}
       <div className="hidden w-64 shrink-0 flex-col rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-[var(--shadow)] lg:flex">
         <div className="mb-3 text-xs uppercase tracking-wider text-[var(--accent)]">Config workspace</div>
+        <p className="mb-3 text-xs text-[var(--muted)]">
+          Files here live under <span className="font-mono">/opt/stacklab/config</span>. They are only used when a stack mounts or references them.
+        </p>
 
         {/* Mode toggle */}
         <div className="mb-3 flex gap-1">

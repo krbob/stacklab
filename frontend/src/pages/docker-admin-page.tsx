@@ -148,8 +148,8 @@ function OverviewCards({ overview }: { overview: DockerAdminOverviewResponse }) 
           </>
         ) : (
           <div className="mt-2">
-            <span className="text-sm text-[var(--muted)]">No daemon.json found</span>
-            <p className="mt-1 text-xs text-[var(--muted)]">{daemon_config.path}</p>
+            <span className="text-sm text-[var(--muted)]">Docker is using defaults</span>
+            <p className="mt-1 text-xs text-[var(--muted)]">No <span className="font-mono">{daemon_config.path}</span> file was found.</p>
           </div>
         )}
       </div>
@@ -161,7 +161,8 @@ function DaemonConfigViewer({ config }: { config: DockerDaemonConfigResponse }) 
   if (!config.exists) {
     return (
       <div className="mt-3 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-8 text-center">
-        <p className="text-[var(--text)]">No daemon.json found</p>
+        <p className="text-[var(--text)]">Docker is currently using built-in defaults.</p>
+        <p className="mt-1 text-xs text-[var(--muted)]">No daemon config file was found at:</p>
         <p className="mt-1 font-mono text-xs text-[var(--muted)]">{config.path}</p>
       </div>
     )

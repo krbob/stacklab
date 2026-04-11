@@ -136,3 +136,7 @@ async function waitForJob(page: Page, jobId: string, timeoutMs = 20_000): Promis
 
   throw new Error(`Job ${jobId} did not complete within ${timeoutMs}ms`)
 }
+
+export async function waitForJobById(page: Page, jobId: string, timeoutMs = 20_000): Promise<void> {
+  await waitForJob(page, jobId, timeoutMs)
+}

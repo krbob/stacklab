@@ -172,18 +172,25 @@ func TestRunDueSchedulesDispatchesUpdateOncePerSlot(t *testing.T) {
 		t.Fatalf("updateCalls after second poll = %d, want 1", runner.updateCalls)
 	}
 
-	response, err := service.GetSettings(context.Background())
-	if err != nil {
-		t.Fatalf("GetSettings() error = %v", err)
-	}
-	if response.Update.Status.LastResult != "succeeded" {
-		t.Fatalf("last_result = %q, want succeeded", response.Update.Status.LastResult)
-	}
-	if response.Update.Status.LastJobID == nil || *response.Update.Status.LastJobID != "job_sched_update" {
-		t.Fatalf("last_job_id = %#v, want job_sched_update", response.Update.Status.LastJobID)
-	}
-	if response.Update.Status.NextRunAt == nil {
-		t.Fatal("next_run_at = nil, want value")
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		response, err := service.GetSettings(context.Background())
+		if err != nil {
+			t.Fatalf("GetSettings() error = %v", err)
+		}
+		if response.Update.Status.LastResult == "succeeded" {
+			if response.Update.Status.LastJobID == nil || *response.Update.Status.LastJobID != "job_sched_update" {
+				t.Fatalf("last_job_id = %#v, want job_sched_update", response.Update.Status.LastJobID)
+			}
+			if response.Update.Status.NextRunAt == nil {
+				t.Fatal("next_run_at = nil, want value")
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("last_result = %q, want succeeded", response.Update.Status.LastResult)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

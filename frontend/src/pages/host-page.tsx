@@ -3,22 +3,7 @@ import { getHostOverview, getStacklabLogs } from '@/lib/api-client'
 import { useApi } from '@/hooks/use-api'
 import type { HostOverviewResponse, StacklabLogEntry } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
-}
-
-function formatUptime(seconds: number): string {
-  const days = Math.floor(seconds / 86400)
-  const hours = Math.floor((seconds % 86400) / 3600)
-  const mins = Math.floor((seconds % 3600) / 60)
-  if (days > 0) return `${days}d ${hours}h ${mins}m`
-  if (hours > 0) return `${hours}h ${mins}m`
-  return `${mins}m`
-}
+import { formatBytes, formatUptime } from '@/pages/host-page-utils'
 
 function PercentBar({ value, color }: { value: number; color: string }) {
   return (
@@ -29,13 +14,21 @@ function PercentBar({ value, color }: { value: number; color: string }) {
 }
 
 export function HostPage() {
-  const { data: overview, error: overviewError, loading: overviewLoading, refetch: refetchOverview } = useApi(() => getHostOverview(), [])
+  const fetchOverview = useCallback(async () => getHostOverview(), [])
+  const { data: overview, error: overviewError, loading: overviewLoading, refetch: refetchOverview, updatedAt: overviewUpdatedAt } = useApi(fetchOverview, [fetchOverview])
+  const [nowMs, setNowMs] = useState(() => Date.now())
 
   // Auto-refresh overview every 15s
   useEffect(() => {
     const interval = setInterval(refetchOverview, 15_000)
     return () => clearInterval(interval)
   }, [refetchOverview])
+
+  useEffect(() => {
+    if (!overview) return
+    const interval = setInterval(() => setNowMs(Date.now()), 1_000)
+    return () => clearInterval(interval)
+  }, [overview])
 
   return (
     <div className="flex flex-col gap-4">
@@ -57,7 +50,7 @@ export function HostPage() {
           </div>
         )}
 
-        {overview && <OverviewCards overview={overview} />}
+        {overview && <OverviewCards overview={overview} nowMs={nowMs} fetchedAtMs={overviewUpdatedAt} />}
       </section>
 
       {/* Stacklab logs */}
@@ -68,8 +61,19 @@ export function HostPage() {
   )
 }
 
-function OverviewCards({ overview }: { overview: HostOverviewResponse }) {
+function OverviewCards({
+  overview,
+  nowMs,
+  fetchedAtMs,
+}: {
+  overview: HostOverviewResponse
+  nowMs: number
+  fetchedAtMs: number | null
+}) {
   const { host, stacklab, docker, resources } = overview
+  const liveUptimeSeconds = fetchedAtMs == null
+    ? host.uptime_seconds
+    : host.uptime_seconds + Math.max(0, Math.floor((nowMs - fetchedAtMs) / 1000))
 
   return (
     <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -90,7 +94,7 @@ function OverviewCards({ overview }: { overview: HostOverviewResponse }) {
         <div className="mt-1 space-y-0.5 text-xs text-[var(--muted)]">
           <div>{host.os_name}</div>
           <div>Kernel: {host.kernel_version}</div>
-          <div>Uptime: {formatUptime(host.uptime_seconds)}</div>
+          <div>Uptime: {formatUptime(liveUptimeSeconds)}</div>
           <div>{host.architecture}</div>
         </div>
       </div>

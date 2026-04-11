@@ -230,7 +230,7 @@ describe('DockerAdminPage', () => {
     mockOverviewAndConfig(noDaemonOverview, noDaemonConfig)
     render(<DockerAdminPage />)
 
-    expect(screen.getAllByText(/No daemon\.json found/).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText(/Docker is using defaults|Docker is currently using built-in defaults\./).length).toBeGreaterThanOrEqual(1)
   })
 
   it('shows overview error', () => {

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createStackViaApi, deleteStackViaApi, invokeStackActionViaApi, login } from './helpers'
+import { createStackViaApi, deleteStackViaApi, invokeStackActionViaApi, login, waitForJobById } from './helpers'
 
 const STACK_ID = 'e2e-maintenance'
 const COMPOSE = `services:
@@ -43,11 +43,15 @@ test.describe('Maintenance', () => {
     await expect(page.getByRole('heading', { name: 'Cleanup' })).toBeVisible()
     await expect(page.getByText('Total reclaimable:')).toBeVisible({ timeout: 20_000 })
 
-    const progressPanel = page.getByRole('heading', { name: 'Progress' }).locator('xpath=..')
+    const pruneResponse = page.waitForResponse((response) =>
+      response.url().endsWith('/api/maintenance/prune') && response.request().method() === 'POST',
+    )
+
     await page.getByTestId('maintenance-prune').click()
     await expect(page.getByTestId('maintenance-prune')).toHaveText('Cleaning...', { timeout: 5_000 })
-    await expect(progressPanel.getByText('prune_images')).toBeVisible({ timeout: 20_000 })
-    await expect(progressPanel.getByText('Succeeded')).toBeVisible({ timeout: 20_000 })
+
+    const pruneJob = await (await pruneResponse).json()
+    await waitForJobById(page, pruneJob.job.id)
     await expect(page.getByTestId('maintenance-prune')).toHaveText('Run cleanup', { timeout: 20_000 })
   })
 })

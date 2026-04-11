@@ -76,8 +76,10 @@ class ApiClientError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method ?? 'GET').toUpperCase()
   const res = await fetch(path, {
     ...init,
+    cache: init?.cache ?? (method === 'GET' || method === 'HEAD' ? 'no-store' : undefined),
     credentials: 'same-origin',
     headers: {
       'Content-Type': 'application/json',

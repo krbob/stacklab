@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HostPage } from './host-page'
+import { formatUptime } from './host-page-utils'
 import type { HostOverviewResponse, StacklabLogsResponse } from '@/lib/api-types'
 
 const mockGetHostOverview = vi.fn()
@@ -137,5 +138,11 @@ describe('HostPage', () => {
   it('displays architecture in system card', async () => {
     render(<HostPage />)
     expect(await screen.findByText('amd64')).toBeInTheDocument()
+  })
+
+  it('formats uptime with seconds precision', () => {
+    expect(formatUptime(61)).toBe('1m 1s')
+    expect(formatUptime(3661)).toBe('1h 1m 1s')
+    expect(formatUptime(90061)).toBe('1d 1h 1m 1s')
   })
 })
