@@ -2030,6 +2030,20 @@ func (h *Handler) handleRunStackAction(w http.ResponseWriter, r *http.Request) {
 
 	stackID := r.PathValue("stackId")
 	action := r.PathValue("action")
+	if err := h.validateStackActionRequest(r.Context(), stackID, action); err != nil {
+		switch {
+		case errors.Is(err, stacks.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Stack was not found.", nil)
+		case errors.Is(err, stacks.ErrInvalidState):
+			writeError(w, http.StatusConflict, "invalid_state", "Action is not allowed for this stack state.", nil)
+		case errors.Is(err, stacks.ErrUnsupportedAction):
+			writeError(w, http.StatusBadRequest, "validation_failed", "Unsupported stack action.", nil)
+		default:
+			h.logger.Error("validate stack action failed", slog.String("stack_id", stackID), slog.String("action", action), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to validate stack action.", nil)
+		}
+		return
+	}
 
 	job, err := h.jobs.Start(r.Context(), stackID, action, "local")
 	if err != nil {
@@ -2043,43 +2057,25 @@ func (h *Handler) handleRunStackAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = h.jobs.PublishEvent(r.Context(), job, "job_progress", "Running stack action "+action+".", "", nil)
-	actionErr := h.stackReader.RunAction(r.Context(), stackID, action)
-	if actionErr != nil {
-		job, finishErr := h.jobs.FinishFailed(r.Context(), job, "stack_action_failed", actionErr.Error())
-		if finishErr != nil {
-			h.logger.Error("finish stack action job failed", slog.String("job_id", job.ID), slog.String("err", finishErr.Error()))
-			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to finalize job.", nil)
-			return
-		}
-
-		if err := h.audit.RecordStackJob(r.Context(), job); err != nil {
-			h.logger.Warn("record failed stack action audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
-		}
-
-		switch {
-		case errors.Is(actionErr, stacks.ErrNotFound):
-			writeError(w, http.StatusNotFound, "not_found", "Stack was not found.", nil)
-		case errors.Is(actionErr, stacks.ErrInvalidState):
-			writeError(w, http.StatusConflict, "invalid_state", "Action is not allowed for this stack state.", nil)
-		case errors.Is(actionErr, stacks.ErrUnsupportedAction):
-			writeError(w, http.StatusBadRequest, "validation_failed", "Unsupported stack action.", nil)
-		default:
-			writeJSON(w, http.StatusOK, map[string]any{"job": job})
-		}
-		return
-	}
-
-	job, err = h.jobs.FinishSucceeded(r.Context(), job)
+	workflow := stackActionWorkflow(stackID, action)
+	job, err = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
 	if err != nil {
-		h.logger.Error("finish stack action job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
-		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to finalize job.", nil)
+		failedJob, finishErr := h.jobs.FinishFailed(r.Context(), job, "stack_action_prepare_failed", err.Error())
+		if finishErr == nil {
+			job = failedJob
+			if auditErr := h.audit.RecordStackJob(r.Context(), job); auditErr != nil {
+				h.logger.Warn("record failed stack action audit failed", slog.String("job_id", job.ID), slog.String("err", auditErr.Error()))
+			}
+		}
+		h.logger.Error("prepare stack action job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to prepare job.", nil)
 		return
 	}
+	step := workflowStepRef(workflow, 0)
+	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", "Starting stack action "+action+".", "", step)
+	_ = h.jobs.PublishEvent(r.Context(), job, "job_progress", "Running stack action "+action+".", "", step)
 
-	if err := h.audit.RecordStackJob(r.Context(), job); err != nil {
-		h.logger.Warn("record stack action audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
-	}
+	go h.runStackActionJob(job, workflow)
 
 	writeJSON(w, http.StatusOK, map[string]any{"job": job})
 }
@@ -2404,6 +2400,111 @@ func workflowStepRef(steps []store.JobWorkflowStep, index int) *store.JobEventSt
 		Action:        steps[index].Action,
 		TargetStackID: steps[index].TargetStackID,
 	}
+}
+
+func stackActionWorkflow(stackID, action string) []store.JobWorkflowStep {
+	return []store.JobWorkflowStep{{
+		Action:        action,
+		State:         "running",
+		TargetStackID: stackID,
+	}}
+}
+
+func (h *Handler) validateStackActionRequest(ctx context.Context, stackID, action string) error {
+	if !isSupportedStackAction(action) {
+		return stacks.ErrUnsupportedAction
+	}
+
+	detail, err := h.stackReader.Get(ctx, stackID)
+	if err != nil {
+		return err
+	}
+	if !stackActionAllowed(detail.Stack.AvailableActions, action) {
+		return stacks.ErrInvalidState
+	}
+	return nil
+}
+
+func isSupportedStackAction(action string) bool {
+	switch action {
+	case "validate", "up", "down", "stop", "restart", "pull", "build", "recreate":
+		return true
+	default:
+		return false
+	}
+}
+
+func stackActionAllowed(actions []string, action string) bool {
+	for _, candidate := range actions {
+		if candidate == action {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *Handler) runStackActionJob(job store.Job, workflow []store.JobWorkflowStep) {
+	ctx := context.Background()
+	step := workflowStepRef(workflow, 0)
+	output, actionErr := h.stackReader.RunActionWithOutput(ctx, job.StackID, job.Action)
+
+	for _, line := range splitProgressOutput(output) {
+		_ = h.jobs.PublishEvent(ctx, job, "job_log", line, "", step)
+	}
+
+	if actionErr != nil {
+		workflow = markWorkflowFailed(workflow, 0)
+		if updatedJob, err := h.jobs.UpdateWorkflow(ctx, job, workflow); err == nil {
+			job = updatedJob
+		} else {
+			h.logger.Warn("update failed stack action workflow failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+		}
+
+		failedEventJob := job
+		failedEventJob.State = "failed"
+		_ = h.jobs.PublishEvent(ctx, failedEventJob, "job_step_finished", "Stack action failed.", "", step)
+
+		failedJob, finishErr := h.jobs.FinishFailed(ctx, job, "stack_action_failed", actionErr.Error())
+		if finishErr != nil {
+			h.logger.Error("finish stack action job failed", slog.String("job_id", job.ID), slog.String("err", finishErr.Error()))
+			return
+		}
+		if err := h.audit.RecordStackJob(ctx, failedJob); err != nil {
+			h.logger.Warn("record failed stack action audit failed", slog.String("job_id", failedJob.ID), slog.String("err", err.Error()))
+		}
+		return
+	}
+
+	workflow = markWorkflowSucceeded(workflow, 0)
+	if updatedJob, err := h.jobs.UpdateWorkflow(ctx, job, workflow); err == nil {
+		job = updatedJob
+	} else {
+		h.logger.Warn("update successful stack action workflow failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+	}
+	_ = h.jobs.PublishEvent(ctx, job, "job_step_finished", "Finished stack action.", "", step)
+
+	finishedJob, err := h.jobs.FinishSucceeded(ctx, job)
+	if err != nil {
+		h.logger.Error("finish stack action job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+		return
+	}
+
+	if err := h.audit.RecordStackJob(ctx, finishedJob); err != nil {
+		h.logger.Warn("record stack action audit failed", slog.String("job_id", finishedJob.ID), slog.String("err", err.Error()))
+	}
+}
+
+func splitProgressOutput(raw string) []string {
+	lines := strings.Split(raw, "\n")
+	trimmed := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		trimmed = append(trimmed, line)
+	}
+	return trimmed
 }
 
 type resolvedMaintenanceOptions struct {

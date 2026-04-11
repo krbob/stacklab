@@ -179,7 +179,7 @@ func TestIntegrationComposeLifecycleActionsWithRealDocker(t *testing.T) {
 	if upResponse.Code != http.StatusOK {
 		t.Fatalf("POST /api/stacks/%s/actions/up status = %d, want %d; body=%s", stackID, upResponse.Code, http.StatusOK, upResponse.Body.String())
 	}
-	assertIntegrationJobSucceeded(t, upResponse, "up")
+	waitForIntegrationJobSucceeded(t, handler, cookies, assertIntegrationJobStarted(t, upResponse, "up"))
 	waitForIntegrationStackRuntimeState(t, handler, cookies, stackID, "running")
 
 	runningDetail := getIntegrationStackDetail(t, handler, cookies, stackID)
@@ -191,14 +191,14 @@ func TestIntegrationComposeLifecycleActionsWithRealDocker(t *testing.T) {
 	if restartResponse.Code != http.StatusOK {
 		t.Fatalf("POST /api/stacks/%s/actions/restart status = %d, want %d; body=%s", stackID, restartResponse.Code, http.StatusOK, restartResponse.Body.String())
 	}
-	assertIntegrationJobSucceeded(t, restartResponse, "restart")
+	waitForIntegrationJobSucceeded(t, handler, cookies, assertIntegrationJobStarted(t, restartResponse, "restart"))
 	waitForIntegrationStackRuntimeState(t, handler, cookies, stackID, "running")
 
 	downResponse := performJSONRequest(t, handler, http.MethodPost, "/api/stacks/"+stackID+"/actions/down", map[string]any{}, cookies)
 	if downResponse.Code != http.StatusOK {
 		t.Fatalf("POST /api/stacks/%s/actions/down status = %d, want %d; body=%s", stackID, downResponse.Code, http.StatusOK, downResponse.Body.String())
 	}
-	assertIntegrationJobSucceeded(t, downResponse, "down")
+	waitForIntegrationJobSucceeded(t, handler, cookies, assertIntegrationJobStarted(t, downResponse, "down"))
 	waitForIntegrationStackRuntimeState(t, handler, cookies, stackID, "defined")
 }
 
@@ -478,6 +478,23 @@ func waitForIntegrationStackAbsent(t *testing.T, handler http.Handler, cookies [
 	t.Fatalf("stack %q still present after deadline", stackID)
 }
 
+func assertIntegrationJobStarted(t *testing.T, response *httptest.ResponseRecorder, wantAction string) string {
+	t.Helper()
+
+	var payload struct {
+		Job struct {
+			ID     string `json:"id"`
+			Action string `json:"action"`
+			State  string `json:"state"`
+		} `json:"job"`
+	}
+	decodeResponse(t, response, &payload)
+	if payload.Job.Action != wantAction || payload.Job.State != "running" || payload.Job.ID == "" {
+		t.Fatalf("unexpected job payload: %#v", payload.Job)
+	}
+	return payload.Job.ID
+}
+
 func assertIntegrationJobSucceeded(t *testing.T, response *httptest.ResponseRecorder, wantAction string) {
 	t.Helper()
 
@@ -491,4 +508,32 @@ func assertIntegrationJobSucceeded(t *testing.T, response *httptest.ResponseReco
 	if payload.Job.Action != wantAction || payload.Job.State != "succeeded" {
 		t.Fatalf("unexpected job payload: %#v", payload.Job)
 	}
+}
+
+func waitForIntegrationJobSucceeded(t *testing.T, handler http.Handler, cookies []*http.Cookie, jobID string) {
+	t.Helper()
+
+	deadline := time.Now().Add(60 * time.Second)
+	var lastState string
+	for time.Now().Before(deadline) {
+		response := performJSONRequest(t, handler, http.MethodGet, "/api/jobs/"+jobID, nil, cookies)
+		if response.Code == http.StatusOK {
+			var payload struct {
+				Job struct {
+					State string `json:"state"`
+				} `json:"job"`
+			}
+			decodeResponse(t, response, &payload)
+			lastState = payload.Job.State
+			if payload.Job.State == "succeeded" {
+				return
+			}
+			if payload.Job.State == "failed" || payload.Job.State == "cancelled" || payload.Job.State == "timed_out" {
+				t.Fatalf("job %q finished in terminal state %q", jobID, payload.Job.State)
+			}
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+
+	t.Fatalf("job %q did not reach succeeded before deadline; last_state=%q", jobID, lastState)
 }
