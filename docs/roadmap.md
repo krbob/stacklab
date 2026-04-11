@@ -19,78 +19,52 @@ Implemented and already exercised on Linux staging hosts:
 - stack create/delete flows
 - host overview and Stacklab service log viewer
 - config workspace for `/opt/stacklab/config`
+- local Git status, diff, per-file commit, and push for managed workspace files
+- workspace permission diagnostics and helper-backed repair for managed roots
+- safe bulk stack update workflow with richer step-card progress
+- image, network, volume, and cleanup maintenance surfaces
+- scheduled maintenance policies for stack updates and cleanup
+- global activity indicator and retained job detail drawer
+- Docker daemon administration for selected `daemon.json` keys with validate/apply workflow
+- webhook and Telegram notifications for job, maintenance, runtime, and Stacklab self-health events
+- stack-local auxiliary file browsing/editing for files such as `Dockerfile`
 - browser E2E, Docker-backed integration tests, and staging validation on Linux `amd64` and `arm64`
+- Debian package publication through signed APT `stable` and `nightly` channels
+- APT-backed Stacklab self-update on package-managed installs
+- release hygiene for APT package retention and nightly prerelease cleanup
 
 ## Near-Term Product Goals
 
-### 1. Safe Maintenance That Replaces Ad-Hoc Scripts
+### 1. Template Library And Starter Catalog
 
-- selected/all stack update workflow that replaces ad-hoc scripts such as `update_stacks.sh`
-- explicit step model:
-  - pull
-  - build when needed
-  - `up -d --remove-orphans`
-- optional prune step, never implicit by default
-- improve visibility of why maintenance actions succeeded, warned, or failed
-- improve global visibility of background jobs across the whole app:
-  - persistent activity indicator
-  - current step / current target
-  - elapsed time
-  - completion and failure states that remain visible after the triggering button stops being active
-- add optional job and maintenance notifications
+- create new stacks from curated local templates
+- keep templates Compose-first and transparent
+- avoid remote template catalogs until the local workflow is stable
 
-### 2. Git-Aware Workspace Writes
+### 2. Lightweight Stats History
 
-- read-only Git workspace status for `/opt/stacklab/stacks` and `/opt/stacklab/config`
-- diff against working tree / HEAD for stack definitions and config files
-- simple commit and push workflow for the local Stacklab workspace
-- per-file selection as the primary write model
-- stack-scoped quick selection as a convenience, not the only option
+- first slice can keep a frontend-only ring buffer for the currently open browser session
+- do not add backend metric retention until there is a clear need for cross-session history
+- make the limitation explicit in the UI: history starts when the view opens
 
-### 3. Workspace Permission Diagnostics
+### 3. Polish And Adoption
 
-- surface unreadable or unwritable files created by containers
-- show ownership and mode details where access is blocked
-- add explicit helper-backed repair workflows, restricted to managed roots
-- keep Stacklab itself on a non-root service model by default
+- theme toggle with system preference support
+- host-level system information widgets on dashboard views
+- custom project metadata such as icon and useful external links
 
 ## Mid-Term Product Goals
 
-- manual prune workflows with explicit scope and preview
-- image inventory and selective image maintenance
-- stack-local helper files such as `Dockerfile` and nested config under `stacks/<id>/`
-- Debian-native `.deb` packaging for `amd64` and `arm64`
-- stable release workflow with GitHub Releases and signed APT `stable`
-- nightly prereleases and signed APT `nightly`
-- automatic monthly stable publication only after packaging and release validation are proven
-- Docker administration surface for daemon-level settings:
-  - read-only Docker service status and daemon config visibility first
-  - managed edits for selected `daemon.json` keys later
-  - explicit backup, restart, and rollback workflow
-- read-only visibility into Docker networks and volumes that affect Compose stacks
-- targeted create/delete actions for external networks or volumes when directly useful to stacks
-- mobile-friendly notifications beyond generic webhooks:
-  - Telegram first
-  - `ntfy` or `Gotify` as strong later candidates for self-hosted setups
-  - post-update failure alerts before broader runtime alerting
-  - Stacklab service error alerts from `journald` after Telegram and post-update alerts are stable
-- scheduled maintenance jobs only as explicit opt-in policies
-- richer live stats visualization beyond the current lightweight sparklines
-- theme toggle with system preference support
-- compose template library and starter catalog
-- custom project metadata such as icon and useful external links
-- host-level system information widgets on dashboard views
 - light internationalization groundwork, then selected translations once UI copy stabilizes
-- richer maintenance notifications and scheduled update policies
-- post-update verification alerts for stacks that fail to recover after maintenance
-- Stacklab self-health alerts later:
-  - bursts of `error` / `fatal` logs from the `stacklab` systemd unit
-  - debounce and dedupe before sending mobile notifications
 - runtime health alerts later:
   - unhealthy containers
   - restart loops
   - stack transitions into degraded states
 - optional repo bootstrap workflows only if they complement the local Git workspace model
+- broader notification channels:
+  - `ntfy` or `Gotify` as strong self-hosted candidates
+  - email only if there is a clear operator need
+- automatic monthly stable publication only after release validation keeps proving reliable
 
 ## Later / Conditional
 

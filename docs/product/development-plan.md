@@ -2,17 +2,27 @@
 
 This document turns the current product direction into an executable sequence of milestones.
 
-It is intentionally short-term and implementation-oriented.
+This document is now partly historical. For the current product state and next
+priorities, use `docs/roadmap.md` first.
 
 ## Guiding Principle
 
-Work on product features before `.deb` packaging and APT distribution.
+Keep product work and release hygiene moving together.
 
 Reason:
 
-- Stacklab already has a validated tarball release and upgrade path
-- the biggest product value still sits in operator workflows
-- package distribution is important, but currently lower leverage than the next feature set
+- the daily operator loop is now broad enough that install/update reliability matters
+- Stacklab has package-managed installs, APT channels, and self-update in active use
+- new product surfaces should not outpace the release path that operators use to test them
+
+Current near-term sequence:
+
+1. keep release hygiene healthy:
+   - APT package retention
+   - nightly prerelease cleanup
+   - post-publish smoke
+2. add a focused template library / starter catalog
+3. add lightweight frontend-only stats history before considering backend metric retention
 
 ## Completed Foundations
 
@@ -36,6 +46,10 @@ The following milestones are already materially in place:
   - selected/all stack update workflow
   - optional prune
   - progress and audit integration
+
+For the fuller current baseline, including APT release automation,
+self-update, Docker administration, notifications, scheduled maintenance,
+stack auxiliary files, and maintenance inventory, see `docs/roadmap.md`.
 
 ## Recommended Sequence
 

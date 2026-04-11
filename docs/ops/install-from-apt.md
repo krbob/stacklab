@@ -28,7 +28,8 @@ curl -fsSL https://krbob.github.io/stacklab/apt/stacklab-archive-keyring.gpg \
 Add the stable channel:
 
 ```bash
-echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/stacklab-archive-keyring.gpg] https://krbob.github.io/stacklab/apt stable main' \
+arch="$(dpkg --print-architecture)"
+echo "deb [arch=${arch} signed-by=/usr/share/keyrings/stacklab-archive-keyring.gpg] https://krbob.github.io/stacklab/apt stable main" \
   | sudo tee /etc/apt/sources.list.d/stacklab.list
 ```
 
@@ -44,7 +45,8 @@ sudo apt-get install stacklab
 If you want the nightly prerelease channel instead:
 
 ```bash
-echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/stacklab-archive-keyring.gpg] https://krbob.github.io/stacklab/apt nightly main' \
+arch="$(dpkg --print-architecture)"
+echo "deb [arch=${arch} signed-by=/usr/share/keyrings/stacklab-archive-keyring.gpg] https://krbob.github.io/stacklab/apt nightly main" \
   | sudo tee /etc/apt/sources.list.d/stacklab.list
 ```
 
@@ -99,3 +101,21 @@ sudo apt-get install stacklab
   - install a narrow `sudoers` rule for the helper
   - keep `NoNewPrivileges=false` in `stacklab.service`
   - keep `ProtectSystem=full`; the self-update helper is launched through a transient `systemd-run` unit so `dpkg` can update `/etc` and `/usr` without relaxing the main Stacklab service sandbox
+
+## Repository Retention
+
+The APT repository is an install and update channel, not the long-term release
+archive.
+
+Current publication policy:
+
+- `stable` keeps the newest 6 package versions in the APT pool
+- `nightly` keeps the newest 7 package versions in the APT pool
+- older GitHub Releases remain the release archive for manual rollback and
+  investigation
+- nightly GitHub prereleases are pruned separately by the nightly workflow,
+  keeping the newest 14 nightly prereleases
+
+The retention count can be overridden when republishing a channel with
+`scripts/release/publish-apt-repo.sh --keep-versions N`; use `0` to keep all
+package versions in that channel.
