@@ -28,6 +28,43 @@ func TestServiceStatusUnavailableWhenWorkspaceIsNotGitRepo(t *testing.T) {
 	}
 }
 
+func TestServiceStatusUnavailableWhenGitOutputWouldBeLocalized(t *testing.T) {
+	t.Parallel()
+
+	service, _ := newTestService(t)
+	fakeGit := filepath.Join(t.TempDir(), "fake-git")
+	script := `#!/bin/sh
+if [ "$1" = "-C" ]; then
+  shift 2
+fi
+if [ "$1" = "rev-parse" ] && [ "$2" = "--show-toplevel" ]; then
+  if [ "$LC_ALL" = "C" ] && [ "$LANG" = "C" ]; then
+    echo "fatal: not a git repository (or any of the parent directories): .git" >&2
+  else
+    echo "fatal: to nie jest repozytorium git" >&2
+  fi
+  exit 128
+fi
+echo "unexpected args: $*" >&2
+exit 1
+`
+	if err := os.WriteFile(fakeGit, []byte(script), 0o755); err != nil {
+		t.Fatalf("WriteFile(fake git) error = %v", err)
+	}
+	service.gitBinary = fakeGit
+
+	status, err := service.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status() error = %v", err)
+	}
+	if status.Available {
+		t.Fatalf("Status().Available = true, want false")
+	}
+	if status.Reason != "not_a_git_repository" {
+		t.Fatalf("Status().Reason = %q, want %q", status.Reason, "not_a_git_repository")
+	}
+}
+
 func TestServiceStatusAndDiffForManagedWorkspace(t *testing.T) {
 	t.Parallel()
 

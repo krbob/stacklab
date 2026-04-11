@@ -558,7 +558,12 @@ func (s *Service) diffText(ctx context.Context, item StatusItem) (string, error)
 
 func (s *Service) runGit(ctx context.Context, args ...string) ([]byte, []byte, error) {
 	cmd := exec.CommandContext(ctx, s.gitBinary, append([]string{"-C", s.workspaceRoot}, args...)...)
-	cmd.Env = append(cmd.Environ(), "GIT_PAGER=cat", "TERM=dumb")
+	cmd.Env = append(cmd.Environ(),
+		"GIT_PAGER=cat",
+		"TERM=dumb",
+		"LC_ALL=C",
+		"LANG=C",
+	)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout

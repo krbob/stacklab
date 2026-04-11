@@ -44,7 +44,7 @@ type FileResponse struct {
 	ModifiedAt       time.Time                  `json:"modified_at"`
 	Readable         bool                       `json:"readable"`
 	Writable         bool                       `json:"writable"`
-	BlockedReason    *string                    `json:"blocked_reason,omitempty"`
+	BlockedReason    *string                    `json:"blocked_reason"`
 	Permissions      fsmeta.Permissions         `json:"permissions"`
 	RepairCapability workspacerepair.Capability `json:"repair_capability"`
 }

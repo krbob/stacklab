@@ -718,10 +718,18 @@ func TestHandlerConfigWorkspaceTreeFileAndSave(t *testing.T) {
 	if fileResponse.Code != http.StatusOK {
 		t.Fatalf("GET /api/config/workspace/file status = %d, want %d; body=%s", fileResponse.Code, http.StatusOK, fileResponse.Body.String())
 	}
+	rawFileBody := append([]byte(nil), fileResponse.Body.Bytes()...)
 	var filePayload configworkspace.FileResponse
 	decodeInternalResponse(t, fileResponse, &filePayload)
 	if filePayload.Content == nil || *filePayload.Content != "PORT=8080\n" || filePayload.Type != configworkspace.EntryTypeTextFile {
 		t.Fatalf("unexpected config file payload: %#v", filePayload)
+	}
+	var rawFilePayload map[string]any
+	if err := json.Unmarshal(rawFileBody, &rawFilePayload); err != nil {
+		t.Fatalf("json.Unmarshal(raw config file response) error = %v; body=%s", err, string(rawFileBody))
+	}
+	if value, ok := rawFilePayload["blocked_reason"]; !ok || value != nil {
+		t.Fatalf("expected blocked_reason=null in config file response, body=%s", string(rawFileBody))
 	}
 
 	saveResponse := performInternalJSONRequest(t, served, http.MethodPut, "/api/config/workspace/file", map[string]any{

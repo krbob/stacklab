@@ -44,7 +44,7 @@ type StatusItem struct {
 	Permissions   *fsmeta.Permissions `json:"permissions,omitempty"`
 	DiffAvailable bool                `json:"diff_available"`
 	CommitAllowed bool                `json:"commit_allowed"`
-	BlockedReason *string             `json:"blocked_reason,omitempty"`
+	BlockedReason *string             `json:"blocked_reason"`
 }
 
 type DiffResponse struct {
@@ -56,7 +56,7 @@ type DiffResponse struct {
 	OldPath       *string             `json:"old_path"`
 	Permissions   *fsmeta.Permissions `json:"permissions,omitempty"`
 	DiffAvailable bool                `json:"diff_available"`
-	BlockedReason *string             `json:"blocked_reason,omitempty"`
+	BlockedReason *string             `json:"blocked_reason"`
 	IsBinary      bool                `json:"is_binary"`
 	Diff          *string             `json:"diff"`
 	Truncated     bool                `json:"truncated"`
