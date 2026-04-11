@@ -18,7 +18,7 @@ Implemented and already exercised on Linux staging hosts:
 - live logs, stats, and container terminal
 - stack create/delete flows
 - host overview and Stacklab service log viewer
-- config workspace for `/opt/stacklab/config`
+- config workspace for the managed Stacklab config root
 - local Git status, diff, per-file commit, and push for managed workspace files
 - workspace permission diagnostics and helper-backed repair for managed roots
 - safe bulk stack update workflow with richer step-card progress

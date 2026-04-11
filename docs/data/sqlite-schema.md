@@ -8,10 +8,17 @@ The database stores operational state and metadata. It does **not** replace the 
 
 ## Design Principles
 
-- stack definitions stay on disk under `/opt/stacklab/stacks`
+- stack definitions stay on disk under the managed stacks root
 - SQLite stores only metadata, settings, sessions, jobs, audit entries, and deploy baselines
 - database loss must be survivable without losing stack definitions
 - write volume should remain moderate and predictable on a single host
+
+## Current Retention Policy
+
+- `audit_entries`: 180 days
+- `jobs`: 180 days
+- `job_events`: 14 days
+- expired or revoked `auth_sessions`: 7 days
 
 ## What Belongs In SQLite
 
@@ -256,7 +263,7 @@ Rules:
 
 v1 scope:
 
-- does not include `/opt/stacklab/config/<stack>/` in the drift hash
+- does not include stack-scoped files under the managed config workspace in the drift hash
 
 ## Schema Notes
 

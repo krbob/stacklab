@@ -1,6 +1,6 @@
 # Host Observability Contract Draft
 
-This document defines the proposed contract for Milestone 1:
+This document defines the current host observability contract:
 
 - Stacklab version visibility
 - host overview
@@ -83,7 +83,7 @@ Response:
       "usage_percent": 36.6
     },
     "disk": {
-      "path": "/opt/stacklab",
+      "path": "/srv/stacklab",
       "total_bytes": 274877906944,
       "used_bytes": 83437182976,
       "available_bytes": 191440723968,
@@ -96,8 +96,9 @@ Response:
 Notes:
 
 - this endpoint is read-only and inexpensive enough for periodic refresh
-- refresh target: every `15s` to `30s`
+- refresh target: every `5s` to `15s`
 - `disk.path` should reflect the Stacklab root filesystem, not every mounted filesystem
+- on package-managed installs this is typically `/srv/stacklab`; on tarball installs it is typically `/opt/stacklab`
 - `stacklab.started_at` is process-start metadata, not install time
 - on non-Linux development hosts the response may be partial or degraded compared to production Linux hosts
 

@@ -13,27 +13,35 @@ It is built for a homelab-style environment:
 
 ## Status
 
-Stacklab is an active prototype.
+Stacklab is an active pre-stable release candidate for the single-host v1 scope.
 
 Implemented today:
 
 - authentication and session handling
 - stack discovery from the filesystem and Docker runtime
-- stack list and stack detail views
+- stack list, stack detail views, and stack-local auxiliary file editing
 - Compose definition editor with resolved-config preview
 - stack lifecycle actions and job progress
 - live logs, stats, and container terminal
 - stack create/delete flows
-- audit history
+- host overview and Stacklab service log viewer
+- config workspace browsing and editing
+- Git status, diff, per-file commit, and push for managed workspace files
+- workspace permission diagnostics and helper-backed repair
+- maintenance inventory, cleanup, and bulk update workflows
+- Docker daemon config validation and apply workflow
+- notifications, maintenance schedules, and APT-backed self-update
+- audit history, retained job detail, and global activity indicator
 - backend and frontend automated tests
 - manual-on-demand Linux `amd64` and `arm64` release artifact build
 - `.deb` build and published APT channels
 - staging deployment trials on Linux `arm64`, Ubuntu `amd64`, and Debian `amd64`
 
-Not done yet:
+Current focus:
 
-- scheduled dependency maintenance workflows
-- final hardening for long-term production use
+- release hardening and stable sign-off
+- template library and starter catalog
+- background UX polish for long-running operations
 
 ## Architecture
 
@@ -208,4 +216,4 @@ Good entry points:
 - primary production target is Linux `amd64`, with Linux `arm64` also supported
 - Stacklab currently assumes a single local operator model
 - host shell is intentionally deferred beyond the current MVP
-- `source=last_valid` for resolved config is not implemented yet
+- helper-backed Docker admin, workspace repair, and self-update remain opt-in Linux flows

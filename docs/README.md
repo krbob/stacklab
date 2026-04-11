@@ -16,7 +16,15 @@ This directory contains project documentation for Stacklab.
 
 ## Status
 
-Documentation started contract-first and is now being updated alongside implementation and staging validation.
+Documentation started contract-first and is now being reconciled against implementation and Linux staging validation.
+
+The most current operator-facing entry points are:
+
+- `../README.md`
+- `ops/install-from-apt.md`
+- `ops/install-from-tarball.md`
+- `ops/release-plan.md`
+- `ops/upgrade-validation-checklist.md`
 
 Recommended product entry points:
 

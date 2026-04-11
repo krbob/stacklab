@@ -117,7 +117,11 @@ These checks are expected to stay green before publishing stable:
 - browser E2E
 - `.deb` package smoke on Debian
 - published APT smoke for the release channel
-- manual Debian-family install or upgrade validation on a real Linux host
+- manual Debian-family fresh install or upgrade validation on a real Linux host
+- helper-backed Linux validation for:
+  - workspace permission repair
+  - Docker daemon apply
+  - APT-backed self-update
 
 ### Secondary release validation
 
@@ -140,8 +144,9 @@ Implemented today:
 
 Before cutting stable, run at least:
 
-1. one Debian-family `.deb` or APT install or upgrade validation
+1. one Debian-family `.deb` or APT fresh install or upgrade validation
 2. one tarball install or upgrade validation
+3. one Linux helper-backed validation pass if privileged helpers are part of the target install profile
 
 Use:
 

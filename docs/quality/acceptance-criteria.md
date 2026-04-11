@@ -28,7 +28,9 @@ These criteria assume:
 - Docker Engine installed and running
 - Compose v2 available through either `docker compose` or standalone `docker-compose`
 - Stacklab deployed host-natively via the documented model
-- managed root is `/opt/stacklab`
+- managed roots follow the active install mode:
+  - package-managed installs use `/srv/stacklab`
+  - tarball installs use `/opt/stacklab`
 
 ## A. Authentication And Session
 
@@ -41,7 +43,7 @@ These criteria assume:
 
 ## B. Stack Discovery And Dashboard
 
-- Stacklab discovers every directory under `/opt/stacklab/stacks/` containing canonical `compose.yaml`
+- Stacklab discovers every directory under the managed stacks root containing canonical `compose.yaml`
 - a valid new stack added manually to the filesystem appears in the dashboard without database seeding
 - removing a stack definition from disk removes it from normal stack discovery
 - stack list shows correct `display_state`, `config_state`, and `activity_state`
@@ -160,6 +162,12 @@ These criteria assume:
 - service can be started, stopped, restarted, and inspected through standard systemd commands
 - service keeps runtime state in `/var/lib/stacklab`
 - service works behind a reverse proxy using the documented deployment posture
+
+## O. Helper-Backed Operations
+
+- if workspace repair is configured, blocked files can be repaired within managed roots only
+- if Docker admin helper is configured, `daemon.json` validate and apply flows work on Linux
+- if Stacklab is package-managed and self-update helper is configured, self-update overview and apply work through the documented flow
 
 ## Non-Acceptance Conditions
 

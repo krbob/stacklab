@@ -2,7 +2,7 @@
 
 This handoff covers the UI work for Milestone 2:
 
-- browsing `/opt/stacklab/config`
+- browsing the managed config root
 - editing supported text files
 - preparing the workspace for later Git-aware features
 
@@ -17,7 +17,7 @@ This is not a generic file manager.
 The UI should communicate that this is:
 
 - the Stacklab config workspace
-- limited to `/opt/stacklab/config`
+- limited to the managed config root
 - focused on common text-based config workflows
 
 ## Recommended Information Architecture

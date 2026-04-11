@@ -2,6 +2,14 @@
 
 This section contains information architecture, screens, and UI-facing contracts for Stacklab.
 
+Some handoff documents in this section are milestone snapshots from the implementation phase.
+When they disagree with newer operator docs or API contracts, prefer:
+
+- `../README.md`
+- `../ops/install-from-apt.md`
+- `../ops/install-from-tarball.md`
+- `../api/*.md`
+
 ## Documents
 
 - [information-architecture.md](information-architecture.md) — navigation model, screen inventory, URL structure, responsive breakpoints
@@ -15,7 +23,7 @@ This section contains information architecture, screens, and UI-facing contracts
 - [notifications-v2-handoff.md](notifications-v2-handoff.md) — route and screen guidance for Telegram and post-update recovery alerts
 - [docker-admin-handoff.md](docker-admin-handoff.md) — route and screen guidance for read-only Docker daemon administration
 - [self-update-handoff.md](self-update-handoff.md) — route and screen guidance for APT-backed Stacklab self-update
-- [config-workspace-handoff.md](config-workspace-handoff.md) — route and screen guidance for `/opt/stacklab/config` browsing and editing
+- [config-workspace-handoff.md](config-workspace-handoff.md) — route and screen guidance for managed config workspace browsing and editing
 - [git-workspace-handoff.md](git-workspace-handoff.md) — route and screen guidance for local Git change visibility inside `/config`
 - [workspace-permissions-handoff.md](workspace-permissions-handoff.md) — blocked-file semantics for config and Git views when containers create unreadable files
 - [maintenance-workflows-handoff.md](maintenance-workflows-handoff.md) — route and screen guidance for bulk stack update workflows

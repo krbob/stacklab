@@ -1,8 +1,8 @@
 # Config Workspace Contract Draft
 
-This document defines the proposed contract for Milestone 2:
+This document defines the current contract for the managed config workspace:
 
-- safe browsing of `/opt/stacklab/config`
+- safe browsing of the managed config root
 - text editing of supported config files
 - read-only fallback for non-text files
 
@@ -10,7 +10,7 @@ It is intentionally narrower than a generic file manager.
 
 ## Goals
 
-- make `/opt/stacklab/config` a first-class workspace inside Stacklab
+- make the managed config root a first-class workspace inside Stacklab
 - support common homelab config editing without leaving the product
 - keep the filesystem boundary explicit and safe
 - prepare the ground for later Git-aware workflows
@@ -27,8 +27,13 @@ It is intentionally narrower than a generic file manager.
 Root:
 
 ```text
-/opt/stacklab/config
+<managed-config-root>
 ```
+
+Typical values:
+
+- package-managed install: `/srv/stacklab/config`
+- tarball install: `/opt/stacklab/config`
 
 Rules:
 
@@ -79,7 +84,7 @@ Response:
 
 ```json
 {
-  "workspace_root": "/opt/stacklab/config",
+  "workspace_root": "/srv/stacklab/config",
   "current_path": "nextcloud",
   "parent_path": "",
   "items": [
@@ -326,7 +331,7 @@ Response:
 
 Rules:
 
-- this is restricted to existing paths under `/opt/stacklab/config`
+- this is restricted to existing paths under the managed config workspace
 - path traversal is rejected
 - the first slice is helper-backed and opt-in
 - without a configured privileged helper this endpoint returns `501 not_implemented`
@@ -430,4 +435,4 @@ Recommended later tests:
 
 - symlink escape rejection
 - directory creation
-- Git-aware integration after Milestone 3
+- Git-aware integration with the managed workspace change flow

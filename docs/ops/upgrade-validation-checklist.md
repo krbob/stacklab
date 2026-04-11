@@ -17,6 +17,7 @@ Run it for both supported install modes before a stable release:
 - the host runs `systemd`
 - the target artifact matches the host architecture
 - the operator knows which install mode is under test
+- the operator knows whether helper-backed features are intentionally configured on the host
 
 ## APT or `.deb` Upgrade Execution
 
@@ -81,9 +82,9 @@ readlink -f /opt/stacklab/app/current
 - logs stream works
 - stats stream works
 - terminal opens
-- `/host` loads and host metrics refresh
-- `/config` loads and file browse or edit works
-- `/maintenance` loads and inventory tabs render
+- `/host` loads, Stacklab logs render, and host metrics refresh in place
+- `/config` loads, file browse or edit works, and Git `Changes` mode behaves correctly
+- `/maintenance` loads and update, images, networks, volumes, and cleanup tabs render
 - `/docker` overview loads
 - `/settings` loads
 
@@ -94,6 +95,8 @@ readlink -f /opt/stacklab/app/current
 - `restart` works
 - create stack works
 - delete stack works
+- config workspace save works
+- maintenance update and cleanup jobs render progress and finish cleanly
 
 ### Persistence checks
 
@@ -119,12 +122,18 @@ For tarball installs, verify:
 - `/api/stacklab/update/overview` reports `install_mode = apt`
 - self-update card is available when the helper is configured
 - package metadata shows the expected installed version
+- helper-backed flows work when configured:
+  - config workspace repair
+  - stack workspace repair
+  - Docker daemon validate and apply
+  - self-update apply
 
 ### Tarball
 
 - manual release directories remain intact under `/opt/stacklab/app/releases`
 - `/api/stacklab/update/overview` reports the tarball unsupported state for self-update
 - rollback via the previous release symlink remains clear and executable
+- helper-backed workspace repair and Docker admin still behave correctly if the tarball host opted into them
 
 ## Rollback Drill
 

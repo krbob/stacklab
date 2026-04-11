@@ -1,15 +1,12 @@
 # Git Workspace Contract Draft
 
-This document defines the contract for:
-
-- Milestone 3: read-only Git visibility for the local Stacklab workspace
-- Milestone 5: selective commit + push for that same workspace
+This document defines the current contract for Git visibility and selective write flows inside the local Stacklab workspace.
 
 It is intentionally narrower than full GitOps or a generic Git client.
 
 ## Goals
 
-- expose local Git state for `/opt/stacklab/stacks` and `/opt/stacklab/config`
+- expose local Git state for the managed `stacks/` and `config/` subtrees
 - make UI edits auditable in a Git-aware workflow
 - support selective per-file commits and later push without leaving Stacklab
 - preserve enough metadata for stack-scoped quick selection in UI later
@@ -26,8 +23,13 @@ It is intentionally narrower than full GitOps or a generic Git client.
 Git visibility is limited to the Stacklab workspace root:
 
 ```text
-/opt/stacklab
+<managed-stacklab-root>
 ```
+
+Typical values:
+
+- package-managed install: `/srv/stacklab`
+- tarball install: `/opt/stacklab`
 
 Only these managed subtrees are exposed:
 
@@ -100,7 +102,7 @@ Response when Git workspace is available:
 ```json
 {
   "available": true,
-  "repo_root": "/opt/stacklab",
+  "repo_root": "/srv/stacklab",
   "managed_roots": ["stacks", "config"],
   "branch": "main",
   "head_commit": "abc1234def5678",
@@ -176,7 +178,7 @@ Response when Git is not available for the workspace:
 ```json
 {
   "available": false,
-  "repo_root": "/opt/stacklab",
+  "repo_root": "/srv/stacklab",
   "managed_roots": ["stacks", "config"],
   "reason": "not_a_git_repository"
 }
@@ -186,6 +188,7 @@ Notes:
 
 - `items` should include only changed files under managed roots
 - unchanged files are excluded
+- missing Git repositories must return a degraded `available: false` response, not `500`
 - each item should expose:
   - `permissions`
   - `diff_available`
@@ -376,7 +379,7 @@ Response:
 
 Notes:
 
-- this milestone only supports push to the current upstream
+- the current version only supports push to the current upstream
 - no branch switching, force push, pull, merge, or rebase
 - if branch has no upstream, backend should return a clear non-500 error
 - if there is nothing ahead to push, backend may return `pushed: false`
@@ -388,7 +391,7 @@ Suggested error codes:
 - `git_auth_failed`
 - `push_rejected`
 
-## Milestone 5 UI Expectations
+## UI Expectations For Commit And Push
 
 - commit/push live on top of the existing `/config` `Changes` surface
 - primary selection stays per-file

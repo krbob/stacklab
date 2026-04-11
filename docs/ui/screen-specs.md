@@ -1,5 +1,8 @@
 # Screen Specifications
 
+This document contains early screen wireframes and interaction notes from the implementation phase.
+Treat absolute paths, exact tab sets, and sidebar examples here as illustrative unless they match the current app and newer API or ops docs.
+
 ## 1. Login
 
 Route: `/login`

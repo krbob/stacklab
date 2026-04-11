@@ -1,9 +1,9 @@
 # Stack Workspace Contract Draft
 
-This document defines the proposed contract for auxiliary stack files under:
+This document defines the current contract for auxiliary stack files under:
 
 ```text
-/opt/stacklab/stacks/<stack_id>
+<managed-stacks-root>/<stack_id>
 ```
 
 It is intentionally narrower than a generic per-stack file manager.
@@ -30,8 +30,13 @@ It is intentionally narrower than a generic per-stack file manager.
 Root:
 
 ```text
-/opt/stacklab/stacks/<stack_id>
+<managed-stacks-root>/<stack_id>
 ```
+
+Typical values:
+
+- package-managed install: `/srv/stacklab/stacks/<stack_id>`
+- tarball install: `/opt/stacklab/stacks/<stack_id>`
 
 Rules:
 
@@ -73,7 +78,7 @@ Response:
 ```json
 {
   "stack_id": "jellyfin",
-  "workspace_root": "/opt/stacklab/stacks/jellyfin",
+  "workspace_root": "/srv/stacklab/stacks/jellyfin",
   "current_path": "",
   "parent_path": null,
   "items": [
@@ -267,7 +272,7 @@ Response:
 
 Rules:
 
-- this is restricted to existing paths under `/opt/stacklab/stacks/<stack_id>`
+- this is restricted to existing paths under the managed stack workspace
 - unlike `workspace/file`, reserved root paths may still be repaired
 - path traversal is rejected
 - helper-backed repair is opt-in and returns `501 not_implemented` until configured

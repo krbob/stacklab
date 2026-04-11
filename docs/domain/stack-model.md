@@ -8,7 +8,7 @@ This document defines the canonical domain model for stacks, services, container
 
 Stack identity comes from the filesystem, not from Docker runtime objects.
 
-A Stacklab stack exists when a directory under `/opt/stacklab/stacks/` contains a canonical `compose.yaml` file.
+A Stacklab stack exists when a directory under the managed stacks root contains a canonical `compose.yaml` file.
 
 ## Canonical Identifiers
 
@@ -127,7 +127,7 @@ Core fields:
 
 A stack is discovered when:
 
-- a directory exists under `/opt/stacklab/stacks/`
+- a directory exists under the managed stacks root
 - that directory contains `compose.yaml`
 
 v1 rules:
@@ -265,7 +265,7 @@ Inputs to the drift baseline may include:
 - normalized `compose.yaml` content hash
 - `.env` content hash
 
-Changes under `/opt/stacklab/config/<stack>/` are not part of v1 drift detection unless explicitly wired into future deployment hashing.
+Changes under stack-scoped paths in the managed config workspace are not part of v1 drift detection unless explicitly wired into future deployment hashing.
 
 ## Deletion Semantics
 
@@ -284,4 +284,3 @@ Default safe remove behavior in v1:
 - keep stack definition unless the user explicitly requests deletion
 - keep config
 - keep data
-

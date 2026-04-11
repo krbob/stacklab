@@ -15,7 +15,7 @@ This baseline is now implemented and staging-tested. This document remains usefu
 
 ### Stack Discovery And Overview
 
-- scan stacks from `/opt/stacklab/stacks`
+- scan stacks from the managed stacks root
 - detect runtime state from Docker and Compose labels
 - show stack list with state, health summary, service count, and last action
 
