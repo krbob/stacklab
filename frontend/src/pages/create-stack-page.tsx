@@ -72,7 +72,7 @@ export function CreateStackPage() {
           )}
           {idValid && (
             <p className="mt-1 text-xs text-[var(--muted)]">
-              Will create: /opt/stacklab/stacks/{stackId}/compose.yaml
+              Will create a new stack definition for <span className="font-mono">{stackId}</span>.
             </p>
           )}
         </label>

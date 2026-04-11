@@ -48,6 +48,8 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Start E2E backend
+        env:
+          STACKLAB_E2E_ENABLE_WORKSPACE_REPAIR: "1"
         shell: bash
         run: |
           set -euo pipefail
@@ -72,6 +74,7 @@ jobs:
         env:
           STACKLAB_E2E_URL: http://127.0.0.1:18081
           STACKLAB_E2E_PASSWORD: stacklab-e2e
+          STACKLAB_E2E_ENABLE_WORKSPACE_REPAIR: "1"
         run: npm run test:e2e
 
       - name: Stop E2E backend

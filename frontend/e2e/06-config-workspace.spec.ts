@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test'
 import { createStackViaApi, deleteStackViaApi, login } from './helpers'
 
 const STACK_ID = 'e2e-config'
+const BLOCKED_DIR = 'blocked-fixture'
 const COMPOSE = `services:
   app:
     image: alpine:latest
@@ -102,5 +103,46 @@ test.describe('Config Workspace', () => {
     // Should open the new file — check heading specifically
     await expect(page.getByRole('heading', { name: 'new-config.yml' })).toBeVisible({ timeout: 10_000 })
     await expect(page.locator('.cm-content')).toBeVisible()
+  })
+
+  test('repairs a blocked config file when workspace repair is enabled', async ({ page }) => {
+    test.skip(process.env.STACKLAB_E2E_ENABLE_WORKSPACE_REPAIR !== '1', 'Workspace repair is only exercised in the CI harness with sudo-enabled helper setup')
+
+    const cookies = await page.context().cookies()
+    const sessionCookie = cookies.find((c) => c.name.startsWith('stacklab'))
+    const headers = sessionCookie ? { Cookie: `${sessionCookie.name}=${sessionCookie.value}` } : {}
+    const baseURL = process.env.STACKLAB_E2E_URL ?? 'http://127.0.0.1:18081'
+    const fileResponse = await page.request.get(`${baseURL}/api/config/workspace/file?path=${encodeURIComponent(`${BLOCKED_DIR}/blocked.env`)}`, { headers })
+    expect(fileResponse.ok()).toBeTruthy()
+    const fileBody = await fileResponse.json()
+
+    test.skip(fileBody.repair_capability?.supported !== true, 'Workspace repair helper is not available in this environment')
+
+    await page.goto('/config')
+    await page.getByRole('button', { name: BLOCKED_DIR }).click()
+    await page.getByRole('button', { name: 'blocked.env' }).click()
+
+    await expect(page.getByText('File access blocked')).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText('Repair access')).toBeVisible()
+
+    await page.getByRole('button', { name: 'Repair access' }).click()
+
+    await expect.poll(async () => {
+      const response = await page.request.get(`${baseURL}/api/config/workspace/file?path=${encodeURIComponent(`${BLOCKED_DIR}/blocked.env`)}`, { headers })
+      if (!response.ok()) return `status:${response.status()}`
+      const body = await response.json()
+      return JSON.stringify({
+        readable: body.readable,
+        writable: body.writable,
+        blocked_reason: body.blocked_reason,
+      })
+    }, { timeout: 10_000 }).toBe(JSON.stringify({
+      readable: true,
+      writable: true,
+      blocked_reason: null,
+    }))
+
+    await expect(page.getByTestId('config-save')).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator('.cm-content')).toContainText('secret=blocked')
   })
 })

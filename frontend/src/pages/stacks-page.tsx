@@ -83,7 +83,7 @@ export function StacksPage() {
           <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-10 text-center">
             <p className="text-lg text-[var(--text)]">No stacks found</p>
             <p className="mt-2 text-sm text-[var(--muted)]">
-              No compose.yaml files detected in /opt/stacklab/stacks/
+              No compose.yaml files detected in the managed stacks root.
             </p>
             <Link
               to="/stacks/new"

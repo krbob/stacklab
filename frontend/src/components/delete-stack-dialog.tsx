@@ -66,11 +66,11 @@ export function DeleteStackDialog({ stackId, stackName, onClose }: DeleteStackDi
           </label>
           <label className="flex items-center gap-2 text-sm text-[var(--text)]">
             <input type="checkbox" checked={removeConfig} onChange={(e) => setRemoveConfig(e.target.checked)} disabled={deleting} className="rounded" />
-            Delete config directory (/opt/stacklab/config/{stackName}/)
+            Delete this stack's config directory
           </label>
           <label className="flex items-center gap-2 text-sm text-amber-400">
             <input type="checkbox" checked={removeData} onChange={(e) => setRemoveData(e.target.checked)} disabled={deleting} className="rounded" />
-            Delete data directory (/opt/stacklab/data/{stackName}/)
+            Delete this stack's data directory
           </label>
           {removeData && (
             <p className="ml-6 text-xs text-red-400">Deleting data is irreversible.</p>
