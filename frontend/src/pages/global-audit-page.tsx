@@ -29,7 +29,7 @@ export function GlobalAuditPage() {
   }, [cursor])
 
   return (
-    <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+    <section className="min-w-0 overflow-hidden rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
       <div className="font-brand text-xs uppercase tracking-[0.28em] text-[var(--accent)]">System</div>
       <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-[var(--text)]">Audit log</h2>
 

@@ -45,7 +45,7 @@ export function SettingsPage() {
   }, [currentPassword, newPassword, confirmPassword])
 
   return (
-    <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+    <section className="min-w-0 rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
       <h2 className="text-3xl font-semibold tracking-[-0.04em] text-[var(--text)]">Settings</h2>
 
       <div className="mt-6 space-y-8">
