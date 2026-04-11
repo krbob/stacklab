@@ -699,7 +699,8 @@ function StacklabUpdateSection() {
   if (!overview) return null
 
   const { package: pkg, write_capability: cap, runtime } = overview
-  const isRunning = runtime?.result === 'running' || applying
+  const runtimeRunning = Boolean(runtime?.job_id && !runtime.finished_at && runtime.result !== 'succeeded' && runtime.result !== 'failed')
+  const isRunning = runtimeRunning || applying
 
   return (
     <div>
@@ -754,10 +755,10 @@ function StacklabUpdateSection() {
         )}
 
         {/* Runtime status */}
-        {runtime && runtime.result && (
+        {runtime && (runtime.result || runtimeRunning) && (
           <div className="border-t border-[var(--panel-border)] pt-2 font-mono text-[10px] text-[var(--muted)]">
             <div className="flex items-center gap-2">
-              <span>Last: <span className={runtime.result === 'succeeded' ? 'text-emerald-400' : runtime.result === 'failed' ? 'text-red-400' : 'text-sky-400'}>{runtime.result}</span></span>
+              <span>Last: <span className={runtime.result === 'succeeded' ? 'text-emerald-400' : runtime.result === 'failed' ? 'text-red-400' : 'text-sky-400'}>{runtime.result || 'running'}</span></span>
               {runtime.finished_at && <span>{new Date(runtime.finished_at).toLocaleString()}</span>}
               {runtime.job_id && (
                 <button onClick={() => openJob(runtime.job_id!)} className="text-[var(--accent)] hover:underline">View job</button>
