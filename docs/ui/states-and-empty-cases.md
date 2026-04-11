@@ -126,14 +126,13 @@ Jobs streamed via WebSocket use domain job states. UI maps them as follows:
 │                                              │
 │         No stacks found                      │
 │                                              │
-│   No compose.yaml files detected in          │
-│   /opt/stacklab/stacks/                      │
+│   No compose.yaml files detected in the      │
+│   managed stacks root.                       │
 │                                              │
 │   [Create your first stack]                  │
 │                                              │
-│   Or create a directory manually:            │
-│   mkdir /opt/stacklab/stacks/my-app          │
-│   and add a compose.yaml file.               │
+│   Or create a stack from the UI and add      │
+│   a compose.yaml definition.                 │
 │                                              │
 └──────────────────────────────────────────────┘
 ```
@@ -341,8 +340,8 @@ Remove stack "nextcloud"?
 What to remove:
 ☑ Stop and remove containers (runtime)
 ☐ Delete stack definition (compose.yaml, .env)
-☐ Delete config directory (/opt/stacklab/config/nextcloud/)
-☐ Delete data directory (/opt/stacklab/data/nextcloud/)
+☐ Delete this stack's config directory
+☐ Delete this stack's data directory
 
 ⚠ Deleting data is irreversible.
 

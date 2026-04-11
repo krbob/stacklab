@@ -1,6 +1,11 @@
 # Maintenance Inventory Handoff
 
-This handoff covers the first UI slice of Milestone 7:
+This handoff is a historical UI planning snapshot for the maintenance inventory surface.
+
+The route is already implemented; use `docs/api/maintenance-inventory.md` and the
+running product as the current source of truth.
+
+Original scope:
 
 - image inventory
 - prune preview

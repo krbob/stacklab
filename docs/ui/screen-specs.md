@@ -138,7 +138,7 @@ Purpose: Detailed view of a single stack with service breakdown.
 | Ports | Published ports mapping |
 | Status | Docker status string + uptime |
 | Inline stats | CPU % and RAM usage (mini, from stats stream) |
-| Mounts | Key volume mounts, showing relative paths under /opt/stacklab |
+| Mounts | Key volume mounts, showing relative paths under the managed Stacklab roots |
 | Per-service actions | Shell, Logs (navigate to filtered log view), Restart |
 
 ### Stack-level actions bar
@@ -517,9 +517,8 @@ Purpose: Create a new stack with directory scaffolding.
 │  Stack name:  [my-new-app          ]                                │
 │                                                                      │
 │  ℹ Will create:                                                     │
-│    /opt/stacklab/stacks/my-new-app/compose.yaml                     │
-│    /opt/stacklab/config/my-new-app/                                 │
-│    /opt/stacklab/data/my-new-app/                                   │
+│    a new stack definition and optional                              │
+│    stack-scoped config/data directories                              │
 │                                                                      │
 │  Initial compose.yaml:                                               │
 │  ┌──────────────────────────────────────────────────────────────┐   │
@@ -611,7 +610,7 @@ Purpose: Application configuration.
 │                                                                      │
 │  Stack defaults                                                      │
 │  ──────────────                                                      │
-│  Stack root: /opt/stacklab  (read-only in v1)                       │
+│  Install mode and managed roots shown from backend metadata         │
 │                                                                      │
 │  About                                                               │
 │  ─────                                                               │
