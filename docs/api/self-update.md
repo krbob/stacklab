@@ -59,6 +59,8 @@ Operational notes:
 
 - if `sudo` is used, `stacklab.service` must run with `NoNewPrivileges=false`
 - the helper should be allowlisted narrowly through `sudoers`
+- in `sudo` mode, Stacklab starts the helper through `systemd-run` as a transient root unit so the package upgrade does not inherit the main service sandbox
+- keep `ProtectSystem=full` on `stacklab.service`; do not relax the main service sandbox only to make self-update work
 - the helper upgrades only the configured Stacklab package, not arbitrary packages
 
 ## REST Endpoints

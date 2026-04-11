@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -96,6 +97,82 @@ func TestWriteCapabilityRequiresSudoOrRoot(t *testing.T) {
 	if !strings.Contains(response.Reason, "requires sudo or a root-owned Stacklab service") {
 		t.Fatalf("writeCapability().Reason = %q, want sudo/root hint", response.Reason)
 	}
+}
+
+func TestSystemdRunHelperCommandUsesTransientUnit(t *testing.T) {
+	t.Parallel()
+
+	helperPath := "/usr/lib/stacklab/bin/stacklab-self-update-helper"
+	service := newTestService(t, config.Config{
+		SelfUpdateHelperPath: helperPath,
+		SelfUpdateUseSudo:    true,
+	})
+
+	name, args, err := service.systemdRunHelperCommand(systemdRunUnitName("job_bad/id"), false, false, "run", "--job-id", "job_bad/id")
+	if err != nil {
+		t.Fatalf("systemdRunHelperCommand() error = %v", err)
+	}
+
+	wantArgs := []string{
+		"-n",
+		systemdRunPath,
+		"--quiet",
+		"--collect",
+		"--unit=stacklab-self-update-job_bad_id",
+		"--service-type=exec",
+		helperPath,
+		"run",
+		"--job-id",
+		"job_bad/id",
+	}
+	if name != "sudo" {
+		t.Fatalf("command name = %q, want sudo", name)
+	}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("command args = %#v, want %#v", args, wantArgs)
+	}
+}
+
+func TestHelperProbeCommandUsesWaitAndPipe(t *testing.T) {
+	t.Parallel()
+
+	helperPath := "/usr/lib/stacklab/bin/stacklab-self-update-helper"
+	service := newTestService(t, config.Config{
+		SelfUpdateHelperPath: helperPath,
+		SelfUpdateUseSudo:    true,
+	})
+
+	name, args, err := service.helperProbeCommand("probe")
+	if err != nil {
+		t.Fatalf("helperProbeCommand() error = %v", err)
+	}
+	if name != "sudo" {
+		t.Fatalf("command name = %q, want sudo", name)
+	}
+	for _, want := range []string{"-n", systemdRunPath, "--quiet", "--wait", "--collect", "--pipe", "--service-type=exec", helperPath, "probe"} {
+		if !hasArg(args, want) {
+			t.Fatalf("command args = %#v, want arg %q", args, want)
+		}
+	}
+	foundProbeUnit := false
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "--unit=stacklab-self-update-probe-") {
+			foundProbeUnit = true
+			break
+		}
+	}
+	if !foundProbeUnit {
+		t.Fatalf("command args = %#v, want probe unit", args)
+	}
+}
+
+func hasArg(args []string, want string) bool {
+	for _, arg := range args {
+		if arg == want {
+			return true
+		}
+	}
+	return false
 }
 
 func newTestService(t *testing.T, cfg config.Config) *Service {

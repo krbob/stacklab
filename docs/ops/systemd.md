@@ -147,7 +147,7 @@ Recommended hardening goals:
 
 Potential adjustments:
 
-- relax `ProtectSystem` if it interferes with required runtime behavior
+- relax `ProtectSystem` only for a proven runtime need; Stacklab self-update must not require this because it runs the updater through a transient `systemd-run` unit
 - keep `NoNewPrivileges=false` if the Docker admin helper, workspace repair helper, or self-update helper is enabled through `sudo`
 - include `/etc/docker` in `ReadWritePaths` if the Docker admin helper is enabled
 - prefer `Wants=docker.service` over `Requires=docker.service` so Stacklab survives a Docker daemon restart

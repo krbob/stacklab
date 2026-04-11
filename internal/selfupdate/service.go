@@ -29,6 +29,7 @@ const (
 	defaultSelfUpdateMessage   = "Stacklab self-update is not configured yet."
 	unsupportedInstallMessage  = "Stacklab self-update is only available for APT installs."
 	packageManagerErrorMessage = "APT package metadata is unavailable on this host."
+	systemdRunPath             = "/usr/bin/systemd-run"
 )
 
 var (
@@ -39,11 +40,11 @@ var (
 type commandRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
 
 type OverviewResponse struct {
-	CurrentVersion  string               `json:"current_version"`
-	InstallMode     string               `json:"install_mode"`
-	Package         PackageStatus        `json:"package"`
-	WriteCapability WriteCapability      `json:"write_capability"`
-	Runtime         *RuntimeStatus       `json:"runtime,omitempty"`
+	CurrentVersion  string          `json:"current_version"`
+	InstallMode     string          `json:"install_mode"`
+	Package         PackageStatus   `json:"package"`
+	WriteCapability WriteCapability `json:"write_capability"`
+	Runtime         *RuntimeStatus  `json:"runtime,omitempty"`
 }
 
 type PackageStatus struct {
@@ -78,10 +79,10 @@ type ApplyRequest struct {
 }
 
 type ApplyResponse struct {
-	Started bool             `json:"started"`
-	Job     store.Job        `json:"job"`
-	Package PackageStatus    `json:"package"`
-	Runtime *RuntimeStatus   `json:"runtime,omitempty"`
+	Started bool           `json:"started"`
+	Job     store.Job      `json:"job"`
+	Package PackageStatus  `json:"package"`
+	Runtime *RuntimeStatus `json:"runtime,omitempty"`
 }
 
 type runtimeState struct {
@@ -431,22 +432,41 @@ func buildWorkflow(refreshPackageIndex bool) []store.JobWorkflowStep {
 }
 
 func (s *Service) startHelper(jobID, requestedVersion string, refreshPackageIndex bool) error {
-	commandName, commandArgs, err := s.helperCommand("run",
+	helperArgs := []string{
+		"run",
 		"--db-path", s.cfg.DatabasePath,
 		"--job-id", jobID,
 		"--package-name", defaultString(s.cfg.SelfUpdatePackageName, defaultPackageName),
 		"--health-url", s.cfg.SelfUpdateHealthURL,
 		"--service-unit", s.cfg.SystemdUnitName,
 		"--runtime-key", runtimeStateKey,
-	)
-	if err != nil {
-		return err
 	}
 	if requestedVersion != "" {
-		commandArgs = append(commandArgs, "--requested-version", requestedVersion)
+		helperArgs = append(helperArgs, "--requested-version", requestedVersion)
 	}
 	if !refreshPackageIndex {
-		commandArgs = append(commandArgs, "--skip-apt-update")
+		helperArgs = append(helperArgs, "--skip-apt-update")
+	}
+
+	if s.cfg.SelfUpdateUseSudo {
+		commandName, commandArgs, err := s.systemdRunHelperCommand(systemdRunUnitName(jobID), false, false, helperArgs...)
+		if err != nil {
+			return err
+		}
+		output, err := s.runCommand(context.Background(), commandName, commandArgs...)
+		if err != nil {
+			message := strings.TrimSpace(string(output))
+			if message != "" {
+				return fmt.Errorf("start self-update transient unit: %w: %s", err, message)
+			}
+			return fmt.Errorf("start self-update transient unit: %w", err)
+		}
+		return nil
+	}
+
+	commandName, commandArgs, err := s.helperCommand(helperArgs...)
+	if err != nil {
+		return err
 	}
 
 	devnull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
@@ -470,12 +490,19 @@ func (s *Service) startHelper(jobID, requestedVersion string, refreshPackageInde
 }
 
 func (s *Service) runHelperCommand(ctx context.Context, args ...string) ([]byte, error) {
-	commandName, commandArgs, err := s.helperCommand(args...)
+	commandName, commandArgs, err := s.helperProbeCommand(args...)
 	if err != nil {
 		return nil, err
 	}
 	cmd := exec.CommandContext(ctx, commandName, commandArgs...)
 	return cmd.CombinedOutput()
+}
+
+func (s *Service) helperProbeCommand(args ...string) (string, []string, error) {
+	if s.cfg.SelfUpdateUseSudo {
+		return s.systemdRunHelperCommand(systemdRunProbeUnitName(), true, true, args...)
+	}
+	return s.helperCommand(args...)
 }
 
 func (s *Service) helperCommand(args ...string) (string, []string, error) {
@@ -484,9 +511,66 @@ func (s *Service) helperCommand(args ...string) (string, []string, error) {
 		return "", nil, ErrUnsupported
 	}
 	if s.cfg.SelfUpdateUseSudo {
-		return "sudo", append([]string{helperPath}, args...), nil
+		return "sudo", append([]string{"-n", helperPath}, args...), nil
 	}
 	return helperPath, args, nil
+}
+
+func (s *Service) systemdRunHelperCommand(unitName string, wait bool, pipeOutput bool, helperArgs ...string) (string, []string, error) {
+	helperPath := strings.TrimSpace(s.cfg.SelfUpdateHelperPath)
+	if helperPath == "" {
+		return "", nil, ErrUnsupported
+	}
+
+	args := []string{
+		"-n",
+		systemdRunPath,
+		"--quiet",
+	}
+	if wait {
+		args = append(args, "--wait")
+	}
+	args = append(args, "--collect")
+	if pipeOutput {
+		args = append(args, "--pipe")
+	}
+	args = append(args,
+		"--unit="+unitName,
+		"--service-type=exec",
+		helperPath,
+	)
+	args = append(args, helperArgs...)
+	return "sudo", args, nil
+}
+
+func systemdRunUnitName(jobID string) string {
+	return "stacklab-self-update-" + sanitizeSystemdUnitSuffix(jobID)
+}
+
+func systemdRunProbeUnitName() string {
+	return fmt.Sprintf("stacklab-self-update-probe-%d-%d", os.Getpid(), time.Now().UnixNano())
+}
+
+func sanitizeSystemdUnitSuffix(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "unknown"
+	}
+	var builder strings.Builder
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9',
+			r == '_',
+			r == '-',
+			r == '.':
+			builder.WriteRune(r)
+		default:
+			builder.WriteByte('_')
+		}
+	}
+	return builder.String()
 }
 
 func (s *Service) reconcilePendingResult(ctx context.Context) {

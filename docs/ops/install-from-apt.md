@@ -98,3 +98,4 @@ sudo apt-get install stacklab
   - optionally override `STACKLAB_SELF_UPDATE_HEALTH_URL`
   - install a narrow `sudoers` rule for the helper
   - keep `NoNewPrivileges=false` in `stacklab.service`
+  - keep `ProtectSystem=full`; the self-update helper is launched through a transient `systemd-run` unit so `dpkg` can update `/etc` and `/usr` without relaxing the main Stacklab service sandbox
