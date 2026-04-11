@@ -119,7 +119,7 @@ Restart=on-failure
 RestartSec=5
 TimeoutStartSec=30
 TimeoutStopSec=30
-# Must remain false if Docker daemon apply or workspace permission repair via sudo helper is enabled.
+# Must remain false if any opt-in sudo helper is enabled.
 NoNewPrivileges=false
 PrivateTmp=true
 ProtectSystem=full
@@ -147,8 +147,8 @@ Recommended hardening goals:
 
 Potential adjustments:
 
-- relax `ProtectSystem` if it interferes with required runtime behavior
-- keep `NoNewPrivileges=false` if the Docker admin helper or workspace repair helper is enabled through `sudo`
+- relax `ProtectSystem` only for a proven runtime need; Stacklab self-update must not require this because it runs the updater through a transient `systemd-run` unit
+- keep `NoNewPrivileges=false` if the Docker admin helper, workspace repair helper, or self-update helper is enabled through `sudo`
 - include `/etc/docker` in `ReadWritePaths` if the Docker admin helper is enabled
 - prefer `Wants=docker.service` over `Requires=docker.service` so Stacklab survives a Docker daemon restart
 - do not enable sandboxing blindly before terminal and Docker access are verified end-to-end

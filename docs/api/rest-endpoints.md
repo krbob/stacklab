@@ -451,6 +451,105 @@ Notes:
 - if the helper is not configured, this returns `501 not_implemented`
 - helper-backed failures may emit warnings about rollback attempts into the job event stream
 
+## `GET /api/stacklab/update/overview`
+
+Purpose:
+
+- fetch Stacklab self-update status for the current install
+
+Response:
+
+```json
+{
+  "current_version": "2026.04.0",
+  "install_mode": "apt",
+  "package": {
+    "supported": true,
+    "name": "stacklab",
+    "installed_version": "2026.04.0",
+    "candidate_version": "2026.04.1",
+    "configured_channel": "stable",
+    "update_available": true
+  },
+  "write_capability": {
+    "supported": true
+  },
+  "runtime": {
+    "job_id": "job_xxx",
+    "pending_finalize": false,
+    "requested_version": "2026.04.1",
+    "installed_version": "2026.04.0",
+    "started_at": "2026-04-10T11:50:00Z",
+    "finished_at": null
+  }
+}
+```
+
+Notes:
+
+- returns `200` for both supported and unsupported installs
+- tarball installs should represent unsupported state in `package.message` and `write_capability.reason`
+- `runtime` is present while a self-update is running or when the latest result is still retained
+
+## `POST /api/stacklab/update/apply`
+
+Purpose:
+
+- start the global Stacklab self-update workflow for APT installs
+
+Request:
+
+```json
+{
+  "expected_candidate_version": "2026.04.1",
+  "refresh_package_index": true
+}
+```
+
+Response:
+
+```json
+{
+  "started": true,
+  "job": {
+    "id": "job_xxx",
+    "stack_id": null,
+    "action": "self_update_stacklab",
+    "state": "running",
+    "requested_at": "2026-04-10T11:50:00Z",
+    "started_at": "2026-04-10T11:50:00Z",
+    "finished_at": null,
+    "workflow": {
+      "steps": [
+        { "action": "apt_update", "state": "running" },
+        { "action": "upgrade_package", "state": "queued" },
+        { "action": "verify_restart", "state": "queued" }
+      ]
+    }
+  },
+  "package": {
+    "supported": true,
+    "name": "stacklab",
+    "installed_version": "2026.04.0",
+    "candidate_version": "2026.04.1",
+    "configured_channel": "stable",
+    "update_available": true
+  },
+  "runtime": {
+    "job_id": "job_xxx",
+    "pending_finalize": false,
+    "requested_version": "2026.04.1"
+  }
+}
+```
+
+Notes:
+
+- this is a global job because Stacklab upgrades and restarts itself
+- the job may outlive the current HTTP process and then be finalized after restart
+- returns `409 invalid_state` if another self-update is already running or no update is available
+- returns `503 self_update_unavailable` for tarball installs or when the helper path is not configured
+
 ## `GET /api/config/workspace/tree`
 
 Purpose:
@@ -1885,7 +1984,8 @@ Response:
     "maintenance_succeeded": false,
     "post_update_recovery_failed": false,
     "stacklab_service_error": false,
-    "runtime_health_degraded": false
+    "runtime_health_degraded": false,
+    "runtime_log_error_burst": false
   },
   "channels": {
     "webhook": {
@@ -1914,6 +2014,7 @@ Notes:
   - do not notify on post-update recovery failures by default until the UI exposes it
   - do not notify on Stacklab self-health errors by default until the UI exposes it
   - do not notify on runtime health degradation by default until the UI exposes it
+  - do not notify on runtime log error bursts by default until the UI exposes it
 
 ## `PUT /api/settings/notifications`
 
@@ -1933,7 +2034,8 @@ Request:
     "maintenance_succeeded": true,
     "post_update_recovery_failed": true,
     "stacklab_service_error": true,
-    "runtime_health_degraded": true
+    "runtime_health_degraded": true,
+    "runtime_log_error_burst": true
   },
   "channels": {
     "webhook": {
@@ -1962,7 +2064,8 @@ Response:
     "maintenance_succeeded": true,
     "post_update_recovery_failed": true,
     "stacklab_service_error": true,
-    "runtime_health_degraded": true
+    "runtime_health_degraded": true,
+    "runtime_log_error_burst": true
   },
   "channels": {
     "webhook": {
@@ -2008,7 +2111,8 @@ Request:
     "maintenance_succeeded": false,
     "post_update_recovery_failed": false,
     "stacklab_service_error": false,
-    "runtime_health_degraded": false
+    "runtime_health_degraded": false,
+    "runtime_log_error_burst": false
   },
   "channels": {
     "telegram": {

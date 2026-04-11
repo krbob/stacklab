@@ -125,7 +125,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download amd64 stable artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: stable-amd64
           path: dist/release
@@ -148,7 +148,7 @@ jobs:
         run: git fetch --tags --force
 
       - name: Download stable artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: stable-*
           path: dist/stable

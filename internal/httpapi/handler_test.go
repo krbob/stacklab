@@ -26,6 +26,7 @@ import (
 	"stacklab/internal/maintenancejobs"
 	"stacklab/internal/notifications"
 	"stacklab/internal/scheduler"
+	"stacklab/internal/selfupdate"
 	"stacklab/internal/stacks"
 	"stacklab/internal/store"
 )
@@ -686,9 +687,10 @@ func newTestHandler(t *testing.T) (http.Handler, config.Config) {
 	maintenanceService := maintenance.NewService()
 	maintenanceRunner := maintenancejobs.NewService(logger, jobService, auditService, stackReader, maintenanceService)
 	schedulerService := scheduler.NewService(testStore, auditService, maintenanceRunner, stackReader, logger)
+	selfUpdateService := selfupdate.NewService(cfg, testStore, jobService, auditService, notificationService, logger)
 	jobService.SetTerminalHook(notificationService.DispatchJobAsync)
 
-	handler, err := httpapi.NewHandler(cfg, logger, authService, auditService, jobService, notificationService, schedulerService)
+	handler, err := httpapi.NewHandler(cfg, logger, authService, auditService, jobService, notificationService, schedulerService, selfUpdateService)
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v", err)
 	}

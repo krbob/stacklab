@@ -2,17 +2,27 @@
 
 This document turns the current product direction into an executable sequence of milestones.
 
-It is intentionally short-term and implementation-oriented.
+This document is now partly historical. For the current product state and next
+priorities, use `docs/roadmap.md` first.
 
 ## Guiding Principle
 
-Work on product features before `.deb` packaging and APT distribution.
+Keep product work and release hygiene moving together.
 
 Reason:
 
-- Stacklab already has a validated tarball release and upgrade path
-- the biggest product value still sits in operator workflows
-- package distribution is important, but currently lower leverage than the next feature set
+- the daily operator loop is now broad enough that install/update reliability matters
+- Stacklab has package-managed installs, APT channels, and self-update in active use
+- new product surfaces should not outpace the release path that operators use to test them
+
+Current near-term sequence:
+
+1. keep release hygiene healthy:
+   - APT package retention
+   - nightly prerelease cleanup
+   - post-publish smoke
+2. add a focused template library / starter catalog
+3. add lightweight frontend-only stats history before considering backend metric retention
 
 ## Completed Foundations
 
@@ -36,6 +46,10 @@ The following milestones are already materially in place:
   - selected/all stack update workflow
   - optional prune
   - progress and audit integration
+
+For the fuller current baseline, including APT release automation,
+self-update, Docker administration, notifications, scheduled maintenance,
+stack auxiliary files, and maintenance inventory, see `docs/roadmap.md`.
 
 ## Recommended Sequence
 
@@ -351,6 +365,9 @@ Recommended event order:
    - unhealthy containers
    - restart loops
    - stack transitions into degraded states
+6. runtime log error bursts:
+   - repeated new error-like log lines from managed containers
+   - cooldown and baseline seeding to avoid spam on startup
 
 Non-goals in the first mobile alert slice:
 
@@ -366,6 +383,10 @@ Follow-up slice after the first Telegram rollout:
   - `N` error or fatal entries in `M` minutes
   - suppress repeated identical messages for a cooldown window
 - operator-facing copy focused on "Stacklab itself is unhealthy", not raw journald mechanics
+- then add runtime log error bursts sourced from managed container logs
+- keep the first version heuristic:
+  - repeated `error` / `fatal` / `panic` style lines
+  - no regex editor or per-service rules
 
 Backend work:
 
@@ -560,3 +581,44 @@ UI developer input needed:
 
 - early
 - the main decision is whether this is a new stack tab or a mode inside the existing editor
+
+## Milestone 16: Stacklab Self-Update
+
+Goal:
+
+- let operators upgrade Stacklab itself from the UI on APT-managed installs
+
+Scope:
+
+- current version and package channel visibility
+- candidate version visibility
+- helper-backed `apt` upgrade workflow for the `stacklab` package only
+- restart verification after upgrade
+- result visibility through jobs, global activity, and job detail
+
+Non-goals:
+
+- tarball self-update
+- host-wide package management
+- reboot management
+- package rollback UI
+
+Backend work:
+
+- self-update overview endpoint
+- self-update apply endpoint
+- detached helper that survives process restart and writes workflow state back to SQLite
+- reconciliation on restart for audit and notifications
+- packaging and docs for the helper and sudoers example
+
+UI work:
+
+- Stacklab update card in application settings
+- unsupported/degraded states for tarball installs or missing helper capability
+- explicit `Update Stacklab` action and runtime/result visibility
+
+UI developer input needed:
+
+- yes
+- final placement and affordances inside `/settings`
+- how much advanced control to expose in v1 versus keeping update as one primary action

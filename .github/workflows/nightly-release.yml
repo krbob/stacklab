@@ -131,7 +131,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download amd64 nightly artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: nightly-amd64
           path: dist/release
@@ -154,7 +154,7 @@ jobs:
         run: git fetch --tags --force
 
       - name: Download nightly artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: nightly-*
           path: dist/nightly
@@ -255,3 +255,28 @@ jobs:
           repo="${GITHUB_REPOSITORY#*/}"
           repo_url="https://${owner}.github.io/${repo}/apt"
           scripts/release/smoke-apt-repo-install.sh --channel nightly --repo-url "${repo_url}" --arch amd64
+
+  cleanup-nightly-releases:
+    name: cleanup-nightly-releases
+    needs: [prepare, smoke-published-apt]
+    if: needs.prepare.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete old nightly prereleases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEEP_NIGHTLY_RELEASES: "14"
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t nightly_tags < <(
+            gh api --paginate "/repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --jq '.[] | select(.prerelease == true and (.tag_name | startswith("nightly-"))) | .tag_name'
+          )
+          keep_count="${KEEP_NIGHTLY_RELEASES}"
+          if (( ${#nightly_tags[@]} <= keep_count )); then
+            exit 0
+          fi
+          for tag in "${nightly_tags[@]:${keep_count}}"; do
+            gh release delete "${tag}" --yes --cleanup-tag
+          done

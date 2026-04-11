@@ -240,14 +240,18 @@ Current intended helper scope:
   - write the new file
   - restart `docker.service`
   - roll back the config if restart verification fails
+- Stacklab self-update workflow:
+  - run the self-update helper through `sudo systemd-run`
+  - upgrade only the configured Stacklab APT package
+  - verify the Stacklab service after restart
+  - record the result back into the Stacklab database
 
 Operational note:
 
 - when the Docker daemon helper is enabled through `sudo`, `stacklab.service` cannot run with `NoNewPrivileges=true`
 - when the Docker daemon helper is enabled through `sudo`, the service sandbox must allow writes to `/etc/docker`
 - this is an intentional tradeoff for the opt-in apply workflow and should be documented in deployment instructions
-  - restart Docker
-  - roll back if restart fails
+- Stacklab self-update should not require relaxing `ProtectSystem` on the main service, because its helper runs in a separate transient systemd unit outside the Stacklab service namespace
 
 Non-goals:
 

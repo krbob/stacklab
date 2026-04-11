@@ -10,6 +10,9 @@ const mockSendNotificationTest = vi.fn();
 const mockGetMaintenanceSchedules = vi.fn();
 const mockUpdateMaintenanceSchedules = vi.fn();
 const mockGetStacks = vi.fn();
+const mockGetStacklabUpdateOverview = vi.fn();
+const mockApplyStacklabUpdate = vi.fn();
+const mockOpenJob = vi.fn();
 
 vi.mock("@/lib/api-client", () => ({
   getMeta: () => mockGetMeta(),
@@ -23,10 +26,12 @@ vi.mock("@/lib/api-client", () => ({
   updateMaintenanceSchedules: (...args: unknown[]) =>
     mockUpdateMaintenanceSchedules(...args),
   getStacks: (...args: unknown[]) => mockGetStacks(...args),
+  getStacklabUpdateOverview: () => mockGetStacklabUpdateOverview(),
+  applyStacklabUpdate: (...args: unknown[]) => mockApplyStacklabUpdate(...args),
 }));
 
 vi.mock("@/hooks/use-job-drawer", () => ({
-  useJobDrawer: () => ({ openJob: vi.fn(), closeJob: vi.fn(), jobId: null }),
+  useJobDrawer: () => ({ openJob: mockOpenJob, closeJob: vi.fn(), jobId: null }),
 }));
 
 describe("SettingsPage", () => {
@@ -36,6 +41,9 @@ describe("SettingsPage", () => {
     mockGetNotificationSettings.mockReset();
     mockUpdateNotificationSettings.mockReset();
     mockSendNotificationTest.mockReset();
+    mockGetStacklabUpdateOverview.mockReset();
+    mockApplyStacklabUpdate.mockReset();
+    mockOpenJob.mockReset();
 
     mockGetMeta.mockResolvedValue({
       app: { name: "Stacklab", version: "0.1.0-dev" },
@@ -54,6 +62,7 @@ describe("SettingsPage", () => {
         post_update_recovery_failed: false,
         stacklab_service_error: false,
         runtime_health_degraded: false,
+        runtime_log_error_burst: false,
       },
     });
     mockGetMaintenanceSchedules.mockResolvedValue({
@@ -84,6 +93,21 @@ describe("SettingsPage", () => {
         container_count: { running: 1, total: 1 },
       },
     });
+    mockGetStacklabUpdateOverview.mockResolvedValue({
+      current_version: "2026.04.0",
+      install_mode: "apt",
+      package: {
+        supported: true,
+        name: "stacklab",
+        installed_version: "2026.04.0",
+        candidate_version: "2026.04.0",
+        configured_channel: "stable",
+        update_available: false,
+      },
+      write_capability: {
+        supported: true,
+      },
+    });
   });
 
   it("renders notifications section with loaded settings", async () => {
@@ -107,6 +131,7 @@ describe("SettingsPage", () => {
         post_update_recovery_failed: false,
         stacklab_service_error: true,
         runtime_health_degraded: true,
+        runtime_log_error_burst: true,
       },
     });
 
@@ -122,6 +147,7 @@ describe("SettingsPage", () => {
     );
     fireEvent.click(screen.getByText("Maintenance succeeded"));
     fireEvent.click(screen.getByText("A stack becomes unhealthy or enters a restart loop"));
+    fireEvent.click(screen.getByText("A stack starts logging repeated errors"));
     fireEvent.click(screen.getByText("Stacklab itself starts logging errors"));
     fireEvent.click(screen.getByText("Save"));
 
@@ -136,6 +162,7 @@ describe("SettingsPage", () => {
             maintenance_succeeded: true,
             stacklab_service_error: true,
             runtime_health_degraded: true,
+            runtime_log_error_burst: true,
           }),
         }),
       );
@@ -156,6 +183,7 @@ describe("SettingsPage", () => {
         post_update_recovery_failed: false,
         stacklab_service_error: true,
         runtime_health_degraded: true,
+        runtime_log_error_burst: true,
       },
     });
     mockSendNotificationTest.mockResolvedValue({ sent: true, channel: 'webhook' });
@@ -182,6 +210,7 @@ describe("SettingsPage", () => {
           events: expect.objectContaining({
             stacklab_service_error: true,
             runtime_health_degraded: true,
+            runtime_log_error_burst: true,
           }),
         }),
       );
@@ -238,5 +267,82 @@ describe("SettingsPage", () => {
 
     expect(await screen.findByText("Select at least one stack for scheduled updates")).toBeInTheDocument();
     expect(mockUpdateMaintenanceSchedules).not.toHaveBeenCalled();
+  });
+
+  it("starts stacklab self-update and opens the job drawer", async () => {
+    mockGetStacklabUpdateOverview.mockResolvedValue({
+      current_version: "2026.04.0",
+      install_mode: "apt",
+      package: {
+        supported: true,
+        name: "stacklab",
+        installed_version: "2026.04.0",
+        candidate_version: "2026.04.1",
+        configured_channel: "stable",
+        update_available: true,
+      },
+      write_capability: {
+        supported: true,
+      },
+    });
+    mockApplyStacklabUpdate.mockResolvedValue({
+      started: true,
+      job: {
+        id: "job_update",
+        stack_id: null,
+        action: "self_update_stacklab",
+        state: "running",
+      },
+      package: {
+        supported: true,
+        name: "stacklab",
+        installed_version: "2026.04.0",
+        candidate_version: "2026.04.1",
+        configured_channel: "stable",
+        update_available: true,
+      },
+    });
+
+    render(<SettingsPage />);
+
+    expect(await screen.findByText("Update available: 2026.04.1")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Update Stacklab"));
+
+    await waitFor(() => {
+      expect(mockApplyStacklabUpdate).toHaveBeenCalledWith({
+        expected_candidate_version: "2026.04.1",
+        refresh_package_index: true,
+      });
+      expect(mockOpenJob).toHaveBeenCalledWith("job_update");
+    });
+  });
+
+  it("keeps stacklab self-update disabled while runtime job is active", async () => {
+    mockGetStacklabUpdateOverview.mockResolvedValue({
+      current_version: "2026.04.0",
+      install_mode: "apt",
+      package: {
+        supported: true,
+        name: "stacklab",
+        installed_version: "2026.04.0",
+        candidate_version: "2026.04.1",
+        configured_channel: "stable",
+        update_available: true,
+      },
+      write_capability: {
+        supported: true,
+      },
+      runtime: {
+        job_id: "job_update",
+        pending_finalize: false,
+        requested_version: "2026.04.1",
+        started_at: "2026-04-11T09:00:00Z",
+      },
+    });
+
+    render(<SettingsPage />);
+
+    expect(await screen.findByText("running")).toBeInTheDocument();
+    expect(screen.getByText("Updating...")).toBeDisabled();
   });
 });

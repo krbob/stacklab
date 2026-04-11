@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { getMeta, changePassword, getNotificationSettings, updateNotificationSettings, sendNotificationTest, getMaintenanceSchedules, updateMaintenanceSchedules, getStacks } from '@/lib/api-client'
+import { getMeta, changePassword, getNotificationSettings, updateNotificationSettings, sendNotificationTest, getMaintenanceSchedules, updateMaintenanceSchedules, getStacks, getStacklabUpdateOverview, applyStacklabUpdate } from '@/lib/api-client'
 import { useJobDrawer } from '@/hooks/use-job-drawer'
-import type { MetaResponse, MaintenanceSchedulesResponse, ScheduleFrequency, ScheduleWeekday, StackListItem } from '@/lib/api-types'
+import type { MetaResponse, MaintenanceSchedulesResponse, ScheduleFrequency, ScheduleWeekday, StackListItem, StacklabUpdateOverviewResponse } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
 
 export function SettingsPage() {
@@ -70,6 +70,9 @@ export function SettingsPage() {
         {/* Maintenance Schedules */}
         <SchedulesSection />
 
+        {/* Stacklab Update */}
+        <StacklabUpdateSection />
+
         {/* About */}
         {meta && (
           <div>
@@ -109,6 +112,7 @@ function NotificationsSection() {
   const [recoveryFailed, setRecoveryFailed] = useState(false)
   const [serviceError, setServiceError] = useState(false)
   const [runtimeHealthDegraded, setRuntimeHealthDegraded] = useState(false)
+  const [runtimeLogErrorBurst, setRuntimeLogErrorBurst] = useState(false)
 
   const [savingNotif, setSavingNotif] = useState(false)
   const [saveResult, setSaveResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -119,7 +123,7 @@ function NotificationsSection() {
 
   const [savedState, setSavedState] = useState('')
 
-  const currentState = JSON.stringify({ enabled, webhookEnabled, webhookUrl, telegramEnabled, telegramBotToken, telegramChatId, jobFailed, jobWarnings, maintenanceSucceeded, recoveryFailed, serviceError, runtimeHealthDegraded })
+  const currentState = JSON.stringify({ enabled, webhookEnabled, webhookUrl, telegramEnabled, telegramBotToken, telegramChatId, jobFailed, jobWarnings, maintenanceSucceeded, recoveryFailed, serviceError, runtimeHealthDegraded, runtimeLogErrorBurst })
   const isDirty = currentState !== savedState
 
   useEffect(() => {
@@ -137,6 +141,7 @@ function NotificationsSection() {
         setRecoveryFailed(s.events.post_update_recovery_failed ?? false)
         setServiceError(s.events.stacklab_service_error ?? false)
         setRuntimeHealthDegraded(s.events.runtime_health_degraded ?? false)
+        setRuntimeLogErrorBurst(s.events.runtime_log_error_burst ?? false)
         const state = JSON.stringify({
           enabled: s.enabled,
           webhookEnabled: s.channels?.webhook.enabled ?? s.enabled,
@@ -150,6 +155,7 @@ function NotificationsSection() {
           recoveryFailed: s.events.post_update_recovery_failed ?? false,
           serviceError: s.events.stacklab_service_error ?? false,
           runtimeHealthDegraded: s.events.runtime_health_degraded ?? false,
+          runtimeLogErrorBurst: s.events.runtime_log_error_burst ?? false,
         })
         setSavedState(state)
       })
@@ -167,12 +173,13 @@ function NotificationsSection() {
       post_update_recovery_failed: recoveryFailed,
       stacklab_service_error: serviceError,
       runtime_health_degraded: runtimeHealthDegraded,
+      runtime_log_error_burst: runtimeLogErrorBurst,
     },
     channels: {
       webhook: { enabled: webhookEnabled, url: webhookUrl },
       telegram: { enabled: telegramEnabled, bot_token: telegramBotToken, chat_id: telegramChatId },
     },
-  }), [enabled, webhookEnabled, webhookUrl, telegramEnabled, telegramBotToken, telegramChatId, jobFailed, jobWarnings, maintenanceSucceeded, recoveryFailed, serviceError, runtimeHealthDegraded])
+  }), [enabled, webhookEnabled, webhookUrl, telegramEnabled, telegramBotToken, telegramChatId, jobFailed, jobWarnings, maintenanceSucceeded, recoveryFailed, serviceError, runtimeHealthDegraded, runtimeLogErrorBurst])
 
   const handleSave = useCallback(async () => {
     setSavingNotif(true)
@@ -314,6 +321,10 @@ function NotificationsSection() {
               <label className="flex items-center gap-2 text-xs text-[var(--text)]">
                 <input type="checkbox" checked={runtimeHealthDegraded} onChange={(e) => setRuntimeHealthDegraded(e.target.checked)} className="rounded" />
                 A stack becomes unhealthy or enters a restart loop
+              </label>
+              <label className="flex items-center gap-2 text-xs text-[var(--text)]">
+                <input type="checkbox" checked={runtimeLogErrorBurst} onChange={(e) => setRuntimeLogErrorBurst(e.target.checked)} className="rounded" />
+                A stack starts logging repeated errors
               </label>
             </div>
           </div>
@@ -620,6 +631,156 @@ function ScheduleStatusFooter({ status, onOpenJob }: { status?: MaintenanceSched
         </div>
       )}
       {status.last_message && <div className="text-amber-400">{status.last_message}</div>}
+    </div>
+  )
+}
+
+function StacklabUpdateSection() {
+  const { openJob } = useJobDrawer()
+  const [loading, setLoading] = useState(true)
+  const [overview, setOverview] = useState<StacklabUpdateOverviewResponse | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [applying, setApplying] = useState(false)
+  const [applyError, setApplyError] = useState<string | null>(null)
+
+  const loadOverview = useCallback(async () => {
+    try {
+      const data = await getStacklabUpdateOverview()
+      setOverview(data)
+      setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load update status')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { loadOverview() }, [loadOverview])
+
+  const handleApply = useCallback(async () => {
+    if (!overview) return
+    setApplying(true)
+    setApplyError(null)
+    try {
+      const result = await applyStacklabUpdate({
+        expected_candidate_version: overview.package.candidate_version,
+        refresh_package_index: true,
+      })
+      if (result.job?.id) {
+        openJob(result.job.id)
+      }
+      // Refresh overview after triggering
+      setTimeout(loadOverview, 2000)
+    } catch (err) {
+      setApplyError(err instanceof Error ? err.message : 'Update failed')
+    } finally {
+      setApplying(false)
+    }
+  }, [overview, openJob, loadOverview])
+
+  if (loading) {
+    return (
+      <div>
+        <h3 className="text-sm font-medium text-[var(--text)]">Stacklab update</h3>
+        <div className="mt-3 h-20 animate-pulse rounded-md bg-[rgba(255,255,255,0.03)]" />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div>
+        <h3 className="text-sm font-medium text-[var(--text)]">Stacklab update</h3>
+        <p className="mt-2 text-xs text-red-400">{error}</p>
+      </div>
+    )
+  }
+
+  if (!overview) return null
+
+  const { package: pkg, write_capability: cap, runtime } = overview
+  const runtimeRunning = Boolean(runtime?.job_id && !runtime.finished_at && runtime.result !== 'succeeded' && runtime.result !== 'failed')
+  const isRunning = runtimeRunning || applying
+
+  return (
+    <div>
+      <h3 className="text-sm font-medium text-[var(--text)]">Stacklab update</h3>
+
+      <div className="mt-3 max-w-lg rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4 space-y-3">
+        {/* Version info */}
+        <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 font-mono text-xs">
+          <span className="text-[var(--muted)]">Current</span>
+          <span className="text-[var(--text)]">{overview.current_version}</span>
+          <span className="text-[var(--muted)]">Install</span>
+          <span className="text-[var(--text)]">{overview.install_mode}</span>
+          {pkg.installed_version && (
+            <>
+              <span className="text-[var(--muted)]">Package</span>
+              <span className="text-[var(--text)]">{pkg.installed_version}</span>
+            </>
+          )}
+          {pkg.candidate_version && pkg.candidate_version !== pkg.installed_version && (
+            <>
+              <span className="text-[var(--muted)]">Candidate</span>
+              <span className="text-emerald-400">{pkg.candidate_version}</span>
+            </>
+          )}
+          {pkg.configured_channel && (
+            <>
+              <span className="text-[var(--muted)]">Channel</span>
+              <span className="text-[var(--text)]">{pkg.configured_channel}</span>
+            </>
+          )}
+        </div>
+
+        {/* Update available badge */}
+        {pkg.update_available && (
+          <div className="flex items-center gap-2 text-xs">
+            <span className="inline-block size-2 rounded-full bg-emerald-400" />
+            <span className="text-emerald-400">Update available: {pkg.candidate_version}</span>
+          </div>
+        )}
+        {pkg.supported && !pkg.update_available && (
+          <p className="text-xs text-[var(--muted)]">Stacklab is already up to date.</p>
+        )}
+
+        {/* Unsupported state */}
+        {!pkg.supported && (
+          <p className="text-xs text-amber-400">{pkg.message ?? 'Self-update is only available for APT installs.'}</p>
+        )}
+
+        {/* Write capability warning */}
+        {pkg.supported && !cap.supported && (
+          <p className="text-xs text-amber-400">{cap.reason ?? 'Self-update helper is not configured.'}</p>
+        )}
+
+        {/* Runtime status */}
+        {runtime && (runtime.result || runtimeRunning) && (
+          <div className="border-t border-[var(--panel-border)] pt-2 font-mono text-[10px] text-[var(--muted)]">
+            <div className="flex items-center gap-2">
+              <span>Last: <span className={runtime.result === 'succeeded' ? 'text-emerald-400' : runtime.result === 'failed' ? 'text-red-400' : 'text-sky-400'}>{runtime.result || 'running'}</span></span>
+              {runtime.finished_at && <span>{new Date(runtime.finished_at).toLocaleString()}</span>}
+              {runtime.job_id && (
+                <button onClick={() => openJob(runtime.job_id!)} className="text-[var(--accent)] hover:underline">View job</button>
+              )}
+            </div>
+            {runtime.message && <div className="text-amber-400">{runtime.message}</div>}
+          </div>
+        )}
+
+        {applyError && <p className="text-xs text-red-400">{applyError}</p>}
+
+        {/* Action */}
+        {pkg.supported && cap.supported && (
+          <button
+            onClick={handleApply}
+            disabled={isRunning || !pkg.update_available}
+            className="rounded-full border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] px-4 py-2 text-xs text-[var(--text)] transition hover:bg-[rgba(34,197,94,0.2)] disabled:opacity-40"
+          >
+            {isRunning ? 'Updating...' : 'Update Stacklab'}
+          </button>
+        )}
+      </div>
     </div>
   )
 }

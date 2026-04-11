@@ -64,6 +64,12 @@ echo "Building backend binary for ${platform}..."
       -ldflags "-s -w" \
       -o "${stage_dir}/bin/stacklab-workspace-admin-helper" \
       ./cmd/stacklab-workspace-admin-helper
+
+  GOOS="${goos}" GOARCH="${goarch}" CGO_ENABLED=0 \
+    go build \
+      -ldflags "-s -w" \
+      -o "${stage_dir}/bin/stacklab-self-update-helper" \
+      ./cmd/stacklab-self-update-helper
 )
 
 cp -R "${repo_root}/frontend/dist" "${stage_dir}/frontend/dist"
@@ -71,6 +77,7 @@ cp "${repo_root}/packaging/systemd/stacklab.service.example" "${stage_dir}/syste
 cp "${repo_root}/packaging/systemd/stacklab.env.example" "${stage_dir}/systemd/stacklab.env.example"
 cp "${repo_root}/packaging/systemd/stacklab-docker-admin.sudoers.example" "${stage_dir}/systemd/stacklab-docker-admin.sudoers.example"
 cp "${repo_root}/packaging/systemd/stacklab-workspace-admin.sudoers.example" "${stage_dir}/systemd/stacklab-workspace-admin.sudoers.example"
+cp "${repo_root}/packaging/systemd/stacklab-self-update.sudoers.example" "${stage_dir}/systemd/stacklab-self-update.sudoers.example"
 cp "${repo_root}/scripts/release/upgrade.sh" "${stage_dir}/host-tools/upgrade.sh"
 chmod +x "${stage_dir}/host-tools/upgrade.sh"
 
@@ -78,6 +85,8 @@ perl -0pi -e "s|/usr/lib/stacklab/bin/stacklab-docker-admin-helper|/opt/stacklab
   "${stage_dir}/systemd/stacklab-docker-admin.sudoers.example"
 perl -0pi -e "s|/usr/lib/stacklab/bin/stacklab-workspace-admin-helper|/opt/stacklab/app/current/bin/stacklab-workspace-admin-helper|g" \
   "${stage_dir}/systemd/stacklab-workspace-admin.sudoers.example"
+perl -0pi -e "s|/usr/lib/stacklab/bin/stacklab-self-update-helper|/opt/stacklab/app/current/bin/stacklab-self-update-helper|g" \
+  "${stage_dir}/systemd/stacklab-self-update.sudoers.example"
 
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "${stage_dir}" 2>/dev/null || true

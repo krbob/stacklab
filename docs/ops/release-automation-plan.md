@@ -300,6 +300,15 @@ Recommended publication behavior:
 - nightly workflow publishes to GitHub prerelease and APT `nightly`
 - hotfix workflow publishes to GitHub Release and APT `stable`
 
+Retention policy:
+
+- APT `stable` keeps the newest 6 package versions in the channel pool
+- APT `nightly` keeps the newest 7 package versions in the channel pool
+- GitHub nightly prereleases keep the newest 14 prereleases and delete older
+  nightly tags after published APT smoke succeeds
+- stable and hotfix GitHub Releases are the long-term archive for manual
+  rollback and release investigation
+
 ## Required Secrets And Repository Setup
 
 To make the automated release path work, the repository will need:
