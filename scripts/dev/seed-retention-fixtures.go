@@ -96,6 +96,9 @@ func resetSeedData(ctx context.Context, dbPath string) error {
 	defer func() {
 		_ = db.Close()
 	}()
+	if _, err := db.ExecContext(ctx, `PRAGMA busy_timeout = 5000;`); err != nil {
+		return fmt.Errorf("set sqlite busy_timeout: %w", err)
+	}
 
 	statements := []string{
 		`DELETE FROM job_events WHERE job_id LIKE 'seed_retention_%'`,
