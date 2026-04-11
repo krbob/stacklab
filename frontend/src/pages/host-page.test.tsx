@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HostPage } from './host-page'
 import { formatUptime } from './host-page-utils'
@@ -72,6 +72,7 @@ const logsResponse: StacklabLogsResponse = {
 
 describe('HostPage', () => {
   beforeEach(() => {
+    vi.useRealTimers()
     mockGetHostOverview.mockReset()
     mockGetStacklabLogs.mockReset()
     mockGetHostOverview.mockResolvedValue(overview)
@@ -138,6 +139,53 @@ describe('HostPage', () => {
   it('displays architecture in system card', async () => {
     render(<HostPage />)
     expect(await screen.findByText('amd64')).toBeInTheDocument()
+  })
+
+  it('polls host overview and updates resource values without remounting', async () => {
+    mockGetHostOverview
+      .mockResolvedValueOnce(overview)
+      .mockResolvedValueOnce({
+        ...overview,
+        resources: {
+          ...overview.resources,
+          cpu: {
+            ...overview.resources.cpu,
+            usage_percent: 3.2,
+          },
+        },
+      })
+    let overviewPoll: (() => void) | null = null
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval')
+    setIntervalSpy.mockImplementation((handler: TimerHandler, timeout?: number) => {
+      if (timeout === 15_000) {
+        overviewPoll = () => {
+          if (typeof handler === 'function') {
+            handler()
+          }
+        }
+      }
+      return 1 as unknown as ReturnType<typeof setInterval>
+    })
+    const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval')
+    clearIntervalSpy.mockImplementation(() => {})
+
+    render(<HostPage />)
+
+    expect(await screen.findByText('17.5%')).toBeInTheDocument()
+    expect(overviewPoll).not.toBeNull()
+
+    await act(async () => {
+      overviewPoll?.()
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(mockGetHostOverview).toHaveBeenCalledTimes(2)
+    })
+    expect(await screen.findByText('3.2%')).toBeInTheDocument()
+
+    setIntervalSpy.mockRestore()
+    clearIntervalSpy.mockRestore()
   })
 
   it('formats uptime with seconds precision', () => {

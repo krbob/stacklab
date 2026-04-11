@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getHostOverview, getStacklabLogs } from '@/lib/api-client'
-import { useApi } from '@/hooks/use-api'
 import type { HostOverviewResponse, StacklabLogEntry } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
 import { formatBytes, formatUptime } from '@/pages/host-page-utils'
@@ -14,15 +13,61 @@ function PercentBar({ value, color }: { value: number; color: string }) {
 }
 
 export function HostPage() {
-  const fetchOverview = useCallback(async () => getHostOverview(), [])
-  const { data: overview, error: overviewError, loading: overviewLoading, refetch: refetchOverview, updatedAt: overviewUpdatedAt } = useApi(fetchOverview, [fetchOverview])
+  const [overview, setOverview] = useState<HostOverviewResponse | null>(null)
+  const [overviewError, setOverviewError] = useState<Error | null>(null)
+  const [overviewLoading, setOverviewLoading] = useState(true)
+  const [overviewUpdatedAt, setOverviewUpdatedAt] = useState<number | null>(null)
   const [nowMs, setNowMs] = useState(() => Date.now())
+  const initialLoadRef = useRef(true)
+
+  const loadOverview = useCallback(async () => {
+    if (initialLoadRef.current) {
+      setOverviewLoading(true)
+    }
+
+    try {
+      const nextOverview = await getHostOverview()
+      setOverview(nextOverview)
+      setOverviewError(null)
+      setOverviewUpdatedAt(Date.now())
+    } catch (error) {
+      setOverviewError(error instanceof Error ? error : new Error('Failed to load host overview'))
+    } finally {
+      initialLoadRef.current = false
+      setOverviewLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadOverview()
+  }, [loadOverview])
 
   // Auto-refresh overview every 15s
   useEffect(() => {
-    const interval = setInterval(refetchOverview, 15_000)
+    const interval = setInterval(() => {
+      void loadOverview()
+    }, 15_000)
     return () => clearInterval(interval)
-  }, [refetchOverview])
+  }, [loadOverview])
+
+  useEffect(() => {
+    function handleWindowFocus() {
+      void loadOverview()
+    }
+
+    function handleVisibilityChange() {
+      if (!document.hidden) {
+        void loadOverview()
+      }
+    }
+
+    window.addEventListener('focus', handleWindowFocus)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      window.removeEventListener('focus', handleWindowFocus)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [loadOverview])
 
   useEffect(() => {
     if (!overview) return
