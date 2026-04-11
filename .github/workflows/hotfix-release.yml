@@ -106,7 +106,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download amd64 hotfix artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: hotfix-amd64
           path: dist/release
@@ -128,7 +128,7 @@ jobs:
         run: git fetch --tags --force
 
       - name: Download hotfix artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: hotfix-*
           path: dist/hotfix
