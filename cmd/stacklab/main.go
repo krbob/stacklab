@@ -64,6 +64,29 @@ func main() {
 		}
 	}
 
+	reconciledJobs, err := jobService.ReconcileInterrupted(context.Background())
+	if err != nil {
+		logger.Warn("failed to reconcile interrupted jobs", slog.String("err", err.Error()))
+	} else {
+		for _, job := range reconciledJobs {
+			if err := auditService.RecordJob(context.Background(), job, map[string]any{
+				"reconciled_on_startup": true,
+				"interrupted_reason":    "stacklab_restart",
+			}); err != nil {
+				logger.Warn("record reconciled job audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+			}
+			attrs := []any{
+				slog.String("job_id", job.ID),
+				slog.String("action", job.Action),
+				slog.String("state", job.State),
+			}
+			if job.StackID != "" {
+				attrs = append(attrs, slog.String("stack_id", job.StackID))
+			}
+			logger.Warn("reconciled interrupted job", attrs...)
+		}
+	}
+
 	handler, err := httpapi.NewHandler(cfg, logger, authService, auditService, jobService, notificationService, schedulerService, selfUpdateService)
 	if err != nil {
 		logger.Error("failed to initialize HTTP handler", slog.String("err", err.Error()))

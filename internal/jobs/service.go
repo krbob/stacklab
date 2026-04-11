@@ -111,6 +111,28 @@ func (s *Service) FinishFailed(ctx context.Context, job store.Job, errorCode, er
 	return job, nil
 }
 
+func (s *Service) ReconcileInterrupted(ctx context.Context) ([]store.Job, error) {
+	storedJobs, err := s.store.ListActiveJobs(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	reconciled := make([]store.Job, 0, len(storedJobs))
+	for _, job := range storedJobs {
+		if shouldSkipReconcile(job) {
+			continue
+		}
+
+		failedJob, err := s.reconcileInterruptedJob(ctx, job)
+		if err != nil {
+			return nil, err
+		}
+		reconciled = append(reconciled, failedJob)
+	}
+
+	return reconciled, nil
+}
+
 func (s *Service) UpdateWorkflow(ctx context.Context, job store.Job, steps []store.JobWorkflowStep) (store.Job, error) {
 	job.Workflow = &store.JobWorkflow{
 		Steps: append([]store.JobWorkflowStep(nil), steps...),
@@ -309,6 +331,47 @@ func randomToken(length int) string {
 	return base64.RawURLEncoding.EncodeToString(bytes)
 }
 
+func (s *Service) reconcileInterruptedJob(ctx context.Context, job store.Job) (store.Job, error) {
+	defer s.unlockAll(job.ID)
+
+	const errorCode = "job_interrupted"
+	const errorMessage = "Job did not finish before Stacklab restarted."
+	const finishMessage = "Job marked failed after Stacklab restarted."
+	const stepMessage = "Step did not finish before Stacklab restarted."
+
+	var stepRef *store.JobEventStep
+	if job.Workflow != nil {
+		workflow, failedStep := interruptedWorkflow(job.Workflow.Steps)
+		job.Workflow = &store.JobWorkflow{Steps: workflow}
+		stepRef = failedStep
+	}
+
+	now := time.Now().UTC()
+	job.State = "failed"
+	job.FinishedAt = &now
+	job.ErrorCode = errorCode
+	job.ErrorMessage = errorMessage
+	if err := s.store.UpdateJob(ctx, job); err != nil {
+		return store.Job{}, err
+	}
+
+	if stepRef != nil {
+		if err := s.PublishEvent(ctx, job, "job_step_finished", stepMessage, "", stepRef); err != nil {
+			return store.Job{}, err
+		}
+	}
+	if err := s.PublishEvent(ctx, job, "job_error", errorMessage, "", stepRef); err != nil {
+		return store.Job{}, err
+	}
+	if err := s.PublishEvent(ctx, job, "job_finished", finishMessage, "", nil); err != nil {
+		return store.Job{}, err
+	}
+	if s.onTerminal != nil {
+		s.onTerminal(job)
+	}
+	return job, nil
+}
+
 func (s *Service) publishLive(event store.JobEvent) {
 	s.mu.Lock()
 	subs := s.subsByJob[event.JobID]
@@ -323,6 +386,44 @@ func (s *Service) publishLive(event store.JobEvent) {
 		case channel <- event:
 		default:
 		}
+	}
+}
+
+func shouldSkipReconcile(job store.Job) bool {
+	return job.Action == "self_update_stacklab"
+}
+
+func interruptedWorkflow(steps []store.JobWorkflowStep) ([]store.JobWorkflowStep, *store.JobEventStep) {
+	if len(steps) == 0 {
+		return nil, nil
+	}
+
+	cloned := append([]store.JobWorkflowStep(nil), steps...)
+	index := -1
+	for i, step := range cloned {
+		if step.State == "running" {
+			index = i
+			break
+		}
+	}
+	if index == -1 {
+		for i, step := range cloned {
+			if step.State == "queued" || step.State == "cancel_requested" {
+				index = i
+				break
+			}
+		}
+	}
+	if index == -1 {
+		return cloned, nil
+	}
+
+	cloned[index].State = "failed"
+	return cloned, &store.JobEventStep{
+		Index:         index + 1,
+		Total:         len(cloned),
+		Action:        cloned[index].Action,
+		TargetStackID: cloned[index].TargetStackID,
 	}
 }
 
