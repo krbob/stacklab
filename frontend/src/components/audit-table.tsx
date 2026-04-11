@@ -32,7 +32,7 @@ export function AuditTable({ entries, showStack = false, onLoadMore, hasMore, lo
   }
 
   return (
-    <div className="flex flex-col gap-2 overflow-x-auto">
+    <div className="flex flex-col gap-2">
       {entries.map((entry) => {
         const hasJob = Boolean(entry.job_id)
 
