@@ -1,0 +1,63 @@
+name: Tarball Install Smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/tarball-install-smoke.yml'
+      - '.github/workflows/release-build.yml'
+      - 'packaging/systemd/**'
+      - 'scripts/release/build-artifact.sh'
+      - 'scripts/release/upgrade.sh'
+      - 'scripts/release/smoke-tarball-install.sh'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/tarball-install-smoke.yml'
+      - '.github/workflows/release-build.yml'
+      - 'packaging/systemd/**'
+      - 'scripts/release/build-artifact.sh'
+      - 'scripts/release/upgrade.sh'
+      - 'scripts/release/smoke-tarball-install.sh'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tarball-install-smoke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tarball-install-smoke:
+    name: tarball-install-smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.14.1
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build release artifact
+        env:
+          STACKLAB_RELEASE_VERSION: 0.0.0-ci
+          STACKLAB_RELEASE_GOARCH: amd64
+        run: scripts/release/build-artifact.sh
+
+      - name: Smoke install tarball on Debian
+        run: scripts/release/smoke-tarball-install.sh dist/release/stacklab-0.0.0-ci-linux-amd64.tar.gz

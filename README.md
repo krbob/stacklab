@@ -32,7 +32,6 @@ Implemented today:
 
 Not done yet:
 
-- automated tarball install smoke coverage to match the current package smoke path
 - scheduled dependency maintenance workflows
 - final hardening for long-term production use
 

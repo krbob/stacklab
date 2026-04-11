@@ -31,6 +31,7 @@ Recommended future workflow files:
 - `.github/workflows/advisory-static-analysis.yml`
 - `.github/workflows/browser-e2e.yml`
 - `.github/workflows/release-build.yml`
+- `.github/workflows/tarball-install-smoke.yml`
 - `.github/workflows/nightly-release.yml`
 - `.github/workflows/stable-release.yml`
 - `.github/workflows/hotfix-release.yml`
@@ -46,6 +47,7 @@ Currently implemented:
 - `.github/workflows/browser-e2e.yml`
 - `.github/workflows/release-build.yml`
 - `.github/workflows/deb-package-smoke.yml`
+- `.github/workflows/tarball-install-smoke.yml`
 - `.github/workflows/nightly-release.yml`
 - `.github/workflows/stable-release.yml`
 - `.github/workflows/hotfix-release.yml`
@@ -61,13 +63,13 @@ Current `release-build.yml` scope:
 Current release automation direction:
 
 - `deb-package-smoke.yml` validates fresh-install package behavior on Debian
+- `tarball-install-smoke.yml` validates tarball install, upgrade, and rollback mechanics in a disposable Debian container
 - `nightly-release.yml` is the target prerelease workflow
 - `stable-release.yml` is the target monthly stable workflow
 - `hotfix-release.yml` is the target manual patch-release workflow
 - `apt-publish.yml` is the manual repair and republish path for APT channels
 - `apt-repo-smoke.yml` is the manual end-to-end validation path for the published APT repository
 - release workflows should also run an automatic post-publish APT smoke step for their own channel
-- tarball remains a supported secondary install mode, so adding automated tarball install smoke is still worthwhile release-hygiene work
 
 The advisory workflows should run, but they should not become required too early.
 

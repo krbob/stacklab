@@ -126,25 +126,15 @@ Tarball remains supported, so it should also be exercised for releases:
 - release workflows must keep building tarball artifacts for `amd64` and `arm64`
 - at least one manual tarball install or upgrade smoke should run before stable release sign-off
 
-Current gap:
-
-- automated tarball install smoke does not yet match the current `.deb` smoke path
-
-That gap should be closed, but it does not change the primary release-gate role
-of `.deb` and APT.
-
 ## Current Automated Coverage
 
 Implemented today:
 
 - `release-build.yml` builds tarball and `.deb` artifacts for `amd64` and `arm64`
 - `deb-package-smoke.yml` validates fresh package install behavior on Debian
-- release workflows run package smoke before publishing
+- `tarball-install-smoke.yml` validates tarball install, upgrade, and rollback mechanics through `host-tools/upgrade.sh`
+- release workflows run `.deb` and tarball smoke before publishing
 - release workflows run post-publish APT smoke for their channel
-
-Still worth adding:
-
-- automated tarball install or upgrade smoke on Linux
 
 ## Manual Stable Sign-Off
 

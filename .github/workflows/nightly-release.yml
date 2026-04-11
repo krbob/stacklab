@@ -122,7 +122,7 @@ jobs:
             dist/release/stacklab_${{ needs.prepare.outputs.release_version }}_${{ matrix.arch }}.deb.sha256
 
   smoke-package:
-    name: smoke-nightly-package
+    name: smoke-nightly-install-modes
     needs: [prepare, build]
     if: needs.prepare.outputs.should_publish == 'true'
     runs-on: ubuntu-latest
@@ -138,6 +138,9 @@ jobs:
 
       - name: Smoke install package on Debian
         run: scripts/release/smoke-deb-install.sh dist/release/stacklab_${{ needs.prepare.outputs.release_version }}_amd64.deb
+
+      - name: Smoke install tarball on Debian
+        run: scripts/release/smoke-tarball-install.sh dist/release/stacklab-${{ needs.prepare.outputs.release_version }}-linux-amd64.tar.gz
 
   publish:
     name: publish-nightly

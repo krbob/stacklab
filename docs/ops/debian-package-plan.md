@@ -253,6 +253,6 @@ Specific checks:
 
 ## Remaining Gaps Worth Closing
 
-- automate tarball install smoke so secondary install mode has CI coverage similar to `.deb`
 - keep upgrade validation current as new product surfaces are added
 - keep helper-backed privileged flows tested on real Debian hosts
+- keep tarball smoke green so the secondary install mode does not drift behind the Debian package path
