@@ -1,9 +1,11 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { invokeAction } from '@/lib/api-client'
+import { useJobStream } from '@/hooks/use-job-stream'
 import type { StackDetailResponse } from '@/lib/api-types'
 import { StackBadge } from '@/components/stack-badge'
 import { DeleteStackDialog } from '@/components/delete-stack-dialog'
+import { ProgressPanel } from '@/components/progress-panel'
 import { cn } from '@/lib/cn'
 
 const containerStatusColor: Record<string, string> = {
@@ -140,18 +142,29 @@ function ActionBar({
   onAction: () => void
   onRemove: () => void
 }) {
-  const locked = stack.activity_state === 'locked'
+  const [activeJobId, setActiveJobId] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const { state: activeJobState } = useJobStream({ jobId: activeJobId })
+  const terminalActionState = activeJobState === 'succeeded' || activeJobState === 'failed' || activeJobState === 'cancelled' || activeJobState === 'timed_out'
+  const runningAction = activeJobId !== null && !terminalActionState
+  const locked = stack.activity_state === 'locked' || runningAction
   const actions = stack.available_actions
 
-  async function handleAction(action: string) {
+  const handleAction = useCallback(async (action: string) => {
     try {
-      await invokeAction(stack.id, action)
-      // brief delay to let backend start the job, then refresh
-      setTimeout(onAction, 500)
+      setActionError(null)
+      const result = await invokeAction(stack.id, action)
+      setActiveJobId(result.job.id)
+      onAction()
     } catch (err) {
       console.error('Action failed:', err)
+      setActionError(err instanceof Error ? err.message : 'Action failed')
     }
-  }
+  }, [onAction, stack.id])
+
+  const handleJobDone = useCallback(() => {
+    onAction()
+  }, [onAction])
 
   const buttons: { label: string; action: string; variant?: 'danger' }[] = [
     { label: 'Deploy', action: 'up' },
@@ -163,35 +176,45 @@ function ActionBar({
   ]
 
   return (
-    <div className="flex flex-wrap gap-2">
-      {buttons.map((btn) => {
-        if (!actions.includes(btn.action as typeof actions[number])) return null
-        return (
-          <button
-            key={btn.action}
-            disabled={locked}
-            onClick={() => handleAction(btn.action)}
-            className={cn(
-              'rounded-full border px-3 py-1.5 text-xs font-medium transition disabled:opacity-40',
-              btn.variant === 'danger'
-                ? 'border-red-400/30 text-red-400 hover:bg-red-400/10'
-                : 'border-[var(--panel-border)] text-[var(--text)] hover:bg-[rgba(255,255,255,0.05)]',
-            )}
-          >
-            {btn.label}
-          </button>
-        )
-      })}
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap gap-2">
+        {buttons.map((btn) => {
+          if (!actions.includes(btn.action as typeof actions[number])) return null
+          return (
+            <button
+              key={btn.action}
+              disabled={locked}
+              onClick={() => handleAction(btn.action)}
+              className={cn(
+                'rounded-full border px-3 py-1.5 text-xs font-medium transition disabled:opacity-40',
+                btn.variant === 'danger'
+                  ? 'border-red-400/30 text-red-400 hover:bg-red-400/10'
+                  : 'border-[var(--panel-border)] text-[var(--text)] hover:bg-[rgba(255,255,255,0.05)]',
+              )}
+            >
+              {btn.label}
+            </button>
+          )
+        })}
 
-      {actions.includes('remove_stack_definition') && (
-        <button
-          disabled={locked}
-          onClick={onRemove}
-          className="rounded-full border border-red-400/30 px-3 py-1.5 text-xs font-medium text-red-400 transition hover:bg-red-400/10 disabled:opacity-40"
-        >
-          Remove
-        </button>
+        {actions.includes('remove_stack_definition') && (
+          <button
+            disabled={locked}
+            onClick={onRemove}
+            className="rounded-full border border-red-400/30 px-3 py-1.5 text-xs font-medium text-red-400 transition hover:bg-red-400/10 disabled:opacity-40"
+          >
+            Remove
+          </button>
+        )}
+      </div>
+
+      {actionError && (
+        <div className="rounded-2xl border border-red-400/20 bg-red-400/5 px-4 py-3 text-sm text-red-400">
+          {actionError}
+        </div>
       )}
+
+      {activeJobId && <ProgressPanel jobId={activeJobId} onDone={handleJobDone} />}
     </div>
   )
 }

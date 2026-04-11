@@ -232,6 +232,14 @@ func TestAvailableActions(t *testing.T) {
 			},
 			want: []string{"validate", "up", "restart", "stop", "down", "pull", "build", "recreate", "save_definition", "remove_stack_definition"},
 		},
+		{
+			name: "stopped",
+			stack: discoveredStack{
+				RuntimeState: RuntimeStateStopped,
+				ConfigState:  ConfigStateUnknown,
+			},
+			want: []string{"validate", "up", "down", "pull", "build", "save_definition", "remove_stack_definition"},
+		},
 	}
 
 	for _, tt := range tests {
