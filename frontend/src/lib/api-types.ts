@@ -74,6 +74,128 @@ export interface MetaResponse {
   }
 }
 
+export interface NotificationEventToggles {
+  job_failed: boolean
+  job_succeeded_with_warnings: boolean
+  maintenance_succeeded: boolean
+  post_update_recovery_failed?: boolean
+  stacklab_service_error?: boolean
+  runtime_health_degraded?: boolean
+  runtime_log_error_burst?: boolean
+}
+
+export interface NotificationWebhookChannel {
+  enabled: boolean
+  configured: boolean
+  url: string
+}
+
+export interface NotificationTelegramChannel {
+  enabled: boolean
+  configured: boolean
+  bot_token_configured: boolean
+  chat_id: string
+}
+
+export interface NotificationChannels {
+  webhook: NotificationWebhookChannel
+  telegram: NotificationTelegramChannel
+}
+
+export interface NotificationSettingsResponse {
+  enabled: boolean
+  configured: boolean
+  webhook_url: string
+  events: NotificationEventToggles
+  channels?: NotificationChannels
+}
+
+export interface NotificationChannelRequest {
+  webhook?: {
+    enabled: boolean
+    url: string
+  }
+  telegram?: {
+    enabled: boolean
+    bot_token: string
+    chat_id: string
+  }
+}
+
+export interface NotificationSettingsUpdateRequest {
+  enabled: boolean
+  webhook_url: string
+  events: NotificationEventToggles
+  channels?: NotificationChannelRequest
+}
+
+export interface NotificationTestRequest {
+  channel?: 'webhook' | 'telegram'
+  enabled: boolean
+  webhook_url: string
+  events: NotificationEventToggles
+  channels?: NotificationChannelRequest
+}
+
+export interface NotificationTestResponse {
+  sent: boolean
+  channel?: 'webhook' | 'telegram'
+}
+
+export type ScheduleFrequency = 'daily' | 'weekly'
+export type ScheduleWeekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
+
+export interface MaintenanceScheduleStatus {
+  next_run_at?: string
+  last_triggered_at?: string
+  last_scheduled_for?: string
+  last_result?: string
+  last_message?: string
+  last_job_id?: string
+}
+
+export interface MaintenanceUpdateScheduleConfig {
+  enabled: boolean
+  frequency: ScheduleFrequency
+  time: string
+  weekdays?: ScheduleWeekday[]
+  target: {
+    mode: 'selected' | 'all'
+    stack_ids?: string[]
+  }
+  options: {
+    pull_images: boolean
+    build_images: boolean
+    remove_orphans: boolean
+    prune_after: boolean
+    include_volumes: boolean
+  }
+}
+
+export interface MaintenancePruneScheduleConfig {
+  enabled: boolean
+  frequency: ScheduleFrequency
+  time: string
+  weekdays?: ScheduleWeekday[]
+  scope: {
+    images: boolean
+    build_cache: boolean
+    stopped_containers: boolean
+    volumes: boolean
+  }
+}
+
+export interface MaintenanceSchedulesResponse {
+  timezone: string
+  update: MaintenanceUpdateScheduleConfig & { status: MaintenanceScheduleStatus }
+  prune: MaintenancePruneScheduleConfig & { status: MaintenanceScheduleStatus }
+}
+
+export interface MaintenanceSchedulesUpdateRequest {
+  update: MaintenanceUpdateScheduleConfig
+  prune: MaintenancePruneScheduleConfig
+}
+
 export interface PortMapping {
   published: number
   target: number
@@ -238,6 +360,70 @@ export interface JobDetail {
   } | null
 }
 
+export interface JobEventStep {
+  index: number
+  total: number
+  action: string
+  target_stack_id?: string
+}
+
+export interface JobHistoryEvent {
+  job_id: string
+  sequence: number
+  event: JobEventType | string
+  state: JobState | string
+  message?: string
+  data?: string | null
+  step?: JobEventStep | null
+  timestamp: string
+}
+
+export interface JobEventsResponse {
+  job_id: string
+  retained: boolean
+  message?: string
+  items: JobHistoryEvent[]
+}
+
+export interface ActiveJobStep {
+  index: number
+  total: number
+  action: string
+  target_stack_id?: string
+}
+
+export interface ActiveJobLatestEvent {
+  event: JobEventType | string
+  message?: string
+  data?: string | null
+  timestamp: string
+  step?: ActiveJobStep | null
+}
+
+export interface ActiveJobItem {
+  id: string
+  stack_id: string | null
+  action: string
+  state: JobState
+  requested_at: string
+  started_at: string | null
+  workflow?: {
+    steps: { action: string; state: string; target_stack_id?: string }[]
+  } | null
+  current_step?: ActiveJobStep | null
+  latest_event?: ActiveJobLatestEvent | null
+}
+
+export interface ActiveJobsResponse {
+  items: ActiveJobItem[]
+  summary: {
+    active_count: number
+    running_count: number
+    queued_count: number
+    cancel_requested_count: number
+  }
+}
+
 export interface AuditEntry {
   id: string
   stack_id: string | null
@@ -309,6 +495,145 @@ export interface StacklabLogsResponse {
   has_more: boolean
 }
 
+export interface DockerServiceStatus {
+  manager: string
+  supported: boolean
+  unit_name: string
+  load_state: string
+  active_state: string
+  sub_state: string
+  unit_file_state: string
+  fragment_path: string
+  started_at?: string | null
+  message?: string | null
+}
+
+export interface DockerEngineStatus {
+  available: boolean
+  version: string
+  api_version: string
+  compose_version: string
+  root_dir: string
+  driver: string
+  logging_driver: string
+  cgroup_driver: string
+  message?: string | null
+}
+
+export interface DockerDaemonConfigSummary {
+  dns: string[]
+  registry_mirrors: string[]
+  insecure_registries: string[]
+  log_driver: string
+  data_root: string
+  live_restore?: boolean | null
+}
+
+export interface DockerDaemonConfigMeta {
+  path: string
+  exists: boolean
+  permissions?: FilePermissions | null
+  size_bytes?: number | null
+  modified_at?: string | null
+  valid_json: boolean
+  parse_error?: string | null
+  configured_keys: string[]
+  summary: DockerDaemonConfigSummary
+  write_capability: DockerDaemonWriteCapability
+}
+
+export interface DockerAdminOverviewResponse {
+  service: DockerServiceStatus
+  engine: DockerEngineStatus
+  daemon_config: DockerDaemonConfigMeta
+  write_capability: DockerDaemonWriteCapability
+}
+
+export interface DockerDaemonConfigResponse extends DockerDaemonConfigMeta {
+  content?: string | null
+}
+
+export interface DockerDaemonWriteCapability {
+  supported: boolean
+  reason?: string | null
+  managed_keys: string[]
+}
+
+export interface DockerManagedSettings {
+  dns?: string[]
+  registry_mirrors?: string[]
+  insecure_registries?: string[]
+  live_restore?: boolean
+}
+
+export interface DockerDaemonValidateRequest {
+  settings: DockerManagedSettings
+  remove_keys?: string[]
+}
+
+export type DockerDaemonApplyRequest = DockerDaemonValidateRequest
+
+export interface DockerDaemonConfigPreview {
+  path: string
+  content: string
+  configured_keys: string[]
+  summary: DockerDaemonConfigSummary
+}
+
+export interface DockerDaemonValidateResponse {
+  write_capability: DockerDaemonWriteCapability
+  changed_keys: string[]
+  requires_restart: boolean
+  warnings: string[]
+  preview: DockerDaemonConfigPreview
+}
+
+export interface StacklabUpdatePackageStatus {
+  supported: boolean
+  message?: string
+  name: string
+  installed_version?: string
+  candidate_version?: string
+  configured_channel?: string
+  update_available: boolean
+}
+
+export interface StacklabUpdateWriteCapability {
+  supported: boolean
+  reason?: string
+}
+
+export interface StacklabUpdateRuntimeStatus {
+  job_id?: string
+  pending_finalize: boolean
+  requested_version?: string
+  installed_version?: string
+  result?: string
+  message?: string
+  started_at?: string
+  finished_at?: string
+}
+
+export interface StacklabUpdateOverviewResponse {
+  current_version: string
+  install_mode: 'apt' | 'tarball' | 'unknown' | string
+  package: StacklabUpdatePackageStatus
+  write_capability: StacklabUpdateWriteCapability
+  runtime?: StacklabUpdateRuntimeStatus | null
+}
+
+export interface StacklabUpdateApplyRequest {
+  expected_candidate_version?: string
+  refresh_package_index?: boolean
+}
+
+export interface StacklabUpdateApplyResponse {
+  started: boolean
+  job: JobRef
+  package: StacklabUpdatePackageStatus
+  runtime?: StacklabUpdateRuntimeStatus | null
+}
+
 export interface FilePermissions {
   owner_uid: number | null
   owner_name: string | null
@@ -353,6 +678,7 @@ export interface ConfigFileResponse {
   writable: boolean
   blocked_reason: string | null
   permissions: FilePermissions
+  repair_capability: WorkspaceRepairCapability
 }
 
 export interface ConfigFileSaveResponse {
@@ -360,6 +686,92 @@ export interface ConfigFileSaveResponse {
   path: string
   modified_at: string
   audit_action: string
+}
+
+export interface WorkspaceRepairCapability {
+  supported: boolean
+  reason?: string
+  recursive: boolean
+}
+
+export interface ConfigRepairPermissionsRequest {
+  path: string
+  recursive?: boolean
+}
+
+export interface ConfigRepairPermissionsResponse {
+  repaired: boolean
+  path: string
+  recursive: boolean
+  changed_items: number
+  warnings?: string[]
+  target_permissions_before: FilePermissions
+  target_permissions_after: FilePermissions
+  audit_action: string
+  repair_capability: WorkspaceRepairCapability
+}
+
+// --- Stack workspace ---
+
+export type StackWorkspaceEntryType = ConfigEntryType
+
+export interface StackWorkspaceTreeEntry {
+  name: string
+  path: string
+  type: StackWorkspaceEntryType
+  size_bytes: number
+  modified_at: string
+  permissions: FilePermissions
+}
+
+export interface StackWorkspaceTreeResponse {
+  stack_id: string
+  workspace_root: string
+  current_path: string
+  parent_path: string | null
+  items: StackWorkspaceTreeEntry[]
+}
+
+export interface StackWorkspaceFileResponse {
+  stack_id: string
+  path: string
+  name: string
+  type: StackWorkspaceEntryType
+  content: string | null
+  encoding: string | null
+  size_bytes: number
+  modified_at: string
+  readable: boolean
+  writable: boolean
+  blocked_reason: string | null
+  permissions: FilePermissions
+  repair_capability: WorkspaceRepairCapability
+}
+
+export interface StackWorkspaceFileSaveResponse {
+  saved: boolean
+  stack_id: string
+  path: string
+  modified_at: string
+  audit_action: string
+}
+
+export interface StackRepairPermissionsRequest {
+  path: string
+  recursive?: boolean
+}
+
+export interface StackRepairPermissionsResponse {
+  repaired: boolean
+  stack_id: string
+  path: string
+  recursive: boolean
+  changed_items: number
+  warnings?: string[]
+  target_permissions_before: FilePermissions
+  target_permissions_after: FilePermissions
+  audit_action: string
+  repair_capability: WorkspaceRepairCapability
 }
 
 // --- Git workspace ---
@@ -474,6 +886,72 @@ export interface MaintenanceImageItem {
 
 export interface MaintenanceImagesResponse {
   items: MaintenanceImageItem[]
+}
+
+export type MaintenanceNetworkSource = 'stack_managed' | 'external'
+
+export interface MaintenanceNetworkItem {
+  id: string
+  name: string
+  driver: string
+  scope: string
+  internal: boolean
+  attachable: boolean
+  ingress: boolean
+  containers_using: number
+  stacks_using: MaintenanceImageStackUsage[]
+  is_unused: boolean
+  source: MaintenanceNetworkSource
+}
+
+export interface MaintenanceNetworksResponse {
+  items: MaintenanceNetworkItem[]
+}
+
+export interface MaintenanceCreateNetworkRequest {
+  name: string
+}
+
+export interface MaintenanceCreateNetworkResponse {
+  created: boolean
+  name: string
+}
+
+export interface MaintenanceDeleteNetworkResponse {
+  deleted: boolean
+  name: string
+}
+
+export type MaintenanceVolumeSource = 'stack_managed' | 'external'
+
+export interface MaintenanceVolumeItem {
+  name: string
+  driver: string
+  mountpoint: string
+  scope: string
+  options_count: number
+  containers_using: number
+  stacks_using: MaintenanceImageStackUsage[]
+  is_unused: boolean
+  source: MaintenanceVolumeSource
+}
+
+export interface MaintenanceVolumesResponse {
+  items: MaintenanceVolumeItem[]
+}
+
+export interface MaintenanceCreateVolumeRequest {
+  name: string
+}
+
+export interface MaintenanceCreateVolumeResponse {
+  created: boolean
+  name: string
+}
+
+export interface MaintenanceDeleteVolumeResponse {
+  deleted: boolean
+  name: string
 }
 
 export interface MaintenancePrunePreviewItem {

@@ -36,23 +36,113 @@ type ImagesResponse struct {
 	Items []ImageItem `json:"items"`
 }
 
-type ImageItem struct {
-	ID              string            `json:"id"`
-	Repository      string            `json:"repository"`
-	Tag             string            `json:"tag"`
-	Reference       string            `json:"reference"`
-	SizeBytes       int64             `json:"size_bytes"`
-	CreatedAt       time.Time         `json:"created_at"`
-	ContainersUsing int               `json:"containers_using"`
-	StacksUsing     []ImageStackUsage `json:"stacks_using"`
-	IsDangling      bool              `json:"is_dangling"`
-	IsUnused        bool              `json:"is_unused"`
-	Source          ImageSource       `json:"source"`
-}
-
-type ImageStackUsage struct {
+type StackServiceUsage struct {
 	StackID      string   `json:"stack_id"`
 	ServiceNames []string `json:"service_names"`
+}
+
+type ImageItem struct {
+	ID              string              `json:"id"`
+	Repository      string              `json:"repository"`
+	Tag             string              `json:"tag"`
+	Reference       string              `json:"reference"`
+	SizeBytes       int64               `json:"size_bytes"`
+	CreatedAt       time.Time           `json:"created_at"`
+	ContainersUsing int                 `json:"containers_using"`
+	StacksUsing     []StackServiceUsage `json:"stacks_using"`
+	IsDangling      bool                `json:"is_dangling"`
+	IsUnused        bool                `json:"is_unused"`
+	Source          ImageSource         `json:"source"`
+}
+
+type NetworksQuery struct {
+	Search          string
+	Usage           ImageUsage
+	Origin          ImageOrigin
+	ManagedStackIDs []string
+}
+
+type NetworkSource string
+
+const (
+	NetworkSourceStackManaged NetworkSource = "stack_managed"
+	NetworkSourceExternal     NetworkSource = "external"
+)
+
+type NetworksResponse struct {
+	Items []NetworkItem `json:"items"`
+}
+
+type NetworkItem struct {
+	ID              string              `json:"id"`
+	Name            string              `json:"name"`
+	Driver          string              `json:"driver"`
+	Scope           string              `json:"scope"`
+	Internal        bool                `json:"internal"`
+	Attachable      bool                `json:"attachable"`
+	Ingress         bool                `json:"ingress"`
+	ContainersUsing int                 `json:"containers_using"`
+	StacksUsing     []StackServiceUsage `json:"stacks_using"`
+	IsUnused        bool                `json:"is_unused"`
+	Source          NetworkSource       `json:"source"`
+}
+
+type CreateNetworkRequest struct {
+	Name string `json:"name"`
+}
+
+type CreateNetworkResponse struct {
+	Created bool   `json:"created"`
+	Name    string `json:"name"`
+}
+
+type DeleteNetworkResponse struct {
+	Deleted bool   `json:"deleted"`
+	Name    string `json:"name"`
+}
+
+type VolumesQuery struct {
+	Search          string
+	Usage           ImageUsage
+	Origin          ImageOrigin
+	ManagedStackIDs []string
+}
+
+type VolumeSource string
+
+const (
+	VolumeSourceStackManaged VolumeSource = "stack_managed"
+	VolumeSourceExternal     VolumeSource = "external"
+)
+
+type VolumesResponse struct {
+	Items []VolumeItem `json:"items"`
+}
+
+type VolumeItem struct {
+	Name            string              `json:"name"`
+	Driver          string              `json:"driver"`
+	Mountpoint      string              `json:"mountpoint"`
+	Scope           string              `json:"scope"`
+	OptionsCount    int                 `json:"options_count"`
+	ContainersUsing int                 `json:"containers_using"`
+	StacksUsing     []StackServiceUsage `json:"stacks_using"`
+	IsUnused        bool                `json:"is_unused"`
+	Source          VolumeSource        `json:"source"`
+}
+
+type CreateVolumeRequest struct {
+	Name string `json:"name"`
+}
+
+type CreateVolumeResponse struct {
+	Created bool   `json:"created"`
+	Name    string `json:"name"`
+}
+
+type DeleteVolumeResponse struct {
+	Deleted bool   `json:"deleted"`
+	Name    string `json:"name"`
 }
 
 type PrunePreviewQuery struct {

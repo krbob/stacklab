@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { getMaintenancePrunePreview, runMaintenancePrune } from '@/lib/api-client'
 import { useApi } from '@/hooks/use-api'
 import { useJobStream } from '@/hooks/use-job-stream'
-import type { JobEvent } from '@/lib/ws-types'
+import { StepCards } from '@/components/step-cards'
 import { cn } from '@/lib/cn'
 
 function formatBytes(bytes: number): string {
@@ -122,20 +122,7 @@ export function MaintenanceCleanup() {
               </span>
             </div>
 
-            <div className="space-y-1">
-              {events.filter((e) => e.event === 'job_step_started' || e.event === 'job_step_finished').map((event, i) => (
-                <PruneStepRow key={i} event={event} />
-              ))}
-            </div>
-
-            <div className="max-h-48 overflow-y-auto rounded-[12px] border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs leading-5">
-              {events.filter((e) => e.event !== 'job_step_started' && e.event !== 'job_step_finished').map((event, i) => (
-                <div key={i} className={cn(event.event === 'job_error' ? 'text-red-400' : 'text-[var(--muted)]')}>
-                  {event.message}
-                  {event.data && <span className="text-[var(--text)]"> {event.data}</span>}
-                </div>
-              ))}
-            </div>
+            <StepCards events={events} />
           </div>
         )}
       </div>
@@ -160,20 +147,5 @@ function ScopeCheckbox({ label, checked, onChange, disabled, count, bytes, color
         <span className="ml-auto text-[var(--muted)]">{count} · {formatBytes(bytes)}</span>
       )}
     </label>
-  )
-}
-
-function PruneStepRow({ event }: { event: JobEvent }) {
-  const step = event.step
-  if (!step) return null
-  const isFinished = event.event === 'job_step_finished'
-  const state = isFinished ? 'succeeded' : 'running'
-  return (
-    <div className="flex items-center gap-2 text-xs">
-      <span className={cn('w-3 shrink-0 font-mono font-bold', stepStatusColors[state])}>
-        {state === 'succeeded' ? '✓' : '▶'}
-      </span>
-      <span className="text-[var(--text)]">{step.action.replace(/_/g, ' ')}</span>
-    </div>
   )
 }

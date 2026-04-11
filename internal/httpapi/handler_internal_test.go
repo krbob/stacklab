@@ -19,13 +19,21 @@ import (
 	"stacklab/internal/auth"
 	"stacklab/internal/config"
 	"stacklab/internal/configworkspace"
+	"stacklab/internal/dockeradmin"
+	"stacklab/internal/fsmeta"
 	"stacklab/internal/gitworkspace"
 	"stacklab/internal/hostinfo"
 	"stacklab/internal/jobs"
 	"stacklab/internal/maintenance"
+	"stacklab/internal/maintenancejobs"
+	"stacklab/internal/notifications"
+	"stacklab/internal/scheduler"
+	"stacklab/internal/selfupdate"
 	"stacklab/internal/stacks"
+	"stacklab/internal/stackworkspace"
 	"stacklab/internal/store"
 	"stacklab/internal/terminal"
+	"stacklab/internal/workspacerepair"
 )
 
 type fakeHostInfo struct {
@@ -36,6 +44,34 @@ type fakeHostInfo struct {
 	lastLogsQuery    hostinfo.LogsQuery
 }
 
+type fakeDockerAdmin struct {
+	overviewResponse     dockeradmin.OverviewResponse
+	overviewError        error
+	daemonConfigResponse dockeradmin.DaemonConfigResponse
+	daemonConfigError    error
+	validateResponse     dockeradmin.ValidateManagedConfigResponse
+	validateError        error
+	applyResponse        dockeradmin.ApplyManagedConfigResult
+	applyError           error
+}
+
+type fakeConfigWorkspaceReader struct {
+	repairResponse configworkspace.RepairPermissionsResponse
+	repairError    error
+}
+
+type fakeStackWorkspaceReader struct {
+	repairResponse stackworkspace.RepairPermissionsResponse
+	repairError    error
+}
+
+type fakeSelfUpdate struct {
+	overviewResponse selfupdate.OverviewResponse
+	overviewError    error
+	applyResponse    selfupdate.ApplyResponse
+	applyError       error
+}
+
 func (f *fakeHostInfo) Overview(ctx context.Context) (hostinfo.OverviewResponse, error) {
 	return f.overviewResponse, f.overviewError
 }
@@ -43,6 +79,62 @@ func (f *fakeHostInfo) Overview(ctx context.Context) (hostinfo.OverviewResponse,
 func (f *fakeHostInfo) StacklabLogs(ctx context.Context, query hostinfo.LogsQuery) (hostinfo.StacklabLogsResponse, error) {
 	f.lastLogsQuery = query
 	return f.logsResponse, f.logsError
+}
+
+func (f *fakeDockerAdmin) Overview(ctx context.Context) (dockeradmin.OverviewResponse, error) {
+	return f.overviewResponse, f.overviewError
+}
+
+func (f *fakeDockerAdmin) DaemonConfig(ctx context.Context) (dockeradmin.DaemonConfigResponse, error) {
+	return f.daemonConfigResponse, f.daemonConfigError
+}
+
+func (f *fakeDockerAdmin) ValidateManagedConfig(ctx context.Context, request dockeradmin.ValidateManagedConfigRequest) (dockeradmin.ValidateManagedConfigResponse, error) {
+	return f.validateResponse, f.validateError
+}
+
+func (f *fakeDockerAdmin) ApplyManagedConfig(ctx context.Context, request dockeradmin.ApplyManagedConfigRequest) (dockeradmin.ApplyManagedConfigResult, error) {
+	return f.applyResponse, f.applyError
+}
+
+func (f *fakeConfigWorkspaceReader) Tree(ctx context.Context, currentPath string) (configworkspace.TreeResponse, error) {
+	return configworkspace.TreeResponse{}, nil
+}
+
+func (f *fakeConfigWorkspaceReader) File(ctx context.Context, filePath string) (configworkspace.FileResponse, error) {
+	return configworkspace.FileResponse{}, nil
+}
+
+func (f *fakeConfigWorkspaceReader) SaveFile(ctx context.Context, request configworkspace.SaveFileRequest) (configworkspace.SaveFileResponse, error) {
+	return configworkspace.SaveFileResponse{}, nil
+}
+
+func (f *fakeConfigWorkspaceReader) RepairPermissions(ctx context.Context, request configworkspace.RepairPermissionsRequest) (configworkspace.RepairPermissionsResponse, error) {
+	return f.repairResponse, f.repairError
+}
+
+func (f *fakeStackWorkspaceReader) Tree(ctx context.Context, stackID, currentPath string) (stackworkspace.TreeResponse, error) {
+	return stackworkspace.TreeResponse{}, nil
+}
+
+func (f *fakeStackWorkspaceReader) File(ctx context.Context, stackID, filePath string) (stackworkspace.FileResponse, error) {
+	return stackworkspace.FileResponse{}, nil
+}
+
+func (f *fakeStackWorkspaceReader) SaveFile(ctx context.Context, stackID string, request stackworkspace.SaveFileRequest) (stackworkspace.SaveFileResponse, error) {
+	return stackworkspace.SaveFileResponse{}, nil
+}
+
+func (f *fakeStackWorkspaceReader) RepairPermissions(ctx context.Context, stackID string, request stackworkspace.RepairPermissionsRequest) (stackworkspace.RepairPermissionsResponse, error) {
+	return f.repairResponse, f.repairError
+}
+
+func (f *fakeSelfUpdate) Overview(ctx context.Context) (selfupdate.OverviewResponse, error) {
+	return f.overviewResponse, f.overviewError
+}
+
+func (f *fakeSelfUpdate) Apply(ctx context.Context, request selfupdate.ApplyRequest, requestedBy string) (selfupdate.ApplyResponse, error) {
+	return f.applyResponse, f.applyError
 }
 
 func TestHandlerPutDefinitionReturnsStackLockedWhenAnotherJobOwnsStack(t *testing.T) {
@@ -172,6 +264,430 @@ func TestHandlerStacklabLogsRejectsInvalidLimit(t *testing.T) {
 	response := performInternalJSONRequest(t, served, http.MethodGet, "/api/host/stacklab-logs?limit=0", nil, cookies)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("GET /api/host/stacklab-logs?limit=0 status = %d, want %d; body=%s", response.Code, http.StatusBadRequest, response.Body.String())
+	}
+}
+
+func TestHandlerDockerAdminOverviewAndDaemonConfig(t *testing.T) {
+	t.Parallel()
+
+	handler, served, _ := newInternalTestHandler(t)
+	docker := &fakeDockerAdmin{
+		overviewResponse: dockeradmin.OverviewResponse{
+			Service: dockeradmin.ServiceStatus{
+				Manager:       "systemd",
+				Supported:     true,
+				UnitName:      "docker.service",
+				LoadState:     "loaded",
+				ActiveState:   "active",
+				SubState:      "running",
+				UnitFileState: "enabled",
+				FragmentPath:  "/lib/systemd/system/docker.service",
+			},
+			Engine: dockeradmin.EngineStatus{
+				Available:      true,
+				Version:        "28.5.1",
+				ComposeVersion: "2.39.2",
+			},
+			DaemonConfig: dockeradmin.DaemonConfigMeta{
+				Path:           "/etc/docker/daemon.json",
+				Exists:         true,
+				ValidJSON:      true,
+				ConfiguredKeys: []string{"dns"},
+				WriteCapability: dockeradmin.WriteCapability{
+					Supported:   true,
+					ManagedKeys: []string{"dns", "registry_mirrors", "insecure_registries", "live_restore"},
+				},
+				Summary: dockeradmin.DaemonConfigSummary{
+					DNS:                []string{"192.168.1.2"},
+					RegistryMirrors:    []string{},
+					InsecureRegistries: []string{},
+				},
+			},
+			WriteCapability: dockeradmin.WriteCapability{
+				Supported:   true,
+				ManagedKeys: []string{"dns", "registry_mirrors", "insecure_registries", "live_restore"},
+			},
+		},
+		daemonConfigResponse: dockeradmin.DaemonConfigResponse{
+			DaemonConfigMeta: dockeradmin.DaemonConfigMeta{
+				Path:           "/etc/docker/daemon.json",
+				Exists:         true,
+				ValidJSON:      true,
+				ConfiguredKeys: []string{"dns"},
+				WriteCapability: dockeradmin.WriteCapability{
+					Supported:   true,
+					ManagedKeys: []string{"dns", "registry_mirrors", "insecure_registries", "live_restore"},
+				},
+				Summary: dockeradmin.DaemonConfigSummary{
+					DNS:                []string{"192.168.1.2"},
+					RegistryMirrors:    []string{},
+					InsecureRegistries: []string{},
+				},
+			},
+			Content: pointerTo(`{"dns":["192.168.1.2"]}`),
+		},
+		validateResponse: dockeradmin.ValidateManagedConfigResponse{
+			WriteCapability: dockeradmin.WriteCapability{
+				Supported:   true,
+				ManagedKeys: []string{"dns", "registry_mirrors", "insecure_registries", "live_restore"},
+			},
+			ChangedKeys:     []string{"dns"},
+			RequiresRestart: true,
+			Warnings:        []string{"Applying Docker daemon settings requires a Docker restart."},
+			Preview: dockeradmin.DaemonConfigPreview{
+				Path:           "/etc/docker/daemon.json",
+				Content:        "{\n  \"dns\": [\n    \"1.1.1.1\"\n  ]\n}\n",
+				ConfiguredKeys: []string{"dns"},
+				Summary: dockeradmin.DaemonConfigSummary{
+					DNS:                []string{"1.1.1.1"},
+					RegistryMirrors:    []string{},
+					InsecureRegistries: []string{},
+				},
+			},
+		},
+		applyResponse: dockeradmin.ApplyManagedConfigResult{
+			ChangedKeys:        []string{"dns"},
+			BackupPath:         "/var/lib/stacklab/docker-admin/daemon-20260409T120000Z.json",
+			ServiceActiveState: "active",
+		},
+	}
+	handler.dockerAdmin = docker
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	overviewResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/docker/admin/overview", nil, cookies)
+	if overviewResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/docker/admin/overview status = %d, want %d; body=%s", overviewResponse.Code, http.StatusOK, overviewResponse.Body.String())
+	}
+	var overviewPayload dockeradmin.OverviewResponse
+	decodeInternalResponse(t, overviewResponse, &overviewPayload)
+	if !overviewPayload.Engine.Available || overviewPayload.DaemonConfig.Path != "/etc/docker/daemon.json" {
+		t.Fatalf("unexpected docker admin overview payload: %#v", overviewPayload)
+	}
+
+	configResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/docker/admin/daemon-config", nil, cookies)
+	if configResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/docker/admin/daemon-config status = %d, want %d; body=%s", configResponse.Code, http.StatusOK, configResponse.Body.String())
+	}
+	var configPayload dockeradmin.DaemonConfigResponse
+	decodeInternalResponse(t, configResponse, &configPayload)
+	if configPayload.Content == nil || !strings.Contains(*configPayload.Content, "192.168.1.2") {
+		t.Fatalf("unexpected docker daemon config payload: %#v", configPayload)
+	}
+
+	validateResponse := performInternalJSONRequest(t, served, http.MethodPost, "/api/docker/admin/daemon-config/validate", map[string]any{
+		"settings": map[string]any{
+			"dns": []string{"1.1.1.1"},
+		},
+	}, cookies)
+	if validateResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/docker/admin/daemon-config/validate status = %d, want %d; body=%s", validateResponse.Code, http.StatusOK, validateResponse.Body.String())
+	}
+	var validatePayload dockeradmin.ValidateManagedConfigResponse
+	decodeInternalResponse(t, validateResponse, &validatePayload)
+	if len(validatePayload.ChangedKeys) != 1 || validatePayload.ChangedKeys[0] != "dns" {
+		t.Fatalf("unexpected docker daemon validate payload: %#v", validatePayload)
+	}
+
+	applyResponse := performInternalJSONRequest(t, served, http.MethodPost, "/api/docker/admin/daemon-config/apply", map[string]any{
+		"settings": map[string]any{
+			"dns": []string{"1.1.1.1"},
+		},
+	}, cookies)
+	if applyResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/docker/admin/daemon-config/apply status = %d, want %d; body=%s", applyResponse.Code, http.StatusOK, applyResponse.Body.String())
+	}
+	var applyPayload struct {
+		Job store.Job `json:"job"`
+	}
+	decodeInternalResponse(t, applyResponse, &applyPayload)
+	if applyPayload.Job.Action != "apply_docker_daemon_config" || applyPayload.Job.State != "succeeded" {
+		t.Fatalf("unexpected docker daemon apply payload: %#v", applyPayload)
+	}
+}
+
+func TestHandlerStacklabUpdateOverviewAndApply(t *testing.T) {
+	t.Parallel()
+
+	handler, served, _ := newInternalTestHandler(t)
+	update := &fakeSelfUpdate{
+		overviewResponse: selfupdate.OverviewResponse{
+			CurrentVersion: "2026.04.0",
+			InstallMode:    "apt",
+			Package: selfupdate.PackageStatus{
+				Supported:         true,
+				Name:              "stacklab",
+				InstalledVersion:  "2026.04.0",
+				CandidateVersion:  "2026.04.1",
+				ConfiguredChannel: "stable",
+				UpdateAvailable:   true,
+			},
+			WriteCapability: selfupdate.WriteCapability{
+				Supported: true,
+			},
+			Runtime: &selfupdate.RuntimeStatus{
+				JobID:           "job_update",
+				PendingFinalize: false,
+			},
+		},
+		applyResponse: selfupdate.ApplyResponse{
+			Started: true,
+			Job: store.Job{
+				ID:      "job_update",
+				Action:  "self_update_stacklab",
+				State:   "running",
+				StackID: "",
+			},
+			Package: selfupdate.PackageStatus{
+				Supported:         true,
+				Name:              "stacklab",
+				InstalledVersion:  "2026.04.0",
+				CandidateVersion:  "2026.04.1",
+				ConfiguredChannel: "stable",
+				UpdateAvailable:   true,
+			},
+			Runtime: &selfupdate.RuntimeStatus{
+				JobID:            "job_update",
+				PendingFinalize:  false,
+				RequestedVersion: "2026.04.1",
+			},
+		},
+	}
+	handler.selfUpdate = update
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	overviewResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/stacklab/update/overview", nil, cookies)
+	if overviewResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/stacklab/update/overview status = %d, want %d; body=%s", overviewResponse.Code, http.StatusOK, overviewResponse.Body.String())
+	}
+	var overviewPayload selfupdate.OverviewResponse
+	decodeInternalResponse(t, overviewResponse, &overviewPayload)
+	if overviewPayload.InstallMode != "apt" || overviewPayload.Package.CandidateVersion != "2026.04.1" {
+		t.Fatalf("unexpected stacklab update overview payload: %#v", overviewPayload)
+	}
+
+	applyBody := map[string]any{
+		"expected_candidate_version": "2026.04.1",
+		"refresh_package_index":      true,
+	}
+	applyResponse := performInternalJSONRequest(t, served, http.MethodPost, "/api/stacklab/update/apply", applyBody, cookies)
+	if applyResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/stacklab/update/apply status = %d, want %d; body=%s", applyResponse.Code, http.StatusOK, applyResponse.Body.String())
+	}
+	var applyPayload selfupdate.ApplyResponse
+	decodeInternalResponse(t, applyResponse, &applyPayload)
+	if !applyPayload.Started || applyPayload.Job.Action != "self_update_stacklab" {
+		t.Fatalf("unexpected stacklab update apply payload: %#v", applyPayload)
+	}
+}
+
+func TestHandlerListActiveJobs(t *testing.T) {
+	t.Parallel()
+
+	handler, served, _ := newInternalTestHandler(t)
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	stackJob, err := handler.jobs.Start(context.Background(), "demo", "pull", "local")
+	if err != nil {
+		t.Fatalf("jobs.Start(stack) error = %v", err)
+	}
+	stackWorkflow := []store.JobWorkflowStep{
+		{Action: "pull", State: "running", TargetStackID: "demo"},
+		{Action: "up", State: "queued", TargetStackID: "demo"},
+	}
+	stackJob, err = handler.jobs.UpdateWorkflow(context.Background(), stackJob, stackWorkflow)
+	if err != nil {
+		t.Fatalf("jobs.UpdateWorkflow(stack) error = %v", err)
+	}
+	if err := handler.jobs.PublishEvent(context.Background(), stackJob, "job_step_started", "Starting pull for demo.", "", &store.JobEventStep{
+		Index:         1,
+		Total:         2,
+		Action:        "pull",
+		TargetStackID: "demo",
+	}); err != nil {
+		t.Fatalf("jobs.PublishEvent(stack) error = %v", err)
+	}
+
+	globalJob, err := handler.jobs.Start(context.Background(), "", "update_stacks", "local")
+	if err != nil {
+		t.Fatalf("jobs.Start(global) error = %v", err)
+	}
+	globalWorkflow := []store.JobWorkflowStep{
+		{Action: "pull", State: "running", TargetStackID: "demo"},
+		{Action: "up", State: "queued", TargetStackID: "demo"},
+	}
+	globalJob, err = handler.jobs.UpdateWorkflow(context.Background(), globalJob, globalWorkflow)
+	if err != nil {
+		t.Fatalf("jobs.UpdateWorkflow(global) error = %v", err)
+	}
+	if err := handler.jobs.PublishEvent(context.Background(), globalJob, "job_step_started", "Starting pull for demo.", "", &store.JobEventStep{
+		Index:         1,
+		Total:         2,
+		Action:        "pull",
+		TargetStackID: "demo",
+	}); err != nil {
+		t.Fatalf("jobs.PublishEvent(global) error = %v", err)
+	}
+
+	finishedJob, err := handler.jobs.Start(context.Background(), "old", "restart", "local")
+	if err != nil {
+		t.Fatalf("jobs.Start(finished) error = %v", err)
+	}
+	if _, err := handler.jobs.FinishSucceeded(context.Background(), finishedJob); err != nil {
+		t.Fatalf("jobs.FinishSucceeded() error = %v", err)
+	}
+
+	response := performInternalJSONRequest(t, served, http.MethodGet, "/api/jobs/active", nil, cookies)
+	if response.Code != http.StatusOK {
+		t.Fatalf("GET /api/jobs/active status = %d, want %d; body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+
+	var payload struct {
+		Items []struct {
+			ID          string  `json:"id"`
+			StackID     *string `json:"stack_id"`
+			Action      string  `json:"action"`
+			State       string  `json:"state"`
+			CurrentStep *struct {
+				Index         int    `json:"index"`
+				Total         int    `json:"total"`
+				Action        string `json:"action"`
+				TargetStackID string `json:"target_stack_id"`
+			} `json:"current_step"`
+			LatestEvent *struct {
+				Event string `json:"event"`
+				Step  *struct {
+					TargetStackID string `json:"target_stack_id"`
+				} `json:"step"`
+			} `json:"latest_event"`
+		} `json:"items"`
+		Summary struct {
+			ActiveCount          int `json:"active_count"`
+			RunningCount         int `json:"running_count"`
+			QueuedCount          int `json:"queued_count"`
+			CancelRequestedCount int `json:"cancel_requested_count"`
+		} `json:"summary"`
+	}
+	decodeInternalResponse(t, response, &payload)
+
+	if payload.Summary.ActiveCount != 2 || payload.Summary.RunningCount != 2 {
+		t.Fatalf("unexpected summary payload: %#v", payload.Summary)
+	}
+	if len(payload.Items) != 2 {
+		t.Fatalf("len(items) = %d, want 2", len(payload.Items))
+	}
+
+	var foundGlobal, foundStack bool
+	for _, item := range payload.Items {
+		switch item.Action {
+		case "update_stacks":
+			foundGlobal = true
+			if item.StackID != nil {
+				t.Fatalf("global job stack_id = %#v, want nil", item.StackID)
+			}
+		case "pull":
+			foundStack = true
+			if item.StackID == nil || *item.StackID != "demo" {
+				t.Fatalf("stack job stack_id = %#v, want demo", item.StackID)
+			}
+		}
+		if item.CurrentStep == nil || item.CurrentStep.TargetStackID != "demo" {
+			t.Fatalf("unexpected current_step payload: %#v", item.CurrentStep)
+		}
+		if item.LatestEvent == nil || item.LatestEvent.Event != "job_step_started" {
+			t.Fatalf("unexpected latest_event payload: %#v", item.LatestEvent)
+		}
+	}
+	if !foundGlobal || !foundStack {
+		t.Fatalf("missing expected jobs in payload: %#v", payload.Items)
+	}
+}
+
+func TestHandlerGetJobEvents(t *testing.T) {
+	t.Parallel()
+
+	handler, served, cfg := newInternalTestHandler(t)
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	retainedJob, err := handler.jobs.Start(context.Background(), "demo", "pull", "local")
+	if err != nil {
+		t.Fatalf("jobs.Start(retained) error = %v", err)
+	}
+	if err := handler.jobs.PublishEvent(context.Background(), retainedJob, "job_step_started", "Starting pull for demo.", "", &store.JobEventStep{
+		Index:         1,
+		Total:         1,
+		Action:        "pull",
+		TargetStackID: "demo",
+	}); err != nil {
+		t.Fatalf("jobs.PublishEvent(retained) error = %v", err)
+	}
+
+	retainedResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/jobs/"+retainedJob.ID+"/events", nil, cookies)
+	if retainedResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/jobs/%s/events status = %d, want %d; body=%s", retainedJob.ID, retainedResponse.Code, http.StatusOK, retainedResponse.Body.String())
+	}
+	var retainedPayload struct {
+		JobID    string `json:"job_id"`
+		Retained bool   `json:"retained"`
+		Message  string `json:"message"`
+		Items    []struct {
+			Sequence int    `json:"sequence"`
+			Event    string `json:"event"`
+			Step     *struct {
+				TargetStackID string `json:"target_stack_id"`
+			} `json:"step"`
+		} `json:"items"`
+	}
+	decodeInternalResponse(t, retainedResponse, &retainedPayload)
+	if retainedPayload.JobID != retainedJob.ID || !retainedPayload.Retained || retainedPayload.Message != "" {
+		t.Fatalf("unexpected retained payload header: %#v", retainedPayload)
+	}
+	if len(retainedPayload.Items) < 2 {
+		t.Fatalf("expected retained items, got %#v", retainedPayload.Items)
+	}
+	if retainedPayload.Items[1].Event != "job_step_started" || retainedPayload.Items[1].Step == nil || retainedPayload.Items[1].Step.TargetStackID != "demo" {
+		t.Fatalf("unexpected retained event payload: %#v", retainedPayload.Items)
+	}
+
+	jobStore, err := store.Open(cfg.DatabasePath)
+	if err != nil {
+		t.Fatalf("store.Open(job setup) error = %v", err)
+	}
+	defer func() {
+		if err := jobStore.Close(); err != nil {
+			t.Fatalf("Store.Close(job setup) error = %v", err)
+		}
+	}()
+	now := time.Now().UTC()
+	purgedJob := store.Job{
+		ID:          "job_purged_fixture",
+		StackID:     "old",
+		Action:      "restart",
+		State:       "succeeded",
+		RequestedBy: "local",
+		RequestedAt: now.Add(-2 * time.Minute),
+		StartedAt:   pointerTo(now.Add(-90 * time.Second)),
+		FinishedAt:  pointerTo(now.Add(-30 * time.Second)),
+	}
+	if err := jobStore.CreateJob(context.Background(), purgedJob); err != nil {
+		t.Fatalf("CreateJob(purged fixture) error = %v", err)
+	}
+
+	purgedResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/jobs/"+purgedJob.ID+"/events", nil, cookies)
+	if purgedResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/jobs/%s/events status = %d, want %d; body=%s", purgedJob.ID, purgedResponse.Code, http.StatusOK, purgedResponse.Body.String())
+	}
+	var purgedPayload struct {
+		JobID    string `json:"job_id"`
+		Retained bool   `json:"retained"`
+		Message  string `json:"message"`
+		Items    []any  `json:"items"`
+	}
+	decodeInternalResponse(t, purgedResponse, &purgedPayload)
+	if purgedPayload.JobID != purgedJob.ID || purgedPayload.Retained {
+		t.Fatalf("unexpected purged payload header: %#v", purgedPayload)
+	}
+	if purgedPayload.Message != "Detailed output for this job is no longer retained." || len(purgedPayload.Items) != 0 {
+		t.Fatalf("unexpected purged payload body: %#v", purgedPayload)
 	}
 }
 
@@ -343,6 +859,103 @@ func TestHandlerConfigWorkspacePermissionDiagnostics(t *testing.T) {
 	}, cookies)
 	if saveResponse.Code != http.StatusConflict {
 		t.Fatalf("PUT /api/config/workspace/file(secret.conf) status = %d, want %d; body=%s", saveResponse.Code, http.StatusConflict, saveResponse.Body.String())
+	}
+}
+
+func TestHandlerRepairConfigWorkspacePermissions(t *testing.T) {
+	t.Parallel()
+
+	handler, served, _ := newInternalTestHandler(t)
+	handler.configFiles = &fakeConfigWorkspaceReader{
+		repairResponse: configworkspace.RepairPermissionsResponse{
+			Repaired:     true,
+			Path:         "demo/secret.conf",
+			Recursive:    false,
+			ChangedItems: 1,
+			TargetPermissionsBefore: fsmeta.Permissions{
+				Mode:     "0000",
+				Readable: false,
+				Writable: false,
+			},
+			TargetPermissionsAfter: fsmeta.Permissions{
+				Mode:     "0600",
+				Readable: true,
+				Writable: true,
+			},
+			AuditAction: "repair_config_workspace_permissions",
+			RepairCapability: workspacerepair.Capability{
+				Supported: true,
+				Recursive: true,
+			},
+		},
+	}
+
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	response := performInternalJSONRequest(t, served, http.MethodPost, "/api/config/workspace/repair-permissions", map[string]any{
+		"path":      "demo/secret.conf",
+		"recursive": false,
+	}, cookies)
+	if response.Code != http.StatusOK {
+		t.Fatalf("POST /api/config/workspace/repair-permissions status = %d, want %d; body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+	var payload configworkspace.RepairPermissionsResponse
+	decodeInternalResponse(t, response, &payload)
+	if !payload.Repaired || payload.Path != "demo/secret.conf" || payload.ChangedItems != 1 {
+		t.Fatalf("unexpected repair payload: %#v", payload)
+	}
+
+	handler.configFiles = &fakeConfigWorkspaceReader{repairError: workspacerepair.ErrUnsupported}
+	notImplemented := performInternalJSONRequest(t, served, http.MethodPost, "/api/config/workspace/repair-permissions", map[string]any{
+		"path": "demo/secret.conf",
+	}, cookies)
+	if notImplemented.Code != http.StatusNotImplemented {
+		t.Fatalf("POST /api/config/workspace/repair-permissions(not configured) status = %d, want %d; body=%s", notImplemented.Code, http.StatusNotImplemented, notImplemented.Body.String())
+	}
+}
+
+func TestHandlerRepairStackWorkspacePermissions(t *testing.T) {
+	t.Parallel()
+
+	handler, served, _ := newInternalTestHandler(t)
+	handler.stackFiles = &fakeStackWorkspaceReader{
+		repairResponse: stackworkspace.RepairPermissionsResponse{
+			Repaired:     true,
+			StackID:      "demo",
+			Path:         "Dockerfile",
+			Recursive:    false,
+			ChangedItems: 1,
+			TargetPermissionsBefore: fsmeta.Permissions{
+				Mode:     "0400",
+				Readable: true,
+				Writable: false,
+			},
+			TargetPermissionsAfter: fsmeta.Permissions{
+				Mode:     "0600",
+				Readable: true,
+				Writable: true,
+			},
+			AuditAction: "repair_stack_workspace_permissions",
+			RepairCapability: workspacerepair.Capability{
+				Supported: true,
+				Recursive: true,
+			},
+		},
+	}
+
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	response := performInternalJSONRequest(t, served, http.MethodPost, "/api/stacks/demo/workspace/repair-permissions", map[string]any{
+		"path":      "Dockerfile",
+		"recursive": false,
+	}, cookies)
+	if response.Code != http.StatusOK {
+		t.Fatalf("POST /api/stacks/demo/workspace/repair-permissions status = %d, want %d; body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+	var payload stackworkspace.RepairPermissionsResponse
+	decodeInternalResponse(t, response, &payload)
+	if !payload.Repaired || payload.StackID != "demo" || payload.Path != "Dockerfile" {
+		t.Fatalf("unexpected stack repair payload: %#v", payload)
 	}
 }
 
@@ -731,6 +1344,76 @@ func TestHandlerMaintenanceInventoryAndPrune(t *testing.T) {
 		t.Fatalf("expected unused image in payload: %#v", imagesPayload.Items)
 	}
 
+	networksResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/maintenance/networks?usage=all&origin=all", nil, cookies)
+	if networksResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/maintenance/networks status = %d, want %d; body=%s", networksResponse.Code, http.StatusOK, networksResponse.Body.String())
+	}
+	var networksPayload maintenance.NetworksResponse
+	decodeInternalResponse(t, networksResponse, &networksPayload)
+	if len(networksPayload.Items) != 3 {
+		t.Fatalf("unexpected maintenance networks payload: %#v", networksPayload)
+	}
+	if networksPayload.Items[0].Name != "demo_default" && networksPayload.Items[1].Name != "demo_default" {
+		t.Fatalf("expected demo_default network in payload: %#v", networksPayload.Items)
+	}
+
+	createNetworkResponse := performInternalJSONRequest(t, served, http.MethodPost, "/api/maintenance/networks", map[string]any{
+		"name": "homelab_proxy",
+	}, cookies)
+	if createNetworkResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/maintenance/networks status = %d, want %d; body=%s", createNetworkResponse.Code, http.StatusOK, createNetworkResponse.Body.String())
+	}
+	var createNetworkPayload maintenance.CreateNetworkResponse
+	decodeInternalResponse(t, createNetworkResponse, &createNetworkPayload)
+	if !createNetworkPayload.Created || createNetworkPayload.Name != "homelab_proxy" {
+		t.Fatalf("unexpected create network payload: %#v", createNetworkPayload)
+	}
+
+	deleteNetworkResponse := performInternalJSONRequest(t, served, http.MethodDelete, "/api/maintenance/networks/external_unused", nil, cookies)
+	if deleteNetworkResponse.Code != http.StatusOK {
+		t.Fatalf("DELETE /api/maintenance/networks/external_unused status = %d, want %d; body=%s", deleteNetworkResponse.Code, http.StatusOK, deleteNetworkResponse.Body.String())
+	}
+	var deleteNetworkPayload maintenance.DeleteNetworkResponse
+	decodeInternalResponse(t, deleteNetworkResponse, &deleteNetworkPayload)
+	if !deleteNetworkPayload.Deleted || deleteNetworkPayload.Name != "external_unused" {
+		t.Fatalf("unexpected delete network payload: %#v", deleteNetworkPayload)
+	}
+
+	volumesResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/maintenance/volumes?usage=all&origin=all", nil, cookies)
+	if volumesResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/maintenance/volumes status = %d, want %d; body=%s", volumesResponse.Code, http.StatusOK, volumesResponse.Body.String())
+	}
+	var volumesPayload maintenance.VolumesResponse
+	decodeInternalResponse(t, volumesResponse, &volumesPayload)
+	if len(volumesPayload.Items) != 2 {
+		t.Fatalf("unexpected maintenance volumes payload: %#v", volumesPayload)
+	}
+	if volumesPayload.Items[0].Name != "demo_data" && volumesPayload.Items[1].Name != "demo_data" {
+		t.Fatalf("expected demo_data volume in payload: %#v", volumesPayload.Items)
+	}
+
+	createVolumeResponse := performInternalJSONRequest(t, served, http.MethodPost, "/api/maintenance/volumes", map[string]any{
+		"name": "media_cache",
+	}, cookies)
+	if createVolumeResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/maintenance/volumes status = %d, want %d; body=%s", createVolumeResponse.Code, http.StatusOK, createVolumeResponse.Body.String())
+	}
+	var createVolumePayload maintenance.CreateVolumeResponse
+	decodeInternalResponse(t, createVolumeResponse, &createVolumePayload)
+	if !createVolumePayload.Created || createVolumePayload.Name != "media_cache" {
+		t.Fatalf("unexpected create volume payload: %#v", createVolumePayload)
+	}
+
+	deleteVolumeResponse := performInternalJSONRequest(t, served, http.MethodDelete, "/api/maintenance/volumes/external_media", nil, cookies)
+	if deleteVolumeResponse.Code != http.StatusOK {
+		t.Fatalf("DELETE /api/maintenance/volumes/external_media status = %d, want %d; body=%s", deleteVolumeResponse.Code, http.StatusOK, deleteVolumeResponse.Body.String())
+	}
+	var deleteVolumePayload maintenance.DeleteVolumeResponse
+	decodeInternalResponse(t, deleteVolumeResponse, &deleteVolumePayload)
+	if !deleteVolumePayload.Deleted || deleteVolumePayload.Name != "external_media" {
+		t.Fatalf("unexpected delete volume payload: %#v", deleteVolumePayload)
+	}
+
 	previewResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/maintenance/prune-preview?images=true&build_cache=true&stopped_containers=true&volumes=false", nil, cookies)
 	if previewResponse.Code != http.StatusOK {
 		t.Fatalf("GET /api/maintenance/prune-preview status = %d, want %d; body=%s", previewResponse.Code, http.StatusOK, previewResponse.Body.String())
@@ -822,6 +1505,8 @@ func newInternalTestHandler(t *testing.T) (*Handler, http.Handler, config.Config
 		FrontendDistDir:         filepath.Join(tempDir, "frontend"),
 		BootstrapPassword:       "secret",
 		SystemdUnitName:         "stacklab",
+		DockerSystemdUnitName:   "docker.service",
+		DockerDaemonConfigPath:  filepath.Join(tempDir, "docker", "daemon.json"),
 		SessionCookieName:       "stacklab_session",
 		SessionIdleTimeout:      30 * time.Minute,
 		SessionAbsoluteLifetime: 24 * time.Hour,
@@ -847,6 +1532,12 @@ func newInternalTestHandler(t *testing.T) (*Handler, http.Handler, config.Config
 	auditService := audit.NewService(testStore)
 	jobService := jobs.NewService(testStore)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	notificationService := notifications.NewService(testStore, logger)
+	stackReader := stacks.NewServiceReader(cfg, logger)
+	maintenanceService := maintenance.NewService()
+	maintenanceRunner := maintenancejobs.NewService(logger, jobService, auditService, stackReader, maintenanceService)
+	schedulerService := scheduler.NewService(testStore, auditService, maintenanceRunner, stackReader, logger)
+	jobService.SetTerminalHook(notificationService.DispatchJobAsync)
 
 	handler := &Handler{
 		cfg:    cfg,
@@ -860,15 +1551,23 @@ func newInternalTestHandler(t *testing.T) (*Handler, http.Handler, config.Config
 			IdleTimeout:         30 * time.Minute,
 			DetachGracePeriod:   time.Minute,
 		}, func(event terminal.LifecycleEvent) {}),
-		stackReader: stacks.NewServiceReader(cfg, logger),
-		hostInfo:    hostinfo.NewService(cfg, time.Unix(1_712_598_000, 0).UTC()),
-		configFiles: configworkspace.NewService(cfg),
-		gitStatus:   gitworkspace.NewService(cfg),
-		maintenance: maintenance.NewService(),
+		stackReader:     stackReader,
+		hostInfo:        hostinfo.NewService(cfg, time.Unix(1_712_598_000, 0).UTC()),
+		dockerAdmin:     dockeradmin.NewService(cfg),
+		configFiles:     configworkspace.NewService(cfg),
+		gitStatus:       gitworkspace.NewService(cfg),
+		maintenance:     maintenanceService,
+		maintenanceJobs: maintenanceRunner,
+		notifications:   notificationService,
+		schedules:       schedulerService,
 	}
 	handler.registerRoutes()
 
 	return handler, handler.withLogging(handler.mux), cfg
+}
+
+func pointerTo[T any](value T) *T {
+	return &value
 }
 
 func runInternalGit(t *testing.T, dir string, args ...string) {
@@ -913,7 +1612,7 @@ if [ "$1" = "ps" ]; then
 fi
 
 if [ "$1" = "inspect" ]; then
-  echo '[{"Image":"sha256:used","Config":{"Image":"ghcr.io/example/app:latest","Labels":{"com.docker.compose.project":"demo","com.docker.compose.service":"app"}}}]'
+  echo '[{"Image":"sha256:used","Config":{"Image":"ghcr.io/example/app:latest","Labels":{"com.docker.compose.project":"demo","com.docker.compose.service":"app"}},"Mounts":[{"Name":"demo_data","Type":"volume"}],"NetworkSettings":{"Networks":{"demo_default":{},"external_shared":{}}}}]'
   exit 0
 fi
 
@@ -952,6 +1651,53 @@ if [ "$1" = "image" ] && [ "$2" = "prune" ]; then
   shift 2
   append_log "docker image prune $*"
   echo "Deleted Images:"
+  exit 0
+fi
+
+if [ "$1" = "network" ] && [ "$2" = "ls" ]; then
+  echo '{"ID":"network-demo","Name":"demo_default","Driver":"bridge","Scope":"local"}'
+  echo '{"ID":"network-ext","Name":"external_shared","Driver":"bridge","Scope":"local"}'
+  echo '{"ID":"network-unused","Name":"external_unused","Driver":"bridge","Scope":"local"}'
+  exit 0
+fi
+
+if [ "$1" = "network" ] && [ "$2" = "inspect" ]; then
+  echo '[{"Id":"network-demo","Name":"demo_default","Driver":"bridge","Scope":"local","Internal":false,"Attachable":false,"Ingress":false,"Labels":{"com.docker.compose.project":"demo"}},{"Id":"network-ext","Name":"external_shared","Driver":"bridge","Scope":"local","Internal":false,"Attachable":false,"Ingress":false,"Labels":{}},{"Id":"network-unused","Name":"external_unused","Driver":"bridge","Scope":"local","Internal":false,"Attachable":false,"Ingress":false,"Labels":{}}]'
+  exit 0
+fi
+
+if [ "$1" = "network" ] && [ "$2" = "create" ]; then
+  append_log "docker network create $3"
+  echo "$3"
+  exit 0
+fi
+
+if [ "$1" = "network" ] && [ "$2" = "rm" ]; then
+  append_log "docker network rm $3"
+  echo "$3"
+  exit 0
+fi
+
+if [ "$1" = "volume" ] && [ "$2" = "ls" ]; then
+  echo '{"Name":"demo_data","Driver":"local"}'
+  echo '{"Name":"external_media","Driver":"local"}'
+  exit 0
+fi
+
+if [ "$1" = "volume" ] && [ "$2" = "inspect" ]; then
+  echo '[{"Name":"demo_data","Driver":"local","Mountpoint":"/var/lib/docker/volumes/demo_data/_data","Scope":"local","Labels":{"com.docker.compose.project":"demo"},"Options":{}},{"Name":"external_media","Driver":"local","Mountpoint":"/var/lib/docker/volumes/external_media/_data","Scope":"local","Labels":{},"Options":{"type":"nfs"}}]'
+  exit 0
+fi
+
+if [ "$1" = "volume" ] && [ "$2" = "create" ]; then
+  append_log "docker volume create $3"
+  echo "$3"
+  exit 0
+fi
+
+if [ "$1" = "volume" ] && [ "$2" = "rm" ]; then
+  append_log "docker volume rm $3"
+  echo "$3"
   exit 0
 fi
 

@@ -68,6 +68,10 @@ Practical rule:
 
 Use a conservative rollout.
 
+Active repository config:
+
+- `.github/renovate.json5`
+
 ### Merge policy
 
 Current policy:

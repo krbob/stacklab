@@ -21,6 +21,7 @@ type Service struct {
 	lockedByID map[string]string
 	locksByJob map[string][]string
 	subsByJob  map[string]map[chan store.JobEvent]struct{}
+	onTerminal func(store.Job)
 }
 
 func NewService(jobStore *store.Store) *Service {
@@ -30,6 +31,10 @@ func NewService(jobStore *store.Store) *Service {
 		locksByJob: map[string][]string{},
 		subsByJob:  map[string]map[chan store.JobEvent]struct{}{},
 	}
+}
+
+func (s *Service) SetTerminalHook(hook func(store.Job)) {
+	s.onTerminal = hook
 }
 
 func (s *Service) Start(ctx context.Context, stackID, action, requestedBy string) (store.Job, error) {
@@ -77,6 +82,9 @@ func (s *Service) FinishSucceeded(ctx context.Context, job store.Job) (store.Job
 	if err := s.PublishEvent(ctx, job, "job_finished", "Job finished successfully.", "", nil); err != nil {
 		return store.Job{}, err
 	}
+	if s.onTerminal != nil {
+		s.onTerminal(job)
+	}
 	return job, nil
 }
 
@@ -96,6 +104,9 @@ func (s *Service) FinishFailed(ctx context.Context, job store.Job, errorCode, er
 	}
 	if err := s.PublishEvent(ctx, job, "job_finished", "Job finished with errors.", "", nil); err != nil {
 		return store.Job{}, err
+	}
+	if s.onTerminal != nil {
+		s.onTerminal(job)
 	}
 	return job, nil
 }
@@ -172,6 +183,122 @@ func (s *Service) Get(ctx context.Context, id string) (store.Job, error) {
 		return store.Job{}, err
 	}
 	return job, nil
+}
+
+func (s *Service) Events(ctx context.Context, id string) (EventsResponse, error) {
+	job, err := s.Get(ctx, id)
+	if err != nil {
+		return EventsResponse{}, err
+	}
+
+	storedEvents, err := s.store.ListJobEvents(ctx, id)
+	if err != nil {
+		return EventsResponse{}, err
+	}
+
+	response := EventsResponse{
+		JobID:    job.ID,
+		Retained: len(storedEvents) > 0,
+		Items:    make([]JobEventRecord, 0, len(storedEvents)),
+	}
+	for _, event := range storedEvents {
+		var step *ActiveJobStep
+		if event.Step != nil {
+			step = &ActiveJobStep{
+				Index:         event.Step.Index,
+				Total:         event.Step.Total,
+				Action:        event.Step.Action,
+				TargetStackID: event.Step.TargetStackID,
+			}
+		}
+		response.Items = append(response.Items, JobEventRecord{
+			JobID:     event.JobID,
+			Sequence:  event.Sequence,
+			Event:     event.Event,
+			State:     event.State,
+			Message:   event.Message,
+			Data:      event.Data,
+			Step:      step,
+			Timestamp: event.Timestamp,
+		})
+	}
+
+	if !response.Retained {
+		response.Message = "Detailed output for this job is no longer retained."
+	}
+
+	return response, nil
+}
+
+func (s *Service) ListActive(ctx context.Context) (ActiveJobsResponse, error) {
+	storedJobs, err := s.store.ListActiveJobs(ctx)
+	if err != nil {
+		return ActiveJobsResponse{}, err
+	}
+
+	response := ActiveJobsResponse{
+		Items: make([]ActiveJobItem, 0, len(storedJobs)),
+	}
+
+	for _, job := range storedJobs {
+		item := ActiveJobItem{
+			ID:          job.ID,
+			Action:      job.Action,
+			State:       job.State,
+			RequestedAt: job.RequestedAt,
+			StartedAt:   job.StartedAt,
+		}
+		if job.StackID != "" {
+			stackID := job.StackID
+			item.StackID = &stackID
+		}
+		if job.Workflow != nil {
+			item.Workflow = &ActiveWorkflow{Steps: make([]ActiveWorkflowStep, 0, len(job.Workflow.Steps))}
+			for _, step := range job.Workflow.Steps {
+				item.Workflow.Steps = append(item.Workflow.Steps, ActiveWorkflowStep{
+					Action:        step.Action,
+					State:         step.State,
+					TargetStackID: step.TargetStackID,
+				})
+			}
+		}
+
+		latestEvent, ok, err := s.store.LatestJobEvent(ctx, job.ID)
+		if err != nil {
+			return ActiveJobsResponse{}, err
+		}
+		if ok {
+			item.LatestEvent = &ActiveJobEvent{
+				Event:     latestEvent.Event,
+				Message:   latestEvent.Message,
+				Data:      latestEvent.Data,
+				Timestamp: latestEvent.Timestamp,
+			}
+			if latestEvent.Step != nil {
+				step := ActiveJobStep{
+					Index:         latestEvent.Step.Index,
+					Total:         latestEvent.Step.Total,
+					Action:        latestEvent.Step.Action,
+					TargetStackID: latestEvent.Step.TargetStackID,
+				}
+				item.CurrentStep = &step
+				item.LatestEvent.Step = &step
+			}
+		}
+
+		switch job.State {
+		case "running":
+			response.Summary.RunningCount++
+		case "queued":
+			response.Summary.QueuedCount++
+		case "cancel_requested":
+			response.Summary.CancelRequestedCount++
+		}
+		response.Items = append(response.Items, item)
+	}
+
+	response.Summary.ActiveCount = len(response.Items)
+	return response, nil
 }
 
 func randomToken(length int) string {

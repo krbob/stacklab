@@ -289,7 +289,6 @@ These are known gaps in the current implementation, not UI bugs:
 
 - `GET /api/stacks/{stackId}/resolved-config?source=last_valid` is not implemented
 - `PUT /definition` failure responses do not include `job.id`
-- there is no REST endpoint that returns `job_events`
 - a save can be `succeeded` and still have emitted `job_warning` during the same job stream
 
 If any of these behaviors change, this document should be updated together with the endpoint or job-stream behavior.

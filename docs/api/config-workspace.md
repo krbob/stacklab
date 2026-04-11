@@ -227,7 +227,18 @@ Notes:
 - text files include content
 - binary or unsupported files return metadata only
 - unreadable files return metadata only with `blocked_reason`
+- each file response includes `repair_capability`
 - the first version does not need syntax-aware validation beyond text/binary detection
+
+Example `repair_capability`:
+
+```json
+{
+  "supported": false,
+  "reason": "Workspace permission repair is not configured yet.",
+  "recursive": true
+}
+```
 
 ## `PUT /api/config/workspace/file`
 
@@ -262,6 +273,64 @@ Rules:
 - new files may be created
 - parent directory creation is optional and explicit
 - binary files must not be overwritten through this endpoint unless they are intentionally treated as text by backend policy
+
+## `POST /api/config/workspace/repair-permissions`
+
+Purpose:
+
+- repair ownership and owner access bits for one existing path under the managed config workspace
+
+Request:
+
+```json
+{
+  "path": "nextcloud/secret.env",
+  "recursive": false
+}
+```
+
+Response:
+
+```json
+{
+  "repaired": true,
+  "path": "nextcloud/secret.env",
+  "recursive": false,
+  "changed_items": 1,
+  "warnings": [],
+  "target_permissions_before": {
+    "owner_uid": 0,
+    "owner_name": "root",
+    "group_gid": 0,
+    "group_name": "root",
+    "mode": "0600",
+    "readable": false,
+    "writable": false
+  },
+  "target_permissions_after": {
+    "owner_uid": 1000,
+    "owner_name": "stacklab",
+    "group_gid": 1000,
+    "group_name": "stacklab",
+    "mode": "0600",
+    "readable": true,
+    "writable": true
+  },
+  "audit_action": "repair_config_workspace_permissions",
+  "repair_capability": {
+    "supported": true,
+    "recursive": true
+  }
+}
+```
+
+Rules:
+
+- this is restricted to existing paths under `/opt/stacklab/config`
+- path traversal is rejected
+- the first slice is helper-backed and opt-in
+- without a configured privileged helper this endpoint returns `501 not_implemented`
+- the helper must stay limited to managed Stacklab roots, not arbitrary host paths
 
 ## `POST /api/config/workspace/directory`
 
@@ -299,6 +368,7 @@ Suggested error codes:
 - `path_not_directory`
 - `path_not_file`
 - `internal_error`
+- `not_implemented`
 
 Examples:
 
@@ -306,6 +376,7 @@ Examples:
 - trying to open a directory through file endpoint → `400 path_not_file`
 - trying to save a binary file through text editor → `409 binary_not_editable`
 - trying to save an unreadable or unwritable file → `409 permission_denied`
+- trying to repair permissions without a configured helper → `501 not_implemented`
 
 ## Audit Expectations
 
@@ -314,6 +385,7 @@ Mutating file saves should write audit entries.
 Suggested action names:
 
 - `save_config_file`
+- `repair_config_workspace_permissions`
 - later: `create_config_directory`, `delete_config_file`
 
 Suggested audit details:

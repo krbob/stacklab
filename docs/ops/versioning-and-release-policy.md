@@ -217,9 +217,12 @@ Do now:
 - keep nightly, stable, and hotfix workflows operational
 - keep selective automerge narrowly scoped
 - keep nightly soak as the validation loop for the next stable
+- keep APT channel retention active:
+  - `stable`: newest 6 package versions
+  - `nightly`: newest 7 package versions
+  - GitHub nightly prereleases: newest 14 prereleases
 
 Do later:
 
 - add stronger host-native post-publish smoke
-- add nightly retention and cleanup
 - widen low-risk automerge only if soak keeps proving safe

@@ -1,0 +1,3 @@
+Defaults:stacklab !requiretty
+
+stacklab ALL=(root) NOPASSWD: /usr/lib/stacklab/bin/stacklab-workspace-admin-helper

@@ -4,11 +4,13 @@ import { useApi } from '@/hooks/use-api'
 import { useJobStream } from '@/hooks/use-job-stream'
 import { MaintenanceImages } from '@/components/maintenance-images'
 import { MaintenanceCleanup } from '@/components/maintenance-cleanup'
+import { MaintenanceNetworks } from '@/components/maintenance-networks'
+import { MaintenanceVolumes } from '@/components/maintenance-volumes'
+import { StepCards } from '@/components/step-cards'
 import type { StackListItem } from '@/lib/api-types'
-import type { JobEvent } from '@/lib/ws-types'
 import { cn } from '@/lib/cn'
 
-type MaintenanceTab = 'update' | 'images' | 'cleanup'
+type MaintenanceTab = 'update' | 'images' | 'networks' | 'volumes' | 'cleanup'
 type TargetMode = 'all' | 'selected'
 
 const stepStatusColors: Record<string, string> = {
@@ -93,7 +95,7 @@ export function MaintenancePage() {
       <div className="flex items-center gap-2">
         <h2 className="text-2xl font-semibold tracking-[-0.04em] text-[var(--text)]">Maintenance</h2>
         <div className="ml-4 flex gap-1">
-          {([['update', 'Update'], ['images', 'Images'], ['cleanup', 'Cleanup']] as const).map(([key, label]) => (
+          {([['update', 'Update'], ['images', 'Images'], ['networks', 'Networks'], ['volumes', 'Volumes'], ['cleanup', 'Cleanup']] as const).map(([key, label]) => (
             <button
               key={key}
               onClick={() => setActiveTab(key)}
@@ -107,6 +109,14 @@ export function MaintenancePage() {
 
       <div className={activeTab === 'images' ? '' : 'hidden'}>
         <MaintenanceImages />
+      </div>
+
+      <div className={activeTab === 'networks' ? '' : 'hidden'}>
+        <MaintenanceNetworks />
+      </div>
+
+      <div className={activeTab === 'volumes' ? '' : 'hidden'}>
+        <MaintenanceVolumes />
       </div>
 
       <div className={activeTab === 'cleanup' ? '' : 'hidden'}>
@@ -214,37 +224,10 @@ export function MaintenancePage() {
               <span className={cn('text-sm font-medium', stepStatusColors[jobState ?? ''] ?? 'text-[var(--muted)]')}>
                 {jobState === 'running' ? 'Running' : jobState === 'succeeded' ? 'Succeeded' : jobState === 'failed' ? 'Failed' : jobState ?? 'Starting'}
               </span>
-              {events.length > 0 && events[events.length - 1].step && (
-                <span className="text-xs text-[var(--muted)]">
-                  Step {events[events.length - 1].step!.index}/{events[events.length - 1].step!.total}
-                </span>
-              )}
             </div>
 
-            {/* Step list */}
-            <div className="space-y-1">
-              {events.filter((e) => e.event === 'job_step_started' || e.event === 'job_step_finished').map((event, i) => (
-                <StepRow key={i} event={event} />
-              ))}
-            </div>
-
-            {/* Raw output */}
-            <div className="max-h-64 overflow-y-auto rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs leading-5">
-              {events.map((event, i) => {
-                if (event.event === 'job_step_started' || event.event === 'job_step_finished') return null
-                return (
-                  <div key={i} className={cn(
-                    event.event === 'job_error' ? 'text-red-400' :
-                    event.event === 'job_warning' ? 'text-amber-400' :
-                    'text-[var(--muted)]',
-                  )}>
-                    {event.message}
-                    {event.data && <span className="text-[var(--text)]"> {event.data}</span>}
-                  </div>
-                )
-              })}
-              {events.length === 0 && <div className="text-[var(--muted)]">Waiting for events...</div>}
-            </div>
+            {/* Step cards */}
+            <StepCards events={events} />
           </div>
         )}
       </div>
@@ -278,20 +261,3 @@ function StackCheckbox({ stack, checked, onChange, disabled }: {
   )
 }
 
-function StepRow({ event }: { event: JobEvent }) {
-  const step = event.step
-  if (!step) return null
-
-  const isFinished = event.event === 'job_step_finished'
-  const state = isFinished ? 'succeeded' : 'running'
-
-  return (
-    <div className="flex items-center gap-2 rounded-lg px-2 py-1 text-xs">
-      <span className={cn('w-3 shrink-0 font-mono font-bold', stepStatusColors[state])}>
-        {state === 'succeeded' ? '✓' : state === 'running' ? '▶' : '·'}
-      </span>
-      <span className="text-[var(--text)]">{step.target_stack_id ?? '—'}</span>
-      <span className="text-[var(--muted)]">{step.action}</span>
-    </div>
-  )
-}

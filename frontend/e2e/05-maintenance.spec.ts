@@ -6,6 +6,11 @@ const COMPOSE = `services:
   worker:
     image: alpine:3.20
     command: ["sh", "-c", "sleep 600"]
+    volumes:
+      - worker-data:/data
+
+volumes:
+  worker-data:
 `
 
 test.describe('Maintenance', () => {
@@ -22,15 +27,27 @@ test.describe('Maintenance', () => {
     await expect(page).toHaveURL(/\/maintenance/)
 
     await page.getByRole('button', { name: 'Images' }).click()
-    await expect(page.getByRole('heading', { name: 'Images' })).toBeVisible()
-    await expect(page.getByText(STACK_ID)).toBeVisible({ timeout: 20_000 })
+    const imagesSection = page.getByRole('heading', { name: 'Images' }).locator('xpath=ancestor::section[1]')
+    await expect(imagesSection).toBeVisible()
+    await expect(imagesSection.getByRole('link', { name: STACK_ID })).toBeVisible({ timeout: 20_000 })
+
+    await page.getByRole('button', { name: 'Networks' }).click()
+    await expect(page.getByRole('heading', { name: 'Networks' })).toBeVisible()
+    await expect(page.getByText(`${STACK_ID}_default`)).toBeVisible({ timeout: 20_000 })
+
+    await page.getByRole('button', { name: 'Volumes' }).click()
+    await expect(page.getByRole('heading', { name: 'Volumes' })).toBeVisible()
+    await expect(page.getByText(`${STACK_ID}_worker-data`, { exact: true })).toBeVisible({ timeout: 20_000 })
 
     await page.getByRole('button', { name: 'Cleanup' }).click()
     await expect(page.getByRole('heading', { name: 'Cleanup' })).toBeVisible()
     await expect(page.getByText('Total reclaimable:')).toBeVisible({ timeout: 20_000 })
 
+    const progressPanel = page.getByRole('heading', { name: 'Progress' }).locator('xpath=..')
     await page.getByTestId('maintenance-prune').click()
-    await expect(page.getByText(/Running|Succeeded/)).toBeVisible({ timeout: 20_000 })
-    await expect(page.getByRole('heading', { name: 'Progress' })).toBeVisible()
+    await expect(page.getByTestId('maintenance-prune')).toHaveText('Cleaning...', { timeout: 5_000 })
+    await expect(progressPanel.getByText('prune_images')).toBeVisible({ timeout: 20_000 })
+    await expect(progressPanel.getByText('Succeeded')).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByTestId('maintenance-prune')).toHaveText('Run cleanup', { timeout: 20_000 })
   })
 })

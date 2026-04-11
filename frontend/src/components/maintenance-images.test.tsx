@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MaintenanceImages } from './maintenance-images'
 import type { MaintenanceImagesResponse } from '@/lib/api-types'
@@ -45,6 +46,13 @@ const imagesData: MaintenanceImagesResponse = {
 }
 
 describe('MaintenanceImages', () => {
+  const renderComponent = () =>
+    render(
+      <MemoryRouter>
+        <MaintenanceImages />
+      </MemoryRouter>,
+    )
+
   beforeEach(() => {
     mockUseApi.mockReset()
     mockUseApi.mockReturnValue({
@@ -56,7 +64,7 @@ describe('MaintenanceImages', () => {
   })
 
   it('renders image list with summary', () => {
-    render(<MaintenanceImages />)
+    renderComponent()
     expect(screen.getByText('Images')).toBeInTheDocument()
     expect(screen.getByText(/2 images/)).toBeInTheDocument()
     expect(screen.getByText(/1 unused/)).toBeInTheDocument()
@@ -64,19 +72,19 @@ describe('MaintenanceImages', () => {
   })
 
   it('shows dangling and unused badges', () => {
-    render(<MaintenanceImages />)
+    renderComponent()
     expect(screen.getByText('dangling')).toBeInTheDocument()
     // "unused" appears as badge and in summary
     expect(screen.getAllByText(/unused/).length).toBeGreaterThanOrEqual(2)
   })
 
   it('shows stack links for managed images', () => {
-    render(<MaintenanceImages />)
-    expect(screen.getByText('demo')).toBeInTheDocument()
+    renderComponent()
+    expect(screen.getByRole('link', { name: 'demo' })).toHaveAttribute('href', '/stacks/demo')
   })
 
   it('shows container count', () => {
-    render(<MaintenanceImages />)
+    renderComponent()
     expect(screen.getByText('2 containers')).toBeInTheDocument()
     expect(screen.getByText('0 containers')).toBeInTheDocument()
   })
@@ -88,7 +96,7 @@ describe('MaintenanceImages', () => {
       loading: false,
       refetch: vi.fn(),
     })
-    render(<MaintenanceImages />)
+    renderComponent()
     expect(screen.getByText(/No images found/)).toBeInTheDocument()
   })
 
@@ -99,12 +107,12 @@ describe('MaintenanceImages', () => {
       loading: false,
       refetch: vi.fn(),
     })
-    render(<MaintenanceImages />)
+    renderComponent()
     expect(screen.getByText('Docker unavailable')).toBeInTheDocument()
   })
 
   it('renders filter buttons', () => {
-    render(<MaintenanceImages />)
+    renderComponent()
     expect(screen.getByRole('button', { name: 'used' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'unused' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'stack managed' })).toBeInTheDocument()

@@ -2,17 +2,27 @@
 
 This document turns the current product direction into an executable sequence of milestones.
 
-It is intentionally short-term and implementation-oriented.
+This document is now partly historical. For the current product state and next
+priorities, use `docs/roadmap.md` first.
 
 ## Guiding Principle
 
-Work on product features before `.deb` packaging and APT distribution.
+Keep product work and release hygiene moving together.
 
 Reason:
 
-- Stacklab already has a validated tarball release and upgrade path
-- the biggest product value still sits in operator workflows
-- package distribution is important, but currently lower leverage than the next feature set
+- the daily operator loop is now broad enough that install/update reliability matters
+- Stacklab has package-managed installs, APT channels, and self-update in active use
+- new product surfaces should not outpace the release path that operators use to test them
+
+Current near-term sequence:
+
+1. keep release hygiene healthy:
+   - APT package retention
+   - nightly prerelease cleanup
+   - post-publish smoke
+2. add a focused template library / starter catalog
+3. add lightweight frontend-only stats history before considering backend metric retention
 
 ## Completed Foundations
 
@@ -36,6 +46,10 @@ The following milestones are already materially in place:
   - selected/all stack update workflow
   - optional prune
   - progress and audit integration
+
+For the fuller current baseline, including APT release automation,
+self-update, Docker administration, notifications, scheduled maintenance,
+stack auxiliary files, and maintenance inventory, see `docs/roadmap.md`.
 
 ## Recommended Sequence
 
@@ -129,7 +143,7 @@ Scope:
 - show owner, group, and mode where possible
 - base diagnostics on the current file inode and effective access, not on assumed ACL inheritance
 - explain why some files cannot be diffed, edited, or committed
-- later add explicit repair workflows restricted to managed roots
+- add explicit helper-backed repair workflows restricted to managed roots
 
 Non-goal:
 
@@ -139,17 +153,18 @@ Backend work:
 
 - enrich workspace and Git models with permission diagnostics
 - detect blocked reads and blocked writes cleanly
-- define a future repair interface that stays scoped to managed roots
+- expose helper-backed repair endpoints for config and stack workspaces
+- keep repair constrained to managed roots and explicit target paths
 
 UI work:
 
 - blocked-file states
 - ownership/mode messaging
-- repair entry point later, once backend model exists
+- repair entry points in blocked file states after backend contract is available
 
 UI developer input needed:
 
-- after backend exposes concrete blocked-file semantics
+- after backend exposes concrete repair capability and response semantics
 
 ## Milestone 7: Maintenance Inventory And Cleanup
 
@@ -327,6 +342,65 @@ Scope:
 - automatic monthly stable release on the `1st`
 - selective Renovate automerge for low-risk dependency classes only
 
+## Milestone 13: Mobile Notifications And Post-Update Alerts
+
+Goal:
+
+- get important operator-facing failures onto the phone without requiring the UI to stay open
+
+Scope:
+
+- keep webhook notifications as the generic baseline
+- add Telegram as the first native mobile delivery channel
+- evaluate `ntfy` and `Gotify` later as homelab-friendly self-hosted channels
+- add post-update recovery alerts when a maintenance workflow completes but a stack does not return to a healthy state
+
+Recommended event order:
+
+1. post-update stack recovery failed
+2. job failed
+3. job succeeded with warnings
+4. Stacklab self-health alerts from `journald`
+5. later runtime health degradation:
+   - unhealthy containers
+   - restart loops
+   - stack transitions into degraded states
+6. runtime log error bursts:
+   - repeated new error-like log lines from managed containers
+   - cooldown and baseline seeding to avoid spam on startup
+
+Non-goals in the first mobile alert slice:
+
+- WhatsApp native integration
+- log-anomaly alerting
+- notification inbox in the UI
+- templating or batching
+
+Follow-up slice after the first Telegram rollout:
+
+- `stacklab_service_error` event sourced from the `stacklab` systemd unit logs
+- thresholded and deduplicated delivery, for example:
+  - `N` error or fatal entries in `M` minutes
+  - suppress repeated identical messages for a cooldown window
+- operator-facing copy focused on "Stacklab itself is unhealthy", not raw journald mechanics
+- then add runtime log error bursts sourced from managed container logs
+- keep the first version heuristic:
+  - repeated `error` / `fatal` / `panic` style lines
+  - no regex editor or per-service rules
+
+Backend work:
+
+- notification channel abstraction above the existing webhook sender
+- Telegram channel support with test send
+- post-update verification logic tied to maintenance completion
+- Stacklab service error detector later, using journald access already present for Host Observability
+- debounced runtime health alert model only after post-update and Stacklab self-health alerts are stable
+
+UI developer input needed:
+
+- after the Telegram/settings contract is ready
+- the first UI slice still lives inside `/settings`, not on a dedicated notifications page
+
 Important constraint:
 
 - release day publishes the already-green state of `main`
@@ -363,6 +437,88 @@ UI developer input needed:
 - early
 - this is primarily a cross-app interaction and information-architecture problem, not just a component styling task
 
+## Milestone 10: Richer Maintenance Progress
+
+Goal:
+
+- make long-running maintenance workflows feel active and legible without pretending to be a full Docker pull terminal
+
+Scope:
+
+- replace the current bare step list with step cards
+- show elapsed time per workflow step
+- attach raw `job_log` output to the corresponding step card
+- keep output collapsed by default with expand-on-demand
+
+Important constraint:
+
+- use the current job event model first
+- do not block on structured image-layer progress or ANSI parsing
+
+Backend work:
+
+- none required for the first slice if current `job_log` events continue carrying `step`
+- only document and preserve the current contract semantics
+
+UI work:
+
+- step-card presentation for update and cleanup workflows
+- elapsed time rendering from existing event timestamps
+- step-local raw output rendering
+
+UI developer input needed:
+
+- early, but now already directionally decided:
+  - step cards over timeline-only list
+  - elapsed time per step
+  - step-local collapsible output
+
+## Milestone 14: Scheduled Maintenance Policies
+
+Goal:
+
+- let operators move routine update and cleanup windows into Stacklab without leaving the product for host cron or ad-hoc timers
+
+Scope:
+
+- one scheduled update policy
+- one scheduled prune policy
+- host-local time only
+- cadence:
+  - daily
+  - weekly
+- runtime status:
+  - next run
+  - last run
+  - skipped/failed/succeeded result
+
+Important constraint:
+
+- do not introduce a generic cron editor
+- do not auto-retry skipped runs in the first slice
+- keep automatic prune explicit and separately configurable
+
+Backend work:
+
+- persistent schedule settings in SQLite
+- background dispatcher inside Stacklab
+- reuse existing `update_stacks` and `prune` workflows
+- scheduled runs should feed:
+  - jobs
+  - audit
+  - global activity
+  - notifications
+
+UI developer input needed:
+
+- yes
+- placement:
+  - `/settings`
+  - or `/maintenance`
+- shape:
+  - two fixed cards
+  - or a lightweight policy list
+
 ## Packaging Track
 
 `.deb` packaging and later APT publication should start after the next product-shaping operator milestones are substantially complete.
@@ -382,10 +538,87 @@ Suggested order:
 
 ## Recommended Immediate Next Step
 
-Implement the first Milestone 7 backend slice:
+Implement the first Milestone 9 backend slice:
 
-1. `GET /api/maintenance/images`
-2. `GET /api/maintenance/prune-preview`
-3. `POST /api/maintenance/prune`
+1. `GET /api/jobs/active`
+2. return the latest event and current step for each active job
+3. hand the concrete active-job model to the UI developer for the global chrome activity affordance
 
-Then hand the concrete backend model to the UI developer for `Images` and `Cleanup` inside `/maintenance`.
+Then decide the final UI shape:
+
+- compact pill vs slim bar
+- popover vs tray vs drawer
+- collapsed single-job summary vs aggregate count-first summary
+
+## Milestone 11: Stack Auxiliary Files
+
+Goal:
+
+- cover stack-local helper files such as `Dockerfile` and nested config without turning the stack area into a generic file manager
+
+Scope:
+
+- browse auxiliary files under `stacks/<stack_id>/`
+- text editing for supported files
+- blocked-file diagnostics reuse from existing workspace flows
+- keep `compose.yaml` and root `.env` in the dedicated stack editor
+
+Backend work:
+
+- stack-scoped workspace endpoint(s)
+- reserved canonical file handling
+- atomic save path for auxiliary text files
+- audit integration with `save_stack_file`
+- tests for path safety, reserved files, binary detection, and permissions
+
+UI work:
+
+- place the feature inside the stack surface
+- file tree + editor/read-only preview
+- clear affordance back to the main Compose editor
+
+UI developer input needed:
+
+- early
+- the main decision is whether this is a new stack tab or a mode inside the existing editor
+
+## Milestone 16: Stacklab Self-Update
+
+Goal:
+
+- let operators upgrade Stacklab itself from the UI on APT-managed installs
+
+Scope:
+
+- current version and package channel visibility
+- candidate version visibility
+- helper-backed `apt` upgrade workflow for the `stacklab` package only
+- restart verification after upgrade
+- result visibility through jobs, global activity, and job detail
+
+Non-goals:
+
+- tarball self-update
+- host-wide package management
+- reboot management
+- package rollback UI
+
+Backend work:
+
+- self-update overview endpoint
+- self-update apply endpoint
+- detached helper that survives process restart and writes workflow state back to SQLite
+- reconciliation on restart for audit and notifications
+- packaging and docs for the helper and sudoers example
+
+UI work:
+
+- Stacklab update card in application settings
+- unsupported/degraded states for tarball installs or missing helper capability
+- explicit `Update Stacklab` action and runtime/result visibility
+
+UI developer input needed:
+
+- yes
+- final placement and affordances inside `/settings`
+- how much advanced control to expose in v1 versus keeping update as one primary action

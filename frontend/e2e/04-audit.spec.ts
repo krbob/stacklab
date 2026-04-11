@@ -40,6 +40,14 @@ test.describe('Global Audit', () => {
       const row = page.getByTestId('audit-row').filter({ hasText: AUDIT_STACK }).first()
       await expect(row).toBeVisible()
       await expect(row.getByText('save_definition')).toBeVisible()
+
+      await row.getByRole('button', { name: 'View detail' }).click()
+      const drawer = page.locator('div.fixed.inset-y-0.right-0')
+      await expect(drawer.getByText('Job detail')).toBeVisible()
+      await expect(drawer).toContainText('save_definition')
+      await expect(drawer).toContainText(AUDIT_STACK)
+      await page.keyboard.press('Escape')
+      await expect(drawer).not.toBeVisible()
     } finally {
       await deleteStackViaApi(page, AUDIT_STACK)
     }

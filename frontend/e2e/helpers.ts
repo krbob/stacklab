@@ -40,22 +40,36 @@ export async function createStackViaApi(page: Page, stackId: string, composeYaml
 export async function deleteStackViaApi(page: Page, stackId: string): Promise<void> {
   const headers = await getAuthHeaders(page)
 
-  const res = await page.request.delete(`${BASE_URL}/api/stacks/${stackId}`, {
-    data: {
-      remove_runtime: true,
-      remove_definition: true,
-      remove_config: true,
-      remove_data: true,
-    },
-    headers,
-  })
+  const deadline = Date.now() + 20_000
+  while (Date.now() < deadline) {
+    const res = await page.request.delete(`${BASE_URL}/api/stacks/${stackId}`, {
+      data: {
+        remove_runtime: true,
+        remove_definition: true,
+        remove_config: true,
+        remove_data: true,
+      },
+      headers,
+    })
 
-  // Ignore 404 — stack may already be gone
-  if (res.status() !== 404) {
+    // Ignore 404 — stack may already be gone
+    if (res.status() === 404) {
+      return
+    }
+
+    // A background mutating job may still be finishing; give it a moment.
+    if (res.status() === 409) {
+      await page.waitForTimeout(500)
+      continue
+    }
+
     expect(res.ok()).toBeTruthy()
     const body = await res.json()
     await waitForJob(page, body.job.id)
+    return
   }
+
+  throw new Error(`Stack ${stackId} could not be deleted within 20000ms because another job kept it locked`)
 }
 
 export async function invokeStackActionViaApi(page: Page, stackId: string, action: string): Promise<void> {

@@ -4,7 +4,8 @@
 
 This document defines the first supported host-native install and upgrade flow for Stacklab using release tarballs.
 
-It is the recommended path before `.deb` packaging is implemented.
+It remains a supported host-native install and upgrade path alongside the `.deb`
+and APT workflows.
 
 ## Supported Platforms
 
@@ -58,11 +59,34 @@ stacklab-<version>-linux-<arch>/
   systemd/
     stacklab.service.example
     stacklab.env.example
+    stacklab-docker-admin.sudoers.example
+    stacklab-workspace-admin.sudoers.example
+    stacklab-self-update.sudoers.example
   host-tools/
     upgrade.sh
 ```
 
 `host-tools/upgrade.sh` is the supported installation and upgrade entrypoint.
+
+The tarball also includes:
+
+- `bin/stacklab-docker-admin-helper`
+- `bin/stacklab-workspace-admin-helper`
+- `bin/stacklab-self-update-helper`
+- `systemd/stacklab-docker-admin.sudoers.example`
+- `systemd/stacklab-workspace-admin.sudoers.example`
+- `systemd/stacklab-self-update.sudoers.example`
+
+The self-update helper is included because the same release artifact also feeds
+the `.deb` build, but tarball installs themselves remain unsupported for
+Stacklab self-update.
+
+If you enable Docker daemon apply, workspace permission repair, or helper-backed
+Stacklab self-update through `sudo` helpers, the Stacklab unit must keep
+`NoNewPrivileges=false`.
+Docker daemon apply also requires `/etc/docker` in `ReadWritePaths`.
+The sudoers examples inside the tarball are already rewritten for the tarball
+layout and point at `/opt/stacklab/app/current/bin/...`.
 
 ## First Install
 

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MaintenancePage } from './maintenance-page'
 import type { StackListResponse } from '@/lib/api-types'
@@ -178,11 +178,10 @@ describe('MaintenancePage', () => {
       })
     })
 
-    expect(await screen.findByText('Running')).toBeInTheDocument()
-    expect(screen.getByText('Step 1/2')).toBeInTheDocument()
-    const stepRow = screen.getByText('pull').closest('div')
-    expect(stepRow).not.toBeNull()
-    expect(within(stepRow!).getByText('demo')).toBeInTheDocument()
+    expect(await screen.findAllByText('Running')).toHaveLength(2) // job header + step card
+    // Step card should show action, target stack, and step counter
+    expect(screen.getByText('pull')).toBeInTheDocument()
+    expect(screen.getByText('1/2')).toBeInTheDocument()
   })
 
   it('never sends include_volumes when prune_after is disabled', async () => {

@@ -12,6 +12,7 @@ tags:
   - name: Auth
   - name: Meta
   - name: Host
+  - name: Docker
   - name: Config
   - name: Git
   - name: Maintenance
@@ -111,6 +112,136 @@ paths:
           $ref: '#/components/responses/ErrorUnauthorized'
         '400':
           $ref: '#/components/responses/ErrorValidationFailed'
+  /docker/admin/overview:
+    get:
+      tags: [Docker]
+      operationId: getDockerAdminOverview
+      responses:
+        '200':
+          description: Docker daemon administration overview.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DockerAdminOverviewResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+  /docker/admin/daemon-config:
+    get:
+      tags: [Docker]
+      operationId: getDockerAdminDaemonConfig
+      responses:
+        '200':
+          description: Read-only Docker daemon config file view.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DockerDaemonConfigResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+  /docker/admin/daemon-config/validate:
+    post:
+      tags: [Docker]
+      operationId: validateDockerAdminDaemonConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DockerDaemonValidateRequest'
+      responses:
+        '200':
+          description: Managed Docker daemon config validation preview.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DockerDaemonValidateResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '409':
+          description: Current daemon.json is unreadable or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /docker/admin/daemon-config/apply:
+    post:
+      tags: [Docker]
+      operationId: applyDockerAdminDaemonConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DockerDaemonValidateRequest'
+      responses:
+        '200':
+          description: Started Docker daemon config apply workflow.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobEnvelopeResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '409':
+          description: Current daemon.json is unreadable or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '501':
+          description: Docker daemon apply helper is not configured yet.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /stacklab/update/overview:
+    get:
+      tags: [Stacklab]
+      operationId: getStacklabUpdateOverview
+      responses:
+        '200':
+          description: Stacklab self-update overview for the current install.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StacklabUpdateOverviewResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+  /stacklab/update/apply:
+    post:
+      tags: [Stacklab]
+      operationId: applyStacklabUpdate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StacklabUpdateApplyRequest'
+      responses:
+        '200':
+          description: Started Stacklab self-update workflow.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StacklabUpdateApplyResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '409':
+          description: Update is not available or another self-update is already running.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Stacklab self-update is unavailable on this install or host.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /config/workspace/tree:
     get:
       tags: [Config]
@@ -375,6 +506,226 @@ paths:
           $ref: '#/components/responses/ErrorValidationFailed'
         '503':
           description: Docker maintenance inventory is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /maintenance/networks:
+    get:
+      tags: [Maintenance]
+      operationId: getMaintenanceNetworks
+      parameters:
+        - in: query
+          name: q
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: usage
+          required: false
+          schema:
+            type: string
+            enum: [all, used, unused]
+        - in: query
+          name: origin
+          required: false
+          schema:
+            type: string
+            enum: [all, stack_managed, external]
+      responses:
+        '200':
+          description: Maintenance network inventory.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceNetworksResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '503':
+          description: Docker maintenance inventory is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      tags: [Maintenance]
+      operationId: createMaintenanceNetwork
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MaintenanceCreateNetworkRequest'
+      responses:
+        '200':
+          description: Docker network created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceCreateNetworkResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '409':
+          description: Network already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Docker maintenance actions are unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /maintenance/networks/{name}:
+    delete:
+      tags: [Maintenance]
+      operationId: deleteMaintenanceNetwork
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Docker network deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceDeleteNetworkResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '404':
+          description: Docker network not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Only unused external networks can be removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Docker maintenance actions are unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /maintenance/volumes:
+    get:
+      tags: [Maintenance]
+      operationId: getMaintenanceVolumes
+      parameters:
+        - in: query
+          name: q
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: usage
+          required: false
+          schema:
+            type: string
+            enum: [all, used, unused]
+        - in: query
+          name: origin
+          required: false
+          schema:
+            type: string
+            enum: [all, stack_managed, external]
+      responses:
+        '200':
+          description: Maintenance volume inventory.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceVolumesResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '503':
+          description: Docker maintenance inventory is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      tags: [Maintenance]
+      operationId: createMaintenanceVolume
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MaintenanceCreateVolumeRequest'
+      responses:
+        '200':
+          description: Docker volume created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceCreateVolumeResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '409':
+          description: Volume already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Docker maintenance actions are unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /maintenance/volumes/{name}:
+    delete:
+      tags: [Maintenance]
+      operationId: deleteMaintenanceVolume
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Docker volume deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceDeleteVolumeResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '404':
+          description: Docker volume not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Only unused external volumes can be removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Docker maintenance actions are unavailable.
           content:
             application/json:
               schema:
@@ -740,6 +1091,108 @@ paths:
                 $ref: '#/components/schemas/UpdatePasswordResponse'
         '401':
           $ref: '#/components/responses/ErrorUnauthorized'
+  /settings/notifications:
+    get:
+      tags: [Settings]
+      operationId: getNotificationSettings
+      responses:
+        '200':
+          description: Current webhook notification settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationSettingsResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+    put:
+      tags: [Settings]
+      operationId: updateNotificationSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationSettingsRequest'
+      responses:
+        '200':
+          description: Notification settings updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationSettingsResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+  /settings/notifications/test:
+    post:
+      tags: [Settings]
+      operationId: sendNotificationTest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationTestRequest'
+      responses:
+        '200':
+          description: Test notification delivered.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationTestResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '502':
+          $ref: '#/components/responses/ErrorBadGateway'
+  /settings/maintenance-schedules:
+    get:
+      tags: [Settings]
+      operationId: getMaintenanceSchedules
+      responses:
+        '200':
+          description: Current scheduled maintenance policies.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceSchedulesResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+    put:
+      tags: [Settings]
+      operationId: updateMaintenanceSchedules
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MaintenanceSchedulesRequest'
+      responses:
+        '200':
+          description: Scheduled maintenance policies updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceSchedulesResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+  /jobs/active:
+    get:
+      tags: [Jobs]
+      operationId: listActiveJobs
+      responses:
+        '200':
+          description: Active jobs for global activity chrome.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActiveJobsResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
   /jobs/{jobId}:
     parameters:
       - $ref: '#/components/parameters/JobId'
@@ -753,6 +1206,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/JobDetailResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+  /jobs/{jobId}/events:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    get:
+      tags: [Jobs]
+      operationId: listJobEvents
+      responses:
+        '200':
+          description: Retained job events for replayable progress detail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobEventsResponse'
         '401':
           $ref: '#/components/responses/ErrorUnauthorized'
         '404':
@@ -845,6 +1315,12 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
     ErrorValidationFailed:
       description: Validation failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ErrorBadGateway:
+      description: Upstream delivery failed.
       content:
         application/json:
           schema:
@@ -1040,6 +1516,284 @@ components:
         cursor:
           type: string
       required: [timestamp, level, message, cursor]
+    DockerAdminOverviewResponse:
+      type: object
+      properties:
+        service:
+          $ref: '#/components/schemas/DockerServiceStatus'
+        engine:
+          $ref: '#/components/schemas/DockerEngineStatus'
+        daemon_config:
+          $ref: '#/components/schemas/DockerDaemonConfigMeta'
+        write_capability:
+          $ref: '#/components/schemas/DockerDaemonWriteCapability'
+      required: [service, engine, daemon_config, write_capability]
+    DockerServiceStatus:
+      type: object
+      properties:
+        manager:
+          type: string
+        supported:
+          type: boolean
+        unit_name:
+          type: string
+        load_state:
+          type: string
+        active_state:
+          type: string
+        sub_state:
+          type: string
+        unit_file_state:
+          type: string
+        fragment_path:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        message:
+          type: string
+          nullable: true
+      required: [manager, supported, unit_name, load_state, active_state, sub_state, unit_file_state, fragment_path]
+    DockerEngineStatus:
+      type: object
+      properties:
+        available:
+          type: boolean
+        version:
+          type: string
+        api_version:
+          type: string
+        compose_version:
+          type: string
+        root_dir:
+          type: string
+        driver:
+          type: string
+        logging_driver:
+          type: string
+        cgroup_driver:
+          type: string
+        message:
+          type: string
+          nullable: true
+      required: [available, version, api_version, compose_version, root_dir, driver, logging_driver, cgroup_driver]
+    DockerDaemonConfigSummary:
+      type: object
+      properties:
+        dns:
+          type: array
+          items:
+            type: string
+        registry_mirrors:
+          type: array
+          items:
+            type: string
+        insecure_registries:
+          type: array
+          items:
+            type: string
+        log_driver:
+          type: string
+        data_root:
+          type: string
+        live_restore:
+          type: boolean
+          nullable: true
+      required: [dns, registry_mirrors, insecure_registries, log_driver, data_root]
+    DockerDaemonConfigMeta:
+      type: object
+      properties:
+        path:
+          type: string
+        exists:
+          type: boolean
+        permissions:
+          $ref: '#/components/schemas/FilePermissionsNullable'
+        size_bytes:
+          type: integer
+          nullable: true
+        modified_at:
+          type: string
+          format: date-time
+          nullable: true
+        valid_json:
+          type: boolean
+        parse_error:
+          type: string
+          nullable: true
+        configured_keys:
+          type: array
+          items:
+            type: string
+        summary:
+          $ref: '#/components/schemas/DockerDaemonConfigSummary'
+        write_capability:
+          $ref: '#/components/schemas/DockerDaemonWriteCapability'
+      required: [path, exists, valid_json, configured_keys, summary, write_capability]
+    DockerDaemonConfigResponse:
+      allOf:
+        - $ref: '#/components/schemas/DockerDaemonConfigMeta'
+        - type: object
+          properties:
+            content:
+              type: string
+              nullable: true
+    DockerDaemonWriteCapability:
+      type: object
+      properties:
+        supported:
+          type: boolean
+        reason:
+          type: string
+          nullable: true
+        managed_keys:
+          type: array
+          items:
+            type: string
+      required: [supported, managed_keys]
+    DockerManagedSettings:
+      type: object
+      properties:
+        dns:
+          type: array
+          items:
+            type: string
+        registry_mirrors:
+          type: array
+          items:
+            type: string
+        insecure_registries:
+          type: array
+          items:
+            type: string
+        live_restore:
+          type: boolean
+    DockerDaemonValidateRequest:
+      type: object
+      properties:
+        settings:
+          $ref: '#/components/schemas/DockerManagedSettings'
+        remove_keys:
+          type: array
+          items:
+            type: string
+      required: [settings]
+    DockerDaemonConfigPreview:
+      type: object
+      properties:
+        path:
+          type: string
+        content:
+          type: string
+        configured_keys:
+          type: array
+          items:
+            type: string
+        summary:
+          $ref: '#/components/schemas/DockerDaemonConfigSummary'
+      required: [path, content, configured_keys, summary]
+    DockerDaemonValidateResponse:
+      type: object
+      properties:
+        write_capability:
+          $ref: '#/components/schemas/DockerDaemonWriteCapability'
+        changed_keys:
+          type: array
+          items:
+            type: string
+        requires_restart:
+          type: boolean
+        warnings:
+          type: array
+          items:
+            type: string
+        preview:
+          $ref: '#/components/schemas/DockerDaemonConfigPreview'
+      required: [write_capability, changed_keys, requires_restart, warnings, preview]
+    StacklabUpdatePackageStatus:
+      type: object
+      properties:
+        supported:
+          type: boolean
+        message:
+          type: string
+        name:
+          type: string
+        installed_version:
+          type: string
+        candidate_version:
+          type: string
+        configured_channel:
+          type: string
+        update_available:
+          type: boolean
+      required: [supported, name, update_available]
+    StacklabUpdateWriteCapability:
+      type: object
+      properties:
+        supported:
+          type: boolean
+        reason:
+          type: string
+      required: [supported]
+    StacklabUpdateRuntimeStatus:
+      type: object
+      properties:
+        job_id:
+          type: string
+        pending_finalize:
+          type: boolean
+        requested_version:
+          type: string
+        installed_version:
+          type: string
+        result:
+          type: string
+        message:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+      required: [pending_finalize]
+    StacklabUpdateOverviewResponse:
+      type: object
+      properties:
+        current_version:
+          type: string
+        install_mode:
+          type: string
+        package:
+          $ref: '#/components/schemas/StacklabUpdatePackageStatus'
+        write_capability:
+          $ref: '#/components/schemas/StacklabUpdateWriteCapability'
+        runtime:
+          $ref: '#/components/schemas/StacklabUpdateRuntimeStatus'
+      required: [current_version, install_mode, package, write_capability]
+    StacklabUpdateApplyRequest:
+      type: object
+      properties:
+        expected_candidate_version:
+          type: string
+        refresh_package_index:
+          type: boolean
+    StacklabUpdateApplyResponse:
+      type: object
+      properties:
+        started:
+          type: boolean
+        job:
+          $ref: '#/components/schemas/Job'
+        package:
+          $ref: '#/components/schemas/StacklabUpdatePackageStatus'
+        runtime:
+          $ref: '#/components/schemas/StacklabUpdateRuntimeStatus'
+      required: [started, job, package]
     ConfigEntryType:
       type: string
       enum: [directory, text_file, binary_file, unknown_file]
@@ -1761,6 +2515,243 @@ components:
         updated:
           type: boolean
       required: [updated]
+    NotificationEventToggles:
+      type: object
+      properties:
+        job_failed:
+          type: boolean
+        job_succeeded_with_warnings:
+          type: boolean
+        maintenance_succeeded:
+          type: boolean
+        post_update_recovery_failed:
+          type: boolean
+        stacklab_service_error:
+          type: boolean
+        runtime_health_degraded:
+          type: boolean
+        runtime_log_error_burst:
+          type: boolean
+      required: [job_failed, job_succeeded_with_warnings, maintenance_succeeded]
+    NotificationWebhookChannel:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        configured:
+          type: boolean
+        url:
+          type: string
+      required: [enabled, configured, url]
+    NotificationTelegramChannel:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        configured:
+          type: boolean
+        bot_token_configured:
+          type: boolean
+        chat_id:
+          type: string
+      required: [enabled, configured, bot_token_configured, chat_id]
+    NotificationChannelsResponse:
+      type: object
+      properties:
+        webhook:
+          $ref: '#/components/schemas/NotificationWebhookChannel'
+        telegram:
+          $ref: '#/components/schemas/NotificationTelegramChannel'
+      required: [webhook, telegram]
+    NotificationWebhookChannelRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        url:
+          type: string
+      required: [enabled, url]
+    NotificationTelegramChannelRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        bot_token:
+          type: string
+        chat_id:
+          type: string
+      required: [enabled, bot_token, chat_id]
+    NotificationChannelsRequest:
+      type: object
+      properties:
+        webhook:
+          $ref: '#/components/schemas/NotificationWebhookChannelRequest'
+        telegram:
+          $ref: '#/components/schemas/NotificationTelegramChannelRequest'
+    NotificationSettingsRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        webhook_url:
+          type: string
+        events:
+          $ref: '#/components/schemas/NotificationEventToggles'
+        channels:
+          $ref: '#/components/schemas/NotificationChannelsRequest'
+      required: [enabled, webhook_url, events]
+    NotificationSettingsResponse:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        configured:
+          type: boolean
+        webhook_url:
+          type: string
+        events:
+          $ref: '#/components/schemas/NotificationEventToggles'
+        channels:
+          $ref: '#/components/schemas/NotificationChannelsResponse'
+      required: [enabled, configured, webhook_url, events, channels]
+    NotificationTestRequest:
+      type: object
+      properties:
+        channel:
+          type: string
+          enum: [webhook, telegram]
+        enabled:
+          type: boolean
+        webhook_url:
+          type: string
+        events:
+          $ref: '#/components/schemas/NotificationEventToggles'
+        channels:
+          $ref: '#/components/schemas/NotificationChannelsRequest'
+      required: [enabled, webhook_url, events]
+    NotificationTestResponse:
+      type: object
+      properties:
+        sent:
+          type: boolean
+        channel:
+          type: string
+          enum: [webhook, telegram]
+      required: [sent, channel]
+    MaintenanceScheduleFrequency:
+      type: string
+      enum: [daily, weekly]
+    MaintenanceScheduleWeekday:
+      type: string
+      enum: [mon, tue, wed, thu, fri, sat, sun]
+    MaintenanceScheduleStatus:
+      type: object
+      properties:
+        next_run_at:
+          type: string
+          format: date-time
+        last_triggered_at:
+          type: string
+          format: date-time
+        last_scheduled_for:
+          type: string
+          format: date-time
+        last_result:
+          type: string
+          enum: [running, succeeded, failed, skipped]
+        last_message:
+          type: string
+        last_job_id:
+          type: string
+    MaintenanceUpdateScheduleConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        frequency:
+          $ref: '#/components/schemas/MaintenanceScheduleFrequency'
+        time:
+          type: string
+        weekdays:
+          type: array
+          items:
+            $ref: '#/components/schemas/MaintenanceScheduleWeekday'
+        target:
+          type: object
+          properties:
+            mode:
+              type: string
+              enum: [selected, all]
+            stack_ids:
+              type: array
+              items:
+                type: string
+          required: [mode]
+        options:
+          type: object
+          properties:
+            pull_images:
+              type: boolean
+            build_images:
+              type: boolean
+            remove_orphans:
+              type: boolean
+            prune_after:
+              type: boolean
+            include_volumes:
+              type: boolean
+          required: [pull_images, build_images, remove_orphans, prune_after, include_volumes]
+      required: [enabled, frequency, time, target, options]
+    MaintenancePruneScheduleConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        frequency:
+          $ref: '#/components/schemas/MaintenanceScheduleFrequency'
+        time:
+          type: string
+        weekdays:
+          type: array
+          items:
+            $ref: '#/components/schemas/MaintenanceScheduleWeekday'
+        scope:
+          $ref: '#/components/schemas/MaintenancePruneScope'
+      required: [enabled, frequency, time, scope]
+    MaintenanceUpdateSchedulePolicy:
+      allOf:
+        - $ref: '#/components/schemas/MaintenanceUpdateScheduleConfig'
+        - type: object
+          properties:
+            status:
+              $ref: '#/components/schemas/MaintenanceScheduleStatus'
+          required: [status]
+    MaintenancePruneSchedulePolicy:
+      allOf:
+        - $ref: '#/components/schemas/MaintenancePruneScheduleConfig'
+        - type: object
+          properties:
+            status:
+              $ref: '#/components/schemas/MaintenanceScheduleStatus'
+          required: [status]
+    MaintenanceSchedulesRequest:
+      type: object
+      properties:
+        update:
+          $ref: '#/components/schemas/MaintenanceUpdateScheduleConfig'
+        prune:
+          $ref: '#/components/schemas/MaintenancePruneScheduleConfig'
+      required: [update, prune]
+    MaintenanceSchedulesResponse:
+      type: object
+      properties:
+        timezone:
+          type: string
+        update:
+          $ref: '#/components/schemas/MaintenanceUpdateSchedulePolicy'
+        prune:
+          $ref: '#/components/schemas/MaintenancePruneSchedulePolicy'
+      required: [timezone, update, prune]
     JobEnvelopeResponse:
       type: object
       properties:
@@ -1773,6 +2764,30 @@ components:
         job:
           $ref: '#/components/schemas/Job'
       required: [job]
+    JobEventsResponse:
+      type: object
+      properties:
+        job_id:
+          type: string
+        retained:
+          type: boolean
+        message:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobEventRecord'
+      required: [job_id, retained, items]
+    ActiveJobsResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActiveJobItem'
+        summary:
+          $ref: '#/components/schemas/ActiveJobSummary'
+      required: [items, summary]
     Job:
       type: object
       properties:
@@ -1818,6 +2833,113 @@ components:
         - stack_id
         - action
         - state
+    JobEventRecord:
+      type: object
+      properties:
+        job_id:
+          type: string
+        sequence:
+          type: integer
+        event:
+          type: string
+        state:
+          $ref: '#/components/schemas/JobState'
+        message:
+          type: string
+        data:
+          type: string
+          nullable: true
+        step:
+          $ref: '#/components/schemas/ActiveJobStep'
+        timestamp:
+          type: string
+          format: date-time
+      required: [job_id, sequence, event, state, timestamp]
+    ActiveJobItem:
+      type: object
+      properties:
+        id:
+          type: string
+        stack_id:
+          type: string
+          nullable: true
+        action:
+          type: string
+        state:
+          $ref: '#/components/schemas/JobState'
+        requested_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        workflow:
+          $ref: '#/components/schemas/ActiveJobWorkflow'
+        current_step:
+          $ref: '#/components/schemas/ActiveJobStep'
+        latest_event:
+          $ref: '#/components/schemas/ActiveJobLatestEvent'
+      required: [id, stack_id, action, state, requested_at]
+    ActiveJobWorkflow:
+      type: object
+      properties:
+        steps:
+          type: array
+          items:
+            type: object
+            properties:
+              action:
+                type: string
+              state:
+                $ref: '#/components/schemas/JobState'
+              target_stack_id:
+                type: string
+            required: [action, state]
+      required: [steps]
+      nullable: true
+    ActiveJobStep:
+      type: object
+      properties:
+        index:
+          type: integer
+        total:
+          type: integer
+        action:
+          type: string
+        target_stack_id:
+          type: string
+      required: [index, total, action]
+      nullable: true
+    ActiveJobLatestEvent:
+      type: object
+      properties:
+        event:
+          type: string
+        message:
+          type: string
+        data:
+          type: string
+          nullable: true
+        timestamp:
+          type: string
+          format: date-time
+        step:
+          $ref: '#/components/schemas/ActiveJobStep'
+      required: [event, timestamp]
+      nullable: true
+    ActiveJobSummary:
+      type: object
+      properties:
+        active_count:
+          type: integer
+        running_count:
+          type: integer
+        queued_count:
+          type: integer
+        cancel_requested_count:
+          type: integer
+      required: [active_count, running_count, queued_count, cancel_requested_count]
     MaintenanceUpdateStacksRequest:
       type: object
       properties:
@@ -1913,6 +3035,120 @@ components:
           items:
             type: string
       required: [stack_id, service_names]
+    MaintenanceNetworksResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MaintenanceNetworkItem'
+      required: [items]
+    MaintenanceCreateNetworkRequest:
+      type: object
+      properties:
+        name:
+          type: string
+      required: [name]
+    MaintenanceCreateNetworkResponse:
+      type: object
+      properties:
+        created:
+          type: boolean
+        name:
+          type: string
+      required: [created, name]
+    MaintenanceDeleteNetworkResponse:
+      type: object
+      properties:
+        deleted:
+          type: boolean
+        name:
+          type: string
+      required: [deleted, name]
+    MaintenanceNetworkItem:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        driver:
+          type: string
+        scope:
+          type: string
+        internal:
+          type: boolean
+        attachable:
+          type: boolean
+        ingress:
+          type: boolean
+        containers_using:
+          type: integer
+        stacks_using:
+          type: array
+          items:
+            $ref: '#/components/schemas/MaintenanceImageStackUsage'
+        is_unused:
+          type: boolean
+        source:
+          type: string
+          enum: [stack_managed, external]
+      required: [id, name, driver, scope, internal, attachable, ingress, containers_using, stacks_using, is_unused, source]
+    MaintenanceVolumesResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MaintenanceVolumeItem'
+      required: [items]
+    MaintenanceCreateVolumeRequest:
+      type: object
+      properties:
+        name:
+          type: string
+      required: [name]
+    MaintenanceCreateVolumeResponse:
+      type: object
+      properties:
+        created:
+          type: boolean
+        name:
+          type: string
+      required: [created, name]
+    MaintenanceDeleteVolumeResponse:
+      type: object
+      properties:
+        deleted:
+          type: boolean
+        name:
+          type: string
+      required: [deleted, name]
+    MaintenanceVolumeItem:
+      type: object
+      properties:
+        name:
+          type: string
+        driver:
+          type: string
+        mountpoint:
+          type: string
+        scope:
+          type: string
+        options_count:
+          type: integer
+        containers_using:
+          type: integer
+        stacks_using:
+          type: array
+          items:
+            $ref: '#/components/schemas/MaintenanceImageStackUsage'
+        is_unused:
+          type: boolean
+        source:
+          type: string
+          enum: [stack_managed, external]
+      required: [name, driver, mountpoint, scope, options_count, containers_using, stacks_using, is_unused, source]
     MaintenancePrunePreviewResponse:
       type: object
       properties:
@@ -1964,18 +3200,20 @@ components:
       type: object
       properties:
         scope:
-          type: object
-          properties:
-            images:
-              type: boolean
-            build_cache:
-              type: boolean
-            stopped_containers:
-              type: boolean
-            volumes:
-              type: boolean
-          required: [images, build_cache, stopped_containers, volumes]
+          $ref: '#/components/schemas/MaintenancePruneScope'
       required: [scope]
+    MaintenancePruneScope:
+      type: object
+      properties:
+        images:
+          type: boolean
+        build_cache:
+          type: boolean
+        stopped_containers:
+          type: boolean
+        volumes:
+          type: boolean
+      required: [images, build_cache, stopped_containers, volumes]
     ErrorResponse:
       type: object
       properties:
@@ -1990,9 +3228,8 @@ components:
         message:
           type: string
         details:
-          oneOf:
-            - type: object
-            - type: 'null'
+          type: object
+          nullable: true
       required: [code, message]
     RuntimeState:
       type: string

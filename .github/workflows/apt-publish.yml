@@ -14,6 +14,10 @@ on:
         options:
           - stable
           - nightly
+      keep_versions:
+        description: Optional APT package versions to retain in the channel pool. Defaults to channel policy.
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -56,7 +60,15 @@ jobs:
           APT_GPG_PRIVATE_KEY_BASE64: ${{ secrets.APT_GPG_PRIVATE_KEY_BASE64 }}
           APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
           APT_GPG_KEY_ID: ${{ secrets.APT_GPG_KEY_ID }}
-        run: scripts/release/publish-apt-repo.sh --channel "${{ github.event.inputs.channel }}" --pages-dir "${RUNNER_TEMP}/gh-pages" --debs-dir dist/apt-input
+          KEEP_VERSIONS: ${{ github.event.inputs.keep_versions }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--channel "${{ github.event.inputs.channel }}" --pages-dir "${RUNNER_TEMP}/gh-pages" --debs-dir dist/apt-input)
+          if [[ -n "${KEEP_VERSIONS}" ]]; then
+            args+=(--keep-versions "${KEEP_VERSIONS}")
+          fi
+          scripts/release/publish-apt-repo.sh "${args[@]}"
 
       - name: Commit and push Pages changes
         shell: bash

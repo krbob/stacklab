@@ -3,6 +3,7 @@ package stacks
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"stacklab/internal/config"
 )
@@ -249,13 +251,14 @@ func TestCreateListGetSaveAndDeleteStackFilesystemFlow(t *testing.T) {
 
 	ctx := context.Background()
 	reader := newTestServiceReader(t)
+	stackID := uniqueTestStackID()
 
-	if err := reader.EnsureCreateStackAvailable(ctx, "demo"); err != nil {
+	if err := reader.EnsureCreateStackAvailable(ctx, stackID); err != nil {
 		t.Fatalf("EnsureCreateStackAvailable(before create) error = %v", err)
 	}
 
 	createRequest := CreateStackRequest{
-		StackID:           "demo",
+		StackID:           stackID,
 		ComposeYAML:       "services:\n  app:\n    image: nginx:alpine\n",
 		Env:               "",
 		CreateConfigDir:   true,
@@ -266,7 +269,7 @@ func TestCreateListGetSaveAndDeleteStackFilesystemFlow(t *testing.T) {
 		t.Fatalf("CreateStack() error = %v", err)
 	}
 
-	if err := reader.EnsureCreateStackAvailable(ctx, "demo"); !errors.Is(err, ErrConflict) {
+	if err := reader.EnsureCreateStackAvailable(ctx, stackID); !errors.Is(err, ErrConflict) {
 		t.Fatalf("EnsureCreateStackAvailable(after create) error = %v, want ErrConflict", err)
 	}
 
@@ -274,28 +277,35 @@ func TestCreateListGetSaveAndDeleteStackFilesystemFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
-	if len(listResponse.Items) != 1 {
-		t.Fatalf("len(List().Items) = %d, want 1", len(listResponse.Items))
+	var listItem *StackListItem
+	for i := range listResponse.Items {
+		if listResponse.Items[i].ID == stackID {
+			listItem = &listResponse.Items[i]
+			break
+		}
 	}
-	if listResponse.Items[0].RuntimeState != RuntimeStateDefined {
-		t.Fatalf("list runtime_state = %q, want %q", listResponse.Items[0].RuntimeState, RuntimeStateDefined)
+	if listItem == nil {
+		t.Fatalf("List() missing stack %q in %#v", stackID, listResponse.Items)
 	}
-	if listResponse.Items[0].ServiceCount.Defined != 1 {
-		t.Fatalf("list service_count.defined = %d, want 1", listResponse.Items[0].ServiceCount.Defined)
+	if listItem.RuntimeState != RuntimeStateDefined {
+		t.Fatalf("list runtime_state = %q, want %q", listItem.RuntimeState, RuntimeStateDefined)
+	}
+	if listItem.ServiceCount.Defined != 1 {
+		t.Fatalf("list service_count.defined = %d, want 1", listItem.ServiceCount.Defined)
 	}
 
-	detailResponse, err := reader.Get(ctx, "demo")
+	detailResponse, err := reader.Get(ctx, stackID)
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
-	if detailResponse.Stack.ID != "demo" {
-		t.Fatalf("Get().Stack.ID = %q, want %q", detailResponse.Stack.ID, "demo")
+	if detailResponse.Stack.ID != stackID {
+		t.Fatalf("Get().Stack.ID = %q, want %q", detailResponse.Stack.ID, stackID)
 	}
 	if len(detailResponse.Stack.Services) != 1 || detailResponse.Stack.Services[0].Name != "app" {
 		t.Fatalf("unexpected services: %#v", detailResponse.Stack.Services)
 	}
 
-	savePreview, err := reader.SaveDefinition(ctx, "demo", UpdateDefinitionRequest{
+	savePreview, err := reader.SaveDefinition(ctx, stackID, UpdateDefinitionRequest{
 		ComposeYAML:       "services:\n  app:\n    image: nginx:stable\n",
 		Env:               "PORT=9090\n",
 		ValidateAfterSave: false,
@@ -306,14 +316,14 @@ func TestCreateListGetSaveAndDeleteStackFilesystemFlow(t *testing.T) {
 	if !savePreview.Valid {
 		t.Fatalf("SaveDefinition() valid = false, want true")
 	}
-	composeBytes, err := os.ReadFile(filepath.Join(reader.cfg.RootDir, "stacks", "demo", "compose.yaml"))
+	composeBytes, err := os.ReadFile(filepath.Join(reader.cfg.RootDir, "stacks", stackID, "compose.yaml"))
 	if err != nil {
 		t.Fatalf("ReadFile(compose.yaml) error = %v", err)
 	}
 	if !strings.Contains(string(composeBytes), "nginx:stable") {
 		t.Fatalf("compose.yaml does not contain updated image: %q", string(composeBytes))
 	}
-	envBytes, err := os.ReadFile(filepath.Join(reader.cfg.RootDir, "stacks", "demo", ".env"))
+	envBytes, err := os.ReadFile(filepath.Join(reader.cfg.RootDir, "stacks", stackID, ".env"))
 	if err != nil {
 		t.Fatalf("ReadFile(.env) error = %v", err)
 	}
@@ -321,7 +331,7 @@ func TestCreateListGetSaveAndDeleteStackFilesystemFlow(t *testing.T) {
 		t.Fatalf(".env content = %q, want %q", string(envBytes), "PORT=9090\n")
 	}
 
-	if err := reader.DeleteStack(ctx, "demo", DeleteStackRequest{
+	if err := reader.DeleteStack(ctx, stackID, DeleteStackRequest{
 		RemoveRuntime:    false,
 		RemoveDefinition: true,
 		RemoveConfig:     true,
@@ -330,9 +340,9 @@ func TestCreateListGetSaveAndDeleteStackFilesystemFlow(t *testing.T) {
 		t.Fatalf("DeleteStack() error = %v", err)
 	}
 
-	assertMissing(t, filepath.Join(reader.cfg.RootDir, "stacks", "demo"))
-	assertMissing(t, filepath.Join(reader.cfg.RootDir, "config", "demo"))
-	assertMissing(t, filepath.Join(reader.cfg.RootDir, "data", "demo"))
+	assertMissing(t, filepath.Join(reader.cfg.RootDir, "stacks", stackID))
+	assertMissing(t, filepath.Join(reader.cfg.RootDir, "config", stackID))
+	assertMissing(t, filepath.Join(reader.cfg.RootDir, "data", stackID))
 }
 
 func TestSaveDefinitionEmptyEnvDoesNotCreateFileWhenMissing(t *testing.T) {
@@ -340,9 +350,10 @@ func TestSaveDefinitionEmptyEnvDoesNotCreateFileWhenMissing(t *testing.T) {
 
 	ctx := context.Background()
 	reader := newTestServiceReader(t)
+	stackID := uniqueTestStackID()
 
 	if err := reader.CreateStack(ctx, CreateStackRequest{
-		StackID:           "demo",
+		StackID:           stackID,
 		ComposeYAML:       "services:\n  app:\n    image: nginx:alpine\n",
 		Env:               "",
 		CreateConfigDir:   false,
@@ -352,10 +363,10 @@ func TestSaveDefinitionEmptyEnvDoesNotCreateFileWhenMissing(t *testing.T) {
 		t.Fatalf("CreateStack() error = %v", err)
 	}
 
-	envPath := filepath.Join(reader.cfg.RootDir, "stacks", "demo", ".env")
+	envPath := filepath.Join(reader.cfg.RootDir, "stacks", stackID, ".env")
 	assertMissing(t, envPath)
 
-	if _, err := reader.SaveDefinition(ctx, "demo", UpdateDefinitionRequest{
+	if _, err := reader.SaveDefinition(ctx, stackID, UpdateDefinitionRequest{
 		ComposeYAML:       "services:\n  app:\n    image: nginx:stable\n",
 		Env:               "",
 		ValidateAfterSave: false,
@@ -364,6 +375,10 @@ func TestSaveDefinitionEmptyEnvDoesNotCreateFileWhenMissing(t *testing.T) {
 	}
 
 	assertMissing(t, envPath)
+}
+
+func uniqueTestStackID() string {
+	return fmt.Sprintf("test-%d", time.Now().UTC().UnixNano())
 }
 
 func newTestServiceReader(t *testing.T) *ServiceReader {

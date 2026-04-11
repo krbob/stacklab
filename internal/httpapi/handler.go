@@ -5,43 +5,54 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"stacklab/internal/audit"
 	"stacklab/internal/auth"
 	"stacklab/internal/config"
 	"stacklab/internal/configworkspace"
+	"stacklab/internal/dockeradmin"
 	"stacklab/internal/gitworkspace"
 	"stacklab/internal/hostinfo"
 	"stacklab/internal/jobs"
 	"stacklab/internal/maintenance"
+	"stacklab/internal/maintenancejobs"
+	"stacklab/internal/notifications"
+	"stacklab/internal/scheduler"
+	"stacklab/internal/selfupdate"
 	"stacklab/internal/stacks"
+	"stacklab/internal/stackworkspace"
 	"stacklab/internal/store"
 	"stacklab/internal/terminal"
+	"stacklab/internal/workspacerepair"
 	"strconv"
 	"strings"
 	"time"
 )
 
 type Handler struct {
-	cfg         config.Config
-	logger      *slog.Logger
-	mux         *http.ServeMux
-	auth        *auth.Service
-	audit       *audit.Service
-	jobs        *jobs.Service
-	terminals   *terminal.Service
-	stackReader *stacks.ServiceReader
-	hostInfo    hostInfoReader
-	configFiles configWorkspaceReader
-	gitStatus   gitWorkspaceReader
-	maintenance maintenanceReader
+	cfg             config.Config
+	logger          *slog.Logger
+	mux             *http.ServeMux
+	auth            *auth.Service
+	audit           *audit.Service
+	jobs            *jobs.Service
+	terminals       *terminal.Service
+	stackReader     *stacks.ServiceReader
+	hostInfo        hostInfoReader
+	dockerAdmin     dockerAdminReader
+	configFiles     configWorkspaceReader
+	stackFiles      stackWorkspaceReader
+	gitStatus       gitWorkspaceReader
+	maintenance     maintenanceReader
+	maintenanceJobs *maintenancejobs.Service
+	notifications   notificationsManager
+	schedules       schedulerManager
+	selfUpdate      selfUpdateManager
 }
 
 type hostInfoReader interface {
@@ -49,10 +60,25 @@ type hostInfoReader interface {
 	StacklabLogs(ctx context.Context, query hostinfo.LogsQuery) (hostinfo.StacklabLogsResponse, error)
 }
 
+type dockerAdminReader interface {
+	Overview(ctx context.Context) (dockeradmin.OverviewResponse, error)
+	DaemonConfig(ctx context.Context) (dockeradmin.DaemonConfigResponse, error)
+	ValidateManagedConfig(ctx context.Context, request dockeradmin.ValidateManagedConfigRequest) (dockeradmin.ValidateManagedConfigResponse, error)
+	ApplyManagedConfig(ctx context.Context, request dockeradmin.ApplyManagedConfigRequest) (dockeradmin.ApplyManagedConfigResult, error)
+}
+
 type configWorkspaceReader interface {
 	Tree(ctx context.Context, currentPath string) (configworkspace.TreeResponse, error)
 	File(ctx context.Context, filePath string) (configworkspace.FileResponse, error)
 	SaveFile(ctx context.Context, request configworkspace.SaveFileRequest) (configworkspace.SaveFileResponse, error)
+	RepairPermissions(ctx context.Context, request configworkspace.RepairPermissionsRequest) (configworkspace.RepairPermissionsResponse, error)
+}
+
+type stackWorkspaceReader interface {
+	Tree(ctx context.Context, stackID, currentPath string) (stackworkspace.TreeResponse, error)
+	File(ctx context.Context, stackID, filePath string) (stackworkspace.FileResponse, error)
+	SaveFile(ctx context.Context, stackID string, request stackworkspace.SaveFileRequest) (stackworkspace.SaveFileResponse, error)
+	RepairPermissions(ctx context.Context, stackID string, request stackworkspace.RepairPermissionsRequest) (stackworkspace.RepairPermissionsResponse, error)
 }
 
 type gitWorkspaceReader interface {
@@ -64,18 +90,43 @@ type gitWorkspaceReader interface {
 
 type maintenanceReader interface {
 	Images(ctx context.Context, query maintenance.ImagesQuery) (maintenance.ImagesResponse, error)
+	Networks(ctx context.Context, query maintenance.NetworksQuery) (maintenance.NetworksResponse, error)
+	CreateNetwork(ctx context.Context, request maintenance.CreateNetworkRequest) (maintenance.CreateNetworkResponse, error)
+	DeleteNetwork(ctx context.Context, name string, managedStackIDs []string) (maintenance.DeleteNetworkResponse, error)
+	Volumes(ctx context.Context, query maintenance.VolumesQuery) (maintenance.VolumesResponse, error)
+	CreateVolume(ctx context.Context, request maintenance.CreateVolumeRequest) (maintenance.CreateVolumeResponse, error)
+	DeleteVolume(ctx context.Context, name string, managedStackIDs []string) (maintenance.DeleteVolumeResponse, error)
 	PrunePreview(ctx context.Context, query maintenance.PrunePreviewQuery) (maintenance.PrunePreviewResponse, error)
 	RunPruneStep(ctx context.Context, action string) (string, error)
 }
 
-func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Service, auditService *audit.Service, jobService *jobs.Service) (http.Handler, error) {
+type notificationsManager interface {
+	GetSettings(ctx context.Context) (notifications.SettingsResponse, error)
+	UpdateSettings(ctx context.Context, request notifications.UpdateSettingsRequest) (notifications.SettingsResponse, error)
+	SendTest(ctx context.Context, request notifications.TestRequest) (notifications.TestResponse, error)
+}
+
+type schedulerManager interface {
+	GetSettings(ctx context.Context) (scheduler.SettingsResponse, error)
+	UpdateSettings(ctx context.Context, request scheduler.UpdateSettingsRequest) (scheduler.SettingsResponse, error)
+}
+
+type selfUpdateManager interface {
+	Overview(ctx context.Context) (selfupdate.OverviewResponse, error)
+	Apply(ctx context.Context, request selfupdate.ApplyRequest, requestedBy string) (selfupdate.ApplyResponse, error)
+}
+
+func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Service, auditService *audit.Service, jobService *jobs.Service, notificationsService notificationsManager, scheduleService schedulerManager, selfUpdateService selfUpdateManager) (http.Handler, error) {
+	stackReader := stacks.NewServiceReader(cfg, logger)
+	maintenanceService := maintenance.NewService()
 	handler := &Handler{
-		cfg:    cfg,
-		logger: logger,
-		mux:    http.NewServeMux(),
-		auth:   authService,
-		audit:  auditService,
-		jobs:   jobService,
+		cfg:           cfg,
+		logger:        logger,
+		mux:           http.NewServeMux(),
+		auth:          authService,
+		audit:         auditService,
+		jobs:          jobService,
+		notifications: notificationsService,
 		terminals: terminal.NewService(logger, terminal.Config{
 			MaxSessionsPerOwner: 5,
 			IdleTimeout:         30 * time.Minute,
@@ -91,11 +142,16 @@ func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Servic
 			result := "succeeded"
 			_ = auditService.RecordTerminalEvent(context.Background(), event.StackID, event.SessionID, event.ContainerID, "local", action, result, details)
 		}),
-		stackReader: stacks.NewServiceReader(cfg, logger),
-		hostInfo:    hostinfo.NewService(cfg, time.Now().UTC()),
-		configFiles: configworkspace.NewService(cfg),
-		gitStatus:   gitworkspace.NewService(cfg),
-		maintenance: maintenance.NewService(),
+		stackReader:     stackReader,
+		hostInfo:        hostinfo.NewService(cfg, time.Now().UTC()),
+		dockerAdmin:     dockeradmin.NewService(cfg),
+		configFiles:     configworkspace.NewService(cfg),
+		stackFiles:      stackworkspace.NewService(cfg),
+		gitStatus:       gitworkspace.NewService(cfg),
+		maintenance:     maintenanceService,
+		maintenanceJobs: maintenancejobs.NewService(logger, jobService, auditService, stackReader, maintenanceService),
+		schedules:       scheduleService,
+		selfUpdate:      selfUpdateService,
 	}
 
 	handler.registerRoutes()
@@ -112,28 +168,52 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/meta", h.withAuth(h.handleMeta))
 	h.mux.HandleFunc("GET /api/host/overview", h.withAuth(h.handleHostOverview))
 	h.mux.HandleFunc("GET /api/host/stacklab-logs", h.withAuth(h.handleStacklabLogs))
+	h.mux.HandleFunc("GET /api/docker/admin/overview", h.withAuth(h.handleDockerAdminOverview))
+	h.mux.HandleFunc("GET /api/docker/admin/daemon-config", h.withAuth(h.handleDockerAdminDaemonConfig))
+	h.mux.HandleFunc("POST /api/docker/admin/daemon-config/validate", h.withAuth(h.handleDockerAdminValidateDaemonConfig))
+	h.mux.HandleFunc("POST /api/docker/admin/daemon-config/apply", h.withAuth(h.handleDockerAdminApplyDaemonConfig))
+	h.mux.HandleFunc("GET /api/stacklab/update/overview", h.withAuth(h.handleStacklabUpdateOverview))
+	h.mux.HandleFunc("POST /api/stacklab/update/apply", h.withAuth(h.handleStacklabUpdateApply))
 	h.mux.HandleFunc("GET /api/config/workspace/tree", h.withAuth(h.handleConfigWorkspaceTree))
 	h.mux.HandleFunc("GET /api/config/workspace/file", h.withAuth(h.handleConfigWorkspaceFile))
 	h.mux.HandleFunc("PUT /api/config/workspace/file", h.withAuth(h.handlePutConfigWorkspaceFile))
+	h.mux.HandleFunc("POST /api/config/workspace/repair-permissions", h.withAuth(h.handleRepairConfigWorkspacePermissions))
 	h.mux.HandleFunc("GET /api/git/workspace/status", h.withAuth(h.handleGitWorkspaceStatus))
 	h.mux.HandleFunc("GET /api/git/workspace/diff", h.withAuth(h.handleGitWorkspaceDiff))
 	h.mux.HandleFunc("POST /api/git/workspace/commit", h.withAuth(h.handleGitWorkspaceCommit))
 	h.mux.HandleFunc("POST /api/git/workspace/push", h.withAuth(h.handleGitWorkspacePush))
 	h.mux.HandleFunc("POST /api/maintenance/update-stacks", h.withAuth(h.handleUpdateStacksMaintenance))
 	h.mux.HandleFunc("GET /api/maintenance/images", h.withAuth(h.handleMaintenanceImages))
+	h.mux.HandleFunc("GET /api/maintenance/networks", h.withAuth(h.handleMaintenanceNetworks))
+	h.mux.HandleFunc("POST /api/maintenance/networks", h.withAuth(h.handleCreateMaintenanceNetwork))
+	h.mux.HandleFunc("DELETE /api/maintenance/networks/{name}", h.withAuth(h.handleDeleteMaintenanceNetwork))
+	h.mux.HandleFunc("GET /api/maintenance/volumes", h.withAuth(h.handleMaintenanceVolumes))
+	h.mux.HandleFunc("POST /api/maintenance/volumes", h.withAuth(h.handleCreateMaintenanceVolume))
+	h.mux.HandleFunc("DELETE /api/maintenance/volumes/{name}", h.withAuth(h.handleDeleteMaintenanceVolume))
 	h.mux.HandleFunc("GET /api/maintenance/prune-preview", h.withAuth(h.handleMaintenancePrunePreview))
 	h.mux.HandleFunc("POST /api/maintenance/prune", h.withAuth(h.handleMaintenancePrune))
+	h.mux.HandleFunc("GET /api/jobs/active", h.withAuth(h.handleListActiveJobs))
+	h.mux.HandleFunc("GET /api/jobs/{jobId}/events", h.withAuth(h.handleListJobEvents))
 	h.mux.HandleFunc("GET /api/stacks", h.withAuth(h.handleListStacks))
 	h.mux.HandleFunc("POST /api/stacks", h.withAuth(h.handleCreateStack))
 	h.mux.HandleFunc("GET /api/stacks/{stackId}", h.withAuth(h.handleGetStack))
 	h.mux.HandleFunc("DELETE /api/stacks/{stackId}", h.withAuth(h.handleDeleteStack))
 	h.mux.HandleFunc("GET /api/stacks/{stackId}/definition", h.withAuth(h.handleGetDefinition))
 	h.mux.HandleFunc("PUT /api/stacks/{stackId}/definition", h.withAuth(h.handlePutDefinition))
+	h.mux.HandleFunc("GET /api/stacks/{stackId}/workspace/tree", h.withAuth(h.handleStackWorkspaceTree))
+	h.mux.HandleFunc("GET /api/stacks/{stackId}/workspace/file", h.withAuth(h.handleStackWorkspaceFile))
+	h.mux.HandleFunc("PUT /api/stacks/{stackId}/workspace/file", h.withAuth(h.handlePutStackWorkspaceFile))
+	h.mux.HandleFunc("POST /api/stacks/{stackId}/workspace/repair-permissions", h.withAuth(h.handleRepairStackWorkspacePermissions))
 	h.mux.HandleFunc("GET /api/stacks/{stackId}/resolved-config", h.withAuth(h.handleGetResolvedConfig))
 	h.mux.HandleFunc("POST /api/stacks/{stackId}/resolved-config", h.withAuth(h.handlePostResolvedConfig))
 	h.mux.HandleFunc("POST /api/stacks/{stackId}/actions/{action}", h.withAuth(h.handleRunStackAction))
 	h.mux.HandleFunc("GET /api/stacks/{stackId}/audit", h.withAuth(h.handleListStackAudit))
 	h.mux.HandleFunc("GET /api/audit", h.withAuth(h.handleListAudit))
+	h.mux.HandleFunc("GET /api/settings/notifications", h.withAuth(h.handleGetNotificationSettings))
+	h.mux.HandleFunc("PUT /api/settings/notifications", h.withAuth(h.handleUpdateNotificationSettings))
+	h.mux.HandleFunc("POST /api/settings/notifications/test", h.withAuth(h.handleSendNotificationTest))
+	h.mux.HandleFunc("GET /api/settings/maintenance-schedules", h.withAuth(h.handleGetMaintenanceSchedules))
+	h.mux.HandleFunc("PUT /api/settings/maintenance-schedules", h.withAuth(h.handleUpdateMaintenanceSchedules))
 	h.mux.HandleFunc("POST /api/settings/password", h.withAuth(h.handleUpdatePassword))
 	h.mux.HandleFunc("GET /api/jobs/{jobId}", h.withAuth(h.handleGetJob))
 	h.mux.HandleFunc("/api/", h.withAuth(h.handleAPINotImplemented))
@@ -267,6 +347,28 @@ func (h *Handler) handleStacklabLogs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
+func (h *Handler) handleDockerAdminOverview(w http.ResponseWriter, r *http.Request) {
+	response, err := h.dockerAdmin.Overview(r.Context())
+	if err != nil {
+		h.logger.Error("docker admin overview failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load Docker admin overview.", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleDockerAdminDaemonConfig(w http.ResponseWriter, r *http.Request) {
+	response, err := h.dockerAdmin.DaemonConfig(r.Context())
+	if err != nil {
+		h.logger.Error("docker daemon config failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load Docker daemon config.", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
 func (h *Handler) handleConfigWorkspaceTree(w http.ResponseWriter, r *http.Request) {
 	response, err := h.configFiles.Tree(r.Context(), strings.TrimSpace(r.URL.Query().Get("path")))
 	if err != nil {
@@ -354,6 +456,187 @@ func (h *Handler) handlePutConfigWorkspaceFile(w http.ResponseWriter, r *http.Re
 	}
 	if err := h.audit.RecordConfigFileSave(r.Context(), response.Path, deriveConfigWorkspaceStackID(response.Path), "local", details); err != nil {
 		h.logger.Warn("record save_config_file audit failed", slog.String("path", response.Path), slog.String("err", err.Error()))
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleRepairConfigWorkspacePermissions(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request configworkspace.RepairPermissionsRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	response, err := h.configFiles.RepairPermissions(r.Context(), request)
+	if err != nil {
+		switch {
+		case errors.Is(err, configworkspace.ErrPathOutsideWorkspace):
+			writeError(w, http.StatusBadRequest, "path_outside_workspace", "Path escapes the config workspace.", nil)
+		case errors.Is(err, configworkspace.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Workspace path was not found.", nil)
+		case errors.Is(err, workspacerepair.ErrUnsupported):
+			writeError(w, http.StatusNotImplemented, "not_implemented", "Workspace permission repair is not configured yet.", nil)
+		default:
+			h.logger.Error("repair config workspace permissions failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to repair config workspace permissions.", nil)
+		}
+		return
+	}
+
+	details := map[string]any{
+		"path":          response.Path,
+		"recursive":     response.Recursive,
+		"changed_items": response.ChangedItems,
+	}
+	if len(response.Warnings) > 0 {
+		details["warnings"] = response.Warnings
+	}
+	if err := h.audit.RecordConfigPermissionRepair(r.Context(), response.Path, "local", details); err != nil {
+		h.logger.Warn("record repair_config_workspace_permissions audit failed", slog.String("path", response.Path), slog.String("err", err.Error()))
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleStackWorkspaceTree(w http.ResponseWriter, r *http.Request) {
+	response, err := h.stackFiles.Tree(r.Context(), r.PathValue("stackId"), strings.TrimSpace(r.URL.Query().Get("path")))
+	if err != nil {
+		switch {
+		case errors.Is(err, stackworkspace.ErrPathOutsideWorkspace):
+			writeError(w, http.StatusBadRequest, "path_outside_workspace", "Path escapes the stack workspace.", nil)
+		case errors.Is(err, stackworkspace.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Stack workspace path was not found.", nil)
+		case errors.Is(err, stackworkspace.ErrPathNotDirectory):
+			writeError(w, http.StatusBadRequest, "path_not_directory", "Path is not a directory.", nil)
+		case errors.Is(err, stackworkspace.ErrPermissionDenied):
+			writeError(w, http.StatusConflict, "permission_denied", "Stack workspace path is not readable by the Stacklab service.", nil)
+		default:
+			h.logger.Error("stack workspace tree failed", slog.String("stack_id", r.PathValue("stackId")), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load stack workspace tree.", nil)
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleStackWorkspaceFile(w http.ResponseWriter, r *http.Request) {
+	response, err := h.stackFiles.File(r.Context(), r.PathValue("stackId"), strings.TrimSpace(r.URL.Query().Get("path")))
+	if err != nil {
+		switch {
+		case errors.Is(err, stackworkspace.ErrPathOutsideWorkspace):
+			writeError(w, http.StatusBadRequest, "path_outside_workspace", "Path escapes the stack workspace.", nil)
+		case errors.Is(err, stackworkspace.ErrReservedPath):
+			writeError(w, http.StatusConflict, "invalid_state", "compose.yaml and .env are managed through the stack editor.", nil)
+		case errors.Is(err, stackworkspace.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Stack workspace file was not found.", nil)
+		case errors.Is(err, stackworkspace.ErrPathNotFile):
+			writeError(w, http.StatusBadRequest, "path_not_file", "Path is not a file.", nil)
+		case errors.Is(err, stackworkspace.ErrPermissionDenied):
+			writeError(w, http.StatusConflict, "permission_denied", "Stack workspace file is not readable by the Stacklab service.", nil)
+		default:
+			h.logger.Error("stack workspace file failed", slog.String("stack_id", r.PathValue("stackId")), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load stack workspace file.", nil)
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handlePutStackWorkspaceFile(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request stackworkspace.SaveFileRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	stackID := r.PathValue("stackId")
+	response, err := h.stackFiles.SaveFile(r.Context(), stackID, request)
+	if err != nil {
+		switch {
+		case errors.Is(err, stackworkspace.ErrPathOutsideWorkspace):
+			writeError(w, http.StatusBadRequest, "path_outside_workspace", "Path escapes the stack workspace.", nil)
+		case errors.Is(err, stackworkspace.ErrReservedPath):
+			writeError(w, http.StatusConflict, "invalid_state", "compose.yaml and .env are managed through the stack editor.", nil)
+		case errors.Is(err, stackworkspace.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Stack workspace path was not found.", nil)
+		case errors.Is(err, stackworkspace.ErrPathNotDirectory):
+			writeError(w, http.StatusBadRequest, "path_not_directory", "Parent path is not a directory.", nil)
+		case errors.Is(err, stackworkspace.ErrPathNotFile):
+			writeError(w, http.StatusBadRequest, "path_not_file", "Path is not a file.", nil)
+		case errors.Is(err, stackworkspace.ErrBinaryNotEditable):
+			writeError(w, http.StatusConflict, "binary_not_editable", "Binary files cannot be edited in the browser.", nil)
+		case errors.Is(err, stackworkspace.ErrPermissionDenied):
+			writeError(w, http.StatusConflict, "permission_denied", "Stack workspace file cannot be edited due to file permissions.", nil)
+		default:
+			h.logger.Error("save stack workspace file failed", slog.String("stack_id", stackID), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to save stack workspace file.", nil)
+		}
+		return
+	}
+
+	details := map[string]any{
+		"path": response.Path,
+		"type": "text_file",
+	}
+	if err := h.audit.RecordStackFileSave(r.Context(), stackID, response.Path, "local", details); err != nil {
+		h.logger.Warn("record save_stack_file audit failed", slog.String("stack_id", stackID), slog.String("path", response.Path), slog.String("err", err.Error()))
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleRepairStackWorkspacePermissions(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request stackworkspace.RepairPermissionsRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	stackID := r.PathValue("stackId")
+	response, err := h.stackFiles.RepairPermissions(r.Context(), stackID, request)
+	if err != nil {
+		switch {
+		case errors.Is(err, stackworkspace.ErrPathOutsideWorkspace):
+			writeError(w, http.StatusBadRequest, "path_outside_workspace", "Path escapes the stack workspace.", nil)
+		case errors.Is(err, stackworkspace.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Stack workspace path was not found.", nil)
+		case errors.Is(err, workspacerepair.ErrUnsupported):
+			writeError(w, http.StatusNotImplemented, "not_implemented", "Workspace permission repair is not configured yet.", nil)
+		default:
+			h.logger.Error("repair stack workspace permissions failed", slog.String("stack_id", stackID), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to repair stack workspace permissions.", nil)
+		}
+		return
+	}
+
+	details := map[string]any{
+		"path":          response.Path,
+		"recursive":     response.Recursive,
+		"changed_items": response.ChangedItems,
+	}
+	if len(response.Warnings) > 0 {
+		details["warnings"] = response.Warnings
+	}
+	if err := h.audit.RecordStackPermissionRepair(r.Context(), stackID, response.Path, "local", details); err != nil {
+		h.logger.Warn("record repair_stack_workspace_permissions audit failed", slog.String("stack_id", stackID), slog.String("path", response.Path), slog.String("err", err.Error()))
 	}
 
 	writeJSON(w, http.StatusOK, response)
@@ -502,6 +785,11 @@ type maintenancePruneRequest struct {
 	Scope maintenance.PruneScope `json:"scope"`
 }
 
+type dockerAdminValidateRequest struct {
+	Settings   dockeradmin.ManagedSettings `json:"settings"`
+	RemoveKeys []string                    `json:"remove_keys"`
+}
+
 func (h *Handler) handleUpdateStacksMaintenance(w http.ResponseWriter, r *http.Request) {
 	if !auth.SameOrigin(r) {
 		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
@@ -526,98 +814,33 @@ func (h *Handler) handleUpdateStacksMaintenance(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	targetStackIDs, err := h.resolveMaintenanceTargetStacks(r.Context(), request.Target.Mode, request.Target.StackIDs)
+	job, err := h.maintenanceJobs.RunUpdate(r.Context(), maintenancejobs.UpdateRequest{
+		Target: maintenancejobs.UpdateTarget{
+			Mode:     request.Target.Mode,
+			StackIDs: request.Target.StackIDs,
+		},
+		Options: maintenancejobs.UpdateOptions{
+			PullImages:     options.PullImages,
+			BuildImages:    options.BuildImages,
+			RemoveOrphans:  options.RemoveOrphans,
+			PruneAfter:     options.PruneAfter,
+			IncludeVolumes: options.IncludeVolumes,
+		},
+		Trigger: "manual",
+	}, "local")
 	if err != nil {
 		switch {
 		case errors.Is(err, stacks.ErrNotFound):
 			writeError(w, http.StatusNotFound, "not_found", err.Error(), nil)
 		case errors.Is(err, stacks.ErrInvalidState):
 			writeError(w, http.StatusConflict, "invalid_state", err.Error(), nil)
-		default:
-			writeError(w, http.StatusBadRequest, "validation_failed", err.Error(), nil)
-		}
-		return
-	}
-
-	workflow, err := h.buildMaintenanceWorkflow(r.Context(), targetStackIDs, options)
-	if err != nil {
-		switch {
-		case errors.Is(err, stacks.ErrNotFound):
-			writeError(w, http.StatusNotFound, "not_found", err.Error(), nil)
-		case errors.Is(err, stacks.ErrInvalidState):
-			writeError(w, http.StatusConflict, "invalid_state", err.Error(), nil)
-		default:
-			h.logger.Error("build maintenance workflow failed", slog.String("err", err.Error()))
-			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to prepare maintenance workflow.", nil)
-		}
-		return
-	}
-
-	job, err := h.jobs.StartWithLocks(r.Context(), "", "update_stacks", "local", targetStackIDs)
-	if err != nil {
-		switch {
 		case errors.Is(err, jobs.ErrStackLocked):
 			writeError(w, http.StatusConflict, "stack_locked", "Another job is already mutating one of the selected stacks.", nil)
 		default:
-			h.logger.Error("start maintenance job failed", slog.String("err", err.Error()))
-			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create job.", nil)
+			h.logger.Error("run maintenance job failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusBadRequest, "validation_failed", err.Error(), nil)
 		}
 		return
-	}
-
-	if len(workflow) > 0 {
-		workflow = markWorkflowRunning(workflow, 0)
-		updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow)
-		if updateErr != nil {
-			h.logger.Error("update maintenance workflow failed", slog.String("job_id", job.ID), slog.String("err", updateErr.Error()))
-			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to initialize maintenance workflow.", nil)
-			return
-		}
-		job = updatedJob
-		_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", maintenanceStepMessage("Starting", workflow[0]), "", workflowStepRef(workflow, 0))
-	}
-
-	for index, step := range workflow {
-		output, runErr := h.runMaintenanceWorkflowStep(r.Context(), step, options)
-		if trimmed := strings.TrimSpace(output); trimmed != "" {
-			_ = h.jobs.PublishEvent(r.Context(), job, "job_log", maintenanceStepMessage("Output", step), trimmed, workflowStepRef(workflow, index))
-		}
-		if runErr != nil {
-			workflow = markWorkflowFailed(workflow, index)
-			if updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow); updateErr == nil {
-				job = updatedJob
-			}
-			job, _ = h.jobs.FinishFailed(r.Context(), job, "update_stacks_failed", runErr.Error())
-			if err := h.audit.RecordJob(r.Context(), job, maintenanceAuditDetails(request.Target.Mode, targetStackIDs, options)); err != nil {
-				h.logger.Warn("record maintenance audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
-			}
-			writeJSON(w, http.StatusOK, map[string]any{"job": job})
-			return
-		}
-
-		workflow = markWorkflowSucceeded(workflow, index)
-		_ = h.jobs.PublishEvent(r.Context(), job, "job_step_finished", maintenanceStepMessage("Finished", step), "", workflowStepRef(workflow, index))
-		if index+1 < len(workflow) {
-			workflow = markWorkflowRunning(workflow, index+1)
-			_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", maintenanceStepMessage("Starting", workflow[index+1]), "", workflowStepRef(workflow, index+1))
-		}
-		updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow)
-		if updateErr != nil {
-			h.logger.Error("update maintenance workflow progress failed", slog.String("job_id", job.ID), slog.String("err", updateErr.Error()))
-			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to update maintenance workflow.", nil)
-			return
-		}
-		job = updatedJob
-	}
-
-	job, err = h.jobs.FinishSucceeded(r.Context(), job)
-	if err != nil {
-		h.logger.Error("finish maintenance job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
-		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to finalize job.", nil)
-		return
-	}
-	if err := h.audit.RecordJob(r.Context(), job, maintenanceAuditDetails(request.Target.Mode, targetStackIDs, options)); err != nil {
-		h.logger.Warn("record maintenance audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"job": job})
@@ -631,28 +854,17 @@ func (h *Handler) handleMaintenanceImages(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	query := maintenance.ImagesQuery{
-		Search:          strings.TrimSpace(r.URL.Query().Get("q")),
-		Usage:           maintenance.ImageUsage(strings.TrimSpace(r.URL.Query().Get("usage"))),
-		Origin:          maintenance.ImageOrigin(strings.TrimSpace(r.URL.Query().Get("origin"))),
-		ManagedStackIDs: managedStackIDs,
-	}
-	if query.Usage == "" {
-		query.Usage = maintenance.ImageUsageAll
-	}
-	if query.Origin == "" {
-		query.Origin = maintenance.ImageOriginAll
-	}
-	if query.Usage != maintenance.ImageUsageAll && query.Usage != maintenance.ImageUsageUsed && query.Usage != maintenance.ImageUsageUnused {
-		writeError(w, http.StatusBadRequest, "validation_failed", "usage must be one of: all, used, unused.", nil)
-		return
-	}
-	if query.Origin != maintenance.ImageOriginAll && query.Origin != maintenance.ImageOriginStackManaged && query.Origin != maintenance.ImageOriginExternal {
-		writeError(w, http.StatusBadRequest, "validation_failed", "origin must be one of: all, stack_managed, external.", nil)
+	filters, ok := parseMaintenanceInventoryFilters(w, r)
+	if !ok {
 		return
 	}
 
-	response, err := h.maintenance.Images(r.Context(), query)
+	response, err := h.maintenance.Images(r.Context(), maintenance.ImagesQuery{
+		Search:          filters.Search,
+		Usage:           filters.Usage,
+		Origin:          filters.Origin,
+		ManagedStackIDs: managedStackIDs,
+	})
 	if err != nil {
 		if errors.Is(err, maintenance.ErrDockerUnavailable) {
 			writeError(w, http.StatusServiceUnavailable, "docker_unavailable", "Docker maintenance inventory is unavailable.", nil)
@@ -663,6 +875,222 @@ func (h *Handler) handleMaintenanceImages(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleMaintenanceNetworks(w http.ResponseWriter, r *http.Request) {
+	managedStackIDs, err := h.listManagedStackIDs(r.Context())
+	if err != nil {
+		h.logger.Error("list managed stacks for maintenance networks failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load maintenance networks.", nil)
+		return
+	}
+
+	query, ok := parseMaintenanceInventoryFilters(w, r)
+	if !ok {
+		return
+	}
+
+	response, err := h.maintenance.Networks(r.Context(), maintenance.NetworksQuery{
+		Search:          query.Search,
+		Usage:           query.Usage,
+		Origin:          query.Origin,
+		ManagedStackIDs: managedStackIDs,
+	})
+	if err != nil {
+		if errors.Is(err, maintenance.ErrDockerUnavailable) {
+			writeError(w, http.StatusServiceUnavailable, "docker_unavailable", "Docker maintenance inventory is unavailable.", nil)
+			return
+		}
+		h.logger.Error("maintenance networks failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load maintenance networks.", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleCreateMaintenanceNetwork(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request maintenance.CreateNetworkRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	response, err := h.maintenance.CreateNetwork(r.Context(), request)
+	if err != nil {
+		switch {
+		case errors.Is(err, maintenance.ErrInvalidName):
+			writeError(w, http.StatusBadRequest, "validation_failed", "Network name is invalid.", nil)
+		case errors.Is(err, maintenance.ErrAlreadyExists):
+			writeError(w, http.StatusConflict, "already_exists", "A Docker network with that name already exists.", nil)
+		case errors.Is(err, maintenance.ErrDockerUnavailable):
+			writeError(w, http.StatusServiceUnavailable, "docker_unavailable", "Docker maintenance actions are unavailable.", nil)
+		default:
+			h.logger.Error("create maintenance network failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create Docker network.", nil)
+		}
+		return
+	}
+
+	finishedAt := time.Now().UTC()
+	_ = h.audit.RecordSystemEvent(r.Context(), "create_network", "local", "succeeded", finishedAt, &finishedAt, map[string]any{
+		"name": response.Name,
+	})
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleDeleteMaintenanceNetwork(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	managedStackIDs, err := h.listManagedStackIDs(r.Context())
+	if err != nil {
+		h.logger.Error("list managed stacks for maintenance network delete failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to delete Docker network.", nil)
+		return
+	}
+
+	name := r.PathValue("name")
+	response, err := h.maintenance.DeleteNetwork(r.Context(), name, managedStackIDs)
+	if err != nil {
+		switch {
+		case errors.Is(err, maintenance.ErrInvalidName):
+			writeError(w, http.StatusBadRequest, "validation_failed", "Network name is invalid.", nil)
+		case errors.Is(err, maintenance.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Docker network not found.", nil)
+		case errors.Is(err, maintenance.ErrProtectedObject):
+			writeError(w, http.StatusConflict, "invalid_state", "Only unused external Docker networks can be removed manually.", nil)
+		case errors.Is(err, maintenance.ErrObjectInUse):
+			writeError(w, http.StatusConflict, "invalid_state", "Cannot remove a Docker network that is currently in use.", nil)
+		case errors.Is(err, maintenance.ErrDockerUnavailable):
+			writeError(w, http.StatusServiceUnavailable, "docker_unavailable", "Docker maintenance actions are unavailable.", nil)
+		default:
+			h.logger.Error("delete maintenance network failed", slog.String("name", name), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to delete Docker network.", nil)
+		}
+		return
+	}
+
+	finishedAt := time.Now().UTC()
+	_ = h.audit.RecordSystemEvent(r.Context(), "delete_network", "local", "succeeded", finishedAt, &finishedAt, map[string]any{
+		"name": response.Name,
+	})
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleMaintenanceVolumes(w http.ResponseWriter, r *http.Request) {
+	managedStackIDs, err := h.listManagedStackIDs(r.Context())
+	if err != nil {
+		h.logger.Error("list managed stacks for maintenance volumes failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load maintenance volumes.", nil)
+		return
+	}
+
+	query, ok := parseMaintenanceInventoryFilters(w, r)
+	if !ok {
+		return
+	}
+
+	response, err := h.maintenance.Volumes(r.Context(), maintenance.VolumesQuery{
+		Search:          query.Search,
+		Usage:           query.Usage,
+		Origin:          query.Origin,
+		ManagedStackIDs: managedStackIDs,
+	})
+	if err != nil {
+		if errors.Is(err, maintenance.ErrDockerUnavailable) {
+			writeError(w, http.StatusServiceUnavailable, "docker_unavailable", "Docker maintenance inventory is unavailable.", nil)
+			return
+		}
+		h.logger.Error("maintenance volumes failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load maintenance volumes.", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleCreateMaintenanceVolume(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request maintenance.CreateVolumeRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	response, err := h.maintenance.CreateVolume(r.Context(), request)
+	if err != nil {
+		switch {
+		case errors.Is(err, maintenance.ErrInvalidName):
+			writeError(w, http.StatusBadRequest, "validation_failed", "Volume name is invalid.", nil)
+		case errors.Is(err, maintenance.ErrAlreadyExists):
+			writeError(w, http.StatusConflict, "already_exists", "A Docker volume with that name already exists.", nil)
+		case errors.Is(err, maintenance.ErrDockerUnavailable):
+			writeError(w, http.StatusServiceUnavailable, "docker_unavailable", "Docker maintenance actions are unavailable.", nil)
+		default:
+			h.logger.Error("create maintenance volume failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create Docker volume.", nil)
+		}
+		return
+	}
+
+	finishedAt := time.Now().UTC()
+	_ = h.audit.RecordSystemEvent(r.Context(), "create_volume", "local", "succeeded", finishedAt, &finishedAt, map[string]any{
+		"name": response.Name,
+	})
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleDeleteMaintenanceVolume(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	managedStackIDs, err := h.listManagedStackIDs(r.Context())
+	if err != nil {
+		h.logger.Error("list managed stacks for maintenance volume delete failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to delete Docker volume.", nil)
+		return
+	}
+
+	name := r.PathValue("name")
+	response, err := h.maintenance.DeleteVolume(r.Context(), name, managedStackIDs)
+	if err != nil {
+		switch {
+		case errors.Is(err, maintenance.ErrInvalidName):
+			writeError(w, http.StatusBadRequest, "validation_failed", "Volume name is invalid.", nil)
+		case errors.Is(err, maintenance.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Docker volume not found.", nil)
+		case errors.Is(err, maintenance.ErrProtectedObject):
+			writeError(w, http.StatusConflict, "invalid_state", "Only unused external Docker volumes can be removed manually.", nil)
+		case errors.Is(err, maintenance.ErrObjectInUse):
+			writeError(w, http.StatusConflict, "invalid_state", "Cannot remove a Docker volume that is currently in use.", nil)
+		case errors.Is(err, maintenance.ErrDockerUnavailable):
+			writeError(w, http.StatusServiceUnavailable, "docker_unavailable", "Docker maintenance actions are unavailable.", nil)
+		default:
+			h.logger.Error("delete maintenance volume failed", slog.String("name", name), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to delete Docker volume.", nil)
+		}
+		return
+	}
+
+	finishedAt := time.Now().UTC()
+	_ = h.audit.RecordSystemEvent(r.Context(), "delete_volume", "local", "succeeded", finishedAt, &finishedAt, map[string]any{
+		"name": response.Name,
+	})
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -694,6 +1122,35 @@ func (h *Handler) handleMaintenancePrunePreview(w http.ResponseWriter, r *http.R
 	writeJSON(w, http.StatusOK, response)
 }
 
+type maintenanceInventoryFilters struct {
+	Search string
+	Usage  maintenance.ImageUsage
+	Origin maintenance.ImageOrigin
+}
+
+func parseMaintenanceInventoryFilters(w http.ResponseWriter, r *http.Request) (maintenanceInventoryFilters, bool) {
+	query := maintenanceInventoryFilters{
+		Search: strings.TrimSpace(r.URL.Query().Get("q")),
+		Usage:  maintenance.ImageUsage(strings.TrimSpace(r.URL.Query().Get("usage"))),
+		Origin: maintenance.ImageOrigin(strings.TrimSpace(r.URL.Query().Get("origin"))),
+	}
+	if query.Usage == "" {
+		query.Usage = maintenance.ImageUsageAll
+	}
+	if query.Origin == "" {
+		query.Origin = maintenance.ImageOriginAll
+	}
+	if query.Usage != maintenance.ImageUsageAll && query.Usage != maintenance.ImageUsageUsed && query.Usage != maintenance.ImageUsageUnused {
+		writeError(w, http.StatusBadRequest, "validation_failed", "usage must be one of: all, used, unused.", nil)
+		return maintenanceInventoryFilters{}, false
+	}
+	if query.Origin != maintenance.ImageOriginAll && query.Origin != maintenance.ImageOriginStackManaged && query.Origin != maintenance.ImageOriginExternal {
+		writeError(w, http.StatusBadRequest, "validation_failed", "origin must be one of: all, stack_managed, external.", nil)
+		return maintenanceInventoryFilters{}, false
+	}
+	return query, true
+}
+
 func (h *Handler) handleMaintenancePrune(w http.ResponseWriter, r *http.Request) {
 	if !auth.SameOrigin(r) {
 		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
@@ -717,75 +1174,258 @@ func (h *Handler) handleMaintenancePrune(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	workflow := buildPruneWorkflow(request.Scope)
-	job, err := h.jobs.StartWithLocks(r.Context(), "", "prune", "local", lockStackIDs)
+	job, err := h.maintenanceJobs.RunPrune(r.Context(), maintenancejobs.PruneRequest{
+		Scope:   request.Scope,
+		Trigger: "manual",
+	}, "local", lockStackIDs)
 	if err != nil {
 		switch {
 		case errors.Is(err, jobs.ErrStackLocked):
 			writeError(w, http.StatusConflict, "conflict", "Another global or stack maintenance job is already running.", nil)
 		default:
-			h.logger.Error("start prune job failed", slog.String("err", err.Error()))
+			h.logger.Error("run prune job failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusBadRequest, "validation_failed", err.Error(), nil)
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"job": job})
+}
+
+func (h *Handler) handleDockerAdminValidateDaemonConfig(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request dockerAdminValidateRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	response, err := h.dockerAdmin.ValidateManagedConfig(r.Context(), dockeradmin.ValidateManagedConfigRequest{
+		Settings:   request.Settings,
+		RemoveKeys: request.RemoveKeys,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, dockeradmin.ErrInvalidManagedInput):
+			writeError(w, http.StatusBadRequest, "validation_failed", err.Error(), nil)
+		case errors.Is(err, dockeradmin.ErrUnreadableConfig):
+			writeError(w, http.StatusConflict, "permission_denied", "Docker daemon config is not readable by the Stacklab service user.", nil)
+		case errors.Is(err, dockeradmin.ErrInvalidDaemonConfig):
+			writeError(w, http.StatusConflict, "invalid_state", "Docker daemon config contains invalid JSON and cannot be managed safely.", nil)
+		default:
+			h.logger.Error("docker daemon config validate failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to validate Docker daemon config changes.", nil)
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleDockerAdminApplyDaemonConfig(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request dockerAdminValidateRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	validateResponse, err := h.dockerAdmin.ValidateManagedConfig(r.Context(), dockeradmin.ValidateManagedConfigRequest{
+		Settings:   request.Settings,
+		RemoveKeys: request.RemoveKeys,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, dockeradmin.ErrInvalidManagedInput):
+			writeError(w, http.StatusBadRequest, "validation_failed", err.Error(), nil)
+		case errors.Is(err, dockeradmin.ErrUnreadableConfig):
+			writeError(w, http.StatusConflict, "permission_denied", "Docker daemon config is not readable by the Stacklab service user.", nil)
+		case errors.Is(err, dockeradmin.ErrInvalidDaemonConfig):
+			writeError(w, http.StatusConflict, "invalid_state", "Docker daemon config contains invalid JSON and cannot be managed safely.", nil)
+		default:
+			h.logger.Error("docker daemon config apply preflight failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to validate Docker daemon apply request.", nil)
+		}
+		return
+	}
+	if !validateResponse.WriteCapability.Supported {
+		writeError(w, http.StatusNotImplemented, "not_implemented", "Docker daemon apply is not configured yet.", nil)
+		return
+	}
+
+	lockStackIDs, err := h.listManagedStackIDs(r.Context())
+	if err != nil {
+		h.logger.Error("list managed stacks for docker daemon apply failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to prepare Docker daemon apply workflow.", nil)
+		return
+	}
+
+	job, err := h.jobs.StartWithLocks(r.Context(), "", "apply_docker_daemon_config", "local", lockStackIDs)
+	if err != nil {
+		switch {
+		case errors.Is(err, jobs.ErrStackLocked):
+			writeError(w, http.StatusConflict, "conflict", "Another global or stack maintenance job is already running.", nil)
+		default:
+			h.logger.Error("start docker daemon apply job failed", slog.String("err", err.Error()))
 			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create job.", nil)
 		}
 		return
 	}
 
-	if len(workflow) > 0 {
-		workflow = markWorkflowRunning(workflow, 0)
-		updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow)
-		if updateErr != nil {
-			h.logger.Error("initialize prune workflow failed", slog.String("job_id", job.ID), slog.String("err", updateErr.Error()))
-			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to initialize prune workflow.", nil)
-			return
+	workflow := []store.JobWorkflowStep{
+		{Action: "validate_config", State: "running"},
+		{Action: "apply_and_restart", State: "queued"},
+		{Action: "verify_recovery", State: "queued"},
+	}
+	updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow)
+	if updateErr != nil {
+		h.logger.Error("initialize docker daemon apply workflow failed", slog.String("job_id", job.ID), slog.String("err", updateErr.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to initialize Docker daemon apply workflow.", nil)
+		return
+	}
+	job = updatedJob
+	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", "Starting Docker daemon config validation.", "", workflowStepRef(workflow, 0))
+	if len(validateResponse.ChangedKeys) > 0 {
+		_ = h.jobs.PublishEvent(r.Context(), job, "job_log", "Validated Docker daemon config preview.", strings.Join(validateResponse.ChangedKeys, ", "), workflowStepRef(workflow, 0))
+	}
+	if len(validateResponse.Warnings) > 0 {
+		for _, warning := range validateResponse.Warnings {
+			_ = h.jobs.PublishEvent(r.Context(), job, "job_warning", warning, "", workflowStepRef(workflow, 0))
 		}
+	}
+	workflow = markWorkflowSucceeded(workflow, 0)
+	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_finished", "Finished Docker daemon config validation.", "", workflowStepRef(workflow, 0))
+	workflow = markWorkflowRunning(workflow, 1)
+	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", "Applying Docker daemon config and restarting Docker.", "", workflowStepRef(workflow, 1))
+	if updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow); updateErr == nil {
 		job = updatedJob
-		_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", pruneStepMessage("Starting", workflow[0]), "", workflowStepRef(workflow, 0))
 	}
 
-	for index, step := range workflow {
-		output, runErr := h.maintenance.RunPruneStep(r.Context(), step.Action)
-		if trimmed := strings.TrimSpace(output); trimmed != "" {
-			_ = h.jobs.PublishEvent(r.Context(), job, "job_log", pruneStepMessage("Output", step), trimmed, workflowStepRef(workflow, index))
+	applyResult, err := h.dockerAdmin.ApplyManagedConfig(r.Context(), dockeradmin.ApplyManagedConfigRequest{
+		Settings:   request.Settings,
+		RemoveKeys: request.RemoveKeys,
+	})
+	if applyResult.BackupPath != "" {
+		_ = h.jobs.PublishEvent(r.Context(), job, "job_log", "Created Docker daemon config backup.", applyResult.BackupPath, workflowStepRef(workflow, 1))
+	}
+	for _, warning := range applyResult.Warnings {
+		_ = h.jobs.PublishEvent(r.Context(), job, "job_warning", warning, "", workflowStepRef(workflow, 1))
+	}
+	if err != nil {
+		workflow = markWorkflowFailed(workflow, 1)
+		if updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow); updateErr == nil {
+			job = updatedJob
 		}
-		if runErr != nil {
-			workflow = markWorkflowFailed(workflow, index)
-			if updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow); updateErr == nil {
-				job = updatedJob
-			}
-			job, _ = h.jobs.FinishFailed(r.Context(), job, "prune_failed", runErr.Error())
-			if err := h.audit.RecordJob(r.Context(), job, pruneAuditDetails(request.Scope)); err != nil {
-				h.logger.Warn("record prune audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
-			}
-			writeJSON(w, http.StatusOK, map[string]any{"job": job})
-			return
+		errorCode := "docker_daemon_apply_failed"
+		message := err.Error()
+		if errors.Is(err, dockeradmin.ErrApplyUnsupported) {
+			errorCode = "not_implemented"
+			message = "Docker daemon apply is not configured yet."
 		}
+		job, _ = h.jobs.FinishFailed(r.Context(), job, errorCode, message)
+		_ = h.audit.RecordJob(r.Context(), job, dockerDaemonApplyAuditDetails(request, applyResult))
+		writeJSON(w, http.StatusOK, map[string]any{"job": job})
+		return
+	}
 
-		workflow = markWorkflowSucceeded(workflow, index)
-		_ = h.jobs.PublishEvent(r.Context(), job, "job_step_finished", pruneStepMessage("Finished", step), "", workflowStepRef(workflow, index))
-		if index+1 < len(workflow) {
-			workflow = markWorkflowRunning(workflow, index+1)
-			_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", pruneStepMessage("Starting", workflow[index+1]), "", workflowStepRef(workflow, index+1))
+	workflow = markWorkflowSucceeded(workflow, 1)
+	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_finished", "Applied Docker daemon config and restarted Docker.", "", workflowStepRef(workflow, 1))
+	workflow = markWorkflowRunning(workflow, 2)
+	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", "Verifying Docker recovery.", "", workflowStepRef(workflow, 2))
+	if updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow); updateErr == nil {
+		job = updatedJob
+	}
+
+	overview, verifyErr := h.dockerAdmin.Overview(r.Context())
+	if verifyErr != nil || !overview.Engine.Available || (overview.Service.Supported && overview.Service.ActiveState != "active") {
+		workflow = markWorkflowFailed(workflow, 2)
+		if updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow); updateErr == nil {
+			job = updatedJob
 		}
-		updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow)
-		if updateErr != nil {
-			h.logger.Error("update prune workflow failed", slog.String("job_id", job.ID), slog.String("err", updateErr.Error()))
-			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to update prune workflow.", nil)
-			return
+		message := "Docker daemon restart completed but recovery verification failed."
+		if verifyErr != nil {
+			message = verifyErr.Error()
 		}
+		job, _ = h.jobs.FinishFailed(r.Context(), job, "docker_daemon_verify_failed", message)
+		_ = h.audit.RecordJob(r.Context(), job, dockerDaemonApplyAuditDetails(request, applyResult))
+		writeJSON(w, http.StatusOK, map[string]any{"job": job})
+		return
+	}
+
+	workflow = markWorkflowSucceeded(workflow, 2)
+	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_finished", "Verified Docker recovery.", "", workflowStepRef(workflow, 2))
+	if updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow); updateErr == nil {
 		job = updatedJob
 	}
 
 	job, err = h.jobs.FinishSucceeded(r.Context(), job)
 	if err != nil {
-		h.logger.Error("finish prune job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
-		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to finalize job.", nil)
+		h.logger.Error("finish docker daemon apply job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to finalize Docker daemon apply job.", nil)
 		return
 	}
-	if err := h.audit.RecordJob(r.Context(), job, pruneAuditDetails(request.Scope)); err != nil {
-		h.logger.Warn("record prune audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+	if err := h.audit.RecordJob(r.Context(), job, dockerDaemonApplyAuditDetails(request, applyResult)); err != nil {
+		h.logger.Warn("record docker daemon apply audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"job": job})
+}
+
+func (h *Handler) handleStacklabUpdateOverview(w http.ResponseWriter, r *http.Request) {
+	if h.selfUpdate == nil {
+		writeError(w, http.StatusServiceUnavailable, "self_update_unavailable", "Stacklab self-update is unavailable.", nil)
+		return
+	}
+
+	response, err := h.selfUpdate.Overview(r.Context())
+	if err != nil {
+		h.logger.Error("stacklab self-update overview failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load Stacklab update status.", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleStacklabUpdateApply(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+	if h.selfUpdate == nil {
+		writeError(w, http.StatusServiceUnavailable, "self_update_unavailable", "Stacklab self-update is unavailable.", nil)
+		return
+	}
+
+	var request selfupdate.ApplyRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	response, err := h.selfUpdate.Apply(r.Context(), request, "local")
+	if err != nil {
+		switch {
+		case errors.Is(err, selfupdate.ErrUnsupported):
+			writeError(w, http.StatusServiceUnavailable, "self_update_unavailable", "Stacklab self-update is unavailable.", nil)
+		case errors.Is(err, selfupdate.ErrInvalidState):
+			writeError(w, http.StatusConflict, "invalid_state", err.Error(), nil)
+		default:
+			h.logger.Error("stacklab self-update apply failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to start Stacklab self-update.", nil)
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (h *Handler) handleListStacks(w http.ResponseWriter, r *http.Request) {
@@ -1173,6 +1813,33 @@ func (h *Handler) handleGetJob(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"job": job})
 }
 
+func (h *Handler) handleListActiveJobs(w http.ResponseWriter, r *http.Request) {
+	response, err := h.jobs.ListActive(r.Context())
+	if err != nil {
+		h.logger.Error("list active jobs failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load active jobs.", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleListJobEvents(w http.ResponseWriter, r *http.Request) {
+	response, err := h.jobs.Events(r.Context(), r.PathValue("jobId"))
+	if err != nil {
+		switch {
+		case errors.Is(err, jobs.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Job was not found.", nil)
+		default:
+			h.logger.Error("list job events failed", slog.String("job_id", r.PathValue("jobId")), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load job events.", nil)
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
 func (h *Handler) handleListStackAudit(w http.ResponseWriter, r *http.Request) {
 	if _, err := h.stackReader.Get(r.Context(), r.PathValue("stackId")); err != nil {
 		switch {
@@ -1211,6 +1878,139 @@ func (h *Handler) handleListAudit(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("list audit failed", slog.String("err", err.Error()))
 		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load audit entries.", nil)
 		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleGetNotificationSettings(w http.ResponseWriter, r *http.Request) {
+	if h.notifications == nil {
+		writeError(w, http.StatusNotImplemented, "not_implemented", "Notifications are not configured yet.", nil)
+		return
+	}
+
+	response, err := h.notifications.GetSettings(r.Context())
+	if err != nil {
+		h.logger.Error("get notification settings failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load notification settings.", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleUpdateNotificationSettings(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+	if h.notifications == nil {
+		writeError(w, http.StatusNotImplemented, "not_implemented", "Notifications are not configured yet.", nil)
+		return
+	}
+
+	var request notifications.UpdateSettingsRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	requestedAt := time.Now().UTC()
+	response, err := h.notifications.UpdateSettings(r.Context(), request)
+	if err != nil {
+		switch {
+		case errors.Is(err, notifications.ErrInvalidConfig):
+			writeError(w, http.StatusBadRequest, "validation_failed", err.Error(), nil)
+		default:
+			h.logger.Error("update notification settings failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to update notification settings.", nil)
+		}
+		return
+	}
+
+	finishedAt := time.Now().UTC()
+	if err := h.audit.RecordSystemEvent(r.Context(), "update_notification_settings", "local", "succeeded", requestedAt, &finishedAt, map[string]any{
+		"enabled":    response.Enabled,
+		"configured": response.Configured,
+	}); err != nil {
+		h.logger.Warn("record notification settings audit failed", slog.String("err", err.Error()))
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleSendNotificationTest(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+	if h.notifications == nil {
+		writeError(w, http.StatusNotImplemented, "not_implemented", "Notifications are not configured yet.", nil)
+		return
+	}
+
+	var request notifications.TestRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	requestedAt := time.Now().UTC()
+	response, err := h.notifications.SendTest(r.Context(), request)
+	if err != nil {
+		switch {
+		case errors.Is(err, notifications.ErrInvalidConfig):
+			writeError(w, http.StatusBadRequest, "validation_failed", err.Error(), nil)
+		default:
+			h.logger.Warn("send notification test failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusBadGateway, "delivery_failed", "Failed to deliver the test notification.", nil)
+		}
+		return
+	}
+
+	finishedAt := time.Now().UTC()
+	if err := h.audit.RecordSystemEvent(r.Context(), "send_notification_test", "local", "succeeded", requestedAt, &finishedAt, nil); err != nil {
+		h.logger.Warn("record notification test audit failed", slog.String("err", err.Error()))
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleGetMaintenanceSchedules(w http.ResponseWriter, r *http.Request) {
+	response, err := h.schedules.GetSettings(r.Context())
+	if err != nil {
+		h.logger.Error("get maintenance schedules failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load maintenance schedules.", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleUpdateMaintenanceSchedules(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request scheduler.UpdateSettingsRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	requestedAt := time.Now().UTC()
+	response, err := h.schedules.UpdateSettings(r.Context(), request)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", err.Error(), nil)
+		return
+	}
+
+	finishedAt := time.Now().UTC()
+	if err := h.audit.RecordSystemEvent(r.Context(), "update_maintenance_schedules", "local", "succeeded", requestedAt, &finishedAt, map[string]any{
+		"update_enabled": response.Update.Enabled,
+		"prune_enabled":  response.Prune.Enabled,
+	}); err != nil {
+		h.logger.Warn("record maintenance schedules audit failed", slog.String("err", err.Error()))
 	}
 
 	writeJSON(w, http.StatusOK, response)
@@ -1621,6 +2421,48 @@ func boolOrDefault(value *bool, fallback bool) bool {
 	return *value
 }
 
+func dockerDaemonApplyAuditDetails(request dockerAdminValidateRequest, result dockeradmin.ApplyManagedConfigResult) map[string]any {
+	details := map[string]any{
+		"managed_keys": supportedDockerManagedKeys(),
+	}
+	if len(request.RemoveKeys) > 0 {
+		details["remove_keys"] = request.RemoveKeys
+	}
+	if request.Settings.DNS != nil {
+		details["dns"] = *request.Settings.DNS
+	}
+	if request.Settings.RegistryMirrors != nil {
+		details["registry_mirrors"] = *request.Settings.RegistryMirrors
+	}
+	if request.Settings.InsecureRegistries != nil {
+		details["insecure_registries"] = *request.Settings.InsecureRegistries
+	}
+	if request.Settings.LiveRestore != nil {
+		details["live_restore"] = *request.Settings.LiveRestore
+	}
+	if len(result.ChangedKeys) > 0 {
+		details["changed_keys"] = result.ChangedKeys
+	}
+	if result.BackupPath != "" {
+		details["backup_path"] = result.BackupPath
+	}
+	if result.RolledBack {
+		details["rolled_back"] = true
+		details["rollback_succeeded"] = result.RollbackSucceeded
+	}
+	if result.ServiceActiveState != "" {
+		details["service_active_state"] = result.ServiceActiveState
+	}
+	if len(result.Warnings) > 0 {
+		details["warnings"] = result.Warnings
+	}
+	return details
+}
+
+func supportedDockerManagedKeys() []string {
+	return []string{"dns", "registry_mirrors", "insecure_registries", "live_restore"}
+}
+
 func parseOptionalBool(value string, fallback bool) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "":
@@ -1634,68 +2476,6 @@ func parseOptionalBool(value string, fallback bool) bool {
 	}
 }
 
-func (h *Handler) resolveMaintenanceTargetStacks(ctx context.Context, mode string, stackIDs []string) ([]string, error) {
-	switch mode {
-	case "selected":
-		if len(stackIDs) == 0 {
-			return nil, errors.New("target.stack_ids must be non-empty when mode = selected")
-		}
-		deduped := dedupeSortedStackIDs(stackIDs)
-		for _, stackID := range deduped {
-			detail, err := h.stackReader.Get(ctx, stackID)
-			if err != nil {
-				if errors.Is(err, stacks.ErrNotFound) {
-					return nil, fmt.Errorf("%w: stack %q was not found", stacks.ErrNotFound, stackID)
-				}
-				return nil, err
-			}
-			if !containsString(detail.Stack.AvailableActions, "up") {
-				return nil, fmt.Errorf("%w: stack %q cannot be updated in its current state", stacks.ErrInvalidState, stackID)
-			}
-		}
-		return deduped, nil
-	case "all":
-		list, err := h.stackReader.List(ctx, stacks.ListQuery{})
-		if err != nil {
-			return nil, err
-		}
-		candidates := make([]string, 0, len(list.Items))
-		for _, item := range list.Items {
-			detail, err := h.stackReader.Get(ctx, item.ID)
-			if err != nil {
-				return nil, err
-			}
-			if containsString(detail.Stack.AvailableActions, "up") {
-				candidates = append(candidates, item.ID)
-			}
-		}
-		if len(candidates) == 0 {
-			return nil, errors.New("no updatable stacks found")
-		}
-		sort.Strings(candidates)
-		return candidates, nil
-	default:
-		return nil, errors.New("target.mode must be one of: selected, all")
-	}
-}
-
-func dedupeSortedStackIDs(stackIDs []string) []string {
-	unique := map[string]struct{}{}
-	for _, stackID := range stackIDs {
-		stackID = strings.TrimSpace(stackID)
-		if stackID == "" {
-			continue
-		}
-		unique[stackID] = struct{}{}
-	}
-	result := make([]string, 0, len(unique))
-	for stackID := range unique {
-		result = append(result, stackID)
-	}
-	sort.Strings(result)
-	return result
-}
-
 func (h *Handler) listManagedStackIDs(ctx context.Context) ([]string, error) {
 	list, err := h.stackReader.List(ctx, stacks.ListQuery{})
 	if err != nil {
@@ -1707,139 +2487,4 @@ func (h *Handler) listManagedStackIDs(ctx context.Context) ([]string, error) {
 	}
 	sort.Strings(result)
 	return result, nil
-}
-
-func (h *Handler) buildMaintenanceWorkflow(ctx context.Context, stackIDs []string, options resolvedMaintenanceOptions) ([]store.JobWorkflowStep, error) {
-	steps := make([]store.JobWorkflowStep, 0, len(stackIDs)*3+1)
-	for _, stackID := range stackIDs {
-		if options.PullImages {
-			steps = append(steps, store.JobWorkflowStep{Action: "pull", State: "queued", TargetStackID: stackID})
-		}
-		if options.BuildImages {
-			needsBuild, err := h.stackReader.MaintenanceNeedsBuild(ctx, stackID)
-			if err != nil {
-				return nil, err
-			}
-			if needsBuild {
-				steps = append(steps, store.JobWorkflowStep{Action: "build", State: "queued", TargetStackID: stackID})
-			}
-		}
-		steps = append(steps, store.JobWorkflowStep{Action: "up", State: "queued", TargetStackID: stackID})
-	}
-	if options.PruneAfter {
-		steps = append(steps, store.JobWorkflowStep{Action: "prune", State: "queued"})
-	}
-	return steps, nil
-}
-
-func (h *Handler) runMaintenanceWorkflowStep(ctx context.Context, step store.JobWorkflowStep, options resolvedMaintenanceOptions) (string, error) {
-	if step.Action == "prune" {
-		return runDockerSystemPrune(ctx, options.IncludeVolumes)
-	}
-	return h.stackReader.RunMaintenanceStep(ctx, step.TargetStackID, step.Action, stacks.MaintenanceStepOptions{
-		RemoveOrphans: options.RemoveOrphans,
-	})
-}
-
-func runDockerSystemPrune(ctx context.Context, includeVolumes bool) (string, error) {
-	args := []string{"system", "prune", "-af"}
-	if includeVolumes {
-		args = append(args, "--volumes")
-	}
-	cmd := exec.CommandContext(ctx, "docker", args...)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		message := strings.TrimSpace(string(output))
-		if message == "" {
-			message = err.Error()
-		}
-		return strings.TrimSpace(string(output)), errors.New(message)
-	}
-	return strings.TrimSpace(string(output)), nil
-}
-
-func buildPruneWorkflow(scope maintenance.PruneScope) []store.JobWorkflowStep {
-	steps := []store.JobWorkflowStep{}
-	if scope.Images {
-		steps = append(steps, store.JobWorkflowStep{Action: "prune_images", State: "queued"})
-	}
-	if scope.BuildCache {
-		steps = append(steps, store.JobWorkflowStep{Action: "prune_build_cache", State: "queued"})
-	}
-	if scope.StoppedContainers {
-		steps = append(steps, store.JobWorkflowStep{Action: "prune_stopped_containers", State: "queued"})
-	}
-	if scope.Volumes {
-		steps = append(steps, store.JobWorkflowStep{Action: "prune_volumes", State: "queued"})
-	}
-	return steps
-}
-
-func pruneStepMessage(prefix string, step store.JobWorkflowStep) string {
-	return prefix + " " + strings.ToLower(maintenanceActionLabel(step.Action)) + "."
-}
-
-func pruneAuditDetails(scope maintenance.PruneScope) map[string]any {
-	return map[string]any{
-		"scope": map[string]any{
-			"images":             scope.Images,
-			"build_cache":        scope.BuildCache,
-			"stopped_containers": scope.StoppedContainers,
-			"volumes":            scope.Volumes,
-		},
-	}
-}
-
-func maintenanceStepMessage(prefix string, step store.JobWorkflowStep) string {
-	label := maintenanceActionLabel(step.Action)
-	if step.TargetStackID == "" {
-		return prefix + " " + strings.ToLower(label) + "."
-	}
-	return prefix + " " + strings.ToLower(label) + " for " + step.TargetStackID + "."
-}
-
-func maintenanceAuditDetails(mode string, stackIDs []string, options resolvedMaintenanceOptions) map[string]any {
-	return map[string]any{
-		"target_mode": mode,
-		"stack_ids":   stackIDs,
-		"options": map[string]any{
-			"pull_images":     options.PullImages,
-			"build_images":    options.BuildImages,
-			"remove_orphans":  options.RemoveOrphans,
-			"prune_after":     options.PruneAfter,
-			"include_volumes": options.IncludeVolumes,
-		},
-	}
-}
-
-func maintenanceActionLabel(action string) string {
-	switch action {
-	case "pull":
-		return "Pull"
-	case "build":
-		return "Build"
-	case "up":
-		return "Up"
-	case "prune":
-		return "Prune"
-	case "prune_images":
-		return "Prune images"
-	case "prune_build_cache":
-		return "Prune build cache"
-	case "prune_stopped_containers":
-		return "Prune stopped containers"
-	case "prune_volumes":
-		return "Prune volumes"
-	default:
-		return action
-	}
-}
-
-func containsString(values []string, candidate string) bool {
-	for _, value := range values {
-		if value == candidate {
-			return true
-		}
-	}
-	return false
 }

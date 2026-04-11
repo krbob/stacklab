@@ -183,6 +183,11 @@ func (s *Store) migrate(ctx context.Context) error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires_at ON auth_sessions (expires_at);`,
 		`CREATE INDEX IF NOT EXISTS idx_auth_sessions_revoked_at ON auth_sessions (revoked_at);`,
+		`CREATE TABLE IF NOT EXISTS app_settings (
+			key TEXT PRIMARY KEY,
+			value_json TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);`,
 		`CREATE TABLE IF NOT EXISTS jobs (
 			id TEXT PRIMARY KEY,
 			stack_id TEXT NOT NULL,
@@ -262,6 +267,35 @@ func (s *Store) SetPasswordHash(ctx context.Context, passwordHash string, update
 	)
 	if err != nil {
 		return fmt.Errorf("store password hash: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) AppSetting(ctx context.Context, key string) (string, bool, error) {
+	var value string
+	err := s.db.QueryRowContext(ctx, `SELECT value_json FROM app_settings WHERE key = ?`, key).Scan(&value)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return "", false, nil
+	case err != nil:
+		return "", false, fmt.Errorf("load app setting %q: %w", key, err)
+	default:
+		return value, true, nil
+	}
+}
+
+func (s *Store) SetAppSetting(ctx context.Context, key, valueJSON string, updatedAt time.Time) error {
+	_, err := s.db.ExecContext(
+		ctx,
+		`INSERT INTO app_settings (key, value_json, updated_at)
+		 VALUES (?, ?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
+		key,
+		valueJSON,
+		updatedAt.UTC().Format(time.RFC3339Nano),
+	)
+	if err != nil {
+		return fmt.Errorf("store app setting %q: %w", key, err)
 	}
 	return nil
 }
@@ -470,73 +504,49 @@ func (s *Store) UpdateJob(ctx context.Context, job Job) error {
 }
 
 func (s *Store) JobByID(ctx context.Context, id string) (Job, error) {
-	var rawRequestedAt string
-	var rawStartedAt sql.NullString
-	var rawFinishedAt sql.NullString
-	var rawWorkflow sql.NullString
-	var rawErrorCode sql.NullString
-	var rawErrorMessage sql.NullString
-
-	job := Job{}
-	err := s.db.QueryRowContext(
+	job, err := scanJob(s.db.QueryRowContext(
 		ctx,
 		`SELECT id, stack_id, action, state, requested_by, requested_at, started_at, finished_at, workflow_json, error_code, error_message
 		 FROM jobs
 		 WHERE id = ?`,
 		id,
-	).Scan(
-		&job.ID,
-		&job.StackID,
-		&job.Action,
-		&job.State,
-		&job.RequestedBy,
-		&rawRequestedAt,
-		&rawStartedAt,
-		&rawFinishedAt,
-		&rawWorkflow,
-		&rawErrorCode,
-		&rawErrorMessage,
-	)
+	))
 	switch {
-	case errors.Is(err, sql.ErrNoRows):
+	case errors.Is(err, ErrNotFound):
 		return Job{}, ErrNotFound
 	case err != nil:
 		return Job{}, fmt.Errorf("load job: %w", err)
 	}
 
-	job.RequestedAt, err = time.Parse(time.RFC3339Nano, rawRequestedAt)
+	return job, nil
+}
+
+func (s *Store) ListActiveJobs(ctx context.Context) ([]Job, error) {
+	rows, err := s.db.QueryContext(
+		ctx,
+		`SELECT id, stack_id, action, state, requested_by, requested_at, started_at, finished_at, workflow_json, error_code, error_message
+		 FROM jobs
+		 WHERE state IN ('queued', 'running', 'cancel_requested')
+		 ORDER BY COALESCE(started_at, requested_at) DESC, requested_at DESC`,
+	)
 	if err != nil {
-		return Job{}, fmt.Errorf("parse requested_at: %w", err)
+		return nil, fmt.Errorf("list active jobs: %w", err)
 	}
-	if rawStartedAt.Valid {
-		startedAt, err := time.Parse(time.RFC3339Nano, rawStartedAt.String)
+	defer rows.Close()
+
+	jobs := make([]Job, 0, 8)
+	for rows.Next() {
+		job, err := scanJob(rows)
 		if err != nil {
-			return Job{}, fmt.Errorf("parse started_at: %w", err)
+			return nil, err
 		}
-		job.StartedAt = &startedAt
+		jobs = append(jobs, job)
 	}
-	if rawFinishedAt.Valid {
-		finishedAt, err := time.Parse(time.RFC3339Nano, rawFinishedAt.String)
-		if err != nil {
-			return Job{}, fmt.Errorf("parse finished_at: %w", err)
-		}
-		job.FinishedAt = &finishedAt
-	}
-	if rawWorkflow.Valid {
-		var workflow JobWorkflow
-		if err := json.Unmarshal([]byte(rawWorkflow.String), &workflow); err != nil {
-			return Job{}, fmt.Errorf("unmarshal workflow: %w", err)
-		}
-		job.Workflow = &workflow
-	}
-	if rawErrorCode.Valid {
-		job.ErrorCode = rawErrorCode.String
-	}
-	if rawErrorMessage.Valid {
-		job.ErrorMessage = rawErrorMessage.String
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate active jobs: %w", err)
 	}
 
-	return job, nil
+	return jobs, nil
 }
 
 func (s *Store) NextJobEventSequence(ctx context.Context, jobID string) (int, error) {
@@ -612,6 +622,28 @@ func (s *Store) ListJobEvents(ctx context.Context, jobID string) ([]JobEvent, er
 	}
 
 	return events, nil
+}
+
+func (s *Store) LatestJobEvent(ctx context.Context, jobID string) (JobEvent, bool, error) {
+	row := s.db.QueryRowContext(
+		ctx,
+		`SELECT job_id, sequence, event, state, message, data, step_json, timestamp
+		 FROM job_events
+		 WHERE job_id = ?
+		 ORDER BY sequence DESC
+		 LIMIT 1`,
+		jobID,
+	)
+
+	event, err := scanJobEvent(row)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return JobEvent{}, false, nil
+	case err != nil:
+		return JobEvent{}, false, fmt.Errorf("load latest job event: %w", err)
+	default:
+		return event, true, nil
+	}
 }
 
 func (s *Store) CreateAuditEntry(ctx context.Context, entry AuditEntry) error {
@@ -771,6 +803,72 @@ func nullIfPtr(value *string) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: *value, Valid: true}
+}
+
+func scanJob(scanner interface{ Scan(dest ...any) error }) (Job, error) {
+	var rawRequestedAt string
+	var rawStartedAt sql.NullString
+	var rawFinishedAt sql.NullString
+	var rawWorkflow sql.NullString
+	var rawErrorCode sql.NullString
+	var rawErrorMessage sql.NullString
+
+	job := Job{}
+	err := scanner.Scan(
+		&job.ID,
+		&job.StackID,
+		&job.Action,
+		&job.State,
+		&job.RequestedBy,
+		&rawRequestedAt,
+		&rawStartedAt,
+		&rawFinishedAt,
+		&rawWorkflow,
+		&rawErrorCode,
+		&rawErrorMessage,
+	)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return Job{}, ErrNotFound
+	case err != nil:
+		return Job{}, fmt.Errorf("scan job: %w", err)
+	}
+
+	parsedRequestedAt, err := time.Parse(time.RFC3339Nano, rawRequestedAt)
+	if err != nil {
+		return Job{}, fmt.Errorf("parse requested_at: %w", err)
+	}
+	job.RequestedAt = parsedRequestedAt
+
+	if rawStartedAt.Valid {
+		startedAt, err := time.Parse(time.RFC3339Nano, rawStartedAt.String)
+		if err != nil {
+			return Job{}, fmt.Errorf("parse started_at: %w", err)
+		}
+		job.StartedAt = &startedAt
+	}
+	if rawFinishedAt.Valid {
+		finishedAt, err := time.Parse(time.RFC3339Nano, rawFinishedAt.String)
+		if err != nil {
+			return Job{}, fmt.Errorf("parse finished_at: %w", err)
+		}
+		job.FinishedAt = &finishedAt
+	}
+	if rawWorkflow.Valid {
+		var workflow JobWorkflow
+		if err := json.Unmarshal([]byte(rawWorkflow.String), &workflow); err != nil {
+			return Job{}, fmt.Errorf("unmarshal workflow: %w", err)
+		}
+		job.Workflow = &workflow
+	}
+	if rawErrorCode.Valid {
+		job.ErrorCode = rawErrorCode.String
+	}
+	if rawErrorMessage.Valid {
+		job.ErrorMessage = rawErrorMessage.String
+	}
+
+	return job, nil
 }
 
 func scanJobEvent(scanner interface{ Scan(dest ...any) error }) (JobEvent, error) {
