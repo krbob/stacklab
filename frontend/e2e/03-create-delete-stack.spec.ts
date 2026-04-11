@@ -19,8 +19,8 @@ test.describe('Create and Delete Stack', () => {
     // Fill in stack name
     await page.getByTestId('create-stack-name').fill(TEST_STACK)
 
-    // Should show the canonical path preview
-    await expect(page.getByText(`/opt/stacklab/stacks/${TEST_STACK}/compose.yaml`)).toBeVisible()
+    // Should show creation preview without relying on a specific install layout
+    await expect(page.getByText(/Will create a new stack definition for/)).toBeVisible()
 
     // Submit
     await page.getByTestId('create-stack-submit').click()

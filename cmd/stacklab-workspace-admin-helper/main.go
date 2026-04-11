@@ -114,6 +114,15 @@ func runRepair(args []string) error {
 func loadStacklabRoot() (string, error) {
 	root := defaultStacklabRoot
 
+	if override := strings.TrimSpace(os.Getenv("STACKLAB_ROOT")); override != "" {
+		root = override
+		resolved, err := filepath.Abs(root)
+		if err != nil {
+			return "", fmt.Errorf("resolve stacklab root: %w", err)
+		}
+		return resolved, nil
+	}
+
 	file, err := os.Open(envFilePath)
 	if err == nil {
 		defer file.Close()

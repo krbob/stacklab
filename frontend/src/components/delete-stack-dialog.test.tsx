@@ -30,8 +30,8 @@ describe('DeleteStackDialog', () => {
     renderDialog()
     expect(screen.getByLabelText(/Stop and remove containers/)).toBeChecked()
     expect(screen.getByLabelText(/Delete stack definition/)).not.toBeChecked()
-    expect(screen.getByLabelText(/Delete config directory/)).not.toBeChecked()
-    expect(screen.getByLabelText(/Delete data directory/)).not.toBeChecked()
+    expect(screen.getByLabelText(/Delete this stack's config directory/)).not.toBeChecked()
+    expect(screen.getByLabelText(/Delete this stack's data directory/)).not.toBeChecked()
   })
 
   it('shows confirm button enabled with default selection', () => {
@@ -47,7 +47,7 @@ describe('DeleteStackDialog', () => {
 
   it('shows data deletion warning when data checkbox is checked', () => {
     renderDialog()
-    fireEvent.click(screen.getByLabelText(/Delete data directory/))
+    fireEvent.click(screen.getByLabelText(/Delete this stack's data directory/))
     expect(screen.getByText(/Deleting data is irreversible/)).toBeInTheDocument()
   })
 

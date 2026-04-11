@@ -41,7 +41,7 @@ func TestCapabilityWithSudoProbeSuccess(t *testing.T) {
 		if name != "sudo" {
 			t.Fatalf("runCommand name = %q, want sudo", name)
 		}
-		if len(args) < 3 || args[2] != helperPath {
+		if len(args) < 4 || args[1] != "--preserve-env=STACKLAB_ROOT" || args[3] != helperPath {
 			t.Fatalf("unexpected sudo args: %#v", args)
 		}
 		return []byte(`{"changed_items":0}`), nil
@@ -97,7 +97,7 @@ func TestRepairReturnsBeforeAndAfterPermissions(t *testing.T) {
 		WorkspaceAdminUseSudo:    true,
 	})
 	service.runCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
-		if len(args) >= 4 && args[3] == "probe" {
+		if len(args) >= 5 && args[4] == "probe" {
 			return []byte(`{"changed_items":0}`), nil
 		}
 		if err := os.Chmod(targetPath, 0o644); err != nil {

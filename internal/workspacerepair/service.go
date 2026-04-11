@@ -131,7 +131,7 @@ func (s *Service) Repair(ctx context.Context, targetPath string, recursive bool)
 
 func (s *Service) runHelperCommand(ctx context.Context, args ...string) ([]byte, error) {
 	if s.useSudo {
-		sudoArgs := append([]string{"-n", "--", s.helperPath}, args...)
+		sudoArgs := append([]string{"-n", "--preserve-env=STACKLAB_ROOT", "--", s.helperPath}, args...)
 		return s.runCommand(ctx, "sudo", sudoArgs...)
 	}
 	return s.runCommand(ctx, s.helperPath, args...)
