@@ -4,6 +4,8 @@ import type { HostOverviewResponse, StacklabLogEntry } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
 import { formatBytes, formatUptime } from '@/pages/host-page-utils'
 
+const OVERVIEW_POLL_INTERVAL_MS = 5_000
+
 function PercentBar({ value, color }: { value: number; color: string }) {
   return (
     <div className="h-2 w-full rounded-full bg-[rgba(255,255,255,0.06)]">
@@ -46,7 +48,7 @@ export function HostPage() {
   useEffect(() => {
     const interval = setInterval(() => {
       void loadOverview()
-    }, 15_000)
+    }, OVERVIEW_POLL_INTERVAL_MS)
     return () => clearInterval(interval)
   }, [loadOverview])
 

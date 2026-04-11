@@ -157,7 +157,7 @@ describe('HostPage', () => {
     let overviewPoll: (() => void) | null = null
     const setIntervalSpy = vi.spyOn(globalThis, 'setInterval')
     setIntervalSpy.mockImplementation((handler: TimerHandler, timeout?: number) => {
-      if (timeout === 15_000) {
+      if (timeout === 5_000) {
         overviewPoll = () => {
           if (typeof handler === 'function') {
             handler()
