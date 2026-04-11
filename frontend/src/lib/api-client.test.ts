@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { getStacks, getStack, login, updateStacksMaintenance, commitGitWorkspace, pushGitWorkspace, ApiClientError } from './api-client'
+import { getStacks, getStack, login, updateStacksMaintenance, commitGitWorkspace, pushGitWorkspace, getMaintenanceSchedules, updateMaintenanceSchedules, ApiClientError } from './api-client'
 
 const mockFetch = vi.fn()
 vi.stubGlobal('fetch', mockFetch)
@@ -141,6 +141,64 @@ describe('api-client', () => {
       expect(call[0]).toBe('/api/git/workspace/push')
       expect(call[1].method).toBe('POST')
       expect(call[1].body).toBeUndefined()
+    })
+  })
+
+  describe('maintenance schedules', () => {
+    it('fetches maintenance schedules', async () => {
+      mockFetch.mockReturnValueOnce(jsonResponse({
+        timezone: 'host_local',
+        update: { enabled: false, frequency: 'weekly', time: '03:30', weekdays: ['sat'], target: { mode: 'all' }, options: { pull_images: true, build_images: true, remove_orphans: true, prune_after: false, include_volumes: false }, status: {} },
+        prune: { enabled: false, frequency: 'weekly', time: '04:30', weekdays: ['sun'], scope: { images: true, build_cache: true, stopped_containers: true, volumes: false }, status: {} },
+      }))
+
+      await getMaintenanceSchedules()
+      expect(mockFetch.mock.calls[0][0]).toBe('/api/settings/maintenance-schedules')
+    })
+
+    it('updates maintenance schedules', async () => {
+      mockFetch.mockReturnValueOnce(jsonResponse({
+        timezone: 'host_local',
+        update: { enabled: true, frequency: 'daily', time: '03:30', target: { mode: 'all' }, options: { pull_images: true, build_images: true, remove_orphans: true, prune_after: false, include_volumes: false }, status: {} },
+        prune: { enabled: false, frequency: 'weekly', time: '04:30', weekdays: ['sun'], scope: { images: true, build_cache: true, stopped_containers: true, volumes: false }, status: {} },
+      }))
+
+      await updateMaintenanceSchedules({
+        update: {
+          enabled: true,
+          frequency: 'daily',
+          time: '03:30',
+          target: { mode: 'all' },
+          options: { pull_images: true, build_images: true, remove_orphans: true, prune_after: false, include_volumes: false },
+        },
+        prune: {
+          enabled: false,
+          frequency: 'weekly',
+          time: '04:30',
+          weekdays: ['sun'],
+          scope: { images: true, build_cache: true, stopped_containers: true, volumes: false },
+        },
+      })
+
+      const call = mockFetch.mock.calls[0]
+      expect(call[0]).toBe('/api/settings/maintenance-schedules')
+      expect(call[1].method).toBe('PUT')
+      expect(JSON.parse(call[1].body)).toEqual({
+        update: {
+          enabled: true,
+          frequency: 'daily',
+          time: '03:30',
+          target: { mode: 'all' },
+          options: { pull_images: true, build_images: true, remove_orphans: true, prune_after: false, include_volumes: false },
+        },
+        prune: {
+          enabled: false,
+          frequency: 'weekly',
+          time: '04:30',
+          weekdays: ['sun'],
+          scope: { images: true, build_cache: true, stopped_containers: true, volumes: false },
+        },
+      })
     })
   })
 

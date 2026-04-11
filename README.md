@@ -111,7 +111,8 @@ curl -fsSL https://krbob.github.io/stacklab/apt/stacklab-archive-keyring.gpg \
 Add the stable channel:
 
 ```bash
-echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/stacklab-archive-keyring.gpg] https://krbob.github.io/stacklab/apt stable main' \
+arch="$(dpkg --print-architecture)"
+echo "deb [arch=${arch} signed-by=/usr/share/keyrings/stacklab-archive-keyring.gpg] https://krbob.github.io/stacklab/apt stable main" \
   | sudo tee /etc/apt/sources.list.d/stacklab.list
 ```
 

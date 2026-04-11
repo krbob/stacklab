@@ -57,6 +57,213 @@ Milestone 7 should be implemented in this order:
    - read-only volumes inventory
    - selective actions only where directly useful
 
+## Read-only Network Inventory
+
+## `GET /api/maintenance/networks`
+
+Purpose:
+
+- list host Docker networks in a maintenance-oriented shape
+
+Query parameters:
+
+- `q` optional text filter
+- `usage` optional:
+  - `all`
+  - `used`
+  - `unused`
+- `origin` optional:
+  - `all`
+  - `stack_managed`
+  - `external`
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "id": "network-demo",
+      "name": "demo_default",
+      "driver": "bridge",
+      "scope": "local",
+      "internal": false,
+      "attachable": false,
+      "ingress": false,
+      "containers_using": 1,
+      "stacks_using": [
+        {
+          "stack_id": "demo",
+          "service_names": ["app"]
+        }
+      ],
+      "is_unused": false,
+      "source": "stack_managed"
+    }
+  ]
+}
+```
+
+Notes:
+
+- `source = stack_managed` means Stacklab can associate the network with at least one managed stack
+- this includes external networks when managed stack containers are attached to them
+- inventory remains read-only in this slice
+
+## Safe External Network Actions
+
+This follow-up slice adds only two bounded actions:
+
+- create an external Docker network by name
+- remove an unused external Docker network by name
+
+Guardrails:
+
+- built-in networks such as `bridge`, `host`, `none`, and `ingress` are never removable
+- stack-managed networks are not removable here
+- in-use networks are not removable here
+- no generic network option editing in this slice
+
+## `POST /api/maintenance/networks`
+
+Purpose:
+
+- create a plain external Docker network that a Compose stack can later reference
+
+Request:
+
+```json
+{
+  "name": "homelab_proxy"
+}
+```
+
+Response:
+
+```json
+{
+  "created": true,
+  "name": "homelab_proxy"
+}
+```
+
+## `DELETE /api/maintenance/networks/{name}`
+
+Purpose:
+
+- remove an unused external Docker network deliberately
+
+Response:
+
+```json
+{
+  "deleted": true,
+  "name": "old_shared_network"
+}
+```
+
+## Read-only Volume Inventory
+
+## `GET /api/maintenance/volumes`
+
+Purpose:
+
+- list host Docker volumes in a maintenance-oriented shape
+
+Query parameters:
+
+- `q` optional text filter
+- `usage` optional:
+  - `all`
+  - `used`
+  - `unused`
+- `origin` optional:
+  - `all`
+  - `stack_managed`
+  - `external`
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "name": "demo_data",
+      "driver": "local",
+      "mountpoint": "/var/lib/docker/volumes/demo_data/_data",
+      "scope": "local",
+      "options_count": 0,
+      "containers_using": 1,
+      "stacks_using": [
+        {
+          "stack_id": "demo",
+          "service_names": ["app"]
+        }
+      ],
+      "is_unused": false,
+      "source": "stack_managed"
+    }
+  ]
+}
+```
+
+Notes:
+
+- `source = stack_managed` means Stacklab can associate the volume with at least one managed stack
+- this includes external named volumes when managed stack containers use them
+- inventory remains read-only in this slice
+
+## Safe External Volume Actions
+
+This follow-up slice adds only two bounded actions:
+
+- create an external named volume by name
+- remove an unused external named volume by name
+
+Guardrails:
+
+- stack-managed volumes are not removable here
+- in-use volumes are not removable here
+- no driver/options editing in this slice
+
+## `POST /api/maintenance/volumes`
+
+Purpose:
+
+- create a plain external Docker volume that a Compose stack can later reference
+
+Request:
+
+```json
+{
+  "name": "media_cache"
+}
+```
+
+Response:
+
+```json
+{
+  "created": true,
+  "name": "media_cache"
+}
+```
+
+## `DELETE /api/maintenance/volumes/{name}`
+
+Purpose:
+
+- remove an unused external Docker volume deliberately
+
+Response:
+
+```json
+{
+  "deleted": true,
+  "name": "old_media_cache"
+}
+```
+
 ## Image Inventory
 
 ## `GET /api/maintenance/images`

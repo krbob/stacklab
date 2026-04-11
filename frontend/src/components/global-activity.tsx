@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { getActiveJobs, getJob } from '@/lib/api-client'
+import { useJobDrawer } from '@/hooks/use-job-drawer'
 import type { ActiveJobItem, ActiveJobsResponse, JobDetail } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
 
@@ -21,11 +21,6 @@ function jobLabel(job: ActiveJobItem): string {
   return target ? `${action} · ${target}` : action
 }
 
-function jobRoute(job: ActiveJobItem): string {
-  if (job.action === 'update_stacks' || job.action === 'prune') return '/maintenance'
-  if (job.stack_id) return `/stacks/${job.stack_id}`
-  return '/audit'
-}
 
 function toActiveJobItem(job: JobDetail): ActiveJobItem {
   return {
@@ -164,10 +159,10 @@ export function GlobalActivity() {
 
           <div className="space-y-1">
             {activeItems.map((job) => (
-              <JobRow key={job.id} job={job} />
+              <JobRow key={job.id} job={job} onOpen={() => setOpen(false)} />
             ))}
             {recentlyCompleted.map((job) => (
-              <JobRow key={job.id} job={job} terminal />
+              <JobRow key={job.id} job={job} terminal onOpen={() => setOpen(false)} />
             ))}
           </div>
         </div>
@@ -176,18 +171,21 @@ export function GlobalActivity() {
   )
 }
 
-function JobRow({ job, terminal = false }: { job: ActiveJobItem; terminal?: boolean }) {
+function JobRow({ job, terminal = false, onOpen }: { job: ActiveJobItem; terminal?: boolean; onOpen?: () => void }) {
+  const { openJob } = useJobDrawer()
   const target = job.current_step?.target_stack_id ?? job.stack_id
   const action = job.current_step?.action ?? job.action
   const elapsed = job.started_at ? formatElapsed(job.started_at) : '—'
-  const route = jobRoute(job)
   const isFailure = job.state === 'failed' || job.state === 'timed_out'
   const isSuccess = job.state === 'succeeded' || job.state === 'cancelled'
 
   return (
-    <Link
-      to={route}
-      className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition hover:bg-[rgba(255,255,255,0.05)]"
+    <button
+      onClick={() => {
+        openJob(job.id)
+        onOpen?.()
+      }}
+      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition hover:bg-[rgba(255,255,255,0.05)]"
     >
       <span className={cn(
         'size-1.5 shrink-0 rounded-full',
@@ -199,7 +197,7 @@ function JobRow({ job, terminal = false }: { job: ActiveJobItem; terminal?: bool
               ? 'bg-red-400'
               : 'bg-emerald-400',
       )} />
-      <span className="min-w-0 flex-1 truncate text-[var(--text)]">
+      <span className="min-w-0 flex-1 truncate text-left text-[var(--text)]">
         {action}
         {target && <span className="text-[var(--muted)]"> · {target}</span>}
       </span>
@@ -212,6 +210,6 @@ function JobRow({ job, terminal = false }: { job: ActiveJobItem; terminal?: bool
         </span>
       )}
       <span className="shrink-0 text-[var(--muted)]">{elapsed}</span>
-    </Link>
+    </button>
   )
 }

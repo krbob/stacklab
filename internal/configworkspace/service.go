@@ -15,6 +15,7 @@ import (
 	"stacklab/internal/config"
 	"stacklab/internal/fsmeta"
 	"stacklab/internal/stacks"
+	"stacklab/internal/workspacerepair"
 )
 
 var (
@@ -28,6 +29,12 @@ var (
 
 type Service struct {
 	workspaceRoot string
+	repairer      permissionRepairer
+}
+
+type permissionRepairer interface {
+	Capability(ctx context.Context) workspacerepair.Capability
+	Repair(ctx context.Context, targetPath string, recursive bool) (workspacerepair.Result, error)
 }
 
 func NewService(cfg config.Config) *Service {
@@ -35,7 +42,10 @@ func NewService(cfg config.Config) *Service {
 	if absolute, err := filepath.Abs(root); err == nil {
 		root = absolute
 	}
-	return &Service{workspaceRoot: root}
+	return &Service{
+		workspaceRoot: root,
+		repairer:      workspacerepair.NewService(cfg),
+	}
 }
 
 func (s *Service) Tree(ctx context.Context, currentPath string) (TreeResponse, error) {
@@ -172,16 +182,17 @@ func (s *Service) File(ctx context.Context, filePath string) (FileResponse, erro
 	blockedReason := configBlockedReason(readable, permissions.Writable, entryType)
 
 	response := FileResponse{
-		Path:          normalized,
-		Name:          path.Base(normalized),
-		Type:          entryType,
-		StackID:       deriveStackID(normalized),
-		SizeBytes:     info.Size(),
-		ModifiedAt:    info.ModTime().UTC(),
-		Readable:      readable,
-		Writable:      entryType == EntryTypeTextFile && readable && permissions.Writable,
-		BlockedReason: blockedReason,
-		Permissions:   permissions,
+		Path:             normalized,
+		Name:             path.Base(normalized),
+		Type:             entryType,
+		StackID:          deriveStackID(normalized),
+		SizeBytes:        info.Size(),
+		ModifiedAt:       info.ModTime().UTC(),
+		Readable:         readable,
+		Writable:         entryType == EntryTypeTextFile && readable && permissions.Writable,
+		BlockedReason:    blockedReason,
+		Permissions:      permissions,
+		RepairCapability: s.repairer.Capability(ctx),
 	}
 
 	if entryType == EntryTypeTextFile && readable {
@@ -234,6 +245,35 @@ func (s *Service) SaveFile(ctx context.Context, request SaveFileRequest) (SaveFi
 		Path:        normalized,
 		ModifiedAt:  info.ModTime().UTC(),
 		AuditAction: "save_config_file",
+	}, nil
+}
+
+func (s *Service) RepairPermissions(ctx context.Context, request RepairPermissionsRequest) (RepairPermissionsResponse, error) {
+	normalized, err := normalizeRequiredRepairPath(request.Path)
+	if err != nil {
+		return RepairPermissionsResponse{}, err
+	}
+
+	targetPath, err := s.resolveExistingPath(normalized)
+	if err != nil {
+		return RepairPermissionsResponse{}, err
+	}
+
+	result, err := s.repairer.Repair(ctx, targetPath, request.Recursive)
+	if err != nil {
+		return RepairPermissionsResponse{}, err
+	}
+
+	return RepairPermissionsResponse{
+		Repaired:                true,
+		Path:                    normalized,
+		Recursive:               request.Recursive,
+		ChangedItems:            result.ChangedItems,
+		Warnings:                append([]string(nil), result.Warnings...),
+		TargetPermissionsBefore: result.TargetPermissionsBefore,
+		TargetPermissionsAfter:  result.TargetPermissionsAfter,
+		AuditAction:             "repair_config_workspace_permissions",
+		RepairCapability:        s.repairer.Capability(ctx),
 	}, nil
 }
 
@@ -435,6 +475,17 @@ func normalizeRequiredFilePath(value string) (string, error) {
 	}
 	if normalized == "" {
 		return "", ErrPathNotFile
+	}
+	return normalized, nil
+}
+
+func normalizeRequiredRepairPath(value string) (string, error) {
+	normalized, err := normalizeRelativePath(value)
+	if err != nil {
+		return "", err
+	}
+	if normalized == "" {
+		return "", ErrPathOutsideWorkspace
 	}
 	return normalized, nil
 }

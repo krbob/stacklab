@@ -1,6 +1,5 @@
-import { useState } from 'react'
 import type { AuditEntry } from '@/lib/api-types'
-import { ProgressPanel } from '@/components/progress-panel'
+import { useJobDrawer } from '@/hooks/use-job-drawer'
 import { cn } from '@/lib/cn'
 
 const resultColors: Record<string, string> = {
@@ -19,7 +18,7 @@ interface AuditTableProps {
 }
 
 export function AuditTable({ entries, showStack = false, onLoadMore, hasMore, loading }: AuditTableProps) {
-  const [expandedJobId, setExpandedJobId] = useState<string | null>(null)
+  const { openJob } = useJobDrawer()
 
   if (entries.length === 0 && !loading) {
     return (
@@ -35,7 +34,7 @@ export function AuditTable({ entries, showStack = false, onLoadMore, hasMore, lo
   return (
     <div className="flex flex-col gap-2">
       {entries.map((entry) => {
-        const isFailed = entry.result === 'failed' || entry.result === 'timed_out'
+        const hasJob = Boolean(entry.job_id)
 
         return (
           <div key={entry.id} data-testid="audit-row">
@@ -57,19 +56,15 @@ export function AuditTable({ entries, showStack = false, onLoadMore, hasMore, lo
               <span className="text-xs text-[var(--muted)]">
                 {entry.duration_ms != null ? `${(entry.duration_ms / 1000).toFixed(1)}s` : '—'}
               </span>
-              {isFailed && (
+              {hasJob && (
                 <button
-                  onClick={() => setExpandedJobId(expandedJobId === entry.id ? null : entry.id)}
+                  onClick={() => openJob(entry.job_id!)}
                   className="ml-auto text-xs text-[var(--accent)] hover:underline"
                 >
-                  {expandedJobId === entry.id ? 'Hide log' : 'View log'}
+                  View detail
                 </button>
               )}
             </div>
-
-            {expandedJobId === entry.id && (
-              <AuditJobDetail auditEntry={entry} />
-            )}
           </div>
         )
       })}
@@ -87,24 +82,6 @@ export function AuditTable({ entries, showStack = false, onLoadMore, hasMore, lo
           Load more
         </button>
       )}
-    </div>
-  )
-}
-
-function AuditJobDetail({ auditEntry }: { auditEntry: AuditEntry }) {
-  const jobId = auditEntry.job_id
-
-  if (!jobId) {
-    return (
-      <div className="ml-4 mt-1 rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.15)] px-4 py-3 text-xs text-[var(--muted)]">
-        Detailed output is no longer retained
-      </div>
-    )
-  }
-
-  return (
-    <div className="ml-4 mt-1">
-      <ProgressPanel jobId={jobId} />
     </div>
   )
 }

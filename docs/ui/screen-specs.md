@@ -583,6 +583,13 @@ Purpose: Application configuration.
 │  ──────────────                                                      │
 │  Change password:  [current] [new] [confirm]    [Update]            │
 │                                                                      │
+│  Notifications                                                       │
+│  ─────────────                                                       │
+│  Enable notifications  [toggle]                                     │
+│  Webhook URL: https://hooks.example.test/stacklab                   │
+│  [x] Failed jobs   [x] Jobs with warnings   [ ] Maintenance         │
+│  [Send test]                                      [Save]            │
+│                                                                      │
 │  Appearance                                                          │
 │  ──────────                                                          │
 │  Theme: [Dark ▾]                                                    │

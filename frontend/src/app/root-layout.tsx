@@ -2,6 +2,7 @@ import { Activity, Container, FolderCog, FolderKanban, LogOut, Monitor, Settings
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '@/hooks/use-auth'
 import { GlobalActivity } from '@/components/global-activity'
+import { JobDetailDrawer } from '@/components/job-detail-drawer'
 
 const links = [
   { to: '/stacks', label: 'Stacks', icon: FolderKanban },
@@ -60,6 +61,8 @@ export function RootLayout() {
           <Outlet />
         </main>
       </div>
+
+      <JobDetailDrawer />
     </div>
   )
 }

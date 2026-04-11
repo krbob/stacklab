@@ -3,6 +3,8 @@ package dockeradmin
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"sort"
@@ -20,13 +22,38 @@ const (
 	systemdManagerName          = "systemd"
 	unsupportedManagerMessage   = "systemd status is unavailable on this host"
 	dockerUnavailableDefaultMsg = "Docker Engine metadata is unavailable."
+	writeUnsupportedMessage     = "Managed Docker daemon apply is not configured yet."
 )
+
+var (
+	ErrInvalidDaemonConfig = errors.New("docker daemon config is invalid")
+	ErrUnreadableConfig    = errors.New("docker daemon config is unreadable")
+	ErrInvalidManagedInput = errors.New("invalid managed docker config request")
+	ErrApplyUnsupported    = errors.New("docker daemon apply is not supported")
+)
+
+var supportedManagedKeys = []string{
+	"dns",
+	"registry_mirrors",
+	"insecure_registries",
+	"live_restore",
+}
+
+var managedKeyMap = map[string]string{
+	"dns":                 "dns",
+	"registry_mirrors":    "registry-mirrors",
+	"insecure_registries": "insecure-registries",
+	"live_restore":        "live-restore",
+}
 
 type commandRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
 
 type Service struct {
 	dockerUnitName   string
 	daemonConfigPath string
+	helperPath       string
+	backupDir        string
+	useSudo          bool
 	runCommand       commandRunner
 }
 
@@ -44,6 +71,9 @@ func NewService(cfg config.Config) *Service {
 	return &Service{
 		dockerUnitName:   dockerUnitName,
 		daemonConfigPath: daemonConfigPath,
+		helperPath:       strings.TrimSpace(cfg.DockerAdminHelperPath),
+		backupDir:        strings.TrimSpace(cfg.DockerAdminBackupDir),
+		useSudo:          cfg.DockerAdminUseSudo,
 		runCommand:       defaultCommandRunner,
 	}
 }
@@ -59,9 +89,10 @@ func (s *Service) Overview(ctx context.Context) (OverviewResponse, error) {
 	}
 
 	return OverviewResponse{
-		Service:      s.readServiceStatus(ctx),
-		Engine:       s.readEngineStatus(ctx),
-		DaemonConfig: configResponse.DaemonConfigMeta,
+		Service:         s.readServiceStatus(ctx),
+		Engine:          s.readEngineStatus(ctx),
+		DaemonConfig:    configResponse.DaemonConfigMeta,
+		WriteCapability: s.writeCapability(ctx),
 	}, nil
 }
 
@@ -70,9 +101,10 @@ func (s *Service) DaemonConfig(ctx context.Context) (DaemonConfigResponse, error
 
 	response := DaemonConfigResponse{
 		DaemonConfigMeta: DaemonConfigMeta{
-			Path:           s.daemonConfigPath,
-			ValidJSON:      true,
-			ConfiguredKeys: []string{},
+			Path:            s.daemonConfigPath,
+			ValidJSON:       true,
+			ConfiguredKeys:  []string{},
+			WriteCapability: s.writeCapability(ctx),
 			Summary: DaemonConfigSummary{
 				DNS:                []string{},
 				RegistryMirrors:    []string{},
@@ -125,6 +157,96 @@ func (s *Service) DaemonConfig(ctx context.Context) (DaemonConfigResponse, error
 	response.Summary = summarizeDaemonConfig(raw)
 
 	return response, nil
+}
+
+func (s *Service) ValidateManagedConfig(ctx context.Context, request ValidateManagedConfigRequest) (ValidateManagedConfigResponse, error) {
+	if !hasManagedChanges(request) {
+		return ValidateManagedConfigResponse{}, fmt.Errorf("%w: no managed Docker settings were provided", ErrInvalidManagedInput)
+	}
+	if err := validateManagedRequest(request); err != nil {
+		return ValidateManagedConfigResponse{}, err
+	}
+
+	base, current, err := s.loadEditableConfig(ctx)
+	if err != nil {
+		return ValidateManagedConfigResponse{}, err
+	}
+
+	merged := cloneRawMap(current)
+	applyManagedSettings(merged, request.Settings)
+	applyManagedKeyRemovals(merged, request.RemoveKeys)
+
+	content, err := marshalDaemonConfig(merged)
+	if err != nil {
+		return ValidateManagedConfigResponse{}, err
+	}
+
+	return ValidateManagedConfigResponse{
+		WriteCapability: s.writeCapability(ctx),
+		ChangedKeys:     changedManagedKeys(current, merged),
+		RequiresRestart: true,
+		Warnings: []string{
+			"Applying Docker daemon settings requires a Docker restart.",
+		},
+		Preview: DaemonConfigPreview{
+			Path:           base.Path,
+			Content:        content,
+			ConfiguredKeys: sortedKeys(merged),
+			Summary:        summarizeDaemonConfig(merged),
+		},
+	}, nil
+}
+
+func (s *Service) ApplyManagedConfig(ctx context.Context, request ApplyManagedConfigRequest) (ApplyManagedConfigResult, error) {
+	preview, err := s.ValidateManagedConfig(ctx, ValidateManagedConfigRequest(request))
+	if err != nil {
+		return ApplyManagedConfigResult{}, err
+	}
+	if !preview.WriteCapability.Supported {
+		return ApplyManagedConfigResult{}, ErrApplyUnsupported
+	}
+
+	inputFile, err := os.CreateTemp("", "stacklab-daemon-config-*.json")
+	if err != nil {
+		return ApplyManagedConfigResult{}, fmt.Errorf("create daemon config temp file: %w", err)
+	}
+	inputPath := inputFile.Name()
+	defer os.Remove(inputPath)
+	if _, err := inputFile.WriteString(preview.Preview.Content); err != nil {
+		_ = inputFile.Close()
+		return ApplyManagedConfigResult{}, fmt.Errorf("write daemon config temp file: %w", err)
+	}
+	if err := inputFile.Close(); err != nil {
+		return ApplyManagedConfigResult{}, fmt.Errorf("close daemon config temp file: %w", err)
+	}
+
+	output, runErr := s.runHelperCommand(ctx,
+		"apply",
+		"--config-path", s.daemonConfigPath,
+		"--backup-dir", s.backupDir,
+		"--unit", s.dockerUnitName,
+		"--input", inputPath,
+	)
+
+	result, parseErr := parseHelperApplyOutput(output)
+	if parseErr != nil {
+		if runErr != nil {
+			return ApplyManagedConfigResult{}, fmt.Errorf("docker admin helper failed: %w: %s", runErr, strings.TrimSpace(string(output)))
+		}
+		return ApplyManagedConfigResult{}, parseErr
+	}
+	result.ChangedKeys = preview.ChangedKeys
+	if len(preview.Warnings) > 0 {
+		result.Warnings = append(result.Warnings, preview.Warnings...)
+	}
+	if runErr != nil {
+		if result.RolledBack {
+			result.Warnings = append(result.Warnings, "Docker daemon apply failed and rollback was attempted.")
+		}
+		return result, fmt.Errorf("docker admin helper failed: %w", runErr)
+	}
+
+	return result, nil
 }
 
 func (s *Service) readServiceStatus(ctx context.Context) ServiceStatus {
@@ -289,6 +411,210 @@ func summarizeDaemonConfig(values map[string]json.RawMessage) DaemonConfigSummar
 	decodeBool(values["live-restore"], &summary.LiveRestore)
 
 	return summary
+}
+
+func (s *Service) writeCapability(ctx context.Context) WriteCapability {
+	response := WriteCapability{
+		Supported:   false,
+		ManagedKeys: append([]string(nil), supportedManagedKeys...),
+	}
+	if s.helperPath == "" {
+		reason := writeUnsupportedMessage
+		response.Reason = &reason
+		return response
+	}
+	if strings.TrimSpace(s.backupDir) == "" {
+		reason := "Docker admin backup directory is not configured."
+		response.Reason = &reason
+		return response
+	}
+	if info, err := os.Stat(s.helperPath); err != nil || info.IsDir() {
+		reason := fmt.Sprintf("Docker admin helper is unavailable at %s.", s.helperPath)
+		response.Reason = &reason
+		return response
+	}
+	if s.useSudo {
+		probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		output, err := s.runHelperCommand(probeCtx)
+		if err != nil {
+			message := strings.TrimSpace(string(output))
+			lower := strings.ToLower(message)
+			switch {
+			case strings.Contains(lower, "no new privileges"):
+				reason := "Docker admin helper requires NoNewPrivileges=false in stacklab.service."
+				response.Reason = &reason
+				return response
+			case strings.Contains(lower, "a password is required"),
+				strings.Contains(lower, "not allowed to execute"),
+				strings.Contains(lower, "may not run sudo"):
+				reason := "Docker admin helper sudoers is not configured correctly."
+				response.Reason = &reason
+				return response
+			}
+		}
+	}
+	response.Supported = true
+	return response
+}
+
+func hasManagedChanges(request ValidateManagedConfigRequest) bool {
+	if len(request.RemoveKeys) > 0 {
+		return true
+	}
+	return request.Settings.DNS != nil ||
+		request.Settings.RegistryMirrors != nil ||
+		request.Settings.InsecureRegistries != nil ||
+		request.Settings.LiveRestore != nil
+}
+
+func validateManagedRequest(request ValidateManagedConfigRequest) error {
+	seen := map[string]struct{}{}
+	for _, key := range request.RemoveKeys {
+		normalized := strings.TrimSpace(key)
+		if _, ok := managedKeyMap[normalized]; !ok {
+			return fmt.Errorf("%w: remove_keys contains unsupported key %q", ErrInvalidManagedInput, key)
+		}
+		if _, ok := seen[normalized]; ok {
+			return fmt.Errorf("%w: remove_keys contains duplicate key %q", ErrInvalidManagedInput, key)
+		}
+		seen[normalized] = struct{}{}
+	}
+	return nil
+}
+
+func (s *Service) loadEditableConfig(ctx context.Context) (DaemonConfigResponse, map[string]json.RawMessage, error) {
+	response, err := s.DaemonConfig(ctx)
+	if err != nil {
+		return DaemonConfigResponse{}, nil, err
+	}
+	if response.Exists && response.Permissions != nil && !response.Permissions.Readable {
+		return response, nil, ErrUnreadableConfig
+	}
+	if !response.ValidJSON {
+		return response, nil, ErrInvalidDaemonConfig
+	}
+	if response.Content == nil || strings.TrimSpace(*response.Content) == "" {
+		return response, map[string]json.RawMessage{}, nil
+	}
+
+	var values map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(*response.Content), &values); err != nil {
+		return response, nil, ErrInvalidDaemonConfig
+	}
+	return response, values, nil
+}
+
+func cloneRawMap(values map[string]json.RawMessage) map[string]json.RawMessage {
+	cloned := make(map[string]json.RawMessage, len(values))
+	for key, value := range values {
+		clonedValue := append(json.RawMessage(nil), value...)
+		cloned[key] = clonedValue
+	}
+	return cloned
+}
+
+func applyManagedSettings(values map[string]json.RawMessage, settings ManagedSettings) {
+	if settings.DNS != nil {
+		values[managedKeyMap["dns"]] = mustMarshalJSON(*settings.DNS)
+	}
+	if settings.RegistryMirrors != nil {
+		values[managedKeyMap["registry_mirrors"]] = mustMarshalJSON(*settings.RegistryMirrors)
+	}
+	if settings.InsecureRegistries != nil {
+		values[managedKeyMap["insecure_registries"]] = mustMarshalJSON(*settings.InsecureRegistries)
+	}
+	if settings.LiveRestore != nil {
+		values[managedKeyMap["live_restore"]] = mustMarshalJSON(*settings.LiveRestore)
+	}
+}
+
+func applyManagedKeyRemovals(values map[string]json.RawMessage, removeKeys []string) {
+	for _, key := range removeKeys {
+		if daemonKey, ok := managedKeyMap[strings.TrimSpace(key)]; ok {
+			delete(values, daemonKey)
+		}
+	}
+}
+
+func changedManagedKeys(before, after map[string]json.RawMessage) []string {
+	changed := make([]string, 0, len(supportedManagedKeys))
+	for _, managedKey := range supportedManagedKeys {
+		daemonKey := managedKeyMap[managedKey]
+		if strings.TrimSpace(string(before[daemonKey])) != strings.TrimSpace(string(after[daemonKey])) {
+			changed = append(changed, managedKey)
+		}
+	}
+	return changed
+}
+
+func marshalDaemonConfig(values map[string]json.RawMessage) (string, error) {
+	if len(values) == 0 {
+		return "{}\n", nil
+	}
+	encoded, err := json.MarshalIndent(values, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal docker daemon config: %w", err)
+	}
+	return string(encoded) + "\n", nil
+}
+
+func mustMarshalJSON(value any) json.RawMessage {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		panic(fmt.Sprintf("marshal managed docker daemon value: %v", err))
+	}
+	return encoded
+}
+
+func (s *Service) runHelperCommand(ctx context.Context, args ...string) ([]byte, error) {
+	if s.useSudo {
+		sudoArgs := append([]string{"-n", "--", s.helperPath}, args...)
+		return s.runCommand(ctx, "sudo", sudoArgs...)
+	}
+	return s.runCommand(ctx, s.helperPath, args...)
+}
+
+type helperApplyOutput struct {
+	BackupPath         string   `json:"backup_path"`
+	RolledBack         bool     `json:"rolled_back"`
+	RollbackSucceeded  bool     `json:"rollback_succeeded"`
+	ServiceActiveState string   `json:"service_active_state"`
+	Warnings           []string `json:"warnings"`
+}
+
+func parseHelperApplyOutput(output []byte) (ApplyManagedConfigResult, error) {
+	trimmed := strings.TrimSpace(string(output))
+	if trimmed == "" {
+		return ApplyManagedConfigResult{}, errors.New("docker admin helper produced empty output")
+	}
+
+	var decoded helperApplyOutput
+	if err := json.Unmarshal([]byte(trimmed), &decoded); err != nil {
+		found := false
+		for _, line := range strings.Split(trimmed, "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			var candidate helperApplyOutput
+			if json.Unmarshal([]byte(line), &candidate) == nil {
+				decoded = candidate
+				found = true
+			}
+		}
+		if !found {
+			return ApplyManagedConfigResult{}, fmt.Errorf("parse docker admin helper output: %w", err)
+		}
+	}
+
+	return ApplyManagedConfigResult{
+		BackupPath:         decoded.BackupPath,
+		RolledBack:         decoded.RolledBack,
+		RollbackSucceeded:  decoded.RollbackSucceeded,
+		ServiceActiveState: decoded.ServiceActiveState,
+		Warnings:           append([]string(nil), decoded.Warnings...),
+	}, nil
 }
 
 func decodeStringSlice(raw json.RawMessage, target *[]string) {

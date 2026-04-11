@@ -181,6 +181,31 @@ Suggested scope:
 
 ### Good Mid-Term Fits
 
+#### Mobile notifications for important failures
+
+Recommendation: `yes`
+
+Why:
+
+- Stacklab already has long-running jobs, job detail, audit, and global activity
+- operators should not need to keep the UI open during maintenance windows
+- Telegram is a pragmatic first mobile channel without requiring self-hosted notification infrastructure
+
+Suggested scope order:
+
+- generic webhook baseline first
+- Telegram as the first native mobile channel
+- post-update recovery failures before broader runtime alerts
+- Stacklab self-health alerts from the `stacklab` journald unit after that
+
+Important constraint:
+
+- Stacklab service error alerts should not mirror raw journald lines one-to-one
+- use debounce and dedupe, for example:
+  - repeated `error` or `fatal` entries within a short window
+  - suppression of identical messages during a cooldown period
+- keep container log anomaly alerts for later, after Stacklab's own self-health alerts are stable
+
 #### Git-aware stack management
 
 Recommendation: `yes`
@@ -249,7 +274,8 @@ Suggested scope:
 - show ownership and mode information when access is blocked
 - base diagnostics on the current file metadata and effective access, not on assumed ACL inheritance
 - recommend aligning container `uid:gid` or `PUID/PGID` where possible
-- later add an explicit repair workflow restricted to managed roots
+- add an explicit helper-backed repair workflow restricted to managed roots
+- keep repair scoped to explicit target paths inside `/config` and `/stacks/<id>`
 
 Avoid:
 
@@ -268,8 +294,15 @@ Why:
 Suggested scope:
 
 - webhook notifications first
+- Telegram next as the first native mobile channel
+- `ntfy` and `Gotify` are good later candidates for homelab-first, self-hosted delivery
 - email later if needed
-- events: job failed, job succeeded with warnings, scheduled maintenance summary, update available
+- events:
+  - job failed
+  - job succeeded with warnings
+  - scheduled maintenance summary
+  - post-update stack recovery failure
+  - later runtime health degradation such as unhealthy containers or restart loops
 
 #### Template library / app catalog
 
@@ -424,7 +457,7 @@ The following are the most worthwhile "borrowed" ideas for Stacklab:
 - Docker daemon administration for common operator needs such as DNS, with explicit backup/restart/rollback
 - stronger background activity visibility for long-running operations across the whole app
 - read-only network and volume inventory
-- notifications
+- notifications, with Telegram as the first native mobile target after generic webhooks
 
 ### Priority C: Git And Templates
 

@@ -1,21 +1,28 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GlobalActivity } from './global-activity'
+import { JobDetailDrawer } from './job-detail-drawer'
+import { JobDrawerProvider } from '@/contexts/job-drawer-context'
 import type { ActiveJobsResponse, JobDetail } from '@/lib/api-types'
 
 const mockGetActiveJobs = vi.fn()
 const mockGetJob = vi.fn()
+const mockGetJobEvents = vi.fn()
 
 vi.mock('@/lib/api-client', () => ({
   getActiveJobs: (...args: unknown[]) => mockGetActiveJobs(...args),
   getJob: (...args: unknown[]) => mockGetJob(...args),
+  getJobEvents: (...args: unknown[]) => mockGetJobEvents(...args),
 }))
 
 function renderActivity() {
   return render(
     <MemoryRouter>
-      <GlobalActivity />
+      <JobDrawerProvider>
+        <GlobalActivity />
+        <JobDetailDrawer />
+      </JobDrawerProvider>
     </MemoryRouter>,
   )
 }
@@ -67,6 +74,7 @@ describe('GlobalActivity', () => {
     vi.useFakeTimers()
     mockGetActiveJobs.mockReset()
     mockGetJob.mockReset()
+    mockGetJobEvents.mockReset()
   })
 
   afterEach(() => {
@@ -111,6 +119,49 @@ describe('GlobalActivity', () => {
 
     expect(screen.getByText('Activity')).toBeInTheDocument()
     expect(screen.getByText('1/2')).toBeInTheDocument()
+  })
+
+  it('opens drawer and closes popover when clicking a job row', async () => {
+    mockGetActiveJobs.mockResolvedValue(activeResponse)
+    mockGetJob.mockResolvedValue({
+      job: {
+        id: 'job_1',
+        stack_id: 'demo',
+        action: 'pull',
+        state: 'running',
+        requested_at: '2026-04-09T08:00:00Z',
+        started_at: '2026-04-09T08:00:01Z',
+        finished_at: null,
+        workflow: null,
+      } satisfies JobDetail,
+    })
+    mockGetJobEvents.mockResolvedValue({
+      job_id: 'job_1',
+      retained: true,
+      items: [],
+    })
+
+    renderActivity()
+
+    await act(async () => {
+      vi.advanceTimersByTime(0)
+      await Promise.resolve()
+    })
+
+    fireEvent.click(screen.getAllByRole('button')[0])
+    expect(screen.getByText('Activity')).toBeInTheDocument()
+
+    const popover = screen.getByText('Activity').parentElement
+    expect(popover).not.toBeNull()
+    fireEvent.click(within(popover as HTMLElement).getAllByRole('button')[0])
+
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(screen.getByText('Job detail')).toBeInTheDocument()
+    expect(screen.queryByText('Activity')).not.toBeInTheDocument()
   })
 
   it('shows succeeded recent job and auto-removes it after linger', async () => {

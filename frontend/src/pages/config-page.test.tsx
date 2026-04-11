@@ -17,6 +17,12 @@ const mockGetGitWorkspaceDiff = vi.fn()
 const mockCommitGitWorkspace = vi.fn()
 const mockPushGitWorkspace = vi.fn()
 
+const unsupportedRepairCapability = {
+  supported: false,
+  reason: 'Workspace permission repair is not configured yet.',
+  recursive: true,
+}
+
 vi.mock('@/lib/api-client', () => ({
   getConfigTree: (...args: unknown[]) => mockGetConfigTree(...args),
   getConfigFile: (...args: unknown[]) => mockGetConfigFile(...args),
@@ -117,6 +123,7 @@ const fileBefore: ConfigFileResponse = {
     readable: true,
     writable: true,
   },
+  repair_capability: unsupportedRepairCapability,
 }
 
 const fileAfter: ConfigFileResponse = {
@@ -203,6 +210,7 @@ const blockedFile: ConfigFileResponse = {
     readable: false,
     writable: false,
   },
+  repair_capability: unsupportedRepairCapability,
 }
 
 const blockedGitStatus: GitWorkspaceStatusResponse = {

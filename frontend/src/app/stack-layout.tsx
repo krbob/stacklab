@@ -14,6 +14,7 @@ interface Tab {
 const tabs: Tab[] = [
   { to: '', label: 'Overview' },
   { to: 'editor', label: 'Editor', capability: 'can_edit_definition' },
+  { to: 'files', label: 'Files' },
   { to: 'logs', label: 'Logs', capability: 'can_view_logs' },
   { to: 'stats', label: 'Stats', capability: 'can_view_stats' },
   { to: 'terminal', label: 'Terminal', capability: 'can_open_terminal' },

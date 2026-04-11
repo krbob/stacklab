@@ -1,0 +1,8 @@
+# Narrow sudoers allowlist for Stacklab self-update.
+# Install into /etc/sudoers.d/stacklab-self-update after review.
+#
+# Self-update is launched through systemd-run so the helper runs outside the
+# stacklab.service sandbox. This keeps ProtectSystem=full on the main service
+# while still allowing dpkg to update /etc and /usr during package upgrades.
+Cmnd_Alias STACKLAB_SELF_UPDATE = /usr/bin/systemd-run --quiet --collect --unit=stacklab-self-update-* --service-type=exec /usr/lib/stacklab/bin/stacklab-self-update-helper run *, /usr/bin/systemd-run --quiet --wait --collect --pipe --unit=stacklab-self-update-probe-* --service-type=exec /usr/lib/stacklab/bin/stacklab-self-update-helper probe
+stacklab ALL=(root) NOPASSWD: STACKLAB_SELF_UPDATE

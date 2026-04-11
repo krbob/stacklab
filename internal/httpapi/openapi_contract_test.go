@@ -57,6 +57,23 @@ func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
 	dockerConfigResponse := performJSONRequest(t, handler, http.MethodGet, "/api/docker/admin/daemon-config", nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/docker/admin/daemon-config", nil, cookies, dockerConfigResponse)
 
+	dockerValidateBody := map[string]any{
+		"settings": map[string]any{
+			"dns": []string{"192.168.1.2"},
+		},
+	}
+	dockerValidateResponse := performJSONRequest(t, handler, http.MethodPost, "/api/docker/admin/daemon-config/validate", dockerValidateBody, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodPost, "/api/docker/admin/daemon-config/validate", dockerValidateBody, cookies, dockerValidateResponse)
+
+	stacklabUpdateOverviewResponse := performJSONRequest(t, handler, http.MethodGet, "/api/stacklab/update/overview", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/stacklab/update/overview", nil, cookies, stacklabUpdateOverviewResponse)
+
+	stacklabUpdateApplyBody := map[string]any{
+		"refresh_package_index": true,
+	}
+	stacklabUpdateApplyResponse := performJSONRequest(t, handler, http.MethodPost, "/api/stacklab/update/apply", stacklabUpdateApplyBody, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodPost, "/api/stacklab/update/apply", stacklabUpdateApplyBody, cookies, stacklabUpdateApplyResponse)
+
 	configRoot := filepath.Join(cfg.RootDir, "config")
 	if err := os.MkdirAll(filepath.Join(configRoot, "nextcloud"), 0o755); err != nil {
 		t.Fatalf("MkdirAll(config nextcloud) error = %v", err)
@@ -193,11 +210,70 @@ func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
 	jobResponse := performJSONRequest(t, handler, http.MethodGet, "/api/jobs/"+createPayload.Job.ID, nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/jobs/"+createPayload.Job.ID, nil, cookies, jobResponse)
 
+	jobEventsResponse := performJSONRequest(t, handler, http.MethodGet, "/api/jobs/"+createPayload.Job.ID+"/events", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/jobs/"+createPayload.Job.ID+"/events", nil, cookies, jobEventsResponse)
+
 	stackAuditResponse := performJSONRequest(t, handler, http.MethodGet, "/api/stacks/"+stackID+"/audit", nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/stacks/"+stackID+"/audit", nil, cookies, stackAuditResponse)
 
 	auditResponse := performJSONRequest(t, handler, http.MethodGet, "/api/audit", nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/audit", nil, cookies, auditResponse)
+
+	webhookServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer webhookServer.Close()
+
+	notificationSettingsResponse := performJSONRequest(t, handler, http.MethodGet, "/api/settings/notifications", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/settings/notifications", nil, cookies, notificationSettingsResponse)
+
+	notificationSettingsBody := map[string]any{
+		"enabled":     true,
+		"webhook_url": webhookServer.URL,
+		"events": map[string]any{
+			"job_failed":                  true,
+			"job_succeeded_with_warnings": true,
+			"maintenance_succeeded":       false,
+		},
+	}
+	notificationUpdateResponse := performJSONRequest(t, handler, http.MethodPut, "/api/settings/notifications", notificationSettingsBody, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodPut, "/api/settings/notifications", notificationSettingsBody, cookies, notificationUpdateResponse)
+
+	maintenanceSchedulesResponse := performJSONRequest(t, handler, http.MethodGet, "/api/settings/maintenance-schedules", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/settings/maintenance-schedules", nil, cookies, maintenanceSchedulesResponse)
+
+	maintenanceSchedulesBody := map[string]any{
+		"update": map[string]any{
+			"enabled":   true,
+			"frequency": "weekly",
+			"time":      "03:30",
+			"weekdays":  []string{"sat"},
+			"target": map[string]any{
+				"mode": "all",
+			},
+			"options": map[string]any{
+				"pull_images":     true,
+				"build_images":    true,
+				"remove_orphans":  true,
+				"prune_after":     false,
+				"include_volumes": false,
+			},
+		},
+		"prune": map[string]any{
+			"enabled":   true,
+			"frequency": "weekly",
+			"time":      "04:30",
+			"weekdays":  []string{"sun"},
+			"scope": map[string]any{
+				"images":             true,
+				"build_cache":        true,
+				"stopped_containers": true,
+				"volumes":            false,
+			},
+		},
+	}
+	maintenanceSchedulesUpdateResponse := performJSONRequest(t, handler, http.MethodPut, "/api/settings/maintenance-schedules", maintenanceSchedulesBody, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodPut, "/api/settings/maintenance-schedules", maintenanceSchedulesBody, cookies, maintenanceSchedulesUpdateResponse)
 
 	stacks.ResetComposeCLICacheForTests()
 	t.Cleanup(stacks.ResetComposeCLICacheForTests)
@@ -223,11 +299,38 @@ func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
 	maintenanceImagesResponse := performJSONRequest(t, handler, http.MethodGet, "/api/maintenance/images?usage=all&origin=all", nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/maintenance/images?usage=all&origin=all", nil, cookies, maintenanceImagesResponse)
 
+	maintenanceNetworksResponse := performJSONRequest(t, handler, http.MethodGet, "/api/maintenance/networks?usage=all&origin=all", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/maintenance/networks?usage=all&origin=all", nil, cookies, maintenanceNetworksResponse)
+
+	createNetworkBody := map[string]any{
+		"name": "homelab_proxy",
+	}
+	createNetworkResponse := performJSONRequest(t, handler, http.MethodPost, "/api/maintenance/networks", createNetworkBody, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodPost, "/api/maintenance/networks", createNetworkBody, cookies, createNetworkResponse)
+
+	deleteNetworkResponse := performJSONRequest(t, handler, http.MethodDelete, "/api/maintenance/networks/external_unused", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodDelete, "/api/maintenance/networks/external_unused", nil, cookies, deleteNetworkResponse)
+
+	maintenanceVolumesResponse := performJSONRequest(t, handler, http.MethodGet, "/api/maintenance/volumes?usage=all&origin=all", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/maintenance/volumes?usage=all&origin=all", nil, cookies, maintenanceVolumesResponse)
+
+	createVolumeBody := map[string]any{
+		"name": "media_cache",
+	}
+	createVolumeResponse := performJSONRequest(t, handler, http.MethodPost, "/api/maintenance/volumes", createVolumeBody, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodPost, "/api/maintenance/volumes", createVolumeBody, cookies, createVolumeResponse)
+
+	deleteVolumeResponse := performJSONRequest(t, handler, http.MethodDelete, "/api/maintenance/volumes/external_media", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodDelete, "/api/maintenance/volumes/external_media", nil, cookies, deleteVolumeResponse)
+
 	prunePreviewResponse := performJSONRequest(t, handler, http.MethodGet, "/api/maintenance/prune-preview?images=true&build_cache=true&stopped_containers=true&volumes=false", nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/maintenance/prune-preview?images=true&build_cache=true&stopped_containers=true&volumes=false", nil, cookies, prunePreviewResponse)
 
 	maintenanceResponse := performJSONRequest(t, handler, http.MethodPost, "/api/maintenance/update-stacks", maintenanceBody, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodPost, "/api/maintenance/update-stacks", maintenanceBody, cookies, maintenanceResponse)
+
+	notificationTestResponse := performJSONRequest(t, handler, http.MethodPost, "/api/settings/notifications/test", notificationSettingsBody, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodPost, "/api/settings/notifications/test", notificationSettingsBody, cookies, notificationTestResponse)
 
 	pruneBody := map[string]any{
 		"scope": map[string]any{

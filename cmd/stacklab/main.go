@@ -10,8 +10,14 @@ import (
 	"stacklab/internal/audit"
 	"stacklab/internal/auth"
 	"stacklab/internal/config"
+	"stacklab/internal/hostinfo"
 	"stacklab/internal/httpapi"
 	"stacklab/internal/jobs"
+	"stacklab/internal/maintenance"
+	"stacklab/internal/maintenancejobs"
+	"stacklab/internal/notifications"
+	"stacklab/internal/scheduler"
+	"stacklab/internal/selfupdate"
 	"stacklab/internal/stacks"
 	"stacklab/internal/store"
 	"syscall"
@@ -38,6 +44,15 @@ func main() {
 	authService := auth.NewService(cfg, authStore)
 	auditService := audit.NewService(authStore)
 	jobService := jobs.NewService(authStore)
+	notificationService := notifications.NewService(authStore, logger)
+	stackReader := stacks.NewServiceReader(cfg, logger)
+	notificationService.SetStackInspector(stackReader)
+	notificationService.SetStacklabLogReader(hostinfo.NewService(cfg, time.Now().UTC()))
+	maintenanceService := maintenance.NewService()
+	maintenanceRunner := maintenancejobs.NewService(logger, jobService, auditService, stackReader, maintenanceService)
+	schedulerService := scheduler.NewService(authStore, auditService, maintenanceRunner, stackReader, logger)
+	selfUpdateService := selfupdate.NewService(cfg, authStore, jobService, auditService, notificationService, logger)
+	jobService.SetTerminalHook(notificationService.DispatchJobAsync)
 	if err := authService.Bootstrap(context.Background()); err != nil {
 		if errors.Is(err, auth.ErrNotConfigured) {
 			logger.Warn("authentication password not initialized; set STACKLAB_BOOTSTRAP_PASSWORD to create the first password")
@@ -47,7 +62,7 @@ func main() {
 		}
 	}
 
-	handler, err := httpapi.NewHandler(cfg, logger, authService, auditService, jobService)
+	handler, err := httpapi.NewHandler(cfg, logger, authService, auditService, jobService, notificationService, schedulerService, selfUpdateService)
 	if err != nil {
 		logger.Error("failed to initialize HTTP handler", slog.String("err", err.Error()))
 		os.Exit(1)
@@ -71,6 +86,9 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	notificationService.StartBackground(ctx)
+	schedulerService.StartBackground(ctx)
+	selfUpdateService.StartBackground(ctx)
 
 	go func() {
 		<-ctx.Done()

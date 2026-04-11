@@ -17,6 +17,8 @@ Options:
   --component NAME        APT component. Default: main
   --origin NAME           Release Origin. Default: Stacklab
   --label NAME            Release Label. Default: Stacklab
+  --keep-versions COUNT   Retain newest COUNT package versions in the channel.
+                          Defaults: stable=6, nightly=7. Use 0 to keep all.
   --help                  Show this help.
 
 Environment:
@@ -40,6 +42,7 @@ repo_path="apt"
 component="main"
 origin="Stacklab"
 label="Stacklab"
+keep_versions=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -71,6 +74,10 @@ while [[ $# -gt 0 ]]; do
       label="$2"
       shift 2
       ;;
+    --keep-versions)
+      keep_versions="$2"
+      shift 2
+      ;;
     --help)
       usage
       exit 0
@@ -93,8 +100,20 @@ done
   echo "APT_GPG_PRIVATE_KEY_BASE64 is required" >&2
   exit 1
 }
+if [[ -z "${keep_versions}" ]]; then
+  case "${channel}" in
+    stable) keep_versions=6 ;;
+    nightly) keep_versions=7 ;;
+  esac
+fi
+if [[ ! "${keep_versions}" =~ ^[0-9]+$ ]]; then
+  echo "--keep-versions must be a non-negative integer" >&2
+  exit 1
+fi
 
 need_cmd gpg
+need_cmd dpkg-deb
+need_cmd dpkg
 need_cmd dpkg-scanpackages
 need_cmd apt-ftparchive
 
@@ -108,10 +127,78 @@ mkdir -p "${pool_dir}" \
 
 find "${debs_dir}" -maxdepth 1 -name '*.deb' -type f -exec cp {} "${pool_dir}/" \;
 
+sort_debian_versions_desc() {
+  local sorted=()
+  local version
+  while IFS= read -r version; do
+    [[ -n "${version}" ]] || continue
+    local inserted=0
+    local index
+    for index in "${!sorted[@]}"; do
+      if dpkg --compare-versions "${version}" gt "${sorted[$index]}"; then
+        sorted=("${sorted[@]:0:${index}}" "${version}" "${sorted[@]:${index}}")
+        inserted=1
+        break
+      fi
+    done
+    if [[ "${inserted}" == "0" ]]; then
+      sorted+=("${version}")
+    fi
+  done
+  printf '%s\n' "${sorted[@]}"
+}
+
+prune_pool_versions() {
+  local keep_count="$1"
+  if [[ "${keep_count}" == "0" ]]; then
+    return 0
+  fi
+
+  local manifest
+  manifest="$(mktemp "${TMPDIR:-/tmp}/stacklab-apt-pool.XXXXXX")"
+  find "${pool_dir}" -maxdepth 1 -name '*.deb' -type f -print0 | while IFS= read -r -d '' deb; do
+    local package_name
+    local version
+    package_name="$(dpkg-deb -f "${deb}" Package)"
+    version="$(dpkg-deb -f "${deb}" Version)"
+    if [[ "${package_name}" == "stacklab" && -n "${version}" ]]; then
+      printf '%s\t%s\n' "${version}" "${deb}"
+    fi
+  done > "${manifest}"
+
+  if [[ ! -s "${manifest}" ]]; then
+    rm -f "${manifest}"
+    return 0
+  fi
+
+  local keep_file
+  keep_file="$(mktemp "${TMPDIR:-/tmp}/stacklab-apt-keep.XXXXXX")"
+  local -a sorted_versions
+  mapfile -t sorted_versions < <(cut -f1 "${manifest}" | sort -u | sort_debian_versions_desc)
+  : > "${keep_file}"
+  local index
+  for index in "${!sorted_versions[@]}"; do
+    if (( index >= keep_count )); then
+      break
+    fi
+    printf '%s\n' "${sorted_versions[$index]}" >> "${keep_file}"
+  done
+
+  while IFS=$'\t' read -r version deb; do
+    if ! grep -Fxq "${version}" "${keep_file}"; then
+      rm -f "${deb}" "${deb}.sha256"
+    fi
+  done < "${manifest}"
+
+  rm -f "${manifest}" "${keep_file}"
+}
+
+prune_pool_versions "${keep_versions}"
+
 (
   cd "${repo_root}"
-  dpkg-scanpackages -a amd64 "pool/${channel}/${component}/s/stacklab" /dev/null > "dists/${channel}/${component}/binary-amd64/Packages"
-  dpkg-scanpackages -a arm64 "pool/${channel}/${component}/s/stacklab" /dev/null > "dists/${channel}/${component}/binary-arm64/Packages"
+  dpkg-scanpackages --multiversion -a amd64 "pool/${channel}/${component}/s/stacklab" /dev/null > "dists/${channel}/${component}/binary-amd64/Packages"
+  dpkg-scanpackages --multiversion -a arm64 "pool/${channel}/${component}/s/stacklab" /dev/null > "dists/${channel}/${component}/binary-arm64/Packages"
   gzip -9c "dists/${channel}/${component}/binary-amd64/Packages" > "dists/${channel}/${component}/binary-amd64/Packages.gz"
   gzip -9c "dists/${channel}/${component}/binary-arm64/Packages" > "dists/${channel}/${component}/binary-arm64/Packages.gz"
 )

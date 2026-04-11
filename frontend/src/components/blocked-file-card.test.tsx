@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 import { BlockedFileCard } from './blocked-file-card'
 import type { FilePermissions } from '@/lib/api-types'
 
@@ -37,5 +37,63 @@ describe('BlockedFileCard', () => {
 
     expect(screen.getByText('Yes')).toBeInTheDocument()
     expect(screen.getByText('No')).toBeInTheDocument()
+  })
+
+  it('does not show recursive repair by default for blocked files', () => {
+    const onRepair = vi.fn().mockResolvedValue({
+      repaired: true,
+      changed_items: 1,
+      target_permissions_before: permissions,
+      target_permissions_after: { ...permissions, owner_name: 'stacklab', readable: true, writable: true, mode: '0600' },
+      warnings: [],
+    })
+
+    render(
+      <BlockedFileCard
+        stateKey="demo/secret.conf"
+        blockedReason="not_readable"
+        permissions={permissions}
+        repairCapability={{ supported: true, recursive: true }}
+        onRepair={onRepair}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Repair access' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('Repair recursively')).not.toBeInTheDocument()
+  })
+
+  it('resets repair result when switching to another blocked file', async () => {
+    const onRepair = vi.fn().mockResolvedValue({
+      repaired: true,
+      changed_items: 1,
+      target_permissions_before: permissions,
+      target_permissions_after: { ...permissions, owner_name: 'stacklab', readable: true, writable: true, mode: '0600' },
+      warnings: [],
+    })
+
+    const { rerender } = render(
+      <BlockedFileCard
+        stateKey="demo/secret-a.conf"
+        blockedReason="not_readable"
+        permissions={permissions}
+        repairCapability={{ supported: true, recursive: true }}
+        onRepair={onRepair}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Repair access' }))
+    expect(await screen.findByText('Repaired (1 item changed)')).toBeInTheDocument()
+
+    rerender(
+      <BlockedFileCard
+        stateKey="demo/secret-b.conf"
+        blockedReason="not_readable"
+        permissions={permissions}
+        repairCapability={{ supported: true, recursive: true }}
+        onRepair={onRepair}
+      />,
+    )
+
+    expect(screen.queryByText('Repaired (1 item changed)')).not.toBeInTheDocument()
   })
 })

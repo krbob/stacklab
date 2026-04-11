@@ -274,7 +274,17 @@ Response:
       "log_driver": "json-file",
       "data_root": "",
       "live_restore": null
+    },
+    "write_capability": {
+      "supported": false,
+      "reason": "Managed Docker daemon apply is not configured yet.",
+      "managed_keys": ["dns", "registry_mirrors", "insecure_registries", "live_restore"]
     }
+  },
+  "write_capability": {
+    "supported": false,
+    "reason": "Managed Docker daemon apply is not configured yet.",
+    "managed_keys": ["dns", "registry_mirrors", "insecure_registries", "live_restore"]
   }
 }
 ```
@@ -317,6 +327,11 @@ Response:
     "data_root": "",
     "live_restore": null
   },
+  "write_capability": {
+    "supported": false,
+    "reason": "Managed Docker daemon apply is not configured yet.",
+    "managed_keys": ["dns", "registry_mirrors", "insecure_registries", "live_restore"]
+  },
   "content": "{\n  \"dns\": [\"192.168.1.2\"],\n  \"log-driver\": \"json-file\"\n}\n"
 }
 ```
@@ -328,7 +343,212 @@ Notes:
   - `valid_json = false`
   - `parse_error`
   - raw `content`
-- this milestone is strictly read-only; there is no save/apply endpoint yet
+- `write_capability` describes the planned privileged apply path and the currently managed keys
+
+## `POST /api/docker/admin/daemon-config/validate`
+
+Purpose:
+
+- validate managed Docker daemon setting changes and return a merged preview without writing the file
+
+Request:
+
+```json
+{
+  "settings": {
+    "dns": ["192.168.1.2"],
+    "registry_mirrors": ["https://mirror.local"],
+    "live_restore": true
+  },
+  "remove_keys": ["insecure_registries"]
+}
+```
+
+Response:
+
+```json
+{
+  "write_capability": {
+    "supported": false,
+    "reason": "Managed Docker daemon apply is not configured yet.",
+    "managed_keys": ["dns", "registry_mirrors", "insecure_registries", "live_restore"]
+  },
+  "changed_keys": ["dns", "live_restore"],
+  "requires_restart": true,
+  "warnings": [
+    "Applying Docker daemon settings requires a Docker restart."
+  ],
+  "preview": {
+    "path": "/etc/docker/daemon.json",
+    "content": "{\n  \"dns\": [\n    \"192.168.1.2\"\n  ],\n  \"live-restore\": true,\n  \"log-driver\": \"json-file\"\n}\n",
+    "configured_keys": ["dns", "live-restore", "log-driver"],
+    "summary": {
+      "dns": ["192.168.1.2"],
+      "registry_mirrors": [],
+      "insecure_registries": [],
+      "log_driver": "json-file",
+      "data_root": "",
+      "live_restore": true
+    }
+  }
+}
+```
+
+Notes:
+
+- this is a managed settings preview, not a raw `daemon.json` editor
+- unknown existing keys are preserved in the preview
+- unsupported `remove_keys` values are rejected with `400 validation_failed`
+- invalid current JSON returns `409 invalid_state`
+- unreadable current config returns `409 permission_denied`
+
+## `POST /api/docker/admin/daemon-config/apply`
+
+Purpose:
+
+- start the global Docker daemon apply workflow using the same managed settings payload as validate
+
+Request:
+
+```json
+{
+  "settings": {
+    "dns": ["192.168.1.2"],
+    "registry_mirrors": ["https://mirror.local"],
+    "live_restore": true
+  },
+  "remove_keys": ["insecure_registries"]
+}
+```
+
+Response:
+
+```json
+{
+  "job": {
+    "id": "job_xxx",
+    "stack_id": null,
+    "action": "apply_docker_daemon_config",
+    "state": "succeeded",
+    "requested_at": "2026-04-09T12:00:00Z",
+    "started_at": "2026-04-09T12:00:00Z",
+    "finished_at": "2026-04-09T12:00:03Z",
+    "workflow": {
+      "steps": [
+        { "action": "validate_config", "state": "succeeded" },
+        { "action": "apply_and_restart", "state": "succeeded" },
+        { "action": "verify_recovery", "state": "succeeded" }
+      ]
+    }
+  }
+}
+```
+
+Notes:
+
+- this is a global job because restarting Docker affects the whole host
+- Stacklab locks managed stacks during the apply workflow
+- if the helper is not configured, this returns `501 not_implemented`
+- helper-backed failures may emit warnings about rollback attempts into the job event stream
+
+## `GET /api/stacklab/update/overview`
+
+Purpose:
+
+- fetch Stacklab self-update status for the current install
+
+Response:
+
+```json
+{
+  "current_version": "2026.04.0",
+  "install_mode": "apt",
+  "package": {
+    "supported": true,
+    "name": "stacklab",
+    "installed_version": "2026.04.0",
+    "candidate_version": "2026.04.1",
+    "configured_channel": "stable",
+    "update_available": true
+  },
+  "write_capability": {
+    "supported": true
+  },
+  "runtime": {
+    "job_id": "job_xxx",
+    "pending_finalize": false,
+    "requested_version": "2026.04.1",
+    "installed_version": "2026.04.0",
+    "started_at": "2026-04-10T11:50:00Z",
+    "finished_at": null
+  }
+}
+```
+
+Notes:
+
+- returns `200` for both supported and unsupported installs
+- tarball installs should represent unsupported state in `package.message` and `write_capability.reason`
+- `runtime` is present while a self-update is running or when the latest result is still retained
+
+## `POST /api/stacklab/update/apply`
+
+Purpose:
+
+- start the global Stacklab self-update workflow for APT installs
+
+Request:
+
+```json
+{
+  "expected_candidate_version": "2026.04.1",
+  "refresh_package_index": true
+}
+```
+
+Response:
+
+```json
+{
+  "started": true,
+  "job": {
+    "id": "job_xxx",
+    "stack_id": null,
+    "action": "self_update_stacklab",
+    "state": "running",
+    "requested_at": "2026-04-10T11:50:00Z",
+    "started_at": "2026-04-10T11:50:00Z",
+    "finished_at": null,
+    "workflow": {
+      "steps": [
+        { "action": "apt_update", "state": "running" },
+        { "action": "upgrade_package", "state": "queued" },
+        { "action": "verify_restart", "state": "queued" }
+      ]
+    }
+  },
+  "package": {
+    "supported": true,
+    "name": "stacklab",
+    "installed_version": "2026.04.0",
+    "candidate_version": "2026.04.1",
+    "configured_channel": "stable",
+    "update_available": true
+  },
+  "runtime": {
+    "job_id": "job_xxx",
+    "pending_finalize": false,
+    "requested_version": "2026.04.1"
+  }
+}
+```
+
+Notes:
+
+- this is a global job because Stacklab upgrades and restarts itself
+- the job may outlive the current HTTP process and then be finalized after restart
+- returns `409 invalid_state` if another self-update is already running or no update is available
+- returns `503 self_update_unavailable` for tarball installs or when the helper path is not configured
 
 ## `GET /api/config/workspace/tree`
 
@@ -899,6 +1119,195 @@ Rules:
 - `source = external` means the image exists on the host but is not mapped back to a managed stack
 - `is_unused = true` means no container currently uses the image
 - inventory is read-only in this slice
+
+## `GET /api/maintenance/networks`
+
+Purpose:
+
+- list host Docker networks in a maintenance-oriented shape
+- show which ones are currently used by managed stacks, including external networks
+
+Query parameters:
+
+- `q` optional text filter
+- `usage` optional: `all`, `used`, `unused`
+- `origin` optional: `all`, `stack_managed`, `external`
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "id": "network-demo",
+      "name": "demo_default",
+      "driver": "bridge",
+      "scope": "local",
+      "internal": false,
+      "attachable": false,
+      "ingress": false,
+      "containers_using": 1,
+      "stacks_using": [
+        {
+          "stack_id": "demo",
+          "service_names": ["app"]
+        }
+      ],
+      "is_unused": false,
+      "source": "stack_managed"
+    }
+  ]
+}
+```
+
+Rules:
+
+- `source = stack_managed` means Stacklab could map the network back to at least one managed stack
+- external networks used by managed stack containers still count as `stack_managed`
+- `is_unused = true` means no container currently uses the network
+- inventory is read-only in this slice
+
+## `POST /api/maintenance/networks`
+
+Purpose:
+
+- create a plain external Docker network by name
+
+Request:
+
+```json
+{
+  "name": "homelab_proxy"
+}
+```
+
+Response:
+
+```json
+{
+  "created": true,
+  "name": "homelab_proxy"
+}
+```
+
+Rules:
+
+- only name-based creation is supported in this slice
+- advanced driver/options editing is out of scope
+
+## `DELETE /api/maintenance/networks/{name}`
+
+Purpose:
+
+- remove an unused external Docker network deliberately
+
+Response:
+
+```json
+{
+  "deleted": true,
+  "name": "old_shared_network"
+}
+```
+
+Rules:
+
+- built-in networks like `bridge`, `host`, `none`, and `ingress` are protected
+- stack-managed networks are protected
+- in-use networks are protected
+
+## `GET /api/maintenance/volumes`
+
+Purpose:
+
+- list host Docker volumes in a maintenance-oriented shape
+- show which ones are currently used by managed stacks, including external named volumes
+
+Query parameters:
+
+- `q` optional text filter
+- `usage` optional: `all`, `used`, `unused`
+- `origin` optional: `all`, `stack_managed`, `external`
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "name": "demo_data",
+      "driver": "local",
+      "mountpoint": "/var/lib/docker/volumes/demo_data/_data",
+      "scope": "local",
+      "options_count": 0,
+      "containers_using": 1,
+      "stacks_using": [
+        {
+          "stack_id": "demo",
+          "service_names": ["app"]
+        }
+      ],
+      "is_unused": false,
+      "source": "stack_managed"
+    }
+  ]
+}
+```
+
+Rules:
+
+- `source = stack_managed` means Stacklab could map the volume back to at least one managed stack
+- external named volumes used by managed stack containers still count as `stack_managed`
+- `is_unused = true` means no container currently uses the volume
+- inventory is read-only in this slice
+
+## `POST /api/maintenance/volumes`
+
+Purpose:
+
+- create a plain external named Docker volume by name
+
+Request:
+
+```json
+{
+  "name": "media_cache"
+}
+```
+
+Response:
+
+```json
+{
+  "created": true,
+  "name": "media_cache"
+}
+```
+
+Rules:
+
+- only name-based creation is supported in this slice
+- driver/options editing is out of scope
+
+## `DELETE /api/maintenance/volumes/{name}`
+
+Purpose:
+
+- remove an unused external Docker volume deliberately
+
+Response:
+
+```json
+{
+  "deleted": true,
+  "name": "old_media_cache"
+}
+```
+
+Rules:
+
+- stack-managed volumes are protected
+- in-use volumes are protected
 
 ## `GET /api/maintenance/prune-preview`
 
@@ -1555,6 +1964,306 @@ Response:
 }
 ```
 
+## `GET /api/settings/notifications`
+
+Purpose:
+
+- fetch current outgoing notification settings
+- power the notifications section in `Settings`
+
+Response:
+
+```json
+{
+  "enabled": false,
+  "configured": false,
+  "webhook_url": "",
+  "events": {
+    "job_failed": true,
+    "job_succeeded_with_warnings": true,
+    "maintenance_succeeded": false,
+    "post_update_recovery_failed": false,
+    "stacklab_service_error": false,
+    "runtime_health_degraded": false,
+    "runtime_log_error_burst": false
+  },
+  "channels": {
+    "webhook": {
+      "enabled": false,
+      "configured": false,
+      "url": ""
+    },
+    "telegram": {
+      "enabled": false,
+      "configured": false,
+      "bot_token_configured": false,
+      "chat_id": ""
+    }
+  }
+}
+```
+
+Notes:
+
+- legacy top-level webhook fields remain for backward compatibility
+- newer clients should prefer the nested `channels` shape
+- default policy is:
+  - notify on failed jobs
+  - notify on successful jobs with warnings
+  - do not notify on successful maintenance by default
+  - do not notify on post-update recovery failures by default until the UI exposes it
+  - do not notify on Stacklab self-health errors by default until the UI exposes it
+  - do not notify on runtime health degradation by default until the UI exposes it
+  - do not notify on runtime log error bursts by default until the UI exposes it
+
+## `PUT /api/settings/notifications`
+
+Purpose:
+
+- persist outgoing notification settings in SQLite
+
+Request:
+
+```json
+{
+  "enabled": true,
+  "webhook_url": "https://hooks.example.test/stacklab",
+  "events": {
+    "job_failed": true,
+    "job_succeeded_with_warnings": true,
+    "maintenance_succeeded": true,
+    "post_update_recovery_failed": true,
+    "stacklab_service_error": true,
+    "runtime_health_degraded": true,
+    "runtime_log_error_burst": true
+  },
+  "channels": {
+    "webhook": {
+      "enabled": true,
+      "url": "https://hooks.example.test/stacklab"
+    },
+    "telegram": {
+      "enabled": true,
+      "bot_token": "123456:ABC-DEF",
+      "chat_id": "-100123456"
+    }
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "enabled": true,
+  "configured": true,
+  "webhook_url": "https://hooks.example.test/stacklab",
+  "events": {
+    "job_failed": true,
+    "job_succeeded_with_warnings": true,
+    "maintenance_succeeded": true,
+    "post_update_recovery_failed": true,
+    "stacklab_service_error": true,
+    "runtime_health_degraded": true,
+    "runtime_log_error_burst": true
+  },
+  "channels": {
+    "webhook": {
+      "enabled": true,
+      "configured": true,
+      "url": "https://hooks.example.test/stacklab"
+    },
+    "telegram": {
+      "enabled": true,
+      "configured": true,
+      "bot_token_configured": true,
+      "chat_id": "-100123456"
+    }
+  }
+}
+```
+
+Validation:
+
+- `webhook_url` must be an absolute `http` or `https` URL when provided
+- `enabled = true` requires a non-empty `webhook_url`
+- Telegram requires:
+  - `bot_token`
+  - `chat_id`
+
+## `POST /api/settings/notifications/test`
+
+Purpose:
+
+- deliver a test notification using the current form payload
+- let the operator validate channel configuration before enabling notifications
+
+Request:
+
+```json
+{
+  "channel": "telegram",
+  "enabled": false,
+  "webhook_url": "",
+  "events": {
+    "job_failed": true,
+    "job_succeeded_with_warnings": true,
+    "maintenance_succeeded": false,
+    "post_update_recovery_failed": false,
+    "stacklab_service_error": false,
+    "runtime_health_degraded": false,
+    "runtime_log_error_burst": false
+  },
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "bot_token": "123456:ABC-DEF",
+      "chat_id": "-100123456"
+    }
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "sent": true,
+  "channel": "telegram"
+}
+```
+
+Error behavior:
+
+- invalid channel config or malformed payload -> `400 validation_failed`
+- upstream delivery failure -> `502 delivery_failed`
+
+## `GET /api/settings/maintenance-schedules`
+
+Purpose:
+
+- fetch scheduled maintenance policies and their current runtime status
+
+Response:
+
+```json
+{
+  "timezone": "host_local",
+  "update": {
+    "enabled": false,
+    "frequency": "weekly",
+    "time": "03:30",
+    "weekdays": ["sat"],
+    "target": {
+      "mode": "all"
+    },
+    "options": {
+      "pull_images": true,
+      "build_images": true,
+      "remove_orphans": true,
+      "prune_after": false,
+      "include_volumes": false
+    },
+    "status": {
+      "next_run_at": "2026-04-11T03:30:00Z"
+    }
+  },
+  "prune": {
+    "enabled": false,
+    "frequency": "weekly",
+    "time": "04:30",
+    "weekdays": ["sun"],
+    "scope": {
+      "images": true,
+      "build_cache": true,
+      "stopped_containers": true,
+      "volumes": false
+    },
+    "status": {
+      "next_run_at": "2026-04-12T04:30:00Z"
+    }
+  }
+}
+```
+
+Notes:
+
+- schedules run in host local time
+- runtime status is informational and read-only
+- `last_result` may be:
+  - `running`
+  - `succeeded`
+  - `failed`
+  - `skipped`
+
+## `PUT /api/settings/maintenance-schedules`
+
+Purpose:
+
+- persist scheduled update and cleanup policies
+
+Request:
+
+```json
+{
+  "update": {
+    "enabled": true,
+    "frequency": "weekly",
+    "time": "03:30",
+    "weekdays": ["sat"],
+    "target": {
+      "mode": "selected",
+      "stack_ids": ["demo", "traefik"]
+    },
+    "options": {
+      "pull_images": true,
+      "build_images": true,
+      "remove_orphans": true,
+      "prune_after": false,
+      "include_volumes": false
+    }
+  },
+  "prune": {
+    "enabled": true,
+    "frequency": "weekly",
+    "time": "04:30",
+    "weekdays": ["sun"],
+    "scope": {
+      "images": true,
+      "build_cache": true,
+      "stopped_containers": true,
+      "volumes": false
+    }
+  }
+}
+```
+
+Response:
+
+- same shape as `GET /api/settings/maintenance-schedules`
+
+Validation:
+
+- `frequency` must be `daily` or `weekly`
+- `time` must be `HH:MM`
+- weekly schedules require at least one weekday
+- update target mode must be `all` or `selected`
+- selected update target requires non-empty `stack_ids`
+- `include_volumes = true` requires `prune_after = true`
+- prune scope must enable at least one category
+- test send does not persist settings
+
+Webhook payload:
+
+```json
+{
+  "event": "test_notification",
+  "sent_at": "2026-04-09T19:00:00Z",
+  "source": "stacklab",
+  "summary": "Stacklab test notification"
+}
+```
+
 ## `GET /api/jobs/{jobId}`
 
 Purpose:
@@ -1574,6 +2283,57 @@ Response:
     "started_at": "2026-04-03T18:40:01Z",
     "finished_at": null
   }
+}
+```
+
+## `GET /api/jobs/{jobId}/events`
+
+Purpose:
+
+- fetch retained `job_events` for a single job
+- power a dedicated job detail screen or replayable progress panel from audit/history links
+
+Response:
+
+```json
+{
+  "job_id": "job_01hr...",
+  "retained": true,
+  "items": [
+    {
+      "job_id": "job_01hr...",
+      "sequence": 1,
+      "event": "job_started",
+      "state": "running",
+      "message": "Job started.",
+      "timestamp": "2026-04-03T18:40:01Z"
+    },
+    {
+      "job_id": "job_01hr...",
+      "sequence": 2,
+      "event": "job_step_started",
+      "state": "running",
+      "message": "Starting pull for nextcloud.",
+      "step": {
+        "index": 1,
+        "total": 2,
+        "action": "pull",
+        "target_stack_id": "nextcloud"
+      },
+      "timestamp": "2026-04-03T18:40:02Z"
+    }
+  ]
+}
+```
+
+If detailed output was already purged, the endpoint still returns `200` with:
+
+```json
+{
+  "job_id": "job_01hr...",
+  "retained": false,
+  "message": "Detailed output for this job is no longer retained.",
+  "items": []
 }
 ```
 

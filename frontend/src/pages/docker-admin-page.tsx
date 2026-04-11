@@ -1,11 +1,19 @@
-import { getDockerAdminOverview, getDockerDaemonConfig } from '@/lib/api-client'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { getDockerAdminOverview, getDockerDaemonConfig, validateDockerDaemonConfig, applyDockerDaemonConfig } from '@/lib/api-client'
 import { useApi } from '@/hooks/use-api'
-import type { DockerAdminOverviewResponse, DockerDaemonConfigResponse } from '@/lib/api-types'
+import { useJobStream } from '@/hooks/use-job-stream'
+import { StepCards } from '@/components/step-cards'
+import type { DockerAdminOverviewResponse, DockerDaemonConfigResponse, DockerDaemonValidateResponse } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
 
 export function DockerAdminPage() {
-  const { data: overview, error: overviewError, loading: overviewLoading } = useApi(() => getDockerAdminOverview(), [])
-  const { data: daemonConfig, error: configError, loading: configLoading } = useApi(() => getDockerDaemonConfig(), [])
+  const { data: overview, error: overviewError, loading: overviewLoading, refetch: refetchOverview } = useApi(() => getDockerAdminOverview(), [])
+  const { data: daemonConfig, error: configError, loading: configLoading, refetch: refetchConfig } = useApi(() => getDockerDaemonConfig(), [])
+
+  const handleApplyDone = useCallback(() => {
+    refetchOverview()
+    refetchConfig()
+  }, [refetchOverview, refetchConfig])
 
   return (
     <div className="flex flex-col gap-4">
@@ -37,6 +45,17 @@ export function DockerAdminPage() {
         {configError && <p className="mt-3 text-sm text-red-400">{configError.message}</p>}
         {daemonConfig && <DaemonConfigViewer config={daemonConfig} />}
       </section>
+
+      {/* Managed settings */}
+      {overview && (
+        <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+          <ManagedSettingsForm
+            currentSummary={overview.daemon_config.summary}
+            writeCapability={overview.daemon_config.write_capability ?? overview.write_capability}
+            onApplyDone={handleApplyDone}
+          />
+        </section>
+      )}
     </div>
   )
 }
@@ -183,4 +202,300 @@ function DaemonConfigViewer({ config }: { config: DockerDaemonConfigResponse }) 
       )}
     </div>
   )
+}
+
+function ManagedSettingsForm({ currentSummary, writeCapability, onApplyDone }: {
+  currentSummary: DockerAdminOverviewResponse['daemon_config']['summary']
+  writeCapability: { supported: boolean; reason?: string | null; managed_keys: string[] }
+  onApplyDone: () => void
+}) {
+  const [dns, setDns] = useState(currentSummary.dns.join(', '))
+  const [mirrors, setMirrors] = useState(currentSummary.registry_mirrors.join(', '))
+  const [insecure, setInsecure] = useState(currentSummary.insecure_registries.join(', '))
+  const [liveRestore, setLiveRestore] = useState(currentSummary.live_restore ?? false)
+
+  const [validating, setValidating] = useState(false)
+  const [validateResult, setValidateResult] = useState<DockerDaemonValidateResponse | null>(null)
+  const [validateError, setValidateError] = useState<string | null>(null)
+
+  const [applyJobId, setApplyJobId] = useState<string | null>(null)
+  const [applying, setApplying] = useState(false)
+  const [applyError, setApplyError] = useState<string | null>(null)
+
+  const { events: applyEvents, state: applyJobState } = useJobStream({ jobId: applyJobId })
+  const applyTerminal = applyJobState === 'succeeded' || applyJobState === 'failed' || applyJobState === 'cancelled' || applyJobState === 'timed_out'
+  const applyInProgress = Boolean(applyJobId) && !applyTerminal
+
+  const applyBackupPath = useMemo(
+    () =>
+      applyEvents.find(
+        (event) => event.event === 'job_log' && event.message === 'Created Docker daemon config backup.' && event.data,
+      )?.data ?? null,
+    [applyEvents],
+  )
+  const applyRollbackAttempted = useMemo(
+    () =>
+      applyEvents.some(
+        (event) =>
+          event.event === 'job_warning' && /rollback/i.test(event.message),
+      ),
+    [applyEvents],
+  )
+
+  useEffect(() => {
+    setValidateResult(null)
+    setValidateError(null)
+  }, [dns, mirrors, insecure, liveRestore])
+
+  // Auto-refresh on apply completion
+  useEffect(() => {
+    if (applyTerminal && applyJobId) {
+      onApplyDone()
+    }
+  }, [applyTerminal, applyJobId, onApplyDone])
+
+  const handleValidate = useCallback(async () => {
+    setValidating(true)
+    setValidateError(null)
+    setValidateResult(null)
+    try {
+      const dnsList = parseCommaSeparatedList(dns)
+      const mirrorsList = parseCommaSeparatedList(mirrors)
+      const insecureList = parseCommaSeparatedList(insecure)
+      const removeKeys: string[] = []
+      if (dnsList.length === 0) removeKeys.push('dns')
+      if (mirrorsList.length === 0) removeKeys.push('registry_mirrors')
+      if (insecureList.length === 0) removeKeys.push('insecure_registries')
+
+      const result = await validateDockerDaemonConfig({
+        settings: {
+          dns: dnsList,
+          registry_mirrors: mirrorsList,
+          insecure_registries: insecureList,
+          live_restore: liveRestore,
+        },
+        remove_keys: removeKeys,
+      })
+      setValidateResult(result)
+    } catch (err) {
+      setValidateError(err instanceof Error ? err.message : 'Validation failed')
+    } finally {
+      setValidating(false)
+    }
+  }, [dns, mirrors, insecure, liveRestore])
+
+  const handleApply = useCallback(async () => {
+    setApplying(true)
+    setApplyError(null)
+    setApplyJobId(null)
+    try {
+      const dnsList = parseCommaSeparatedList(dns)
+      const mirrorsList = parseCommaSeparatedList(mirrors)
+      const insecureList = parseCommaSeparatedList(insecure)
+      const removeKeys: string[] = []
+      if (dnsList.length === 0) removeKeys.push('dns')
+      if (mirrorsList.length === 0) removeKeys.push('registry_mirrors')
+      if (insecureList.length === 0) removeKeys.push('insecure_registries')
+
+      const result = await applyDockerDaemonConfig({
+        settings: {
+          dns: dnsList,
+          registry_mirrors: mirrorsList,
+          insecure_registries: insecureList,
+          live_restore: liveRestore,
+        },
+        remove_keys: removeKeys,
+      })
+      setApplyJobId(result.job.id)
+      setValidateResult(null) // Clear preview since we're applying
+    } catch (err) {
+      setApplyError(err instanceof Error ? err.message : 'Apply failed')
+    } finally {
+      setApplying(false)
+    }
+  }, [dns, mirrors, insecure, liveRestore])
+
+  const canApply = writeCapability.supported && Boolean(validateResult) && !applying && !applyInProgress
+
+  return (
+    <div>
+      <h3 className="text-lg font-medium text-[var(--text)]">Managed settings</h3>
+
+      {/* Preview mode banner */}
+      {!writeCapability.supported && (
+        <div className="mt-2 rounded-md border border-amber-400/20 bg-amber-400/5 px-4 py-2 text-xs text-amber-400">
+          Preview mode — changes can be validated but not applied yet.
+          {writeCapability.reason && <span className="ml-1 text-[var(--muted)]">{writeCapability.reason}</span>}
+        </div>
+      )}
+
+      {/* Form */}
+      <div className="mt-4 max-w-lg space-y-3">
+        <label className="block">
+          <span className="mb-1 block text-xs text-[var(--muted)]">DNS servers (comma-separated)</span>
+          <input
+            type="text"
+            value={dns}
+            onChange={(e) => setDns(e.target.value)}
+            placeholder="192.168.1.2, 8.8.8.8"
+            className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)]"
+          />
+        </label>
+
+        <label className="block">
+          <span className="mb-1 block text-xs text-[var(--muted)]">Registry mirrors (comma-separated)</span>
+          <input
+            type="text"
+            value={mirrors}
+            onChange={(e) => setMirrors(e.target.value)}
+            placeholder="https://mirror.local"
+            className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)]"
+          />
+        </label>
+
+        <label className="block">
+          <span className="mb-1 block text-xs text-[var(--muted)]">Insecure registries (comma-separated)</span>
+          <input
+            type="text"
+            value={insecure}
+            onChange={(e) => setInsecure(e.target.value)}
+            placeholder="registry.local:5000"
+            className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)]"
+          />
+        </label>
+
+        <label className="flex items-center gap-2 text-xs text-[var(--text)]">
+          <input type="checkbox" checked={liveRestore} onChange={(e) => setLiveRestore(e.target.checked)} className="rounded" />
+          Enable live restore
+        </label>
+
+        <div className="flex gap-2 pt-2">
+          <button
+            onClick={handleValidate}
+            disabled={validating}
+            className="rounded-md border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] px-4 py-2 text-xs text-[var(--text)] transition hover:bg-[rgba(34,197,94,0.2)] disabled:opacity-40"
+          >
+            {validating ? 'Validating...' : 'Validate'}
+          </button>
+
+          <button
+            onClick={handleApply}
+            disabled={!canApply}
+            title={!writeCapability.supported ? 'Apply is not available yet' : !validateResult ? 'Validate first' : 'Apply changes and restart Docker'}
+            className={cn(
+              'rounded-md border px-4 py-2 text-xs transition',
+              canApply
+                ? 'border-red-400/30 bg-red-400/10 text-red-400 hover:bg-red-400/20'
+                : 'border-[var(--panel-border)] text-[var(--muted)] opacity-40',
+            )}
+          >
+            {applying ? 'Applying...' : 'Apply & Restart'}
+          </button>
+        </div>
+      </div>
+
+      {/* Validate error */}
+      {validateError && (
+        <div className="mt-3 rounded-md border border-red-400/20 bg-red-400/5 px-4 py-2 text-xs text-red-400">
+          {validateError}
+        </div>
+      )}
+
+      {/* Validate result */}
+      {validateResult && (
+        <div className="mt-4 space-y-3">
+          <div className="flex items-center gap-2 text-xs">
+            <span className={cn('inline-block size-2 rounded-full', validateResult.warnings.length > 0 ? 'bg-amber-400' : 'bg-emerald-400')} />
+            <span className="text-[var(--text)]">
+              Validation {validateResult.warnings.length > 0 ? 'passed with warnings' : 'passed'}
+            </span>
+            {validateResult.requires_restart && (
+              <span className="text-amber-400">· Requires Docker restart</span>
+            )}
+          </div>
+
+          {validateResult.changed_keys.length > 0 && (
+            <div className="text-xs text-[var(--muted)]">
+              Changed keys: <span className="font-mono text-[var(--text)]">{validateResult.changed_keys.join(', ')}</span>
+            </div>
+          )}
+
+          {validateResult.warnings.map((w, i) => (
+            <div key={i} className="text-xs text-amber-400">{w}</div>
+          ))}
+
+          {/* Preview content */}
+          <div>
+            <div className="mb-1 text-xs text-[var(--muted)]">Resulting daemon.json:</div>
+            <div className="overflow-auto rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-4 font-mono text-xs leading-5 text-[var(--text)]">
+              <pre className="whitespace-pre-wrap">{validateResult.preview.content}</pre>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Apply error */}
+      {applyError && (
+        <div className="mt-3 rounded-md border border-red-400/20 bg-red-400/5 px-4 py-2 text-xs text-red-400">
+          {applyError}
+        </div>
+      )}
+
+      {/* Apply progress */}
+      {applyJobId && (
+        <div className="mt-4 space-y-3">
+          <h4 className="text-sm font-medium text-[var(--text)]">Apply progress</h4>
+
+          <div className="flex items-center gap-2 text-xs">
+            {!applyTerminal && <span className="inline-block size-2 animate-pulse rounded-full bg-sky-400" />}
+            <span className={cn(
+              'font-medium',
+              applyJobState === 'running' ? 'text-sky-400' :
+              applyJobState === 'succeeded' ? 'text-emerald-400' :
+              applyJobState === 'failed' ? 'text-red-400' :
+              'text-[var(--muted)]',
+            )}>
+              {applyJobState === 'running' ? 'Applying...' :
+               applyJobState === 'succeeded' ? 'Applied successfully' :
+               applyJobState === 'failed' ? 'Apply failed' :
+               applyJobState ?? 'Starting'}
+            </span>
+          </div>
+
+          <StepCards events={applyEvents} />
+
+          {/* Result card */}
+          {applyJobState === 'succeeded' && (
+            <div className="rounded-md border border-emerald-400/20 bg-emerald-400/5 px-4 py-3 text-xs text-emerald-400">
+              Docker configuration applied and Docker restarted successfully.
+              {applyBackupPath && (
+                <div className="mt-1 text-[var(--muted)]">
+                  Backup: <span className="font-mono text-emerald-300">{applyBackupPath}</span>
+                </div>
+              )}
+            </div>
+          )}
+          {applyJobState === 'failed' && (
+            <div className="rounded-md border border-amber-400/20 bg-amber-400/5 px-4 py-3 text-xs text-amber-400">
+              {applyRollbackAttempted
+                ? 'Apply failed. A rollback was attempted; the previous configuration should be restored.'
+                : 'Apply failed. Check the step details above before retrying.'}
+              {applyBackupPath && (
+                <div className="mt-1 text-[var(--muted)]">
+                  Backup: <span className="font-mono text-amber-300">{applyBackupPath}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function parseCommaSeparatedList(value: string): string[] {
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
 }

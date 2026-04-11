@@ -100,8 +100,7 @@ Example file:
 [Unit]
 Description=Stacklab
 After=network-online.target docker.service
-Wants=network-online.target
-Requires=docker.service
+Wants=network-online.target docker.service
 
 [Service]
 Type=simple
@@ -120,11 +119,12 @@ Restart=on-failure
 RestartSec=5
 TimeoutStartSec=30
 TimeoutStopSec=30
-NoNewPrivileges=true
+# Must remain false if any opt-in sudo helper is enabled.
+NoNewPrivileges=false
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=true
-ReadWritePaths=/opt/stacklab /var/lib/stacklab
+ReadWritePaths=/opt/stacklab /var/lib/stacklab /etc/docker
 
 [Install]
 WantedBy=multi-user.target
@@ -140,14 +140,17 @@ The example unit is intentionally conservative and may need adjustment depending
 
 Recommended hardening goals:
 
-- `NoNewPrivileges=true`
+- `NoNewPrivileges=false` when any opt-in privileged helper is enabled through `sudo`
 - `PrivateTmp=true`
 - read-only system paths where feasible
 - explicit `ReadWritePaths`
 
 Potential adjustments:
 
-- relax `ProtectSystem` if it interferes with required runtime behavior
+- relax `ProtectSystem` only for a proven runtime need; Stacklab self-update must not require this because it runs the updater through a transient `systemd-run` unit
+- keep `NoNewPrivileges=false` if the Docker admin helper, workspace repair helper, or self-update helper is enabled through `sudo`
+- include `/etc/docker` in `ReadWritePaths` if the Docker admin helper is enabled
+- prefer `Wants=docker.service` over `Requires=docker.service` so Stacklab survives a Docker daemon restart
 - do not enable sandboxing blindly before terminal and Docker access are verified end-to-end
 
 ## Service Dependencies
@@ -166,8 +169,9 @@ Practical packaging note:
 
 Startup behavior recommendation:
 
-- fail fast if Docker is unavailable at start
-- expose that failure clearly in journal logs
+- start after Docker when available
+- tolerate Docker being temporarily unavailable or restarted
+- expose degraded Docker state clearly in logs and UI instead of binding Stacklab lifecycle to `docker.service`
 - allow restart policy to recover automatically when Docker becomes available
 
 ## Frontend Asset Serving

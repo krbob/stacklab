@@ -22,6 +22,12 @@ import (
 	"stacklab/internal/config"
 	"stacklab/internal/httpapi"
 	"stacklab/internal/jobs"
+	"stacklab/internal/maintenance"
+	"stacklab/internal/maintenancejobs"
+	"stacklab/internal/notifications"
+	"stacklab/internal/scheduler"
+	"stacklab/internal/selfupdate"
+	"stacklab/internal/stacks"
 	"stacklab/internal/store"
 )
 
@@ -81,6 +87,70 @@ func TestHandlerLoginSessionAndPasswordUpdate(t *testing.T) {
 	}, nil)
 	if newLoginResponse.Code != http.StatusOK {
 		t.Fatalf("POST /api/auth/login(new password) status = %d, want %d", newLoginResponse.Code, http.StatusOK)
+	}
+}
+
+func TestHandlerNotificationSettingsAndTestWebhook(t *testing.T) {
+	t.Parallel()
+
+	var received struct {
+		Event string `json:"event"`
+	}
+	webhook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("webhook method = %s, want POST", r.Method)
+		}
+		if got := r.Header.Get("X-Stacklab-Event"); got != "test_notification" {
+			t.Fatalf("X-Stacklab-Event = %q, want %q", got, "test_notification")
+		}
+		if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
+			t.Fatalf("Decode(webhook payload) error = %v", err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer webhook.Close()
+
+	handler, _ := newTestHandler(t)
+	cookies := loginTestUser(t, handler, "secret")
+
+	getResponse := performJSONRequest(t, handler, http.MethodGet, "/api/settings/notifications", nil, cookies)
+	if getResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/settings/notifications status = %d, want %d; body=%s", getResponse.Code, http.StatusOK, getResponse.Body.String())
+	}
+	var initial struct {
+		Enabled    bool `json:"enabled"`
+		Configured bool `json:"configured"`
+		Events     struct {
+			JobFailed                bool `json:"job_failed"`
+			JobSucceededWithWarnings bool `json:"job_succeeded_with_warnings"`
+			MaintenanceSucceeded     bool `json:"maintenance_succeeded"`
+		} `json:"events"`
+	}
+	decodeResponse(t, getResponse, &initial)
+	if initial.Enabled || initial.Configured || !initial.Events.JobFailed || !initial.Events.JobSucceededWithWarnings || initial.Events.MaintenanceSucceeded {
+		t.Fatalf("unexpected initial notification settings: %#v", initial)
+	}
+
+	updateBody := map[string]any{
+		"enabled":     true,
+		"webhook_url": webhook.URL,
+		"events": map[string]any{
+			"job_failed":                  true,
+			"job_succeeded_with_warnings": true,
+			"maintenance_succeeded":       true,
+		},
+	}
+	updateResponse := performJSONRequest(t, handler, http.MethodPut, "/api/settings/notifications", updateBody, cookies)
+	if updateResponse.Code != http.StatusOK {
+		t.Fatalf("PUT /api/settings/notifications status = %d, want %d; body=%s", updateResponse.Code, http.StatusOK, updateResponse.Body.String())
+	}
+
+	testResponse := performJSONRequest(t, handler, http.MethodPost, "/api/settings/notifications/test", updateBody, cookies)
+	if testResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/settings/notifications/test status = %d, want %d; body=%s", testResponse.Code, http.StatusOK, testResponse.Body.String())
+	}
+	if received.Event != "test_notification" {
+		t.Fatalf("received webhook event = %q, want %q", received.Event, "test_notification")
 	}
 }
 
@@ -609,11 +679,18 @@ func newTestHandler(t *testing.T) (http.Handler, config.Config) {
 	if err := authService.Bootstrap(context.Background()); err != nil {
 		t.Fatalf("Bootstrap() error = %v", err)
 	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	auditService := audit.NewService(testStore)
 	jobService := jobs.NewService(testStore)
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	notificationService := notifications.NewService(testStore, logger)
+	stackReader := stacks.NewServiceReader(cfg, logger)
+	maintenanceService := maintenance.NewService()
+	maintenanceRunner := maintenancejobs.NewService(logger, jobService, auditService, stackReader, maintenanceService)
+	schedulerService := scheduler.NewService(testStore, auditService, maintenanceRunner, stackReader, logger)
+	selfUpdateService := selfupdate.NewService(cfg, testStore, jobService, auditService, notificationService, logger)
+	jobService.SetTerminalHook(notificationService.DispatchJobAsync)
 
-	handler, err := httpapi.NewHandler(cfg, logger, authService, auditService, jobService)
+	handler, err := httpapi.NewHandler(cfg, logger, authService, auditService, jobService, notificationService, schedulerService, selfUpdateService)
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v", err)
 	}
@@ -733,7 +810,7 @@ if [ "$1" = "ps" ]; then
 fi
 
 if [ "$1" = "inspect" ]; then
-  echo '[{"Image":"sha256:used","Config":{"Image":"ghcr.io/example/app:latest","Labels":{"com.docker.compose.project":"demo","com.docker.compose.service":"app"}}}]'
+  echo '[{"Image":"sha256:used","Config":{"Image":"ghcr.io/example/app:latest","Labels":{"com.docker.compose.project":"demo","com.docker.compose.service":"app"}},"Mounts":[{"Name":"demo_data","Type":"volume"}],"NetworkSettings":{"Networks":{"demo_default":{},"external_shared":{}}}}]'
   exit 0
 fi
 
@@ -772,6 +849,53 @@ if [ "$1" = "image" ] && [ "$2" = "prune" ]; then
   shift 2
   append_log "docker image prune $*"
   echo "Deleted Images:"
+  exit 0
+fi
+
+if [ "$1" = "network" ] && [ "$2" = "ls" ]; then
+  echo '{"ID":"network-demo","Name":"demo_default","Driver":"bridge","Scope":"local"}'
+  echo '{"ID":"network-ext","Name":"external_shared","Driver":"bridge","Scope":"local"}'
+  echo '{"ID":"network-unused","Name":"external_unused","Driver":"bridge","Scope":"local"}'
+  exit 0
+fi
+
+if [ "$1" = "network" ] && [ "$2" = "inspect" ]; then
+  echo '[{"Id":"network-demo","Name":"demo_default","Driver":"bridge","Scope":"local","Internal":false,"Attachable":false,"Ingress":false,"Labels":{"com.docker.compose.project":"demo"}},{"Id":"network-ext","Name":"external_shared","Driver":"bridge","Scope":"local","Internal":false,"Attachable":false,"Ingress":false,"Labels":{}},{"Id":"network-unused","Name":"external_unused","Driver":"bridge","Scope":"local","Internal":false,"Attachable":false,"Ingress":false,"Labels":{}}]'
+  exit 0
+fi
+
+if [ "$1" = "network" ] && [ "$2" = "create" ]; then
+  append_log "docker network create $3"
+  echo "$3"
+  exit 0
+fi
+
+if [ "$1" = "network" ] && [ "$2" = "rm" ]; then
+  append_log "docker network rm $3"
+  echo "$3"
+  exit 0
+fi
+
+if [ "$1" = "volume" ] && [ "$2" = "ls" ]; then
+  echo '{"Name":"demo_data","Driver":"local"}'
+  echo '{"Name":"external_media","Driver":"local"}'
+  exit 0
+fi
+
+if [ "$1" = "volume" ] && [ "$2" = "inspect" ]; then
+  echo '[{"Name":"demo_data","Driver":"local","Mountpoint":"/var/lib/docker/volumes/demo_data/_data","Scope":"local","Labels":{"com.docker.compose.project":"demo"},"Options":{}},{"Name":"external_media","Driver":"local","Mountpoint":"/var/lib/docker/volumes/external_media/_data","Scope":"local","Labels":{},"Options":{"type":"nfs"}}]'
+  exit 0
+fi
+
+if [ "$1" = "volume" ] && [ "$2" = "create" ]; then
+  append_log "docker volume create $3"
+  echo "$3"
+  exit 0
+fi
+
+if [ "$1" = "volume" ] && [ "$2" = "rm" ]; then
+  append_log "docker volume rm $3"
+  echo "$3"
   exit 0
 fi
 

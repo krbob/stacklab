@@ -57,14 +57,21 @@ mkdir -p \
   "${pkg_root}/usr/lib/stacklab/bin" \
   "${pkg_root}/usr/lib/stacklab/frontend" \
   "${pkg_root}/usr/lib/stacklab/metadata" \
+  "${pkg_root}/usr/share/doc/stacklab/examples" \
   "${pkg_root}/lib/systemd/system" \
   "${pkg_root}/etc/stacklab"
 
 install -m 0755 "${artifact_dir}/bin/stacklab" "${pkg_root}/usr/lib/stacklab/bin/stacklab"
+install -m 0755 "${artifact_dir}/bin/stacklab-docker-admin-helper" "${pkg_root}/usr/lib/stacklab/bin/stacklab-docker-admin-helper"
+install -m 0755 "${artifact_dir}/bin/stacklab-workspace-admin-helper" "${pkg_root}/usr/lib/stacklab/bin/stacklab-workspace-admin-helper"
+install -m 0755 "${artifact_dir}/bin/stacklab-self-update-helper" "${pkg_root}/usr/lib/stacklab/bin/stacklab-self-update-helper"
 cp -R "${artifact_dir}/frontend/dist" "${pkg_root}/usr/lib/stacklab/frontend/dist"
 cp -R "${artifact_dir}/metadata/." "${pkg_root}/usr/lib/stacklab/metadata/"
 install -m 0644 "${repo_root}/packaging/debian/stacklab.service" "${pkg_root}/lib/systemd/system/stacklab.service"
 install -m 0644 "${repo_root}/packaging/debian/stacklab.env" "${pkg_root}/etc/stacklab/stacklab.env"
+install -m 0644 "${repo_root}/packaging/systemd/stacklab-docker-admin.sudoers.example" "${pkg_root}/usr/share/doc/stacklab/examples/stacklab-docker-admin.sudoers.example"
+install -m 0644 "${repo_root}/packaging/systemd/stacklab-workspace-admin.sudoers.example" "${pkg_root}/usr/share/doc/stacklab/examples/stacklab-workspace-admin.sudoers.example"
+install -m 0644 "${repo_root}/packaging/systemd/stacklab-self-update.sudoers.example" "${pkg_root}/usr/share/doc/stacklab/examples/stacklab-self-update.sudoers.example"
 
 cat > "${pkg_root}/DEBIAN/control" <<EOF
 Package: ${package_name}

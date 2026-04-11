@@ -1,8 +1,9 @@
 # Workspace Permissions Handoff
 
-This note describes the backend semantics for blocked files in:
+This note describes the backend semantics for blocked files and the new helper-backed repair slice in:
 
 - `/config`
+- `/stacks/:id/files`
 - `/config` `Changes` mode
 
 It exists to keep UI behavior aligned with real filesystem access instead of assumptions about inherited ACLs.
@@ -42,6 +43,29 @@ Containers may replace files atomically and change owner/group/mode in the proce
 
 - returns `409 permission_denied` when the target file or its parent directory is not writable for the Stacklab service user
 
+`POST /api/config/workspace/repair-permissions`
+
+- takes:
+  - `path`
+  - `recursive`
+- returns:
+  - `changed_items`
+  - `target_permissions_before`
+  - `target_permissions_after`
+  - `audit_action`
+  - `repair_capability`
+- returns `501 not_implemented` when the privileged helper is not configured yet
+
+`GET /api/stacks/{stackId}/workspace/file`
+
+- mirrors the same blocked-file semantics as `/config`
+- also includes `repair_capability`
+
+`POST /api/stacks/{stackId}/workspace/repair-permissions`
+
+- mirrors the config repair shape
+- is scoped to one stack root
+
 ## Git Workspace Semantics
 
 `GET /api/git/workspace/status`
@@ -80,6 +104,8 @@ For Files mode:
   - stack link when available
   - modified time
   - file type
+- if `repair_capability.supported` is true, a later slice may offer explicit repair from this state
+- if `repair_capability.supported` is false, do not imply Stacklab can fix the file automatically
 
 For Changes mode:
 
@@ -89,9 +115,9 @@ For Changes mode:
 - keep status grouping and stack grouping unchanged; blocked files are not hidden
 - do not silently auto-select blocked files in group-level quick select
 
-## Concrete Milestone 6 UI Slice
+## Concrete Repair Slice
 
-The first UI slice should stay narrow.
+The first repair UI slice should stay narrow.
 
 ### Files mode
 
@@ -108,6 +134,12 @@ When a selected file has `blocked_reason != null`:
 - show a short explanation based on `blocked_reason`
 - hide `Save`
 - keep `Discard` hidden as well because there is no editable draft
+- when `repair_capability.supported` is true:
+  - show one explicit repair affordance
+  - default to repairing only the selected path
+  - do not default to recursive repair unless the operator opts into it
+- when `repair_capability.supported` is false:
+  - show preview-only / diagnostics-only messaging
 
 Recommended blocked card title:
 
@@ -158,17 +190,17 @@ Preferred user-facing explanations:
 Avoid:
 
 - vague messages like `Permission error`
-- implying Stacklab can repair this automatically today
+- implying Stacklab can repair this automatically when `repair_capability.supported` is false
 - telling the user ACLs should have solved it
 
-## Not In This Slice
+## Repair Copy Guidance
 
-Do not implement yet:
+When repair is available:
 
-- inline chmod/chown actions
-- automatic retry buttons that mutate ownership
-- privileged repair dialogs
-- generic host filesystem troubleshooting UI
+- `Repair access for this file`
+- `Repair access recursively`
+- `This uses the configured Stacklab workspace helper and is limited to managed roots.`
+- `The file will be reassigned to the workspace owner and owner access bits will be restored.`
 
 Recommended operator messaging:
 
@@ -180,6 +212,7 @@ Recommended operator messaging:
 
 Not in this slice:
 
-- automatic permission repair
 - generic host chmod/chown tools
 - running Stacklab as `root`
+- repair actions in Git Changes mode
+- generic recursive subtree repair from arbitrary workspace directories

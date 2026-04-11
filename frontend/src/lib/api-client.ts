@@ -3,10 +3,18 @@ import type {
   AuditResponse,
   ConfigFileResponse,
   ConfigFileSaveResponse,
+  ConfigRepairPermissionsRequest,
+  ConfigRepairPermissionsResponse,
   ConfigTreeResponse,
   DefinitionResponse,
   DockerAdminOverviewResponse,
   DockerDaemonConfigResponse,
+  DockerDaemonApplyRequest,
+  DockerDaemonValidateRequest,
+  DockerDaemonValidateResponse,
+  StacklabUpdateApplyRequest,
+  StacklabUpdateApplyResponse,
+  StacklabUpdateOverviewResponse,
   GitCommitRequest,
   GitCommitResponse,
   GitDiffResponse,
@@ -15,15 +23,35 @@ import type {
   HealthResponse,
   HostOverviewResponse,
   JobDetail,
+  JobEventsResponse,
   JobRef,
+  MaintenanceCreateNetworkRequest,
+  MaintenanceCreateNetworkResponse,
+  MaintenanceSchedulesResponse,
+  MaintenanceSchedulesUpdateRequest,
+  MaintenanceCreateVolumeRequest,
+  MaintenanceCreateVolumeResponse,
+  MaintenanceDeleteNetworkResponse,
+  MaintenanceDeleteVolumeResponse,
   MaintenanceUpdateStacksRequest,
   MaintenanceImagesResponse,
+  MaintenanceNetworksResponse,
   MaintenancePrunePreviewResponse,
   MaintenancePruneRequest,
+  MaintenanceVolumesResponse,
   MetaResponse,
+  NotificationSettingsResponse,
+  NotificationSettingsUpdateRequest,
+  NotificationTestRequest,
+  NotificationTestResponse,
   ResolvedConfigResponse,
   SessionResponse,
   StackDetailResponse,
+  StackWorkspaceFileResponse,
+  StackWorkspaceFileSaveResponse,
+  StackRepairPermissionsRequest,
+  StackRepairPermissionsResponse,
+  StackWorkspaceTreeResponse,
   StackListResponse,
   StacklabLogsResponse,
 } from '@/lib/api-types'
@@ -93,6 +121,35 @@ export function getMeta(): Promise<MetaResponse> {
   return request('/api/meta')
 }
 
+export function getNotificationSettings(): Promise<NotificationSettingsResponse> {
+  return request('/api/settings/notifications')
+}
+
+export function updateNotificationSettings(requestBody: NotificationSettingsUpdateRequest): Promise<NotificationSettingsResponse> {
+  return request('/api/settings/notifications', {
+    method: 'PUT',
+    body: JSON.stringify(requestBody),
+  })
+}
+
+export function sendNotificationTest(requestBody: NotificationTestRequest): Promise<NotificationTestResponse> {
+  return request('/api/settings/notifications/test', {
+    method: 'POST',
+    body: JSON.stringify(requestBody),
+  })
+}
+
+export function getMaintenanceSchedules(): Promise<MaintenanceSchedulesResponse> {
+  return request('/api/settings/maintenance-schedules')
+}
+
+export function updateMaintenanceSchedules(requestBody: MaintenanceSchedulesUpdateRequest): Promise<MaintenanceSchedulesResponse> {
+  return request('/api/settings/maintenance-schedules', {
+    method: 'PUT',
+    body: JSON.stringify(requestBody),
+  })
+}
+
 export function getHostOverview(): Promise<HostOverviewResponse> {
   return request('/api/host/overview')
 }
@@ -113,6 +170,31 @@ export function getDockerAdminOverview(): Promise<DockerAdminOverviewResponse> {
 
 export function getDockerDaemonConfig(): Promise<DockerDaemonConfigResponse> {
   return request('/api/docker/admin/daemon-config')
+}
+
+export function validateDockerDaemonConfig(requestBody: DockerDaemonValidateRequest): Promise<DockerDaemonValidateResponse> {
+  return request('/api/docker/admin/daemon-config/validate', {
+    method: 'POST',
+    body: JSON.stringify(requestBody),
+  })
+}
+
+export function applyDockerDaemonConfig(requestBody: DockerDaemonApplyRequest): Promise<{ job: JobRef }> {
+  return request('/api/docker/admin/daemon-config/apply', {
+    method: 'POST',
+    body: JSON.stringify(requestBody),
+  })
+}
+
+export function getStacklabUpdateOverview(): Promise<StacklabUpdateOverviewResponse> {
+  return request('/api/stacklab/update/overview')
+}
+
+export function applyStacklabUpdate(requestBody: StacklabUpdateApplyRequest): Promise<StacklabUpdateApplyResponse> {
+  return request('/api/stacklab/update/apply', {
+    method: 'POST',
+    body: JSON.stringify(requestBody),
+  })
 }
 
 // --- Git workspace ---
@@ -158,6 +240,13 @@ export function saveConfigFile(path: string, content: string, createParentDirect
   })
 }
 
+export function repairConfigWorkspacePermissions(requestBody: ConfigRepairPermissionsRequest): Promise<ConfigRepairPermissionsResponse> {
+  return request('/api/config/workspace/repair-permissions', {
+    method: 'POST',
+    body: JSON.stringify(requestBody),
+  })
+}
+
 // --- Stack management ---
 
 export function getStacks(params?: { q?: string; sort?: string }): Promise<StackListResponse> {
@@ -174,6 +263,39 @@ export function getStack(stackId: string): Promise<StackDetailResponse> {
 
 export function getDefinition(stackId: string): Promise<DefinitionResponse> {
   return request(`/api/stacks/${encodeURIComponent(stackId)}/definition`)
+}
+
+export function getStackWorkspaceTree(stackId: string, path?: string): Promise<StackWorkspaceTreeResponse> {
+  const search = new URLSearchParams()
+  if (path) search.set('path', path)
+  const qs = search.toString()
+  return request(`/api/stacks/${encodeURIComponent(stackId)}/workspace/tree${qs ? `?${qs}` : ''}`)
+}
+
+export function getStackWorkspaceFile(stackId: string, path: string): Promise<StackWorkspaceFileResponse> {
+  return request(`/api/stacks/${encodeURIComponent(stackId)}/workspace/file?path=${encodeURIComponent(path)}`)
+}
+
+export function saveStackWorkspaceFile(
+  stackId: string,
+  path: string,
+  content: string,
+  createParentDirectories = false,
+): Promise<StackWorkspaceFileSaveResponse> {
+  return request(`/api/stacks/${encodeURIComponent(stackId)}/workspace/file`, {
+    method: 'PUT',
+    body: JSON.stringify({ path, content, create_parent_directories: createParentDirectories }),
+  })
+}
+
+export function repairStackWorkspacePermissions(
+  stackId: string,
+  requestBody: StackRepairPermissionsRequest,
+): Promise<StackRepairPermissionsResponse> {
+  return request(`/api/stacks/${encodeURIComponent(stackId)}/workspace/repair-permissions`, {
+    method: 'POST',
+    body: JSON.stringify(requestBody),
+  })
 }
 
 export function getResolvedConfig(stackId: string): Promise<ResolvedConfigResponse> {
@@ -199,6 +321,10 @@ export function getGlobalAudit(params?: { stack_id?: string; cursor?: string; li
 
 export function getJob(jobId: string): Promise<{ job: JobDetail }> {
   return request(`/api/jobs/${encodeURIComponent(jobId)}`)
+}
+
+export function getJobEvents(jobId: string): Promise<JobEventsResponse> {
+  return request(`/api/jobs/${encodeURIComponent(jobId)}/events`)
 }
 
 export function getActiveJobs(): Promise<ActiveJobsResponse> {
@@ -286,6 +412,50 @@ export function getMaintenanceImages(params?: { q?: string; usage?: 'all' | 'use
   if (params?.origin) search.set('origin', params.origin)
   const qs = search.toString()
   return request(`/api/maintenance/images${qs ? `?${qs}` : ''}`)
+}
+
+export function getMaintenanceNetworks(params?: { q?: string; usage?: 'all' | 'used' | 'unused'; origin?: 'all' | 'stack_managed' | 'external' }): Promise<MaintenanceNetworksResponse> {
+  const search = new URLSearchParams()
+  if (params?.q) search.set('q', params.q)
+  if (params?.usage) search.set('usage', params.usage)
+  if (params?.origin) search.set('origin', params.origin)
+  const qs = search.toString()
+  return request(`/api/maintenance/networks${qs ? `?${qs}` : ''}`)
+}
+
+export function createMaintenanceNetwork(payload: MaintenanceCreateNetworkRequest): Promise<MaintenanceCreateNetworkResponse> {
+  return request('/api/maintenance/networks', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteMaintenanceNetwork(name: string): Promise<MaintenanceDeleteNetworkResponse> {
+  return request(`/api/maintenance/networks/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+  })
+}
+
+export function getMaintenanceVolumes(params?: { q?: string; usage?: 'all' | 'used' | 'unused'; origin?: 'all' | 'stack_managed' | 'external' }): Promise<MaintenanceVolumesResponse> {
+  const search = new URLSearchParams()
+  if (params?.q) search.set('q', params.q)
+  if (params?.usage) search.set('usage', params.usage)
+  if (params?.origin) search.set('origin', params.origin)
+  const qs = search.toString()
+  return request(`/api/maintenance/volumes${qs ? `?${qs}` : ''}`)
+}
+
+export function createMaintenanceVolume(payload: MaintenanceCreateVolumeRequest): Promise<MaintenanceCreateVolumeResponse> {
+  return request('/api/maintenance/volumes', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteMaintenanceVolume(name: string): Promise<MaintenanceDeleteVolumeResponse> {
+  return request(`/api/maintenance/volumes/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+  })
 }
 
 export function getMaintenancePrunePreview(params?: { images?: boolean; build_cache?: boolean; stopped_containers?: boolean; volumes?: boolean }): Promise<MaintenancePrunePreviewResponse> {
