@@ -137,6 +137,24 @@ type AuditListResult struct {
 	NextCursor *string      `json:"next_cursor"`
 }
 
+type OperationalRetentionPolicy struct {
+	AuditEntryRetention     time.Duration
+	JobRetention            time.Duration
+	JobEventRetention       time.Duration
+	ExpiredSessionRetention time.Duration
+}
+
+type OperationalRetentionSummary struct {
+	AuditEntriesDeleted int64
+	JobsDeleted         int64
+	JobEventsDeleted    int64
+	SessionsDeleted     int64
+}
+
+func (s OperationalRetentionSummary) TotalDeleted() int64 {
+	return s.AuditEntriesDeleted + s.JobsDeleted + s.JobEventsDeleted + s.SessionsDeleted
+}
+
 func Open(databasePath string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(databasePath), 0o755); err != nil {
 		return nil, fmt.Errorf("create database directory: %w", err)
@@ -215,6 +233,7 @@ func (s *Store) migrate(ctx context.Context) error {
 			PRIMARY KEY (job_id, sequence)
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_job_events_job_sequence ON job_events (job_id, sequence ASC);`,
+		`CREATE INDEX IF NOT EXISTS idx_job_events_timestamp ON job_events (timestamp);`,
 		`CREATE TABLE IF NOT EXISTS audit_entries (
 			id TEXT PRIMARY KEY,
 			stack_id TEXT,
@@ -789,6 +808,124 @@ func (s *Store) LatestAuditEntriesByStackIDs(ctx context.Context, stackIDs []str
 	}
 
 	return result, nil
+}
+
+func (s *Store) PruneOperationalData(ctx context.Context, now time.Time, policy OperationalRetentionPolicy) (OperationalRetentionSummary, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return OperationalRetentionSummary{}, fmt.Errorf("begin operational retention prune: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	now = now.UTC()
+	auditCutoff := now.Add(-policy.AuditEntryRetention).Format(time.RFC3339Nano)
+	jobCutoff := now.Add(-policy.JobRetention).Format(time.RFC3339Nano)
+	jobEventCutoff := now.Add(-policy.JobEventRetention).Format(time.RFC3339Nano)
+	sessionCutoff := now.Add(-policy.ExpiredSessionRetention).Format(time.RFC3339Nano)
+
+	summary := OperationalRetentionSummary{}
+
+	summary.SessionsDeleted, err = execPrune(
+		ctx,
+		tx,
+		`DELETE FROM auth_sessions
+		 WHERE expires_at < ?
+		    OR (revoked_at IS NOT NULL AND revoked_at < ?)`,
+		sessionCutoff,
+		sessionCutoff,
+	)
+	if err != nil {
+		return OperationalRetentionSummary{}, fmt.Errorf("prune auth sessions: %w", err)
+	}
+
+	deletedOldEvents, err := execPrune(
+		ctx,
+		tx,
+		`DELETE FROM job_events
+		 WHERE timestamp < ?
+		   AND job_id NOT IN (
+			 SELECT id FROM jobs WHERE state IN ('queued', 'running', 'cancel_requested')
+		   )`,
+		jobEventCutoff,
+	)
+	if err != nil {
+		return OperationalRetentionSummary{}, fmt.Errorf("prune old job events: %w", err)
+	}
+	summary.JobEventsDeleted += deletedOldEvents
+
+	deletedPrunedJobEvents, err := execPrune(
+		ctx,
+		tx,
+		`DELETE FROM job_events
+		 WHERE job_id IN (
+			 SELECT id
+			 FROM jobs
+			 WHERE state NOT IN ('queued', 'running', 'cancel_requested')
+			   AND COALESCE(finished_at, requested_at) < ?
+			   AND NOT EXISTS (
+				   SELECT 1
+				   FROM audit_entries
+				   WHERE audit_entries.job_id = jobs.id
+				     AND audit_entries.requested_at >= ?
+			   )
+		 )`,
+		jobCutoff,
+		auditCutoff,
+	)
+	if err != nil {
+		return OperationalRetentionSummary{}, fmt.Errorf("prune job events for old jobs: %w", err)
+	}
+	summary.JobEventsDeleted += deletedPrunedJobEvents
+
+	summary.JobsDeleted, err = execPrune(
+		ctx,
+		tx,
+		`DELETE FROM jobs
+		 WHERE state NOT IN ('queued', 'running', 'cancel_requested')
+		   AND COALESCE(finished_at, requested_at) < ?
+		   AND NOT EXISTS (
+			   SELECT 1
+			   FROM audit_entries
+			   WHERE audit_entries.job_id = jobs.id
+			     AND audit_entries.requested_at >= ?
+		   )`,
+		jobCutoff,
+		auditCutoff,
+	)
+	if err != nil {
+		return OperationalRetentionSummary{}, fmt.Errorf("prune jobs: %w", err)
+	}
+
+	summary.AuditEntriesDeleted, err = execPrune(
+		ctx,
+		tx,
+		`DELETE FROM audit_entries
+		 WHERE requested_at < ?`,
+		auditCutoff,
+	)
+	if err != nil {
+		return OperationalRetentionSummary{}, fmt.Errorf("prune audit entries: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return OperationalRetentionSummary{}, fmt.Errorf("commit operational retention prune: %w", err)
+	}
+
+	return summary, nil
+}
+
+func execPrune(ctx context.Context, tx *sql.Tx, statement string, args ...any) (int64, error) {
+	result, err := tx.ExecContext(ctx, statement, args...)
+	if err != nil {
+		return 0, err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return rowsAffected, nil
 }
 
 func nullIfEmpty(value string) sql.NullString {

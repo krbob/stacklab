@@ -107,6 +107,7 @@ These criteria assume:
 ## I. Stats
 
 - stats view shows stack totals
+- stats view shows frontend-only session history for stack totals
 - stats view shows per-container CPU, memory, and network values
 - stats update continuously while containers are running
 - stats reconnect behavior is correct after WebSocket reconnect

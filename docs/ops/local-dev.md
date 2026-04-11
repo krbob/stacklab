@@ -148,6 +148,24 @@ Useful local test stacks:
 - one stopped stack
 - one invalid compose definition used only for editor validation testing
 
+Retention/UI seed helper:
+
+```bash
+go run ./scripts/dev/seed-retention-fixtures.go --db /var/lib/stacklab/stacklab.db --run-prune
+```
+
+What it seeds:
+
+- one recent audit/job pair with retained detailed output
+- one older audit/job pair where the job summary remains but `job_events` are purged by retention
+- one very old audit/job pair that should disappear entirely after retention cleanup
+
+Useful when validating:
+
+- audit history rows remain visible within retention
+- job detail drawer shows `Detailed output for this job is no longer retained.`
+- operational retention cleanup removes stale sessions and stale records without breaking recent audit links
+
 ## Logging
 
 During local development:
@@ -160,6 +178,6 @@ During local development:
 Likely follow-up additions later:
 
 - `Makefile` or `justfile`
-- seed scripts for local test stacks
+- seed scripts for local test stacks on disk
 - dev TLS or reverse-proxy profile
 - automated OpenAPI type generation for frontend

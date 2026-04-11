@@ -1,6 +1,7 @@
+import type { ReactNode } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import type { StackDetailResponse } from '@/lib/api-types'
-import { useStatsStream } from '@/hooks/use-stats-stream'
+import { STATS_HISTORY_WINDOW_MS, useStatsStream } from '@/hooks/use-stats-stream'
 import { useWs } from '@/hooks/use-ws'
 
 function formatBytes(bytes: number): string {
@@ -26,7 +27,17 @@ function PercentBar({ value, max, color }: { value: number; max: number; color: 
   )
 }
 
-function Sparkline({ values, height = 32, color = '#4fd1c5' }: { values: number[]; height?: number; color?: string }) {
+function Sparkline({
+  values,
+  height = 32,
+  color = '#4fd1c5',
+  className = 'h-8 w-30',
+}: {
+  values: number[]
+  height?: number
+  color?: string
+  className?: string
+}) {
   if (values.length < 2) return null
 
   const max = Math.max(...values, 0.01)
@@ -40,7 +51,7 @@ function Sparkline({ values, height = 32, color = '#4fd1c5' }: { values: number[
     .join(' ')
 
   return (
-    <svg viewBox={`0 0 ${w} ${height}`} className="h-8 w-30" preserveAspectRatio="none">
+    <svg viewBox={`0 0 ${w} ${height}`} className={className} preserveAspectRatio="none">
       <polyline
         points={points}
         fill="none"
@@ -49,6 +60,31 @@ function Sparkline({ values, height = 32, color = '#4fd1c5' }: { values: number[
         vectorEffect="non-scaling-stroke"
       />
     </svg>
+  )
+}
+
+function MetricCard({
+  label,
+  value,
+  detail,
+  history,
+  color,
+}: {
+  label: string
+  value: ReactNode
+  detail?: ReactNode
+  history: number[]
+  color: string
+}) {
+  return (
+    <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4">
+      <div className="text-xs uppercase tracking-[0.22em] text-[var(--accent)]">{label}</div>
+      <div className="mt-3 text-2xl font-semibold text-[var(--text)]">{value}</div>
+      {detail && <div className="mt-1 text-xs text-[var(--muted)]">{detail}</div>}
+      <div className="mt-4">
+        <Sparkline values={history} height={56} color={color} className="h-14 w-full" />
+      </div>
+    </div>
   )
 }
 
@@ -87,6 +123,12 @@ export function StackStatsPage() {
   }
 
   const totals = current.stack_totals
+  const historyMinutes = Math.round(STATS_HISTORY_WINDOW_MS / 60_000)
+  const stackCpuHistory = history.map((h) => h.stack_totals.cpu_percent)
+  const stackMemoryHistory = history.map((h) => h.stack_totals.memory_bytes)
+  const stackNetworkHistory = history.map(
+    (h) => h.stack_totals.network_rx_bytes_per_sec + h.stack_totals.network_tx_bytes_per_sec,
+  )
 
   return (
     <div className="flex flex-col gap-4">
@@ -94,27 +136,37 @@ export function StackStatsPage() {
         <div className="text-xs text-amber-400">Stream disconnected. Reconnecting...</div>
       )}
 
-      {/* Stack totals */}
-      <div className="flex flex-wrap gap-6 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-4 text-sm">
-        <div>
-          <span className="text-[var(--muted)]">CPU </span>
-          <span className="text-[var(--text)]">{totals.cpu_percent.toFixed(1)}%</span>
-        </div>
-        <div>
-          <span className="text-[var(--muted)]">RAM </span>
-          <span className="text-[var(--text)]">
-            {formatBytes(totals.memory_bytes)}
-            {totals.memory_limit_bytes > 0 && (
-              <span className="text-[var(--muted)]"> / {formatBytes(totals.memory_limit_bytes)}</span>
-            )}
-          </span>
-        </div>
-        <div>
-          <span className="text-[var(--muted)]">Net </span>
-          <span className="text-emerald-400">↓{formatRate(totals.network_rx_bytes_per_sec)}</span>
-          <span className="mx-1 text-[var(--muted)]">·</span>
-          <span className="text-amber-400">↑{formatRate(totals.network_tx_bytes_per_sec)}</span>
-        </div>
+      <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-3 text-xs text-[var(--muted)]">
+        Session history: last ~{historyMinutes} min, collected in this browser while this view is open.
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-3">
+        <MetricCard
+          label="Stack CPU"
+          value={`${totals.cpu_percent.toFixed(1)}%`}
+          history={stackCpuHistory}
+          color="#22d3ee"
+        />
+        <MetricCard
+          label="Stack RAM"
+          value={formatBytes(totals.memory_bytes)}
+          detail={totals.memory_limit_bytes > 0 ? `/ ${formatBytes(totals.memory_limit_bytes)}` : undefined}
+          history={stackMemoryHistory}
+          color="#a78bfa"
+        />
+        <MetricCard
+          label="Stack Net"
+          value={(
+            <>
+              <span className="text-emerald-400">↓{formatRate(totals.network_rx_bytes_per_sec)}</span>
+              <span className="mx-2 text-[var(--muted)]">·</span>
+              <span className="text-amber-400">↑{formatRate(totals.network_tx_bytes_per_sec)}</span>
+            </>
+          )}
+          detail="combined trend"
+          history={stackNetworkHistory}
+          color="#f59e0b"
+        />
       </div>
 
       {/* Per-container cards */}

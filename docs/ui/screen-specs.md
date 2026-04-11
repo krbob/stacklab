@@ -324,7 +324,12 @@ Purpose: Real-time resource usage per container and aggregated per stack.
 │  [Overview] [Editor] [Logs] [Stats] [Terminal] [History]            │
 ├──────────────────────────────────────────────────────────────────────┤
 │                                                                      │
-│  Stack totals:  CPU 2.4%  │  RAM 309 MB  │  Net ↓12 KB/s ↑3 KB/s  │
+│  Session history: last ~5 min, collected while this view is open     │
+│                                                                      │
+│  ┌─ Stack CPU ──────┐ ┌─ Stack RAM ──────┐ ┌─ Stack Net ──────────┐ │
+│  │ 2.4%             │ │ 309 MB / 1 GB    │ │ ↓12 KB/s · ↑3 KB/s   │ │
+│  │ [trend chart]    │ │ [trend chart]    │ │ [trend chart]        │ │
+│  └──────────────────┘ └──────────────────┘ └──────────────────────┘ │
 │                                                                      │
 │  ┌─ app ────────────────────────────────────────────────────────┐   │
 │  │  CPU ████████░░░░░░░░░░ 2.1%    RAM ██████░░░░░░ 245/512 MB │   │
@@ -352,13 +357,20 @@ Purpose: Real-time resource usage per container and aggregated per stack.
 
 ### Stack aggregate
 
-Summary line at top showing totals across all containers.
+Top cards show stack-wide CPU, memory, and network trends.
+
+History rules:
+
+- history is frontend-only
+- history starts when the stats view is open in the browser
+- history is not persisted in SQLite
+- refresh or navigation resets the local history buffer
 
 ### Data source
 
 - WebSocket stats stream from Docker Engine API
 - update interval: ~2 seconds
-- sparklines store last 150 data points (5 min at 2s intervals) client-side
+- trend charts store roughly the last 5 minutes client-side, capped at 150 frames
 
 ### No running containers
 

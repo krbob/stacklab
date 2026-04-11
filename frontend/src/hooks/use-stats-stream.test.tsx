@@ -13,12 +13,12 @@ beforeEach(() => {
   Provider = mock.Provider
 })
 
-function statsFrame(streamId: string, cpuPercent: number): WsServerFrame {
+function statsFrame(streamId: string, cpuPercent: number, timestamp = '2026-01-01T00:00:00Z'): WsServerFrame {
   return {
     type: 'stats.frame',
     stream_id: streamId,
     payload: {
-      timestamp: '2026-01-01T00:00:00Z',
+      timestamp,
       stack_totals: {
         cpu_percent: cpuPercent,
         memory_bytes: 256000000,
@@ -65,21 +65,36 @@ describe('useStatsStream', () => {
     expect(result.current.current!.containers).toHaveLength(1)
   })
 
-  it('accumulates history up to MAX_HISTORY', () => {
+  it('accumulates history up to the session history frame cap', () => {
     const { result } = renderHook(() => useStatsStream({ stackId: 'test' }), {
       wrapper: ({ children }) => <Provider>{children}</Provider>,
     })
 
     act(() => {
       for (let i = 0; i < 160; i++) {
-        controls.emit('stats_test', statsFrame('stats_test', i))
+        const timestamp = new Date(Date.UTC(2026, 0, 1, 0, 0, i * 2)).toISOString()
+        controls.emit('stats_test', statsFrame('stats_test', i, timestamp))
       }
     })
 
     expect(result.current.history).toHaveLength(150)
-    // Should keep the latest 150
     expect(result.current.history[0].stack_totals.cpu_percent).toBe(10)
     expect(result.current.history[149].stack_totals.cpu_percent).toBe(159)
+  })
+
+  it('drops frames outside the session history time window', () => {
+    const { result } = renderHook(() => useStatsStream({ stackId: 'test' }), {
+      wrapper: ({ children }) => <Provider>{children}</Provider>,
+    })
+
+    act(() => {
+      controls.emit('stats_test', statsFrame('stats_test', 1, '2026-01-01T00:00:00Z'))
+      controls.emit('stats_test', statsFrame('stats_test', 2, '2026-01-01T00:01:00Z'))
+      controls.emit('stats_test', statsFrame('stats_test', 3, '2026-01-01T00:06:01Z'))
+    })
+
+    expect(result.current.history).toHaveLength(1)
+    expect(result.current.history[0].stack_totals.cpu_percent).toBe(3)
   })
 
   it('current always reflects the latest frame', () => {

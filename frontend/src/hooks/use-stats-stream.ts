@@ -7,7 +7,8 @@ interface UseStatsStreamOptions {
   enabled?: boolean
 }
 
-const MAX_HISTORY = 150 // ~5 min at 2s intervals
+export const STATS_HISTORY_WINDOW_MS = 5 * 60 * 1000
+const STATS_HISTORY_MAX_FRAMES = 150
 
 export function useStatsStream({ stackId, enabled = true }: UseStatsStreamOptions) {
   const { connected, send, subscribe } = useWs()
@@ -52,7 +53,13 @@ export function useStatsStream({ stackId, enabled = true }: UseStatsStreamOption
         setCurrent(statsFrame)
         setHistory((prev) => {
           const next = [...prev, statsFrame]
-          return next.length > MAX_HISTORY ? next.slice(-MAX_HISTORY) : next
+          const latestTimestamp = Date.parse(statsFrame.timestamp)
+          const windowed = Number.isFinite(latestTimestamp)
+            ? next.filter((item) => Date.parse(item.timestamp) >= latestTimestamp - STATS_HISTORY_WINDOW_MS)
+            : next
+          return windowed.length > STATS_HISTORY_MAX_FRAMES
+            ? windowed.slice(-STATS_HISTORY_MAX_FRAMES)
+            : windowed
         })
       }
     })

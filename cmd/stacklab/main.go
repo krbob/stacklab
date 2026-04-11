@@ -16,6 +16,7 @@ import (
 	"stacklab/internal/maintenance"
 	"stacklab/internal/maintenancejobs"
 	"stacklab/internal/notifications"
+	"stacklab/internal/retention"
 	"stacklab/internal/scheduler"
 	"stacklab/internal/selfupdate"
 	"stacklab/internal/stacks"
@@ -52,6 +53,7 @@ func main() {
 	maintenanceRunner := maintenancejobs.NewService(logger, jobService, auditService, stackReader, maintenanceService)
 	schedulerService := scheduler.NewService(authStore, auditService, maintenanceRunner, stackReader, logger)
 	selfUpdateService := selfupdate.NewService(cfg, authStore, jobService, auditService, notificationService, logger)
+	retentionService := retention.NewService(authStore, logger)
 	jobService.SetTerminalHook(notificationService.DispatchJobAsync)
 	if err := authService.Bootstrap(context.Background()); err != nil {
 		if errors.Is(err, auth.ErrNotConfigured) {
@@ -89,6 +91,7 @@ func main() {
 	notificationService.StartBackground(ctx)
 	schedulerService.StartBackground(ctx)
 	selfUpdateService.StartBackground(ctx)
+	retentionService.StartBackground(ctx)
 
 	go func() {
 		<-ctx.Done()

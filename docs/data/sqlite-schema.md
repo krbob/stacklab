@@ -28,7 +28,7 @@ The database stores operational state and metadata. It does **not** replace the 
 - full `compose.yaml` source of truth
 - full `.env` source of truth
 - container logs as a primary log store
-- long-term metrics history in v1
+- metrics history in v1; stats charts keep only a frontend session buffer
 - arbitrary Docker runtime inventory as authoritative state
 
 ## Entity Overview

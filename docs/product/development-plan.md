@@ -22,7 +22,6 @@ Current near-term sequence:
    - nightly prerelease cleanup
    - post-publish smoke
 2. add a focused template library / starter catalog
-3. add lightweight frontend-only stats history before considering backend metric retention
 
 ## Completed Foundations
 
@@ -46,6 +45,12 @@ The following milestones are already materially in place:
   - selected/all stack update workflow
   - optional prune
   - progress and audit integration
+- Operational Data Retention
+  - bounded SQLite retention for audit, job summaries, job events, and sessions
+  - detailed job output purged earlier than audit/job summaries
+- Frontend-Only Stats History
+  - stack-level session history charts
+  - no backend metric retention in v1
 
 For the fuller current baseline, including APT release automation,
 self-update, Docker administration, notifications, scheduled maintenance,

@@ -102,12 +102,19 @@ Alternative acceptable range:
 
 Recommended v1 retention:
 
-- keep for `30 days`
+- keep for `180 days`
 
 Rules:
 
-- terminal job states remain visible during that window
-- terminal job summaries may also be referenced by audit via `job_id`
+- terminal job summaries are retained for the same window as `audit_entries`
+- detailed output is not retained for the full job summary window
+- jobs referenced by retained audit entries should not be pruned earlier than their audit entry
+
+Rationale:
+
+- audit links stay useful even after detailed progress output is purged
+- job rows are compact compared with streamed `job_events`
+- old audit rows can still open a job detail drawer with metadata and a clear retained-output message
 
 ## `job_events`
 
@@ -154,7 +161,7 @@ Tasks:
 
 1. delete expired/revoked sessions older than retention window
 2. delete old `job_events`
-3. delete old terminal or job summaries beyond retention window
+3. delete old terminal job summaries beyond retention window when they are no longer referenced by retained audit entries
 4. delete old audit entries beyond retention window
 5. run `VACUUM` sparingly, not on every cleanup pass
 
@@ -249,4 +256,3 @@ Possible later features:
 - export/archive of audit entries before purge
 - compressed persisted job output for selected failed jobs
 - explicit job detail endpoint beyond current summary model
-

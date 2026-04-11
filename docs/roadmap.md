@@ -32,6 +32,8 @@ Implemented and already exercised on Linux staging hosts:
 - Debian package publication through signed APT `stable` and `nightly` channels
 - APT-backed Stacklab self-update on package-managed installs
 - release hygiene for APT package retention and nightly prerelease cleanup
+- bounded SQLite retention for sessions, audit, job summaries, and detailed job events
+- frontend-only stats session history with explicit no-backend-retention scope
 
 ## Near-Term Product Goals
 
@@ -41,13 +43,7 @@ Implemented and already exercised on Linux staging hosts:
 - keep templates Compose-first and transparent
 - avoid remote template catalogs until the local workflow is stable
 
-### 2. Lightweight Stats History
-
-- first slice can keep a frontend-only ring buffer for the currently open browser session
-- do not add backend metric retention until there is a clear need for cross-session history
-- make the limitation explicit in the UI: history starts when the view opens
-
-### 3. Polish And Adoption
+### 2. Polish And Adoption
 
 - theme toggle with system preference support
 - host-level system information widgets on dashboard views
@@ -56,10 +52,10 @@ Implemented and already exercised on Linux staging hosts:
 ## Mid-Term Product Goals
 
 - light internationalization groundwork, then selected translations once UI copy stabilizes
-- runtime health alerts later:
-  - unhealthy containers
-  - restart loops
-  - stack transitions into degraded states
+- runtime health alert refinements:
+  - per-stack exclusions
+  - configurable thresholds and cooldowns
+  - clearer remediation links from notifications
 - optional repo bootstrap workflows only if they complement the local Git workspace model
 - broader notification channels:
   - `ntfy` or `Gotify` as strong self-hosted candidates
