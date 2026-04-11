@@ -1,6 +1,11 @@
 # Git Workspace Handoff
 
-This handoff covers:
+This handoff is a historical UI planning snapshot for the Git workspace surface.
+
+The feature is already implemented; use `docs/api/git-workspace.md` and the
+running product as the current source of truth.
+
+Original scope:
 
 - Milestone 3:
   - showing local Git changes for the Stacklab workspace
@@ -169,9 +174,9 @@ Confirmed by UI implementation planning:
 1. backend implements read-only Git status and diff endpoints
 2. UI adds `Changes` mode inside `/config`
 3. UI validates grouping and diff readability
-4. later Milestone 5 adds per-file commit/push actions on top of the same surface, with stack-scoped quick selection as a convenience
+4. per-file commit/push actions build on top of the same surface, with stack-scoped quick selection as a convenience
 
-## Milestone 5 Confirmed Direction
+## Commit And Push Direction
 
 Confirmed product direction:
 
@@ -179,7 +184,7 @@ Confirmed product direction:
 - stack-scoped quick selection is a UI shortcut, not the backend contract
 - commit/push stay inside `/config` `Changes` mode
 
-Recommended UI shape for Milestone 5:
+Recommended UI shape for commit and push:
 
 - left panel:
   - file checkboxes in `Changes` mode

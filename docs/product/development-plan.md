@@ -2,8 +2,14 @@
 
 This document turns the current product direction into an executable sequence of milestones.
 
-This document is now partly historical. For the current product state and next
-priorities, use `docs/roadmap.md` first.
+This document is now a historical planning record from the milestone phase.
+For the current product state and next priorities, use `docs/roadmap.md` first.
+
+Important:
+
+- milestone numbers below no longer map cleanly to the current product state
+- some items described here are already implemented
+- some milestone groupings were later reordered or merged
 
 ## Guiding Principle
 
@@ -32,7 +38,7 @@ The following milestones are already materially in place:
   - host overview page
   - Stacklab service log viewer
 - Config Workspace
-  - safe browse/read/write under `/opt/stacklab/config`
+  - safe browse/read/write under the managed config root
   - audit integration
 - Local Git Workspace Visibility
   - read-only Git status and diff backend

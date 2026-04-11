@@ -1,6 +1,6 @@
 # Maintenance Workflows Contract Draft
 
-This document defines the proposed contract for Milestone 4:
+This document defines the current contract for maintenance update workflows.
 
 - safe bulk maintenance workflows that replace ad-hoc host scripts
 - selected/all stack update execution
@@ -127,7 +127,7 @@ Broader product implication:
 
 ## Job Model Implication
 
-Milestone 4 is the first clear case of a workspace-scoped mutating job.
+The maintenance update workflow is the first clear case of a workspace-scoped mutating job.
 
 Implication:
 
@@ -272,7 +272,7 @@ Examples:
 
 ## WebSocket / Job Event Extension
 
-Milestone 4 needs a small extension to the existing jobs event model.
+The maintenance workflow needs a small extension to the existing jobs event model.
 
 Current step shape:
 

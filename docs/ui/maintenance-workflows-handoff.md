@@ -1,6 +1,11 @@
 # Maintenance Workflows Handoff
 
-This handoff covers the UI work for Milestone 4:
+This handoff is a historical UI planning snapshot for the maintenance workflows surface.
+
+The route and workflow are already implemented; use `docs/api/maintenance-workflows.md`
+and the running product as the current source of truth.
+
+Original scope:
 
 - replacing ad-hoc stack update scripts with a first-class Stacklab screen
 - selected/all stack bulk update workflow

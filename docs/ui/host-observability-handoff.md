@@ -1,6 +1,11 @@
 # Host Observability Handoff
 
-This handoff covers the UI work for Milestone 1:
+This handoff is a historical UI planning snapshot for the host observability slice.
+
+The route and feature are already implemented; use `docs/api/host-observability.md`
+and the running product as the current source of truth.
+
+Original scope:
 
 - Stacklab version display
 - host overview

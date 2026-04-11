@@ -1,6 +1,11 @@
 # Config Workspace Handoff
 
-This handoff covers the UI work for Milestone 2:
+This handoff is a historical UI planning snapshot for the config workspace surface.
+
+The feature is already implemented; use `docs/api/config-workspace.md` and the
+running product as the current source of truth.
+
+Original scope:
 
 - browsing the managed config root
 - editing supported text files
