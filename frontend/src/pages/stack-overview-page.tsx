@@ -155,14 +155,14 @@ function ActionBar({
       setActionError(null)
       const result = await invokeAction(stack.id, action)
       setActiveJobId(result.job.id)
-      onAction()
     } catch (err) {
       console.error('Action failed:', err)
       setActionError(err instanceof Error ? err.message : 'Action failed')
     }
-  }, [onAction, stack.id])
+  }, [stack.id])
 
   const handleJobDone = useCallback(() => {
+    setActiveJobId(null)
     onAction()
   }, [onAction])
 

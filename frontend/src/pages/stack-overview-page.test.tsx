@@ -94,7 +94,7 @@ describe('StackOverviewPage', () => {
     })
     expect(await screen.findByText('Job started.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Build' })).toBeDisabled()
-    expect(mockRefetch).toHaveBeenCalledTimes(1)
+    expect(mockRefetch).not.toHaveBeenCalled()
   })
 
   it('refetches when the active action job finishes', async () => {
@@ -126,13 +126,13 @@ describe('StackOverviewPage', () => {
     await waitFor(() => {
       expect(mockInvokeAction).toHaveBeenCalledWith('demo', 'stop')
     })
-    expect(mockRefetch).toHaveBeenCalledTimes(1)
+    expect(mockRefetch).not.toHaveBeenCalled()
 
     jobState = 'succeeded'
     rerender(<StackOverviewPage />)
 
     await waitFor(() => {
-      expect(mockRefetch).toHaveBeenCalledTimes(2)
+      expect(mockRefetch).toHaveBeenCalledTimes(1)
     })
   })
 

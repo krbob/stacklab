@@ -25,7 +25,7 @@ export function StackLayout() {
   const { stackId = '' } = useParams()
   const { data, error, loading, refetch } = useApi(() => getStack(stackId), [stackId])
 
-  if (loading) {
+  if (loading && !data) {
     return (
       <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
         <div className="animate-pulse space-y-4">
