@@ -2,10 +2,20 @@
 
 ## Purpose
 
-This document defines the first supported host-native install and upgrade flow for Stacklab using release tarballs.
+This document defines the supported manual host-native install and upgrade flow
+for Stacklab using release tarballs.
 
-It remains a supported host-native install and upgrade path alongside the `.deb`
-and APT workflows.
+This remains a supported secondary install mode alongside `.deb` and APT.
+
+Recommendation:
+
+- on Debian-family hosts, prefer `.deb` and APT
+- use tarballs on other Linux distributions or when an explicit release-directory workflow is desired
+
+Unsupported transitions:
+
+- tarball to package-managed install
+- package-managed install to tarball
 
 ## Supported Platforms
 
@@ -14,9 +24,9 @@ Current release artifacts are produced for:
 - Linux `amd64` as the primary release architecture
 - Linux `arm64` as a supported secondary release architecture
 
-Recommended production baseline:
+Recommended package-managed baseline when available:
 
-- Debian `amd64`
+- Debian `amd64` via APT
 
 ## What You Need On The Host
 
@@ -199,6 +209,7 @@ curl -fsS http://127.0.0.1:8080/api/health
 ## Known Limits
 
 - the tarball flow is host-native, not containerized
-- it does not publish GitHub Releases automatically
-- it does not yet install a `.deb`
+- it is not the primary recommended path on Debian-family hosts
+- it does not support Stacklab self-update
+- it does not support migration to or from package-managed installs
 - it assumes the host already has Docker and Compose available

@@ -67,6 +67,7 @@ Current release automation direction:
 - `apt-publish.yml` is the manual repair and republish path for APT channels
 - `apt-repo-smoke.yml` is the manual end-to-end validation path for the published APT repository
 - release workflows should also run an automatic post-publish APT smoke step for their own channel
+- tarball remains a supported secondary install mode, so adding automated tarball install smoke is still worthwhile release-hygiene work
 
 The advisory workflows should run, but they should not become required too early.
 

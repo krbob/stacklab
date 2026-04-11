@@ -1,19 +1,16 @@
-# Debian Package and APT Plan
+# Debian Package and APT Model
 
 ## Purpose
 
-This document records the planned Debian packaging strategy for Stacklab.
+This document records the current Debian packaging strategy for Stacklab.
 
-It answers a practical question:
+Current status:
 
-- should Stacklab eventually be distributed as a `.deb` package through an APT repository instead of only as a raw release artifact?
+- `.deb` artifacts are implemented
+- the published APT repository is implemented
+- Debian-family package-managed installs are the primary supported production path
 
-Recommendation:
-
-- yes, this is a good medium-term direction for Debian deployments
-- no, we should not implement it before the install and upgrade shape is a little more stable
-
-Support policy for the future package:
+Support policy for the package:
 
 - the `.deb` targets Debian-family hosts running `systemd`
 - Debian systems booted with another init system are out of scope for the first package version
@@ -38,69 +35,21 @@ Benefits:
 - easier long-term maintenance on a homelab host
 - cleaner documentation for operators
 
-## What We Should Not Do Yet
+## Support Boundaries
 
-Do not jump straight to a public APT repository today.
+Primary install mode:
 
-Reasoning:
+- Debian-family hosts via `.deb` and the published APT repository
 
-- the app is still in active iteration
-- install layout may still tighten up
-- maintainer scripts are easy to get wrong early
-- release automation is not in place yet
+Secondary install mode:
 
-Recommended sequence:
+- generic Linux hosts via manual tarball install
 
-1. define the package model now
-2. build `.deb` artifacts later
-3. test package installs and upgrades manually
-4. only then publish an APT repository
-5. only after that automate `nightly` and monthly `stable` publication
+Unsupported transitions:
 
-## Current Recommendation
-
-Use this phased rollout:
-
-### Phase 1: `.deb` artifact in GitHub Releases
-
-Publish:
-
-- `stacklab_<version>_amd64.deb`
-- `stacklab_<version>_arm64.deb`
-
-Do not publish an APT repository yet.
-
-This gives us:
-
-- realistic package install tests
-- realistic upgrade tests
-- simpler debugging
-
-Current implementation status:
-
-- the first `.deb` build slice is now expected from:
-  - `scripts/release/build-deb.sh`
-  - `.github/workflows/release-build.yml`
-- publication to GitHub Releases and APT is still pending
-- migration from an existing tarball-based `/opt/stacklab` install to the package-managed layout is **not** implemented yet
-
-### Phase 2: signed APT repository
-
-When package upgrades are stable:
-
-- publish package metadata
-- sign repository metadata
-- publish the public signing key
-- document `apt` installation
-- allow normal `apt upgrade`
-
-### Phase 3: channel-based publication
-
-When stable package publication is routine:
-
-- publish `stable` and `nightly` channels
-- keep `nightly` as prerelease-only
-- keep hotfixes on the `stable` channel
+- tarball to `.deb`
+- `.deb` to tarball
+- in-place migration between `/opt/stacklab` and `/srv/stacklab`
 
 ## Package Scope
 
@@ -116,18 +65,18 @@ Package-managed content:
 
 Operator-managed content that must remain outside package ownership:
 
-- `/opt/stacklab/stacks`
-- `/opt/stacklab/config`
-- `/opt/stacklab/data`
+- `/srv/stacklab/stacks`
+- `/srv/stacklab/config`
+- `/srv/stacklab/data`
 - most of `/var/lib/stacklab` runtime state
 
 This rule is critical:
 
 - package install and upgrade must never take ownership away from the filesystem-first Compose model
 
-## Proposed Package Layout
+## Package Layout
 
-The future `.deb` should use a Debian-native split between:
+The `.deb` uses a Debian-native split between:
 
 - package-managed immutable application files
 - operator-managed workspace files
@@ -164,8 +113,8 @@ Why not keep `/opt/stacklab` for the package:
 
 Practical recommendation:
 
-- keep `/opt/stacklab` for the current tarball-based install flow
-- use `/usr/lib/stacklab` + `/srv/stacklab` + `/var/lib/stacklab` for the future `.deb`
+- use `/usr/lib/stacklab` + `/srv/stacklab` + `/var/lib/stacklab` for Debian-family installs
+- keep `/opt/stacklab` only for the separate tarball install mode
 
 ## Package Dependencies
 
@@ -245,7 +194,7 @@ Important rule:
 
 ## APT Repository Model
 
-If we later publish an APT repository, it should be:
+The published APT repository should be:
 
 - signed
 - static and reproducible
@@ -262,11 +211,6 @@ Reasonable generation options:
 - `reprepro`
 - a smaller static repository generator if it stays understandable
 
-Recommendation:
-
-- prefer the simplest tool that produces standard signed Debian metadata
-- avoid inventing custom repository-generation scripts unless the toolchain forces it
-
 Recommended channel model:
 
 - `stable`
@@ -277,9 +221,9 @@ Meaning:
 - `stable` contains monthly releases and hotfixes
 - `nightly` contains prerelease builds from the default branch
 
-## Proposed Release Flow Later
+## Release Validation Expectations
 
-When packaging work starts, the future release flow should look like this:
+The release flow for the package-managed path should look like this:
 
 1. build and test backend/frontend
 2. build Linux `amd64` package artifact
@@ -287,9 +231,7 @@ When packaging work starts, the future release flow should look like this:
 4. test package upgrade from previous version
 5. test service start under `systemd`
 6. test login, dashboard, actions, logs, stats, terminal
-7. only then publish to GitHub Releases and APT
-7. publish `.deb` to GitHub Releases
-8. only later update the APT repository
+7. publish `.deb` to GitHub Releases and APT
 
 ## Validation Requirements
 
@@ -309,17 +251,8 @@ Specific checks:
 - service account has Docker access
 - `ProtectHome=true` plus `HOME` and `DOCKER_CONFIG` paths still work
 
-## Recommendation For The Current Phase
+## Remaining Gaps Worth Closing
 
-Do now:
-
-- keep this plan in the repo
-- continue manual/staging deployments
-- defer packaging implementation
-
-Do next, when release work begins:
-
-1. prototype a `.deb`
-2. choose final code-install layout
-3. test install and upgrade on clean Debian `amd64`
-4. only then automate package publication
+- automate tarball install smoke so secondary install mode has CI coverage similar to `.deb`
+- keep upgrade validation current as new product surfaces are added
+- keep helper-backed privileged flows tested on real Debian hosts

@@ -32,7 +32,7 @@ Implemented today:
 
 Not done yet:
 
-- package migration from an existing `/opt/stacklab` tarball install
+- automated tarball install smoke coverage to match the current package smoke path
 - scheduled dependency maintenance workflows
 - final hardening for long-term production use
 
@@ -45,12 +45,26 @@ Recommended production shape:
 - runtime: host-native service, not a Docker management container
 - state: filesystem + SQLite operational metadata
 
-Canonical host layout:
+Supported install modes:
+
+- Primary: Debian-family hosts via `.deb` and the published APT repository
+- Secondary: generic Linux hosts via manual release tarball install
+- Unsupported: migration between tarball and package-managed installs
+
+Canonical host layout for package-managed installs:
+
+- `/usr/lib/stacklab`
+- `/etc/stacklab/stacklab.env`
+- `/srv/stacklab`
+- `/var/lib/stacklab`
+
+Canonical host layout for tarball installs:
 
 - `/opt/stacklab/app`
 - `/opt/stacklab/stacks`
 - `/opt/stacklab/config`
 - `/opt/stacklab/data`
+- `/var/lib/stacklab`
 
 ## Quick Start
 
@@ -98,7 +112,7 @@ Then open:
 
 ### Install from APT
 
-Debian-family hosts can install Stacklab from the published APT repository.
+Debian-family hosts should install Stacklab from the published APT repository.
 
 Install the repository key:
 
@@ -126,6 +140,15 @@ sudo apt-get install stacklab
 For the nightly channel and additional notes, see:
 
 - [`docs/ops/install-from-apt.md`](docs/ops/install-from-apt.md)
+
+### Install from tarball
+
+For other Linux distributions, Stacklab also ships release tarballs with a
+manual host-native install and upgrade flow.
+
+See:
+
+- [`docs/ops/install-from-tarball.md`](docs/ops/install-from-tarball.md)
 
 ## Tests
 
@@ -160,6 +183,7 @@ Good entry points:
 - [`docs/ops/release-plan.md`](docs/ops/release-plan.md)
 - [`docs/ops/debian-package-plan.md`](docs/ops/debian-package-plan.md)
 - [`docs/ops/install-from-apt.md`](docs/ops/install-from-apt.md)
+- [`docs/ops/install-from-tarball.md`](docs/ops/install-from-tarball.md)
 
 ## Current Constraints
 

@@ -536,10 +536,10 @@ Reason:
 
 Suggested order:
 
-1. tarball flow remains the primary install path
-2. `.deb` artifact spike
-3. Debian install/upgrade validation
-4. signed APT repository later
+1. `.deb` and APT remain the primary install path on Debian-family hosts
+2. tarball remains the secondary manual path for other Linux distributions
+3. migration between install modes stays out of scope
+4. release hygiene should validate both install modes, with `.deb` as the stable release gate
 
 ## Recommended Immediate Next Step
 

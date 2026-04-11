@@ -2,57 +2,94 @@
 
 ## Purpose
 
-This checklist defines the expected validation pass for a real Stacklab upgrade on a Linux host.
+This checklist defines the expected real-host validation pass for Stacklab
+upgrades.
 
-It is intentionally short and operational.
+Run it for both supported install modes before a stable release:
 
-## Preconditions
+- package-managed `.deb` or APT
+- manual tarball
 
-- existing Stacklab deployment is healthy
-- current release path is known
-- a new release tarball for the correct architecture is available
+## Common Preconditions
+
+- the existing Stacklab deployment is healthy
 - the host has Docker and Compose available
+- the host runs `systemd`
+- the target artifact matches the host architecture
+- the operator knows which install mode is under test
 
-## Upgrade Execution
+## APT or `.deb` Upgrade Execution
 
-1. Record the current symlink target:
+Record the current installed version:
 
-   ```bash
-   readlink -f /opt/stacklab/app/current
-   ```
+```bash
+dpkg-query -W -f='${Version}\n' stacklab
+```
 
-2. Run the upgrade:
+Upgrade using either the published repository or a local package file:
 
-   ```bash
-   sudo ./host-tools/upgrade.sh
-   ```
+```bash
+sudo apt-get update
+sudo apt-get install stacklab
+```
 
-3. Confirm the new symlink target:
+or:
 
-   ```bash
-   readlink -f /opt/stacklab/app/current
-   ```
+```bash
+sudo apt-get install ./stacklab_<version>_<arch>.deb
+```
 
-## Required Checks
+Confirm the new installed version:
+
+```bash
+dpkg-query -W -f='${Version}\n' stacklab
+```
+
+## Tarball Upgrade Execution
+
+Record the current release path:
+
+```bash
+readlink -f /opt/stacklab/app/current
+```
+
+Run the packaged upgrade flow:
+
+```bash
+sudo ./host-tools/upgrade.sh
+```
+
+Confirm the new release path:
+
+```bash
+readlink -f /opt/stacklab/app/current
+```
+
+## Required Checks After Either Upgrade
 
 ### Service health
 
 - `systemctl status stacklab` is `active (running)`
 - `curl -fsS http://127.0.0.1:8080/api/health` succeeds
 
-### Basic product checks
+### Core product checks
 
 - login works
 - dashboard loads
-- stack list is present
+- stack list is present when the workspace is populated
 - stack detail loads
 - logs stream works
 - stats stream works
 - terminal opens
+- `/host` loads and host metrics refresh
+- `/config` loads and file browse or edit works
+- `/maintenance` loads and inventory tabs render
+- `/docker` overview loads
+- `/settings` loads
 
 ### Mutating checks
 
-- `resolved-config` preview works
+- resolved-config preview works
 - `save_definition` works
 - `restart` works
 - create stack works
@@ -60,20 +97,50 @@ It is intentionally short and operational.
 
 ### Persistence checks
 
-- existing `/opt/stacklab/stacks` content remains intact
-- existing `/opt/stacklab/config` content remains intact
-- existing `/opt/stacklab/data` content remains intact
+- operator-managed workspace content remains intact
 - audit and SQLite state survive restart
+
+For package-managed installs, verify:
+
+- `/srv/stacklab/stacks`
+- `/srv/stacklab/config`
+- `/srv/stacklab/data`
+
+For tarball installs, verify:
+
+- `/opt/stacklab/stacks`
+- `/opt/stacklab/config`
+- `/opt/stacklab/data`
+
+## Install-Mode-Specific Checks
+
+### APT or `.deb`
+
+- `/api/stacklab/update/overview` reports `install_mode = apt`
+- self-update card is available when the helper is configured
+- package metadata shows the expected installed version
+
+### Tarball
+
+- manual release directories remain intact under `/opt/stacklab/app/releases`
+- `/api/stacklab/update/overview` reports the tarball unsupported state for self-update
+- rollback via the previous release symlink remains clear and executable
 
 ## Rollback Drill
 
-If the upgrade fails:
+### APT or `.deb`
 
-1. repoint `current` to the previous release
-2. restart `stacklab.service`
-3. verify `/api/health`
+If package rollback is needed, use the previous package version:
 
-Command shape:
+```bash
+sudo apt-get install ./stacklab_<previous_version>_<arch>.deb
+```
+
+or the equivalent repository-backed downgrade flow.
+
+### Tarball
+
+If the tarball upgrade fails:
 
 ```bash
 sudo ln -sfn /opt/stacklab/app/releases/<previous> /opt/stacklab/app/current
@@ -86,6 +153,6 @@ curl -fsS http://127.0.0.1:8080/api/health
 The upgrade is accepted when:
 
 - service health is green
-- all required checks pass
-- no managed stack/config/data paths were mutated unexpectedly
-- rollback procedure is clear and executable
+- required checks pass for the install mode under test
+- operator-managed stack, config, and data paths were not mutated unexpectedly
+- rollback remains clear for that install mode

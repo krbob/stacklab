@@ -466,7 +466,7 @@ Implement this in phases.
 - build `.deb` artifacts
 - keep stable releases manual
 - keep nightly disabled
-- treat `.deb` as a fresh-install path first; tarball-to-package migration comes later
+- keep tarball and `.deb` as separate install modes; do not plan cross-mode migration
 
 ### Phase 2
 

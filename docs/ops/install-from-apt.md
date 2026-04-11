@@ -3,15 +3,19 @@
 This document describes the supported Debian-family install path using the
 published Stacklab APT repository.
 
-Current scope:
+This is the primary recommended production path for Debian-family hosts.
+
+Supported scope:
 
 - Debian-family hosts running `systemd`
 - fresh package-managed installs
+- package-managed upgrades
 - `amd64` primary, `arm64` also supported
 
-Not in scope yet:
+Unsupported transitions:
 
-- automatic migration from an existing tarball-based `/opt/stacklab` install
+- migration from an existing tarball-based `/opt/stacklab` install
+- switching an existing package-managed install to the tarball layout
 
 ## Repository Key
 
@@ -56,6 +60,26 @@ Then install:
 sudo apt-get update
 sudo apt-get install stacklab
 ```
+
+## Upgrades
+
+For normal repository-backed upgrades:
+
+```bash
+sudo apt-get update
+sudo apt-get install stacklab
+```
+
+For a local package artifact:
+
+```bash
+sudo apt-get install ./stacklab_<version>_<arch>.deb
+```
+
+For other Linux distributions or manual host-native installs, use the tarball
+flow instead:
+
+- [install-from-tarball.md](install-from-tarball.md)
 
 ## Notes
 

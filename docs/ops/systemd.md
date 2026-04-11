@@ -4,6 +4,12 @@
 
 This document defines the recommended host-native deployment model for Stacklab v1 using `systemd`.
 
+Path note:
+
+- the examples in this document use the manual tarball layout under `/opt/stacklab`
+- package-managed Debian-family installs use `/usr/lib/stacklab`, `/etc/stacklab`, `/srv/stacklab`, and `/var/lib/stacklab` instead
+- see [install-from-apt.md](install-from-apt.md) and [install-from-tarball.md](install-from-tarball.md) for install-mode-specific paths
+
 It is the operational consequence of:
 
 - ADR 0001: host-native backend deployment
