@@ -167,6 +167,25 @@ npm run lint
 npm run build
 ```
 
+## Screenshots
+
+| Stacks | Stack Editor |
+| - | - |
+| ![Stacks overview](docs/images/readme/stacks-overview.png) | ![Stack editor](docs/images/readme/stack-editor.png) |
+| Host | Config Workspace |
+| ![Host overview](docs/images/readme/host-overview.png) | ![Config workspace](docs/images/readme/config-workspace.png) |
+| Maintenance | Docker Admin |
+| ![Maintenance update workflow](docs/images/readme/maintenance-update.png) | ![Docker admin](docs/images/readme/docker-admin.png) |
+
+Refresh the README screenshots against a running Stacklab instance:
+
+```bash
+cd frontend
+STACKLAB_URL=http://127.0.0.1:18080 \
+STACKLAB_PASSWORD=change-me \
+npm run screenshots:readme
+```
+
 ## Documentation
 
 Project documentation lives in [`docs/`](docs/README.md).

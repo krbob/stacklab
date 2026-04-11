@@ -32,6 +32,7 @@ export function ConfigPage() {
 
   // --- Files mode state ---
   const [treePath, setTreePath] = useState('')
+  const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null)
   const [treeEntries, setTreeEntries] = useState<ConfigTreeEntry[]>([])
   const [parentPath, setParentPath] = useState<string | null>(null)
   const [treeLoading, setTreeLoading] = useState(true)
@@ -80,6 +81,7 @@ export function ConfigPage() {
     setTreeError(null)
     try {
       const result = await getConfigTree(path || undefined)
+      setWorkspaceRoot(result.workspace_root)
       setTreeEntries(result.items)
       setParentPath(result.parent_path)
       setTreePath(result.current_path)
@@ -256,7 +258,7 @@ export function ConfigPage() {
       <div className="hidden w-64 shrink-0 flex-col rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-[var(--shadow)] lg:flex">
         <div className="mb-3 text-xs uppercase tracking-wider text-[var(--accent)]">Config workspace</div>
         <p className="mb-3 text-xs text-[var(--muted)]">
-          Files here live under <span className="font-mono">/opt/stacklab/config</span>. They are only used when a stack mounts or references them.
+          Files here live under <span className="font-mono">{workspaceRoot ?? 'the managed config root'}</span>. They are only used when a stack mounts or references them.
         </p>
 
         {/* Mode toggle */}
