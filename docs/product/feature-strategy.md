@@ -68,6 +68,7 @@ Implication for Stacklab:
 
 - the most relevant ideas are around maintenance workflows, notifications, and Git-aware stack management
 - the least relevant ideas are the broad "Docker platform" surfaces such as registry management and environment sprawl
+- private registry authentication is still a valid narrow use case because it directly unblocks Compose pull/build workflows
 
 ### Arcane
 
@@ -180,6 +181,35 @@ Suggested scope:
 - never silently delete named volumes by default
 
 ### Good Mid-Term Fits
+
+#### Docker registry auth for private images
+
+Recommendation: `yes`
+
+Why:
+
+- private images are a real operator blocker for a single-host homelab flow
+- Stacklab already controls the runtime environment used by `docker compose`
+- this removes one more recurring SSH-only task without expanding into full registry management
+
+Suggested scope:
+
+- `docker login` and `docker logout` inside `/docker`
+- use the service's effective `DOCKER_CONFIG`
+- list configured registry auth entries without exposing secrets
+- audit login/logout actions
+
+Important constraint:
+
+- keep the source of truth in Docker `config.json`
+- do not store registry secrets in SQLite
+- do not expand the first slice into registry browsing, repo listing, tag management, or credential-helper orchestration
+
+Not the same as:
+
+- registry browser
+- registry administration
+- Harbor/Hub/Quay replacement
 
 #### Mobile notifications for important failures
 

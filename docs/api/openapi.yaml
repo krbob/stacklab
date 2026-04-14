@@ -198,6 +198,61 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /docker/registries:
+    get:
+      tags: [Docker]
+      operationId: getDockerRegistryStatus
+      responses:
+        '200':
+          description: Docker registry auth status for the effective DOCKER_CONFIG.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DockerRegistryStatusResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+  /docker/registries/login:
+    post:
+      tags: [Docker]
+      operationId: loginDockerRegistry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DockerRegistryLoginRequest'
+      responses:
+        '200':
+          description: Started Docker registry login workflow.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobEnvelopeResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+  /docker/registries/logout:
+    post:
+      tags: [Docker]
+      operationId: logoutDockerRegistry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DockerRegistryLogoutRequest'
+      responses:
+        '200':
+          description: Started Docker registry logout workflow.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobEnvelopeResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
   /stacklab/update/overview:
     get:
       tags: [Stacklab]
@@ -1711,6 +1766,66 @@ components:
         preview:
           $ref: '#/components/schemas/DockerDaemonConfigPreview'
       required: [write_capability, changed_keys, requires_restart, warnings, preview]
+    DockerRegistryStatusResponse:
+      type: object
+      properties:
+        docker_config_path:
+          type: string
+        exists:
+          type: boolean
+        permissions:
+          $ref: '#/components/schemas/FilePermissionsNullable'
+        size_bytes:
+          type: integer
+          nullable: true
+        modified_at:
+          type: string
+          format: date-time
+          nullable: true
+        valid_json:
+          type: boolean
+        parse_error:
+          type: string
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DockerRegistryEntry'
+      required: [docker_config_path, exists, valid_json, items]
+    DockerRegistryEntry:
+      type: object
+      properties:
+        registry:
+          type: string
+        configured:
+          type: boolean
+        username:
+          type: string
+        source:
+          type: string
+        last_verified_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_error:
+          type: string
+      required: [registry, configured, username, source, last_error]
+    DockerRegistryLoginRequest:
+      type: object
+      properties:
+        registry:
+          type: string
+        username:
+          type: string
+        password:
+          type: string
+      required: [registry, username, password]
+    DockerRegistryLogoutRequest:
+      type: object
+      properties:
+        registry:
+          type: string
+      required: [registry]
     StacklabUpdatePackageStatus:
       type: object
       properties:

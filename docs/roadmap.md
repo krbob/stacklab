@@ -43,7 +43,16 @@ Implemented and already exercised on Linux staging hosts:
 - keep templates Compose-first and transparent
 - avoid remote template catalogs until the local workflow is stable
 
-### 2. Polish And Adoption
+### 2. Docker Registry Auth For Private Images
+
+- add Docker `login` / `logout` support inside `/docker`
+- write credentials into the same `DOCKER_CONFIG` path Stacklab already uses for Compose operations
+- keep the scope narrow:
+  - private image auth only
+  - no registry browser
+  - no registry administration
+
+### 3. Polish And Adoption
 
 - theme toggle with system preference support
 - host-level system information widgets on dashboard views
@@ -61,6 +70,7 @@ Implemented and already exercised on Linux staging hosts:
   - `ntfy` or `Gotify` as strong self-hosted candidates
   - email only if there is a clear operator need
 - automatic monthly stable publication only after release validation keeps proving reliable
+- optional Docker credential helper integration only after the basic registry auth flow is stable
 
 ## Later / Conditional
 

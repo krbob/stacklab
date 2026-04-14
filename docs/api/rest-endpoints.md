@@ -451,6 +451,119 @@ Notes:
 - if the helper is not configured, this returns `501 not_implemented`
 - helper-backed failures may emit warnings about rollback attempts into the job event stream
 
+## `GET /api/docker/registries`
+
+Purpose:
+
+- fetch the effective Docker client registry auth view used by Stacklab for `docker compose` operations
+
+Response:
+
+```json
+{
+  "docker_config_path": "/var/lib/stacklab/docker/config.json",
+  "exists": true,
+  "valid_json": true,
+  "items": [
+    {
+      "registry": "ghcr.io",
+      "configured": true,
+      "username": "bob",
+      "source": "docker_config",
+      "last_error": ""
+    }
+  ]
+}
+```
+
+Notes:
+
+- this is Docker client auth, not `daemon.json`
+- the response never includes passwords, tokens, or raw auth blobs
+- if `config.json` is missing, this still returns `200` with `exists = false`
+- if `config.json` is unreadable or invalid, the response degrades in-band instead of failing the whole page
+
+## `POST /api/docker/registries/login`
+
+Purpose:
+
+- start a Docker registry login workflow that persists credentials into Stacklab's effective `DOCKER_CONFIG`
+
+Request:
+
+```json
+{
+  "registry": "ghcr.io",
+  "username": "bob",
+  "password": "ghp_xxx"
+}
+```
+
+Response:
+
+```json
+{
+  "job": {
+    "id": "job_xxx",
+    "stack_id": null,
+    "action": "docker_registry_login",
+    "state": "running",
+    "requested_at": "2026-04-14T08:32:00Z",
+    "started_at": "2026-04-14T08:32:00Z",
+    "workflow": {
+      "steps": [
+        { "action": "docker_login", "state": "running" }
+      ]
+    }
+  }
+}
+```
+
+Notes:
+
+- Stacklab runs `docker login <registry> --username <username> --password-stdin`
+- the child process receives the same effective `DOCKER_CONFIG` path Stacklab already uses for Compose operations
+- auth failures are represented as failed terminal jobs with retained logs
+
+## `POST /api/docker/registries/logout`
+
+Purpose:
+
+- start a Docker registry logout workflow for the effective `DOCKER_CONFIG`
+
+Request:
+
+```json
+{
+  "registry": "ghcr.io"
+}
+```
+
+Response:
+
+```json
+{
+  "job": {
+    "id": "job_xxx",
+    "stack_id": null,
+    "action": "docker_registry_logout",
+    "state": "running",
+    "requested_at": "2026-04-14T08:35:00Z",
+    "started_at": "2026-04-14T08:35:00Z",
+    "workflow": {
+      "steps": [
+        { "action": "docker_logout", "state": "running" }
+      ]
+    }
+  }
+}
+```
+
+Notes:
+
+- Stacklab runs `docker logout <registry>`
+- logout is job-backed and audited like other operator mutations
+
 ## `GET /api/stacklab/update/overview`
 
 Purpose:

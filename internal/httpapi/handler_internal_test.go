@@ -20,6 +20,7 @@ import (
 	"stacklab/internal/config"
 	"stacklab/internal/configworkspace"
 	"stacklab/internal/dockeradmin"
+	"stacklab/internal/dockerregistryauth"
 	"stacklab/internal/fsmeta"
 	"stacklab/internal/gitworkspace"
 	"stacklab/internal/hostinfo"
@@ -53,6 +54,17 @@ type fakeDockerAdmin struct {
 	validateError        error
 	applyResponse        dockeradmin.ApplyManagedConfigResult
 	applyError           error
+}
+
+type fakeDockerRegistry struct {
+	statusResponse dockerregistryauth.StatusResponse
+	statusError    error
+	loginOutput    string
+	loginError     error
+	logoutOutput   string
+	logoutError    error
+	lastLogin      dockerregistryauth.LoginRequest
+	lastLogout     dockerregistryauth.LogoutRequest
 }
 
 type fakeConfigWorkspaceReader struct {
@@ -95,6 +107,20 @@ func (f *fakeDockerAdmin) ValidateManagedConfig(ctx context.Context, request doc
 
 func (f *fakeDockerAdmin) ApplyManagedConfig(ctx context.Context, request dockeradmin.ApplyManagedConfigRequest) (dockeradmin.ApplyManagedConfigResult, error) {
 	return f.applyResponse, f.applyError
+}
+
+func (f *fakeDockerRegistry) Status(ctx context.Context) (dockerregistryauth.StatusResponse, error) {
+	return f.statusResponse, f.statusError
+}
+
+func (f *fakeDockerRegistry) Login(ctx context.Context, request dockerregistryauth.LoginRequest) (string, error) {
+	f.lastLogin = request
+	return f.loginOutput, f.loginError
+}
+
+func (f *fakeDockerRegistry) Logout(ctx context.Context, request dockerregistryauth.LogoutRequest) (string, error) {
+	f.lastLogout = request
+	return f.logoutOutput, f.logoutError
 }
 
 func (f *fakeConfigWorkspaceReader) Tree(ctx context.Context, currentPath string) (configworkspace.TreeResponse, error) {
@@ -402,6 +428,84 @@ func TestHandlerDockerAdminOverviewAndDaemonConfig(t *testing.T) {
 	decodeInternalResponse(t, applyResponse, &applyPayload)
 	if applyPayload.Job.Action != "apply_docker_daemon_config" || applyPayload.Job.State != "succeeded" {
 		t.Fatalf("unexpected docker daemon apply payload: %#v", applyPayload)
+	}
+}
+
+func TestHandlerDockerRegistryStatusLoginAndLogout(t *testing.T) {
+	t.Parallel()
+
+	handler, served, _ := newInternalTestHandler(t)
+	registry := &fakeDockerRegistry{
+		statusResponse: dockerregistryauth.StatusResponse{
+			DockerConfigPath: "/var/lib/stacklab/docker/config.json",
+			Exists:           true,
+			ValidJSON:        true,
+			Items: []dockerregistryauth.RegistryEntry{
+				{
+					Registry:   "ghcr.io",
+					Configured: true,
+					Username:   "bob",
+					Source:     "docker_config",
+					LastError:  "",
+				},
+			},
+		},
+		loginOutput:  "Login Succeeded",
+		logoutOutput: "Removing login credentials for ghcr.io",
+	}
+	handler.dockerRegistry = registry
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	statusResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/docker/registries", nil, cookies)
+	if statusResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/docker/registries status = %d, want %d; body=%s", statusResponse.Code, http.StatusOK, statusResponse.Body.String())
+	}
+	var statusPayload dockerregistryauth.StatusResponse
+	decodeInternalResponse(t, statusResponse, &statusPayload)
+	if statusPayload.DockerConfigPath != "/var/lib/stacklab/docker/config.json" || len(statusPayload.Items) != 1 || statusPayload.Items[0].Registry != "ghcr.io" {
+		t.Fatalf("unexpected docker registry status payload: %#v", statusPayload)
+	}
+
+	loginResponse := performInternalJSONRequest(t, served, http.MethodPost, "/api/docker/registries/login", map[string]any{
+		"registry": "ghcr.io",
+		"username": "bob",
+		"password": "secret-token",
+	}, cookies)
+	if loginResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/docker/registries/login status = %d, want %d; body=%s", loginResponse.Code, http.StatusOK, loginResponse.Body.String())
+	}
+	loginJobID := assertInternalRunningJob(t, loginResponse, "docker_registry_login")
+	waitForInternalJobState(t, served, cookies, loginJobID, "succeeded")
+	if registry.lastLogin.Registry != "ghcr.io" || registry.lastLogin.Username != "bob" || registry.lastLogin.Password != "secret-token" {
+		t.Fatalf("unexpected login request: %#v", registry.lastLogin)
+	}
+
+	logoutResponse := performInternalJSONRequest(t, served, http.MethodPost, "/api/docker/registries/logout", map[string]any{
+		"registry": "ghcr.io",
+	}, cookies)
+	if logoutResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/docker/registries/logout status = %d, want %d; body=%s", logoutResponse.Code, http.StatusOK, logoutResponse.Body.String())
+	}
+	logoutJobID := assertInternalRunningJob(t, logoutResponse, "docker_registry_logout")
+	waitForInternalJobState(t, served, cookies, logoutJobID, "succeeded")
+	if registry.lastLogout.Registry != "ghcr.io" {
+		t.Fatalf("unexpected logout request: %#v", registry.lastLogout)
+	}
+}
+
+func TestHandlerDockerRegistryLoginValidation(t *testing.T) {
+	t.Parallel()
+
+	_, served, _ := newInternalTestHandler(t)
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	response := performInternalJSONRequest(t, served, http.MethodPost, "/api/docker/registries/login", map[string]any{
+		"registry": "ghcr.io",
+		"username": "",
+		"password": "secret-token",
+	}, cookies)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("POST /api/docker/registries/login status = %d, want %d; body=%s", response.Code, http.StatusBadRequest, response.Body.String())
 	}
 }
 
@@ -1562,6 +1666,7 @@ func newInternalTestHandler(t *testing.T) (*Handler, http.Handler, config.Config
 		stackReader:     stackReader,
 		hostInfo:        hostinfo.NewService(cfg, time.Unix(1_712_598_000, 0).UTC()),
 		dockerAdmin:     dockeradmin.NewService(cfg),
+		dockerRegistry:  dockerregistryauth.NewService(cfg),
 		configFiles:     configworkspace.NewService(cfg),
 		gitStatus:       gitworkspace.NewService(cfg),
 		maintenance:     maintenanceService,
@@ -1576,6 +1681,48 @@ func newInternalTestHandler(t *testing.T) (*Handler, http.Handler, config.Config
 
 func pointerTo[T any](value T) *T {
 	return &value
+}
+
+func assertInternalRunningJob(t *testing.T, response *httptest.ResponseRecorder, wantAction string) string {
+	t.Helper()
+
+	var payload struct {
+		Job struct {
+			ID     string `json:"id"`
+			Action string `json:"action"`
+			State  string `json:"state"`
+		} `json:"job"`
+	}
+	decodeInternalResponse(t, response, &payload)
+	if payload.Job.Action != wantAction || payload.Job.State != "running" || payload.Job.ID == "" {
+		t.Fatalf("unexpected job payload: %#v", payload.Job)
+	}
+	return payload.Job.ID
+}
+
+func waitForInternalJobState(t *testing.T, served http.Handler, cookies []*http.Cookie, jobID, want string) {
+	t.Helper()
+
+	deadline := time.Now().Add(5 * time.Second)
+	var lastState string
+	for time.Now().Before(deadline) {
+		response := performInternalJSONRequest(t, served, http.MethodGet, "/api/jobs/"+jobID, nil, cookies)
+		if response.Code == http.StatusOK {
+			var payload struct {
+				Job struct {
+					State string `json:"state"`
+				} `json:"job"`
+			}
+			decodeInternalResponse(t, response, &payload)
+			lastState = payload.Job.State
+			if payload.Job.State == want {
+				return
+			}
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	t.Fatalf("job %q did not reach state %q before deadline; last_state=%q", jobID, want, lastState)
 }
 
 func runInternalGit(t *testing.T, dir string, args ...string) {

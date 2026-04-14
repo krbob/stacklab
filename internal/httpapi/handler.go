@@ -16,6 +16,7 @@ import (
 	"stacklab/internal/config"
 	"stacklab/internal/configworkspace"
 	"stacklab/internal/dockeradmin"
+	"stacklab/internal/dockerregistryauth"
 	"stacklab/internal/gitworkspace"
 	"stacklab/internal/hostinfo"
 	"stacklab/internal/jobs"
@@ -45,6 +46,7 @@ type Handler struct {
 	stackReader     *stacks.ServiceReader
 	hostInfo        hostInfoReader
 	dockerAdmin     dockerAdminReader
+	dockerRegistry  dockerRegistryReader
 	configFiles     configWorkspaceReader
 	stackFiles      stackWorkspaceReader
 	gitStatus       gitWorkspaceReader
@@ -65,6 +67,12 @@ type dockerAdminReader interface {
 	DaemonConfig(ctx context.Context) (dockeradmin.DaemonConfigResponse, error)
 	ValidateManagedConfig(ctx context.Context, request dockeradmin.ValidateManagedConfigRequest) (dockeradmin.ValidateManagedConfigResponse, error)
 	ApplyManagedConfig(ctx context.Context, request dockeradmin.ApplyManagedConfigRequest) (dockeradmin.ApplyManagedConfigResult, error)
+}
+
+type dockerRegistryReader interface {
+	Status(ctx context.Context) (dockerregistryauth.StatusResponse, error)
+	Login(ctx context.Context, request dockerregistryauth.LoginRequest) (string, error)
+	Logout(ctx context.Context, request dockerregistryauth.LogoutRequest) (string, error)
 }
 
 type configWorkspaceReader interface {
@@ -145,6 +153,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Servic
 		stackReader:     stackReader,
 		hostInfo:        hostinfo.NewService(cfg, time.Now().UTC()),
 		dockerAdmin:     dockeradmin.NewService(cfg),
+		dockerRegistry:  dockerregistryauth.NewService(cfg),
 		configFiles:     configworkspace.NewService(cfg),
 		stackFiles:      stackworkspace.NewService(cfg),
 		gitStatus:       gitworkspace.NewService(cfg),
@@ -172,6 +181,9 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/docker/admin/daemon-config", h.withAuth(h.handleDockerAdminDaemonConfig))
 	h.mux.HandleFunc("POST /api/docker/admin/daemon-config/validate", h.withAuth(h.handleDockerAdminValidateDaemonConfig))
 	h.mux.HandleFunc("POST /api/docker/admin/daemon-config/apply", h.withAuth(h.handleDockerAdminApplyDaemonConfig))
+	h.mux.HandleFunc("GET /api/docker/registries", h.withAuth(h.handleDockerRegistryStatus))
+	h.mux.HandleFunc("POST /api/docker/registries/login", h.withAuth(h.handleDockerRegistryLogin))
+	h.mux.HandleFunc("POST /api/docker/registries/logout", h.withAuth(h.handleDockerRegistryLogout))
 	h.mux.HandleFunc("GET /api/stacklab/update/overview", h.withAuth(h.handleStacklabUpdateOverview))
 	h.mux.HandleFunc("POST /api/stacklab/update/apply", h.withAuth(h.handleStacklabUpdateApply))
 	h.mux.HandleFunc("GET /api/config/workspace/tree", h.withAuth(h.handleConfigWorkspaceTree))
@@ -367,6 +379,110 @@ func (h *Handler) handleDockerAdminDaemonConfig(w http.ResponseWriter, r *http.R
 	}
 
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleDockerRegistryStatus(w http.ResponseWriter, r *http.Request) {
+	response, err := h.dockerRegistry.Status(r.Context())
+	if err != nil {
+		h.logger.Error("docker registry status failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load Docker registry auth status.", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleDockerRegistryLogin(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request dockerregistryauth.LoginRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+	if err := validateDockerRegistryLoginRequest(request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", err.Error(), nil)
+		return
+	}
+
+	job, err := h.jobs.Start(r.Context(), "", "docker_registry_login", "local")
+	if err != nil {
+		h.logger.Error("start docker registry login job failed", slog.String("registry", request.Registry), slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create job.", nil)
+		return
+	}
+
+	workflow := []store.JobWorkflowStep{{Action: "docker_login", State: "running"}}
+	job, err = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
+	if err != nil {
+		failedJob, finishErr := h.jobs.FinishFailed(r.Context(), job, "docker_registry_login_prepare_failed", err.Error())
+		if finishErr == nil {
+			job = failedJob
+			_ = h.recordDockerRegistryAudit(r.Context(), "docker_registry_login", job, map[string]any{
+				"registry": request.Registry,
+				"username": request.Username,
+			})
+		}
+		h.logger.Error("prepare docker registry login job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to prepare job.", nil)
+		return
+	}
+
+	step := workflowStepRef(workflow, 0)
+	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", "Starting Docker registry login.", "", step)
+	_ = h.jobs.PublishEvent(r.Context(), job, "job_progress", "Logging in to "+request.Registry+".", "", step)
+
+	go h.runDockerRegistryLoginJob(job, workflow, request)
+	writeJSON(w, http.StatusOK, map[string]any{"job": job})
+}
+
+func (h *Handler) handleDockerRegistryLogout(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request dockerregistryauth.LogoutRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+	if err := validateDockerRegistryLogoutRequest(request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", err.Error(), nil)
+		return
+	}
+
+	job, err := h.jobs.Start(r.Context(), "", "docker_registry_logout", "local")
+	if err != nil {
+		h.logger.Error("start docker registry logout job failed", slog.String("registry", request.Registry), slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create job.", nil)
+		return
+	}
+
+	workflow := []store.JobWorkflowStep{{Action: "docker_logout", State: "running"}}
+	job, err = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
+	if err != nil {
+		failedJob, finishErr := h.jobs.FinishFailed(r.Context(), job, "docker_registry_logout_prepare_failed", err.Error())
+		if finishErr == nil {
+			job = failedJob
+			_ = h.recordDockerRegistryAudit(r.Context(), "docker_registry_logout", job, map[string]any{
+				"registry": request.Registry,
+			})
+		}
+		h.logger.Error("prepare docker registry logout job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to prepare job.", nil)
+		return
+	}
+
+	step := workflowStepRef(workflow, 0)
+	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", "Starting Docker registry logout.", "", step)
+	_ = h.jobs.PublishEvent(r.Context(), job, "job_progress", "Logging out from "+request.Registry+".", "", step)
+
+	go h.runDockerRegistryLogoutJob(job, workflow, request)
+	writeJSON(w, http.StatusOK, map[string]any{"job": job})
 }
 
 func (h *Handler) handleConfigWorkspaceTree(w http.ResponseWriter, r *http.Request) {
@@ -2492,6 +2608,116 @@ func (h *Handler) runStackActionJob(job store.Job, workflow []store.JobWorkflowS
 	if err := h.audit.RecordStackJob(ctx, finishedJob); err != nil {
 		h.logger.Warn("record stack action audit failed", slog.String("job_id", finishedJob.ID), slog.String("err", err.Error()))
 	}
+}
+
+func validateDockerRegistryLoginRequest(request dockerregistryauth.LoginRequest) error {
+	if strings.TrimSpace(request.Registry) == "" {
+		return errors.New("Registry is required.")
+	}
+	if strings.TrimSpace(request.Username) == "" {
+		return errors.New("Username is required.")
+	}
+	if request.Password == "" {
+		return errors.New("Password is required.")
+	}
+	return nil
+}
+
+func validateDockerRegistryLogoutRequest(request dockerregistryauth.LogoutRequest) error {
+	if strings.TrimSpace(request.Registry) == "" {
+		return errors.New("Registry is required.")
+	}
+	return nil
+}
+
+func (h *Handler) runDockerRegistryLoginJob(job store.Job, workflow []store.JobWorkflowStep, request dockerregistryauth.LoginRequest) {
+	ctx := context.Background()
+	step := workflowStepRef(workflow, 0)
+	output, runErr := h.dockerRegistry.Login(ctx, request)
+
+	for _, line := range splitProgressOutput(output) {
+		_ = h.jobs.PublishEvent(ctx, job, "job_log", line, "", step)
+	}
+
+	if runErr != nil {
+		h.finishDockerRegistryJobFailure(ctx, "docker_registry_login", job, workflow, step, "docker_registry_login_failed", runErr.Error(), map[string]any{
+			"registry": request.Registry,
+			"username": request.Username,
+		})
+		return
+	}
+
+	h.finishDockerRegistryJobSuccess(ctx, "docker_registry_login", job, workflow, step, map[string]any{
+		"registry": request.Registry,
+		"username": request.Username,
+	})
+}
+
+func (h *Handler) runDockerRegistryLogoutJob(job store.Job, workflow []store.JobWorkflowStep, request dockerregistryauth.LogoutRequest) {
+	ctx := context.Background()
+	step := workflowStepRef(workflow, 0)
+	output, runErr := h.dockerRegistry.Logout(ctx, request)
+
+	for _, line := range splitProgressOutput(output) {
+		_ = h.jobs.PublishEvent(ctx, job, "job_log", line, "", step)
+	}
+
+	if runErr != nil {
+		h.finishDockerRegistryJobFailure(ctx, "docker_registry_logout", job, workflow, step, "docker_registry_logout_failed", runErr.Error(), map[string]any{
+			"registry": request.Registry,
+		})
+		return
+	}
+
+	h.finishDockerRegistryJobSuccess(ctx, "docker_registry_logout", job, workflow, step, map[string]any{
+		"registry": request.Registry,
+	})
+}
+
+func (h *Handler) finishDockerRegistryJobSuccess(ctx context.Context, action string, job store.Job, workflow []store.JobWorkflowStep, step *store.JobEventStep, details map[string]any) {
+	workflow = markWorkflowSucceeded(workflow, 0)
+	if updatedJob, err := h.jobs.UpdateWorkflow(ctx, job, workflow); err == nil {
+		job = updatedJob
+	} else {
+		h.logger.Warn("update successful docker registry workflow failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+	}
+	_ = h.jobs.PublishEvent(ctx, job, "job_step_finished", "Finished Docker registry auth step.", "", step)
+
+	finishedJob, err := h.jobs.FinishSucceeded(ctx, job)
+	if err != nil {
+		h.logger.Error("finish docker registry job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+		return
+	}
+	if err := h.recordDockerRegistryAudit(ctx, action, finishedJob, details); err != nil {
+		h.logger.Warn("record docker registry audit failed", slog.String("job_id", finishedJob.ID), slog.String("err", err.Error()))
+	}
+}
+
+func (h *Handler) finishDockerRegistryJobFailure(ctx context.Context, action string, job store.Job, workflow []store.JobWorkflowStep, step *store.JobEventStep, errorCode, errorMessage string, details map[string]any) {
+	workflow = markWorkflowFailed(workflow, 0)
+	if updatedJob, err := h.jobs.UpdateWorkflow(ctx, job, workflow); err == nil {
+		job = updatedJob
+	} else {
+		h.logger.Warn("update failed docker registry workflow failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+	}
+	failedEventJob := job
+	failedEventJob.State = "failed"
+	_ = h.jobs.PublishEvent(ctx, failedEventJob, "job_step_finished", "Docker registry auth step failed.", "", step)
+
+	finishedJob, err := h.jobs.FinishFailed(ctx, job, errorCode, errorMessage)
+	if err != nil {
+		h.logger.Error("finish docker registry job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+		return
+	}
+	details["error_code"] = errorCode
+	details["error_message"] = errorMessage
+	if auditErr := h.recordDockerRegistryAudit(ctx, action, finishedJob, details); auditErr != nil {
+		h.logger.Warn("record docker registry audit failed", slog.String("job_id", finishedJob.ID), slog.String("err", auditErr.Error()))
+	}
+}
+
+func (h *Handler) recordDockerRegistryAudit(ctx context.Context, action string, job store.Job, details map[string]any) error {
+	return h.audit.RecordSystemEvent(ctx, action, job.RequestedBy, job.State, job.RequestedAt, job.FinishedAt, details)
 }
 
 func splitProgressOutput(raw string) []string {
