@@ -2612,20 +2612,20 @@ func (h *Handler) runStackActionJob(job store.Job, workflow []store.JobWorkflowS
 
 func validateDockerRegistryLoginRequest(request dockerregistryauth.LoginRequest) error {
 	if strings.TrimSpace(request.Registry) == "" {
-		return errors.New("Registry is required.")
+		return errors.New("registry is required")
 	}
 	if strings.TrimSpace(request.Username) == "" {
-		return errors.New("Username is required.")
+		return errors.New("username is required")
 	}
 	if request.Password == "" {
-		return errors.New("Password is required.")
+		return errors.New("password is required")
 	}
 	return nil
 }
 
 func validateDockerRegistryLogoutRequest(request dockerregistryauth.LogoutRequest) error {
 	if strings.TrimSpace(request.Registry) == "" {
-		return errors.New("Registry is required.")
+		return errors.New("registry is required")
 	}
 	return nil
 }
