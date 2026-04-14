@@ -588,6 +588,36 @@ export interface DockerDaemonValidateResponse {
   preview: DockerDaemonConfigPreview
 }
 
+export interface DockerRegistryEntry {
+  registry: string
+  configured: boolean
+  username: string
+  source: string
+  last_verified_at?: string | null
+  last_error: string
+}
+
+export interface DockerRegistryStatusResponse {
+  docker_config_path: string
+  exists: boolean
+  permissions?: FilePermissions | null
+  size_bytes?: number | null
+  modified_at?: string | null
+  valid_json: boolean
+  parse_error?: string | null
+  items: DockerRegistryEntry[]
+}
+
+export interface DockerRegistryLoginRequest {
+  registry: string
+  username: string
+  password: string
+}
+
+export interface DockerRegistryLogoutRequest {
+  registry: string
+}
+
 export interface StacklabUpdatePackageStatus {
   supported: boolean
   message?: string

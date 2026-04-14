@@ -12,6 +12,9 @@ import type {
   DockerDaemonApplyRequest,
   DockerDaemonValidateRequest,
   DockerDaemonValidateResponse,
+  DockerRegistryLoginRequest,
+  DockerRegistryLogoutRequest,
+  DockerRegistryStatusResponse,
   StacklabUpdateApplyRequest,
   StacklabUpdateApplyResponse,
   StacklabUpdateOverviewResponse,
@@ -183,6 +186,24 @@ export function validateDockerDaemonConfig(requestBody: DockerDaemonValidateRequ
 
 export function applyDockerDaemonConfig(requestBody: DockerDaemonApplyRequest): Promise<{ job: JobRef }> {
   return request('/api/docker/admin/daemon-config/apply', {
+    method: 'POST',
+    body: JSON.stringify(requestBody),
+  })
+}
+
+export function getDockerRegistryStatus(): Promise<DockerRegistryStatusResponse> {
+  return request('/api/docker/registries')
+}
+
+export function loginDockerRegistry(requestBody: DockerRegistryLoginRequest): Promise<{ job: JobRef }> {
+  return request('/api/docker/registries/login', {
+    method: 'POST',
+    body: JSON.stringify(requestBody),
+  })
+}
+
+export function logoutDockerRegistry(requestBody: DockerRegistryLogoutRequest): Promise<{ job: JobRef }> {
+  return request('/api/docker/registries/logout', {
     method: 'POST',
     body: JSON.stringify(requestBody),
   })

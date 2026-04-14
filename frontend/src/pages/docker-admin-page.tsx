@@ -1,14 +1,28 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { getDockerAdminOverview, getDockerDaemonConfig, validateDockerDaemonConfig, applyDockerDaemonConfig } from '@/lib/api-client'
+import {
+  getDockerAdminOverview,
+  getDockerDaemonConfig,
+  getDockerRegistryStatus,
+  validateDockerDaemonConfig,
+  applyDockerDaemonConfig,
+  loginDockerRegistry,
+  logoutDockerRegistry,
+} from '@/lib/api-client'
 import { useApi } from '@/hooks/use-api'
 import { useJobStream } from '@/hooks/use-job-stream'
 import { StepCards } from '@/components/step-cards'
-import type { DockerAdminOverviewResponse, DockerDaemonConfigResponse, DockerDaemonValidateResponse } from '@/lib/api-types'
+import type {
+  DockerAdminOverviewResponse,
+  DockerDaemonConfigResponse,
+  DockerDaemonValidateResponse,
+  DockerRegistryStatusResponse,
+} from '@/lib/api-types'
 import { cn } from '@/lib/cn'
 
 export function DockerAdminPage() {
   const { data: overview, error: overviewError, loading: overviewLoading, refetch: refetchOverview } = useApi(() => getDockerAdminOverview(), [])
   const { data: daemonConfig, error: configError, loading: configLoading, refetch: refetchConfig } = useApi(() => getDockerDaemonConfig(), [])
+  const { data: registryStatus, error: registryError, loading: registryLoading, refetch: refetchRegistry } = useApi(() => getDockerRegistryStatus(), [])
 
   const handleApplyDone = useCallback(() => {
     refetchOverview()
@@ -56,6 +70,15 @@ export function DockerAdminPage() {
           />
         </section>
       )}
+
+      <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+        <RegistryAuthSection
+          status={registryStatus}
+          loading={registryLoading}
+          error={registryError}
+          refetch={refetchRegistry}
+        />
+      </section>
     </div>
   )
 }
@@ -499,4 +522,253 @@ function parseCommaSeparatedList(value: string): string[] {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean)
+}
+
+function RegistryAuthSection({
+  status,
+  loading,
+  error,
+  refetch,
+}: {
+  status: DockerRegistryStatusResponse | null
+  loading: boolean
+  error: Error | null
+  refetch: () => void
+}) {
+  const [registry, setRegistry] = useState('')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [activeJobId, setActiveJobId] = useState<string | null>(null)
+  const [activeAction, setActiveAction] = useState<'login' | 'logout' | null>(null)
+
+  const { events, state } = useJobStream({ jobId: activeJobId })
+  const terminal = state === 'succeeded' || state === 'failed' || state === 'cancelled' || state === 'timed_out'
+
+  useEffect(() => {
+    if (!terminal || !activeJobId) return
+    refetch()
+    if (state === 'succeeded' && activeAction === 'login') {
+      setPassword('')
+    }
+  }, [terminal, activeJobId, activeAction, state, refetch])
+
+  const handleLogin = useCallback(async () => {
+    setSubmitting(true)
+    setSubmitError(null)
+    setActiveJobId(null)
+    setActiveAction('login')
+    try {
+      const result = await loginDockerRegistry({ registry, username, password })
+      setActiveJobId(result.job.id)
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Login failed')
+      setActiveAction(null)
+    } finally {
+      setSubmitting(false)
+    }
+  }, [registry, username, password])
+
+  const handleLogout = useCallback(async (targetRegistry: string) => {
+    setSubmitting(true)
+    setSubmitError(null)
+    setActiveJobId(null)
+    setActiveAction('logout')
+    try {
+      const result = await logoutDockerRegistry({ registry: targetRegistry })
+      setActiveJobId(result.job.id)
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Logout failed')
+      setActiveAction(null)
+    } finally {
+      setSubmitting(false)
+    }
+  }, [])
+
+  const latestLogLine = useMemo(() => {
+    for (let i = events.length - 1; i >= 0; i -= 1) {
+      const event = events[i]
+      if (event.event === 'job_error') return event.message
+      if (event.event === 'job_log' && event.message) return event.message + (event.data ? ` ${event.data}` : '')
+    }
+    return null
+  }, [events])
+
+  const actionInProgress = Boolean(activeJobId) && !terminal
+  const canSubmitLogin = registry.trim().length > 0 && username.trim().length > 0 && password.length > 0 && !submitting && !actionInProgress
+
+  return (
+    <div>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-lg font-medium text-[var(--text)]">Registry auth</h3>
+          <p className="mt-1 text-xs text-[var(--muted)]">
+            Authenticate Docker pulls and builds against private registries using Stacklab&apos;s effective Docker client config.
+          </p>
+        </div>
+        <button
+          onClick={refetch}
+          className="rounded-md border border-[var(--panel-border)] px-3 py-1.5 text-xs text-[var(--text)] transition hover:bg-[rgba(255,255,255,0.05)]"
+        >
+          Refresh
+        </button>
+      </div>
+
+      {loading && <div className="mt-3 h-32 animate-pulse rounded-md bg-[rgba(255,255,255,0.02)]" />}
+
+      {error && (
+        <div className="mt-3 rounded-md border border-red-400/20 bg-red-400/5 px-4 py-2 text-xs text-red-400">
+          Failed to load Docker registry auth status: {error.message}
+        </div>
+      )}
+
+      {status && (
+        <div className="mt-4 space-y-4">
+          <div className="text-xs text-[var(--muted)]">
+            Docker config: <span className="font-mono text-[var(--text)]">{status.docker_config_path}</span>
+          </div>
+
+          {!status.exists && (
+            <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-4 py-3 text-xs text-[var(--muted)]">
+              No Docker client config exists yet. The first successful login will create it.
+            </div>
+          )}
+
+          {status.exists && !status.valid_json && status.parse_error && (
+            <div className="rounded-md border border-red-400/20 bg-red-400/5 px-4 py-3 text-xs text-red-400">
+              Docker config is invalid JSON: {status.parse_error}
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <div className="text-xs uppercase tracking-wider text-[var(--accent)]">Configured registries</div>
+            {status.items.length === 0 ? (
+              <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-4 py-6 text-sm text-[var(--muted)]">
+                No registry credentials configured.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {status.items.map((item) => (
+                  <div
+                    key={item.registry}
+                    className="flex flex-col gap-3 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-3 md:flex-row md:items-center md:justify-between"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-mono text-sm text-[var(--text)]">{item.registry}</div>
+                      <div className="mt-1 text-xs text-[var(--muted)]">
+                        {item.username ? `Username: ${item.username}` : 'Username unavailable'} · Source: {item.source}
+                      </div>
+                      {item.last_error && (
+                        <div className="mt-1 text-xs text-amber-400">{item.last_error}</div>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => handleLogout(item.registry)}
+                      disabled={submitting || actionInProgress}
+                      className="rounded-md border border-red-400/30 px-3 py-1.5 text-xs text-red-400 transition hover:bg-red-400/10 disabled:opacity-40"
+                    >
+                      Logout
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-3 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4">
+            <div className="text-xs uppercase tracking-wider text-[var(--accent)]">Login</div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="block">
+                <span className="mb-1 block text-xs text-[var(--muted)]">Registry</span>
+                <input
+                  type="text"
+                  value={registry}
+                  onChange={(e) => setRegistry(e.target.value)}
+                  placeholder="ghcr.io"
+                  className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)]"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-xs text-[var(--muted)]">Username</span>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="bob"
+                  className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)]"
+                />
+              </label>
+            </div>
+
+            <label className="block">
+              <span className="mb-1 block text-xs text-[var(--muted)]">Password or token</span>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Token or password"
+                className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)]"
+              />
+            </label>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleLogin}
+                disabled={!canSubmitLogin}
+                className="rounded-md border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] px-4 py-2 text-xs text-[var(--text)] transition hover:bg-[rgba(34,197,94,0.2)] disabled:opacity-40"
+              >
+                {submitting && activeAction === 'login' ? 'Logging in...' : 'Login'}
+              </button>
+              <span className="text-xs text-[var(--muted)]">Uses the same Docker config path as Stacklab&apos;s Compose operations.</span>
+            </div>
+          </div>
+
+          {submitError && (
+            <div className="rounded-md border border-red-400/20 bg-red-400/5 px-4 py-2 text-xs text-red-400">
+              {submitError}
+            </div>
+          )}
+
+          {activeJobId && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-xs">
+                {!terminal && <span className="inline-block size-2 animate-pulse rounded-full bg-sky-400" />}
+                <span className={cn(
+                  'font-medium',
+                  state === 'running' ? 'text-sky-400' :
+                  state === 'succeeded' ? 'text-emerald-400' :
+                  state === 'failed' ? 'text-red-400' :
+                  'text-[var(--muted)]',
+                )}>
+                  {state === 'running'
+                    ? activeAction === 'logout' ? 'Logging out...' : 'Logging in...'
+                    : state === 'succeeded'
+                      ? activeAction === 'logout' ? 'Logged out' : 'Login succeeded'
+                      : state === 'failed'
+                        ? activeAction === 'logout' ? 'Logout failed' : 'Login failed'
+                        : state ?? 'Starting'}
+                </span>
+              </div>
+
+              <StepCards events={events} />
+
+              {terminal && latestLogLine && (
+                <div className={cn(
+                  'rounded-md border px-4 py-2 text-xs',
+                  state === 'succeeded'
+                    ? 'border-emerald-400/20 bg-emerald-400/5 text-emerald-400'
+                    : 'border-red-400/20 bg-red-400/5 text-red-400',
+                )}>
+                  {latestLogLine}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }

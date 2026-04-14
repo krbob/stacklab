@@ -1,11 +1,13 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DockerAdminPage } from './docker-admin-page'
-import type { DockerAdminOverviewResponse, DockerDaemonConfigResponse } from '@/lib/api-types'
+import type { DockerAdminOverviewResponse, DockerDaemonConfigResponse, DockerRegistryStatusResponse } from '@/lib/api-types'
 
 const mockUseApi = vi.fn()
 const mockValidateDockerDaemonConfig = vi.fn()
 const mockApplyDockerDaemonConfig = vi.fn()
+const mockLoginDockerRegistry = vi.fn()
+const mockLogoutDockerRegistry = vi.fn()
 const mockUseJobStream = vi.fn()
 
 vi.mock('@/hooks/use-api', () => ({
@@ -15,8 +17,11 @@ vi.mock('@/hooks/use-api', () => ({
 vi.mock('@/lib/api-client', () => ({
   getDockerAdminOverview: vi.fn(),
   getDockerDaemonConfig: vi.fn(),
+  getDockerRegistryStatus: vi.fn(),
   validateDockerDaemonConfig: (...args: unknown[]) => mockValidateDockerDaemonConfig(...args),
   applyDockerDaemonConfig: (...args: unknown[]) => mockApplyDockerDaemonConfig(...args),
+  loginDockerRegistry: (...args: unknown[]) => mockLoginDockerRegistry(...args),
+  logoutDockerRegistry: (...args: unknown[]) => mockLogoutDockerRegistry(...args),
 }))
 
 vi.mock('@/hooks/use-job-stream', () => ({
@@ -110,6 +115,21 @@ const writeCapableDaemonConfig: DockerDaemonConfigResponse = {
   },
 }
 
+const registryStatus: DockerRegistryStatusResponse = {
+  docker_config_path: '/var/lib/stacklab/docker/config.json',
+  exists: true,
+  valid_json: true,
+  items: [
+    {
+      registry: 'ghcr.io',
+      configured: true,
+      username: 'bob',
+      source: 'docker_config',
+      last_error: '',
+    },
+  ],
+}
+
 const unsupportedServiceOverview: DockerAdminOverviewResponse = {
   ...overview,
   service: {
@@ -167,21 +187,33 @@ describe('DockerAdminPage', () => {
     mockUseApi.mockReset()
     mockValidateDockerDaemonConfig.mockReset()
     mockApplyDockerDaemonConfig.mockReset()
+    mockLoginDockerRegistry.mockReset()
+    mockLogoutDockerRegistry.mockReset()
     mockUseJobStream.mockReset()
     mockUseJobStream.mockReturnValue({ events: [], state: null, clear: vi.fn() })
   })
 
-  function mockOverviewAndConfig(ov: DockerAdminOverviewResponse, cfg: DockerDaemonConfigResponse, refetch?: { overview: ReturnType<typeof vi.fn>; config: ReturnType<typeof vi.fn> }) {
+  function mockDockerPage(
+    ov: DockerAdminOverviewResponse,
+    cfg: DockerDaemonConfigResponse,
+    registry: DockerRegistryStatusResponse = registryStatus,
+    refetch?: {
+      overview: ReturnType<typeof vi.fn>
+      config: ReturnType<typeof vi.fn>
+      registry: ReturnType<typeof vi.fn>
+    },
+  ) {
     let callIndex = 0
     mockUseApi.mockImplementation(() => {
       const idx = callIndex++
       if (idx === 0) return { data: ov, error: null, loading: false, refetch: refetch?.overview ?? vi.fn() }
-      return { data: cfg, error: null, loading: false, refetch: refetch?.config ?? vi.fn() }
+      if (idx === 1) return { data: cfg, error: null, loading: false, refetch: refetch?.config ?? vi.fn() }
+      return { data: registry, error: null, loading: false, refetch: refetch?.registry ?? vi.fn() }
     })
   }
 
   it('renders service, engine, and daemon config cards', () => {
-    mockOverviewAndConfig(overview, daemonConfig)
+    mockDockerPage(overview, daemonConfig)
     render(<DockerAdminPage />)
 
     expect(screen.getByText('active')).toBeInTheDocument()
@@ -191,7 +223,7 @@ describe('DockerAdminPage', () => {
   })
 
   it('shows engine metadata in mono', () => {
-    mockOverviewAndConfig(overview, daemonConfig)
+    mockDockerPage(overview, daemonConfig)
     render(<DockerAdminPage />)
 
     expect(screen.getByText('API: 1.54')).toBeInTheDocument()
@@ -200,14 +232,14 @@ describe('DockerAdminPage', () => {
   })
 
   it('shows raw daemon.json content', () => {
-    mockOverviewAndConfig(overview, daemonConfig)
+    mockDockerPage(overview, daemonConfig)
     render(<DockerAdminPage />)
 
     expect(screen.getByText(/"dns"/)).toBeInTheDocument()
   })
 
   it('shows degraded service state on unsupported host', () => {
-    mockOverviewAndConfig(unsupportedServiceOverview, daemonConfig)
+    mockDockerPage(unsupportedServiceOverview, daemonConfig)
     render(<DockerAdminPage />)
 
     expect(screen.getByText('Not available')).toBeInTheDocument()
@@ -215,7 +247,7 @@ describe('DockerAdminPage', () => {
   })
 
   it('shows unavailable engine state', () => {
-    mockOverviewAndConfig(unavailableEngineOverview, daemonConfig)
+    mockDockerPage(unavailableEngineOverview, daemonConfig)
     render(<DockerAdminPage />)
 
     expect(screen.getByText('Unavailable')).toBeInTheDocument()
@@ -227,7 +259,7 @@ describe('DockerAdminPage', () => {
       ...noDaemonOverview.daemon_config,
       content: null,
     }
-    mockOverviewAndConfig(noDaemonOverview, noDaemonConfig)
+    mockDockerPage(noDaemonOverview, noDaemonConfig)
     render(<DockerAdminPage />)
 
     expect(screen.getAllByText(/Docker is using defaults|Docker is currently using built-in defaults\./).length).toBeGreaterThanOrEqual(1)
@@ -246,7 +278,7 @@ describe('DockerAdminPage', () => {
   })
 
   it('validates managed settings and shows preview', async () => {
-    mockOverviewAndConfig(overview, daemonConfig)
+    mockDockerPage(overview, daemonConfig)
     mockValidateDockerDaemonConfig.mockResolvedValue({
       write_capability: overview.write_capability,
       changed_keys: ['dns'],
@@ -290,7 +322,7 @@ describe('DockerAdminPage', () => {
   })
 
   it('sends remove_keys when list fields are cleared', async () => {
-    mockOverviewAndConfig(overview, daemonConfig)
+    mockDockerPage(overview, daemonConfig)
     mockValidateDockerDaemonConfig.mockResolvedValue({
       write_capability: overview.write_capability,
       changed_keys: ['dns', 'registry_mirrors', 'insecure_registries'],
@@ -332,7 +364,7 @@ describe('DockerAdminPage', () => {
   })
 
   it('shows inline validation error', async () => {
-    mockOverviewAndConfig(overview, daemonConfig)
+    mockDockerPage(overview, daemonConfig)
     mockValidateDockerDaemonConfig.mockRejectedValue(new Error('Docker daemon config contains invalid JSON and cannot be managed safely.'))
 
     render(<DockerAdminPage />)
@@ -342,7 +374,7 @@ describe('DockerAdminPage', () => {
   })
 
   it('enables apply after successful validate even with warnings', async () => {
-    mockOverviewAndConfig(writeCapableOverview, writeCapableDaemonConfig)
+    mockDockerPage(writeCapableOverview, writeCapableDaemonConfig)
     mockValidateDockerDaemonConfig.mockResolvedValue({
       write_capability: writeCapableOverview.write_capability,
       changed_keys: ['dns'],
@@ -373,7 +405,7 @@ describe('DockerAdminPage', () => {
   })
 
   it('invalidates preview when managed settings change after validate', async () => {
-    mockOverviewAndConfig(writeCapableOverview, writeCapableDaemonConfig)
+    mockDockerPage(writeCapableOverview, writeCapableDaemonConfig)
     mockValidateDockerDaemonConfig.mockResolvedValue({
       write_capability: writeCapableOverview.write_capability,
       changed_keys: ['dns'],
@@ -413,9 +445,10 @@ describe('DockerAdminPage', () => {
   it('shows apply failure rollback details and refetches after terminal state', async () => {
     const overviewRefetch = vi.fn()
     const configRefetch = vi.fn()
-    mockOverviewAndConfig(writeCapableOverview, writeCapableDaemonConfig, {
+    mockDockerPage(writeCapableOverview, writeCapableDaemonConfig, registryStatus, {
       overview: overviewRefetch,
       config: configRefetch,
+      registry: vi.fn(),
     })
     mockValidateDockerDaemonConfig.mockResolvedValue({
       write_capability: writeCapableOverview.write_capability,
@@ -499,5 +532,121 @@ describe('DockerAdminPage', () => {
       expect(overviewRefetch).toHaveBeenCalled()
       expect(configRefetch).toHaveBeenCalled()
     })
+  })
+
+  it('renders configured registries', () => {
+    mockDockerPage(overview, daemonConfig)
+    render(<DockerAdminPage />)
+
+    expect(screen.getByText('Registry auth')).toBeInTheDocument()
+    expect(screen.getByText('ghcr.io')).toBeInTheDocument()
+    expect(screen.getByText(/Username: bob/)).toBeInTheDocument()
+  })
+
+  it('starts docker registry login and refetches status on success', async () => {
+    const registryRefetch = vi.fn()
+    mockDockerPage(overview, daemonConfig, registryStatus, {
+      overview: vi.fn(),
+      config: vi.fn(),
+      registry: registryRefetch,
+    })
+    mockLoginDockerRegistry.mockResolvedValue({
+      job: {
+        id: 'job-login-1',
+        stack_id: null,
+        action: 'docker_registry_login',
+        state: 'running',
+      },
+    })
+    mockUseJobStream.mockImplementation(({ jobId }: { jobId: string | null }) => {
+      if (jobId !== 'job-login-1') {
+        return { events: [], state: null, clear: vi.fn() }
+      }
+      return {
+        state: 'succeeded',
+        clear: vi.fn(),
+        events: [
+          {
+            event: 'job_step_started',
+            timestamp: '2026-04-14T08:32:00Z',
+            message: 'Starting Docker registry login.',
+            data: '',
+            step: { index: 1, total: 1, action: 'docker_login' },
+          },
+          {
+            event: 'job_log',
+            timestamp: '2026-04-14T08:32:01Z',
+            message: 'Login Succeeded',
+            data: '',
+            step: { index: 1, total: 1, action: 'docker_login' },
+          },
+          {
+            event: 'job_step_finished',
+            timestamp: '2026-04-14T08:32:02Z',
+            message: 'Finished Docker registry auth step.',
+            data: '',
+            state: 'succeeded',
+            step: { index: 1, total: 1, action: 'docker_login' },
+          },
+        ],
+      }
+    })
+
+    render(<DockerAdminPage />)
+
+    fireEvent.change(screen.getByLabelText('Registry'), { target: { value: 'ghcr.io' } })
+    fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'bob' } })
+    fireEvent.change(screen.getByLabelText('Password or token'), { target: { value: 'secret-token' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Login' }))
+
+    await waitFor(() => {
+      expect(mockLoginDockerRegistry).toHaveBeenCalledWith({
+        registry: 'ghcr.io',
+        username: 'bob',
+        password: 'secret-token',
+      })
+    })
+    expect(await screen.findByText('Login succeeded')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(registryRefetch).toHaveBeenCalled()
+    })
+  })
+
+  it('starts docker registry logout from configured row', async () => {
+    mockDockerPage(overview, daemonConfig)
+    mockLogoutDockerRegistry.mockResolvedValue({
+      job: {
+        id: 'job-logout-1',
+        stack_id: null,
+        action: 'docker_registry_logout',
+        state: 'running',
+      },
+    })
+    mockUseJobStream.mockImplementation(({ jobId }: { jobId: string | null }) => {
+      if (jobId !== 'job-logout-1') {
+        return { events: [], state: null, clear: vi.fn() }
+      }
+      return {
+        state: 'running',
+        clear: vi.fn(),
+        events: [
+          {
+            event: 'job_step_started',
+            timestamp: '2026-04-14T08:35:00Z',
+            message: 'Starting Docker registry logout.',
+            data: '',
+            step: { index: 1, total: 1, action: 'docker_logout' },
+          },
+        ],
+      }
+    })
+
+    render(<DockerAdminPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Logout' }))
+
+    await waitFor(() => {
+      expect(mockLogoutDockerRegistry).toHaveBeenCalledWith({ registry: 'ghcr.io' })
+    })
+    expect(screen.getByText('Logging out...')).toBeInTheDocument()
   })
 })
