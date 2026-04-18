@@ -1,5 +1,5 @@
 {
-  // Active policy: selective low-risk automerge early in the month, manual review for risky updates.
+  // Active policy: selective low-risk automerge once per month after the stable release, manual review for risky updates.
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
   "timezone": "Europe/Warsaw",
@@ -10,7 +10,7 @@
   "platformAutomerge": false,
   "prConcurrentLimit": 6,
   "prHourlyLimit": 4,
-  "rebaseWhen": "conflicted",
+  "rebaseWhen": "behind-base-branch",
   "rangeStrategy": "bump",
   "packageRules": [
     {
@@ -30,7 +30,7 @@
       "groupSlug": "frontend-dev"
     },
     {
-      "description": "Automerge low-risk frontend devDependency patch and minor updates early in the month after a short stability delay.",
+      "description": "Automerge low-risk frontend devDependency patch and minor updates once per month after the stable release and a short stability delay.",
       "matchManagers": ["npm"],
       "matchFileNames": ["frontend/package.json"],
       "matchDepTypes": ["devDependencies"],
@@ -38,12 +38,27 @@
       "automerge": true,
       "automergeType": "pr",
       "automergeStrategy": "rebase",
-      "automergeSchedule": ["* 0-5 2-7 * *"],
+      "automergeSchedule": ["* * 2 * *"],
       "minimumReleaseAge": "3 days"
     },
     {
-      "description": "Group Go module updates into a single PR.",
+      "description": "Keep high-risk Go runtime modules ungrouped for deliberate review.",
       "matchManagers": ["gomod"],
+      "matchPackageNames": [
+        "github.com/creack/pty",
+        "github.com/gorilla/websocket",
+        "modernc.org/sqlite"
+      ],
+      "groupName": null
+    },
+    {
+      "description": "Group non-high-risk Go module updates into a single PR.",
+      "matchManagers": ["gomod"],
+      "excludePackageNames": [
+        "github.com/creack/pty",
+        "github.com/gorilla/websocket",
+        "modernc.org/sqlite"
+      ],
       "groupName": "go dependencies",
       "groupSlug": "go-dependencies"
     },
@@ -59,7 +74,7 @@
       "groupSlug": "github-actions-low-risk"
     },
     {
-      "description": "Automerge low-risk GitHub Actions patch and minor updates early in the month after a stability delay.",
+      "description": "Automerge low-risk GitHub Actions patch and minor updates once per month after the stable release and a stability delay.",
       "matchManagers": ["github-actions"],
       "matchPackageNames": [
         "actions/checkout",
@@ -70,7 +85,7 @@
       "automerge": true,
       "automergeType": "pr",
       "automergeStrategy": "rebase",
-      "automergeSchedule": ["* 0-5 2-7 * *"],
+      "automergeSchedule": ["* * 2 * *"],
       "minimumReleaseAge": "7 days"
     },
     {

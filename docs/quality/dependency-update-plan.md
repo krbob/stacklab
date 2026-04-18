@@ -77,7 +77,7 @@ Active repository config:
 Current policy:
 
 - manual merge remains the default
-- low-risk classes may automerge early in the month after a release-age delay
+- low-risk classes may automerge once per month after the stable release and a release-age delay
 - risky and major updates remain manual
 
 This does not mean deep manual auditing of each diff. It means:
@@ -104,8 +104,9 @@ Recommended first-pass grouping:
 
 - one group for npm devDependencies
 - one group for npm runtime dependencies
-- one group for Go modules
+- one group for non-high-risk Go modules
 - one group for GitHub Actions updates
+- keep high-risk Go runtime modules separate
 
 Do not start with one PR per package unless update volume is very low.
 
@@ -113,11 +114,16 @@ Recommended repository config:
 
 - `prConcurrentLimit = 6`
 - `prHourlyLimit = 4`
+- `rebaseWhen = "behind-base-branch"` when branch protection requires PRs to be up to date with `main`
 - grouped PRs for:
   - frontend runtime dependencies
   - frontend dev dependencies
-  - Go modules
+  - non-high-risk Go modules
   - GitHub Actions
+- keep these Go runtime modules separate and manual:
+  - `github.com/gorilla/websocket`
+  - `github.com/creack/pty`
+  - `modernc.org/sqlite`
 - major updates kept separate
 - selective automerge only for:
   - frontend `devDependencies` patch/minor/pin/digest updates
@@ -125,6 +131,7 @@ Recommended repository config:
     - `actions/checkout`
     - `actions/setup-go`
     - `actions/setup-node`
+- automerge runs once per month on the `2nd`, after the stable release on the `1st`
 - minimum release age before automerge:
   - frontend tooling: `3 days`
   - selected GitHub Actions: `7 days`
@@ -178,7 +185,7 @@ Automatic monthly stable publication is only sensible if dependency policy remai
 
 Recommended model:
 
-- low-risk dependency classes may automerge in a short early-month window
+- low-risk dependency classes may automerge once per month after the stable release
 - high-risk and major updates remain manual
 - nightly prereleases soak the resulting `main` during the rest of the month
 - monthly stable release publishes the already-green state of `main` on the `1st` of the next month
@@ -186,7 +193,7 @@ Recommended model:
 Operationally, this should mean:
 
 - stable `YYYY.MM.0` publishes on the `1st`
-- low-risk automerge opens only after that stable release
+- low-risk automerge runs on the `2nd`, after that stable release
 - nightly then soaks the resulting `main` until the next stable
 
 Do **not** design the release process around merging all Renovate PRs on release day.
@@ -335,7 +342,7 @@ Candidates:
 Still manual:
 
 - runtime dependencies
-- Go runtime modules
+- high-risk Go runtime modules in separate PRs
 - WebSocket, PTY, SQLite, Docker-adjacent libraries
 
 ## Manual Merge Policy
