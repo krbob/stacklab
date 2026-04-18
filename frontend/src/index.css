@@ -56,6 +56,25 @@ select {
   font-size: 16px;
 }
 
+/* Roomier hit areas on touch devices without inflating desktop density */
+@media (pointer: coarse) {
+  body {
+    font-size: 14px;
+  }
+
+  button,
+  [role="button"],
+  a[role="button"] {
+    min-height: 40px;
+  }
+
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  select,
+  textarea {
+    min-height: 40px;
+  }
+}
+
 /* Noise texture for surface depth */
 body::after {
   content: '';
