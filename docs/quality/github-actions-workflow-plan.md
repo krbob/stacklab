@@ -102,7 +102,7 @@ Runner:
 
 Setup:
 
-- Node `22`
+- Node `24.15.0`
 - npm cache enabled
 
 Commands:
@@ -130,7 +130,7 @@ Runner:
 
 Setup:
 
-- Go `1.26.2`
+- Go `1.26.3`
 - Go module cache enabled
 
 Commands:
@@ -205,8 +205,8 @@ This is preferred over a VM for normal PR validation.
 
 Setup:
 
-- Node `22`
-- Go `1.26.2`
+- Node `24.15.0`
+- Go `1.26.3`
 - Docker and Compose available on runner
 
 Recommended preparation:
@@ -314,7 +314,7 @@ It should stay intentionally small and focus on critical end-user paths rather t
 
 Setup:
 
-- Node `24`
+- Node `24.15.0`
 - Go from `go.mod`
 - Playwright Chromium installed on the runner
 
@@ -378,8 +378,8 @@ Runner:
 
 Setup:
 
-- Node `22`
-- Go `1.26.2`
+- Node `24.15.0`
+- Go `1.26.3`
 
 Commands:
 

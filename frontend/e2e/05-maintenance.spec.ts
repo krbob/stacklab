@@ -43,6 +43,11 @@ test.describe('Maintenance', () => {
     await expect(page.getByRole('heading', { name: 'Cleanup' })).toBeVisible()
     await expect(page.getByText('Total reclaimable:')).toBeVisible({ timeout: 20_000 })
 
+    // Image and build-cache pruning can evict runner caches and exceed the test timeout.
+    await page.getByRole('checkbox', { name: /Unused images/ }).uncheck()
+    await page.getByRole('checkbox', { name: /Build cache/ }).uncheck()
+    await page.getByRole('checkbox', { name: /Stopped containers/ }).check()
+
     const pruneResponse = page.waitForResponse((response) =>
       response.url().endsWith('/api/maintenance/prune') && response.request().method() === 'POST',
     )

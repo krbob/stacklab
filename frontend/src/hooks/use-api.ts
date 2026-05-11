@@ -15,7 +15,7 @@ export function useApi<T>(fetcher: () => Promise<T>, deps: unknown[] = []): UseA
     fetcher()
       .then((data) => setState({ data, error: null, loading: false, updatedAt: Date.now() }))
       .catch((error) => setState((s) => ({ data: null, error, loading: false, updatedAt: s.updatedAt })))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/use-memo
   }, deps)
 
   useEffect(() => { load() }, [load])
