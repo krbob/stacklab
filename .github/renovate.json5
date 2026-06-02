@@ -7,7 +7,7 @@
   "dependencyDashboard": true,
   "assigneesFromCodeOwners": false,
   "automerge": false,
-  "platformAutomerge": false,
+  "platformAutomerge": true,
   "prConcurrentLimit": 6,
   "prHourlyLimit": 4,
   "rebaseWhen": "behind-base-branch",
