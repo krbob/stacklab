@@ -1,21 +1,4 @@
 Package: stacklab
-Version: 2026.05.0~nightly20260412+ga8480b2
-Architecture: amd64
-Maintainer: Stacklab Maintainers <maintainers@stacklab.invalid>
-Depends: systemd, docker.io | docker-ce | moby-engine, docker-compose | docker-compose-plugin, git
-Recommends: ca-certificates
-Filename: pool/nightly/main/s/stacklab/stacklab_2026.05.0~nightly20260412+ga8480b2_amd64.deb
-Size: 9066688
-MD5sum: b7e1c06404ea284276b04970ba8bf125
-SHA1: 0e9340ede8bc99b829bec383eef1d374058be50a
-SHA256: 36c80568240bcbb044ca70a46dfb4dee362a4766dcea613270500dfb2aeb386d
-Section: admin
-Priority: optional
-Description: Compose-first control panel for Docker Compose homelabs
- Stacklab is a host-native, filesystem-first control panel for Docker Compose
- homelabs running on a single Linux host.
-
-Package: stacklab
 Version: 2026.05.0~nightly20260415+g3e70583
 Architecture: amd64
 Maintainer: Stacklab Maintainers <maintainers@stacklab.invalid>
@@ -111,6 +94,23 @@ Size: 9134920
 MD5sum: 05bc4d4e5ff7eb6a6c33de00e43fd4f0
 SHA1: 75aa5730e72c0d061023b8abfdc3a3b219e3e000
 SHA256: 2b8df793feea154440b2cc1af2d7955f9f7273e2cc3e58f4c1b568321f2b24e2
+Section: admin
+Priority: optional
+Description: Compose-first control panel for Docker Compose homelabs
+ Stacklab is a host-native, filesystem-first control panel for Docker Compose
+ homelabs running on a single Linux host.
+
+Package: stacklab
+Version: 2026.07.0~nightly20260605+g5413316
+Architecture: amd64
+Maintainer: Stacklab Maintainers <maintainers@stacklab.invalid>
+Depends: systemd, docker.io | docker-ce | moby-engine, docker-compose | docker-compose-plugin, git
+Recommends: ca-certificates
+Filename: pool/nightly/main/s/stacklab/stacklab_2026.07.0~nightly20260605+g5413316_amd64.deb
+Size: 9134712
+MD5sum: 2293e7979a012efdbb9638cd4eebf8ca
+SHA1: bae0b13eaa52ade52c0253c30ae5f51452a1052c
+SHA256: e5854eec63576bf1170236d26e13678bdce0c0dcba9b932b7ffff39b879109af
 Section: admin
 Priority: optional
 Description: Compose-first control panel for Docker Compose homelabs
