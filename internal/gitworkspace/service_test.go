@@ -11,6 +11,31 @@ import (
 	"stacklab/internal/config"
 )
 
+func TestMain(m *testing.M) {
+	if filepath.Base(os.Args[0]) == "fake-git" {
+		fakeGitMain()
+		return
+	}
+	os.Exit(m.Run())
+}
+
+func fakeGitMain() {
+	args := os.Args[1:]
+	if len(args) >= 2 && args[0] == "-C" {
+		args = args[2:]
+	}
+	if len(args) == 2 && args[0] == "rev-parse" && args[1] == "--show-toplevel" {
+		if os.Getenv("LC_ALL") == "C" && os.Getenv("LANG") == "C" {
+			_, _ = os.Stderr.WriteString("fatal: not a git repository (or any of the parent directories): .git\n")
+		} else {
+			_, _ = os.Stderr.WriteString("fatal: to nie jest repozytorium git\n")
+		}
+		os.Exit(128)
+	}
+	_, _ = os.Stderr.WriteString("unexpected args: " + strings.Join(args, " ") + "\n")
+	os.Exit(1)
+}
+
 func TestServiceStatusUnavailableWhenWorkspaceIsNotGitRepo(t *testing.T) {
 	t.Parallel()
 
@@ -33,23 +58,12 @@ func TestServiceStatusUnavailableWhenGitOutputWouldBeLocalized(t *testing.T) {
 
 	service, _ := newTestService(t)
 	fakeGit := filepath.Join(t.TempDir(), "fake-git")
-	script := `#!/bin/sh
-if [ "$1" = "-C" ]; then
-  shift 2
-fi
-if [ "$1" = "rev-parse" ] && [ "$2" = "--show-toplevel" ]; then
-  if [ "$LC_ALL" = "C" ] && [ "$LANG" = "C" ]; then
-    echo "fatal: not a git repository (or any of the parent directories): .git" >&2
-  else
-    echo "fatal: to nie jest repozytorium git" >&2
-  fi
-  exit 128
-fi
-echo "unexpected args: $*" >&2
-exit 1
-`
-	if err := os.WriteFile(fakeGit, []byte(script), 0o755); err != nil {
-		t.Fatalf("WriteFile(fake git) error = %v", err)
+	testBinary, err := os.Executable()
+	if err != nil {
+		t.Fatalf("Executable() error = %v", err)
+	}
+	if err := os.Symlink(testBinary, fakeGit); err != nil {
+		t.Fatalf("Symlink(fake git) error = %v", err)
 	}
 	service.gitBinary = fakeGit
 
