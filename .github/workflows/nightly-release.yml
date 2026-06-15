@@ -281,5 +281,5 @@ jobs:
             exit 0
           fi
           for tag in "${nightly_tags[@]:${keep_count}}"; do
-            gh release delete "${tag}" --yes --cleanup-tag
+            gh release delete "${tag}" --repo "${GITHUB_REPOSITORY}" --yes --cleanup-tag
           done
