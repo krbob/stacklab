@@ -79,6 +79,21 @@ Implemented and already exercised on Linux staging hosts:
 - CLI or API-key-based automation surface
 - limited file/template tooling that supports Compose-first operations
 
+## Backlog Candidates
+
+Engineering backlog:
+
+- generate frontend API types from `docs/api/openapi.yaml` and add a CI check that prevents REST contract/type drift
+- split `internal/httpapi/handler.go` by API domain after the auth and job lifecycle hardening work settles
+- evaluate tag-triggered release workflows and GoReleaser/nfpm only if they reduce the current release script surface without weakening APT channel validation
+
+Product backlog:
+
+- complete deploy-baseline drift detection by persisting normalized `compose.yaml` and `.env` hashes after successful deploy-oriented actions
+- add Compose lint warnings for risky or missing operational defaults such as absent healthchecks, missing restart policies, and public `0.0.0.0` port binds
+- add image update checks that can notify when a registry tag resolves to a new digest
+- add stack definition backup/export workflows for operator recovery and migration
+
 ## Explicitly De-Prioritized
 
 - multi-host control plane
