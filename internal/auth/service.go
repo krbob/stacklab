@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"stacklab/internal/config"
@@ -23,13 +24,23 @@ var (
 	ErrUnauthorized       = errors.New("unauthorized")
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrNotConfigured      = errors.New("auth not configured")
+	ErrTooManyAttempts    = errors.New("too many login attempts")
 )
 
 const localUserID = "local"
 
 type Service struct {
-	cfg   config.Config
-	store *store.Store
+	cfg           config.Config
+	store         *store.Store
+	now           func() time.Time
+	loginAttempts map[string]loginAttemptState
+	loginMu       sync.Mutex
+}
+
+type loginAttemptState struct {
+	FirstFailedAt time.Time
+	FailedCount   int
+	LockedUntil   time.Time
 }
 
 type Session struct {
@@ -41,8 +52,10 @@ type Session struct {
 
 func NewService(cfg config.Config, authStore *store.Store) *Service {
 	return &Service{
-		cfg:   cfg,
-		store: authStore,
+		cfg:           cfg,
+		store:         authStore,
+		now:           func() time.Time { return time.Now().UTC() },
+		loginAttempts: make(map[string]loginAttemptState),
 	}
 }
 
@@ -66,6 +79,11 @@ func (s *Service) Bootstrap(ctx context.Context) error {
 }
 
 func (s *Service) Login(ctx context.Context, password, userAgent, ipAddress string) (Session, error) {
+	now := s.now().UTC()
+	if s.loginLocked(ipAddress, now) {
+		return Session{}, ErrTooManyAttempts
+	}
+
 	passwordHash, configured, err := s.store.PasswordHash(ctx)
 	if err != nil {
 		return Session{}, err
@@ -74,10 +92,11 @@ func (s *Service) Login(ctx context.Context, password, userAgent, ipAddress stri
 		return Session{}, ErrNotConfigured
 	}
 	if err := verifyPassword(passwordHash, password); err != nil {
+		s.recordLoginFailure(ipAddress, now)
 		return Session{}, ErrInvalidCredentials
 	}
+	s.clearLoginFailures(ipAddress)
 
-	now := time.Now().UTC()
 	absoluteDeadline := now.Add(s.cfg.SessionAbsoluteLifetime)
 	idleDeadline := now.Add(s.cfg.SessionIdleTimeout)
 	expiresAt := minTime(idleDeadline, absoluteDeadline)
@@ -102,6 +121,44 @@ func (s *Service) Login(ctx context.Context, password, userAgent, ipAddress stri
 	}
 
 	return session, nil
+}
+
+func (s *Service) loginLocked(ipAddress string, now time.Time) bool {
+	key := loginAttemptKey(ipAddress)
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
+
+	attempt := s.loginAttempts[key]
+	if attempt.LockedUntil.After(now) {
+		return true
+	}
+	if !attempt.LockedUntil.IsZero() || (attempt.FailedCount > 0 && now.Sub(attempt.FirstFailedAt) > s.loginFailureWindow()) {
+		delete(s.loginAttempts, key)
+	}
+	return false
+}
+
+func (s *Service) recordLoginFailure(ipAddress string, now time.Time) {
+	key := loginAttemptKey(ipAddress)
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
+
+	attempt := s.loginAttempts[key]
+	if attempt.FailedCount == 0 || now.Sub(attempt.FirstFailedAt) > s.loginFailureWindow() {
+		attempt = loginAttemptState{FirstFailedAt: now}
+	}
+	attempt.FailedCount++
+	if attempt.FailedCount >= s.loginMaxFailures() {
+		attempt.LockedUntil = now.Add(s.loginLockoutDuration())
+	}
+	s.loginAttempts[key] = attempt
+}
+
+func (s *Service) clearLoginFailures(ipAddress string) {
+	key := loginAttemptKey(ipAddress)
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
+	delete(s.loginAttempts, key)
 }
 
 func (s *Service) Logout(ctx context.Context, sessionID string) error {
@@ -214,6 +271,35 @@ func SameOrigin(r *http.Request) bool {
 		return false
 	}
 	return parsedOrigin.Host == r.Host
+}
+
+func loginAttemptKey(ipAddress string) string {
+	trimmed := strings.TrimSpace(ipAddress)
+	if trimmed == "" {
+		return "unknown"
+	}
+	return trimmed
+}
+
+func (s *Service) loginMaxFailures() int {
+	if s.cfg.LoginMaxFailures <= 0 {
+		return 5
+	}
+	return s.cfg.LoginMaxFailures
+}
+
+func (s *Service) loginFailureWindow() time.Duration {
+	if s.cfg.LoginFailureWindow <= 0 {
+		return 5 * time.Minute
+	}
+	return s.cfg.LoginFailureWindow
+}
+
+func (s *Service) loginLockoutDuration() time.Duration {
+	if s.cfg.LoginLockoutDuration <= 0 {
+		return 5 * time.Minute
+	}
+	return s.cfg.LoginLockoutDuration
 }
 
 func hashPassword(password string) (string, error) {

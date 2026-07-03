@@ -98,6 +98,42 @@ func TestAuthenticateRequestRejectsExpiredSession(t *testing.T) {
 	}
 }
 
+func TestLoginLocksClientAfterRepeatedFailures(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	authStore := openTestStore(t)
+	cfg := testConfig("secret")
+	cfg.LoginMaxFailures = 2
+	cfg.LoginFailureWindow = time.Minute
+	cfg.LoginLockoutDuration = time.Hour
+	service := NewService(cfg, authStore)
+
+	now := time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+
+	if err := service.Bootstrap(ctx); err != nil {
+		t.Fatalf("Bootstrap() error = %v", err)
+	}
+
+	for i := 0; i < 2; i++ {
+		if _, err := service.Login(ctx, "wrong", "ua", "127.0.0.1"); !errors.Is(err, ErrInvalidCredentials) {
+			t.Fatalf("Login(wrong %d) error = %v, want ErrInvalidCredentials", i+1, err)
+		}
+	}
+	if _, err := service.Login(ctx, "secret", "ua", "127.0.0.1"); !errors.Is(err, ErrTooManyAttempts) {
+		t.Fatalf("Login(locked client) error = %v, want ErrTooManyAttempts", err)
+	}
+	if _, err := service.Login(ctx, "secret", "ua", "127.0.0.2"); err != nil {
+		t.Fatalf("Login(other client) error = %v", err)
+	}
+
+	now = now.Add(cfg.LoginLockoutDuration + time.Nanosecond)
+	if _, err := service.Login(ctx, "secret", "ua", "127.0.0.1"); err != nil {
+		t.Fatalf("Login(after lockout) error = %v", err)
+	}
+}
+
 func openTestStore(t *testing.T) *store.Store {
 	t.Helper()
 

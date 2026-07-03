@@ -49,6 +49,18 @@ Recommended algorithm:
 
 Stored parameters should be explicit so they can be migrated later.
 
+## Login Attempt Control
+
+Repeated failed login attempts from the same client IP are rate-limited with an in-memory lockout.
+
+Default thresholds:
+
+- `STACKLAB_LOGIN_MAX_FAILURES=5`
+- `STACKLAB_LOGIN_FAILURE_WINDOW=5m`
+- `STACKLAB_LOGIN_LOCKOUT_DURATION=5m`
+
+This protects the single local operator password against simple LAN brute-force attempts. It is intentionally process-local in v1; restarting Stacklab clears the attempt counters.
+
 ## Session Model
 
 Authenticated browser access uses a signed server-side session represented by a cookie.
@@ -336,7 +348,7 @@ Terminal audit should include metadata events:
 Post-MVP hardening candidates:
 
 - fresh-auth requirement for host shell
-- stronger rate limiting for login attempts
+- stronger distributed or persistent rate limiting for login attempts
 - optional TOTP or client-certificate access on LAN
 - encrypted secret references
 - stricter per-feature policy toggles

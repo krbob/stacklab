@@ -278,6 +278,8 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, auth.ErrInvalidCredentials):
 			writeError(w, http.StatusUnauthorized, "unauthorized", "Invalid password.", nil)
+		case errors.Is(err, auth.ErrTooManyAttempts):
+			writeError(w, http.StatusTooManyRequests, "rate_limited", "Too many failed login attempts. Try again later.", nil)
 		case errors.Is(err, auth.ErrNotConfigured):
 			writeError(w, http.StatusServiceUnavailable, "auth_not_configured", "Authentication is not configured yet.", nil)
 		default:

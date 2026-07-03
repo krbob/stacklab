@@ -115,6 +115,38 @@ func TestHandlerSetsSecurityHeaders(t *testing.T) {
 	}
 }
 
+func TestHandlerRateLimitsRepeatedLoginFailures(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := newTestHandler(t)
+
+	for i := 0; i < 5; i++ {
+		response := performJSONRequest(t, handler, http.MethodPost, "/api/auth/login", map[string]any{
+			"password": "wrong",
+		}, nil)
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf("POST /api/auth/login wrong attempt %d status = %d, want %d", i+1, response.Code, http.StatusUnauthorized)
+		}
+	}
+
+	response := performJSONRequest(t, handler, http.MethodPost, "/api/auth/login", map[string]any{
+		"password": "secret",
+	}, nil)
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("POST /api/auth/login locked status = %d, want %d", response.Code, http.StatusTooManyRequests)
+	}
+
+	var payload struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	decodeResponse(t, response, &payload)
+	if payload.Error.Code != "rate_limited" {
+		t.Fatalf("error code = %q, want rate_limited", payload.Error.Code)
+	}
+}
+
 func TestHandlerNotificationSettingsAndTestWebhook(t *testing.T) {
 	t.Parallel()
 

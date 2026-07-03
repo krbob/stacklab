@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 )
 
@@ -31,6 +32,9 @@ type Config struct {
 	SessionIdleTimeout       time.Duration
 	SessionAbsoluteLifetime  time.Duration
 	CookieSecure             bool
+	LoginMaxFailures         int
+	LoginFailureWindow       time.Duration
+	LoginLockoutDuration     time.Duration
 }
 
 func Load() Config {
@@ -60,6 +64,9 @@ func Load() Config {
 		SessionIdleTimeout:       parseDuration(getenv("STACKLAB_SESSION_IDLE_TIMEOUT", "12h"), 12*time.Hour),
 		SessionAbsoluteLifetime:  parseDuration(getenv("STACKLAB_SESSION_ABSOLUTE_LIFETIME", "168h"), 7*24*time.Hour),
 		CookieSecure:             parseBool(getenv("STACKLAB_COOKIE_SECURE", "false")),
+		LoginMaxFailures:         parseInt(getenv("STACKLAB_LOGIN_MAX_FAILURES", "5"), 5),
+		LoginFailureWindow:       parseDuration(getenv("STACKLAB_LOGIN_FAILURE_WINDOW", "5m"), 5*time.Minute),
+		LoginLockoutDuration:     parseDuration(getenv("STACKLAB_LOGIN_LOCKOUT_DURATION", "5m"), 5*time.Minute),
 	}
 }
 
@@ -103,4 +110,12 @@ func parseBool(value string) bool {
 	default:
 		return false
 	}
+}
+
+func parseInt(value string, fallback int) int {
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
 }
