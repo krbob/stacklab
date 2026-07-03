@@ -33,6 +33,49 @@ func TestTerminalHookRunsOnFinishSucceeded(t *testing.T) {
 	}
 }
 
+func TestFinishTimedOutMarksTerminalState(t *testing.T) {
+	t.Parallel()
+
+	jobStore := openJobsTestStore(t)
+	service := NewService(jobStore)
+
+	var terminal store.Job
+	service.SetTerminalHook(func(job store.Job) {
+		terminal = job
+	})
+
+	job, err := service.Start(context.Background(), "demo", "pull", "local")
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	job, err = service.FinishTimedOut(context.Background(), job, "stack_action_timed_out", "Stack action timed out.")
+	if err != nil {
+		t.Fatalf("FinishTimedOut() error = %v", err)
+	}
+
+	if job.State != "timed_out" || job.ErrorCode != "stack_action_timed_out" || job.FinishedAt == nil {
+		t.Fatalf("unexpected timed-out job: %#v", job)
+	}
+	if terminal.ID != job.ID || terminal.State != "timed_out" {
+		t.Fatalf("unexpected terminal hook payload: %#v", terminal)
+	}
+
+	events, err := jobStore.ListJobEvents(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("ListJobEvents() error = %v", err)
+	}
+	if len(events) != 3 {
+		t.Fatalf("job events len = %d, want 3", len(events))
+	}
+	if events[1].Event != "job_error" || events[1].State != "timed_out" {
+		t.Fatalf("job error event = %#v, want timed_out job_error", events[1])
+	}
+	if events[2].Event != "job_finished" || events[2].State != "timed_out" {
+		t.Fatalf("job finished event = %#v, want timed_out job_finished", events[2])
+	}
+}
+
 func TestReconcileInterruptedMarksActiveJobFailed(t *testing.T) {
 	t.Parallel()
 

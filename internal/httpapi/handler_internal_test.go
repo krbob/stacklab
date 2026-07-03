@@ -57,14 +57,16 @@ type fakeDockerAdmin struct {
 }
 
 type fakeDockerRegistry struct {
-	statusResponse dockerregistryauth.StatusResponse
-	statusError    error
-	loginOutput    string
-	loginError     error
-	logoutOutput   string
-	logoutError    error
-	lastLogin      dockerregistryauth.LoginRequest
-	lastLogout     dockerregistryauth.LogoutRequest
+	statusResponse      dockerregistryauth.StatusResponse
+	statusError         error
+	loginOutput         string
+	loginError          error
+	logoutOutput        string
+	logoutError         error
+	lastLogin           dockerregistryauth.LoginRequest
+	lastLogout          dockerregistryauth.LogoutRequest
+	loginStarted        chan struct{}
+	loginWaitForContext bool
 }
 
 type fakeConfigWorkspaceReader struct {
@@ -115,6 +117,13 @@ func (f *fakeDockerRegistry) Status(ctx context.Context) (dockerregistryauth.Sta
 
 func (f *fakeDockerRegistry) Login(ctx context.Context, request dockerregistryauth.LoginRequest) (string, error) {
 	f.lastLogin = request
+	if f.loginStarted != nil {
+		close(f.loginStarted)
+	}
+	if f.loginWaitForContext {
+		<-ctx.Done()
+		return "", ctx.Err()
+	}
 	return f.loginOutput, f.loginError
 }
 
@@ -490,6 +499,94 @@ func TestHandlerDockerRegistryStatusLoginAndLogout(t *testing.T) {
 	waitForInternalJobState(t, served, cookies, logoutJobID, "succeeded")
 	if registry.lastLogout.Registry != "ghcr.io" {
 		t.Fatalf("unexpected logout request: %#v", registry.lastLogout)
+	}
+}
+
+func TestHandlerDockerRegistryLoginCancelsWithAppContext(t *testing.T) {
+	t.Parallel()
+
+	handler, served, _ := newInternalTestHandler(t)
+	appCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	handler.appCtx = appCtx
+	handler.cfg.DockerRegistryAuthTimeout = time.Hour
+	registry := &fakeDockerRegistry{
+		loginStarted:        make(chan struct{}),
+		loginWaitForContext: true,
+	}
+	handler.dockerRegistry = registry
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	loginResponse := performInternalJSONRequest(t, served, http.MethodPost, "/api/docker/registries/login", map[string]any{
+		"registry": "ghcr.io",
+		"username": "bob",
+		"password": "secret-token",
+	}, cookies)
+	if loginResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/docker/registries/login status = %d, want %d; body=%s", loginResponse.Code, http.StatusOK, loginResponse.Body.String())
+	}
+	loginJobID := assertInternalRunningJob(t, loginResponse, "docker_registry_login")
+
+	select {
+	case <-registry.loginStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for docker registry login to start")
+	}
+
+	cancel()
+	waitForInternalJobState(t, served, cookies, loginJobID, "cancelled")
+
+	job, err := handler.jobs.Get(context.Background(), loginJobID)
+	if err != nil {
+		t.Fatalf("jobs.Get() error = %v", err)
+	}
+	if job.ErrorCode != "docker_registry_login_cancelled" {
+		t.Fatalf("job error code = %q, want docker_registry_login_cancelled", job.ErrorCode)
+	}
+	if job.Workflow == nil || len(job.Workflow.Steps) != 1 || job.Workflow.Steps[0].State != "cancelled" {
+		t.Fatalf("unexpected cancelled workflow: %#v", job.Workflow)
+	}
+}
+
+func TestHandlerDockerRegistryLoginTimesOut(t *testing.T) {
+	t.Parallel()
+
+	handler, served, _ := newInternalTestHandler(t)
+	handler.cfg.DockerRegistryAuthTimeout = 10 * time.Millisecond
+	registry := &fakeDockerRegistry{
+		loginStarted:        make(chan struct{}),
+		loginWaitForContext: true,
+	}
+	handler.dockerRegistry = registry
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	loginResponse := performInternalJSONRequest(t, served, http.MethodPost, "/api/docker/registries/login", map[string]any{
+		"registry": "ghcr.io",
+		"username": "bob",
+		"password": "secret-token",
+	}, cookies)
+	if loginResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/docker/registries/login status = %d, want %d; body=%s", loginResponse.Code, http.StatusOK, loginResponse.Body.String())
+	}
+	loginJobID := assertInternalRunningJob(t, loginResponse, "docker_registry_login")
+
+	select {
+	case <-registry.loginStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for docker registry login to start")
+	}
+
+	waitForInternalJobState(t, served, cookies, loginJobID, "timed_out")
+
+	job, err := handler.jobs.Get(context.Background(), loginJobID)
+	if err != nil {
+		t.Fatalf("jobs.Get() error = %v", err)
+	}
+	if job.ErrorCode != "docker_registry_login_timed_out" {
+		t.Fatalf("job error code = %q, want docker_registry_login_timed_out", job.ErrorCode)
+	}
+	if job.Workflow == nil || len(job.Workflow.Steps) != 1 || job.Workflow.Steps[0].State != "timed_out" {
+		t.Fatalf("unexpected timed-out workflow: %#v", job.Workflow)
 	}
 }
 

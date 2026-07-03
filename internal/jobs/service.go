@@ -89,10 +89,22 @@ func (s *Service) FinishSucceeded(ctx context.Context, job store.Job) (store.Job
 }
 
 func (s *Service) FinishFailed(ctx context.Context, job store.Job, errorCode, errorMessage string) (store.Job, error) {
+	return s.finishTerminal(ctx, job, "failed", errorCode, errorMessage, "Job finished with errors.")
+}
+
+func (s *Service) FinishTimedOut(ctx context.Context, job store.Job, errorCode, errorMessage string) (store.Job, error) {
+	return s.finishTerminal(ctx, job, "timed_out", errorCode, errorMessage, "Job timed out.")
+}
+
+func (s *Service) FinishCancelled(ctx context.Context, job store.Job, errorCode, errorMessage string) (store.Job, error) {
+	return s.finishTerminal(ctx, job, "cancelled", errorCode, errorMessage, "Job was cancelled.")
+}
+
+func (s *Service) finishTerminal(ctx context.Context, job store.Job, state, errorCode, errorMessage, finishMessage string) (store.Job, error) {
 	defer s.unlockAll(job.ID)
 
 	now := time.Now().UTC()
-	job.State = "failed"
+	job.State = state
 	job.FinishedAt = &now
 	job.ErrorCode = errorCode
 	job.ErrorMessage = errorMessage
@@ -102,7 +114,7 @@ func (s *Service) FinishFailed(ctx context.Context, job store.Job, errorCode, er
 	if err := s.PublishEvent(ctx, job, "job_error", errorMessage, "", nil); err != nil {
 		return store.Job{}, err
 	}
-	if err := s.PublishEvent(ctx, job, "job_finished", "Job finished with errors.", "", nil); err != nil {
+	if err := s.PublishEvent(ctx, job, "job_finished", finishMessage, "", nil); err != nil {
 		return store.Job{}, err
 	}
 	if s.onTerminal != nil {

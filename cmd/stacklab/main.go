@@ -87,7 +87,10 @@ func main() {
 		}
 	}
 
-	handler, err := httpapi.NewHandler(cfg, logger, authService, auditService, jobService, notificationService, schedulerService, selfUpdateService)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	handler, err := httpapi.NewHandlerWithContext(ctx, cfg, logger, authService, auditService, jobService, notificationService, schedulerService, selfUpdateService)
 	if err != nil {
 		logger.Error("failed to initialize HTTP handler", slog.String("err", err.Error()))
 		os.Exit(1)
@@ -109,8 +112,6 @@ func main() {
 		slog.String("frontend_dist", cfg.FrontendDistDir),
 	)
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	notificationService.StartBackground(ctx)
 	schedulerService.StartBackground(ctx)
 	selfUpdateService.StartBackground(ctx)
