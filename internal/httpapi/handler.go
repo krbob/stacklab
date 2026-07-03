@@ -165,7 +165,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Servic
 
 	handler.registerRoutes()
 
-	return handler.withLogging(handler.mux), nil
+	return handler.withLogging(handler.withSecurityHeaders(handler.mux)), nil
 }
 
 func (h *Handler) registerRoutes() {
@@ -2278,6 +2278,18 @@ func (h *Handler) withLogging(next http.Handler) http.Handler {
 			slog.Int("status", recorder.status),
 			slog.Duration("duration", time.Since(startedAt)),
 		)
+	})
+}
+
+func (h *Handler) withSecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers := w.Header()
+		headers.Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+		headers.Set("X-Content-Type-Options", "nosniff")
+		headers.Set("Referrer-Policy", "same-origin")
+		headers.Set("X-Frame-Options", "DENY")
+
+		next.ServeHTTP(w, r)
 	})
 }
 

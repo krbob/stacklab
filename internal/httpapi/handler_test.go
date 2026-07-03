@@ -90,6 +90,31 @@ func TestHandlerLoginSessionAndPasswordUpdate(t *testing.T) {
 	}
 }
 
+func TestHandlerSetsSecurityHeaders(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := newTestHandler(t)
+
+	response := performJSONRequest(t, handler, http.MethodGet, "/api/health", nil, nil)
+	if response.Code != http.StatusOK {
+		t.Fatalf("GET /api/health status = %d, want %d", response.Code, http.StatusOK)
+	}
+
+	headers := response.Result().Header
+	if got := headers.Get("Content-Security-Policy"); got != "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" {
+		t.Fatalf("Content-Security-Policy = %q", got)
+	}
+	if got := headers.Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("X-Content-Type-Options = %q, want nosniff", got)
+	}
+	if got := headers.Get("Referrer-Policy"); got != "same-origin" {
+		t.Fatalf("Referrer-Policy = %q, want same-origin", got)
+	}
+	if got := headers.Get("X-Frame-Options"); got != "DENY" {
+		t.Fatalf("X-Frame-Options = %q, want DENY", got)
+	}
+}
+
 func TestHandlerNotificationSettingsAndTestWebhook(t *testing.T) {
 	t.Parallel()
 
