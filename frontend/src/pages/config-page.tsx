@@ -253,9 +253,9 @@ export function ConfigPage() {
   }, [])
 
   return (
-    <div className="flex gap-4" style={{ minHeight: 'calc(100vh - 120px)' }}>
-      {/* Left panel */}
-      <div className="hidden w-64 shrink-0 flex-col rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-[var(--shadow)] lg:flex">
+    <div className="flex flex-col gap-4 lg:flex-row" style={{ minHeight: 'calc(100vh - 120px)' }}>
+      {/* Left panel: full-width block above the editor on mobile, sidebar on lg+ */}
+      <div className="flex max-h-[50vh] w-full shrink-0 flex-col overflow-y-auto rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-[var(--shadow)] lg:max-h-none lg:w-64 lg:overflow-visible">
         <div className="mb-3 text-xs uppercase tracking-wider text-[var(--accent)]">Config workspace</div>
         <p className="mb-3 text-xs text-[var(--muted)]">
           Files here live under <span className="font-mono">{workspaceRoot ?? 'the managed config root'}</span>. They are only used when a stack mounts or references them.
@@ -421,7 +421,7 @@ export function ConfigPage() {
               <div className="flex flex-1 items-center justify-center">
                 <div className="text-center">
                   <p className="text-lg text-[var(--text)]">Select a file to view or edit</p>
-                  <p className="mt-1 text-sm text-[var(--muted)]">Browse the config workspace in the tree on the left.</p>
+                  <p className="mt-1 text-sm text-[var(--muted)]">Pick a file from the config workspace tree.</p>
                 </div>
               </div>
             )}
