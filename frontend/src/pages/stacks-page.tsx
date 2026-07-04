@@ -49,15 +49,21 @@ function StackTile({ stack }: { stack: StackListItem }) {
   const unhealthy = stack.health_summary.unhealthy_container_count
   const links = stack.metadata?.links ?? []
 
+  // Stretched-link card: the stack link is an overlay, so external metadata
+  // links are siblings, not anchors nested inside an anchor.
   return (
-    <Link
+    <article
       data-testid={`stack-card-${stack.id}`}
-      to={`/stacks/${stack.id}`}
       className={cn(
-        'mb-3 block break-inside-avoid rounded-lg border border-l-[3px] border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-3 transition hover:border-[rgba(245,165,36,0.35)] hover:bg-[rgba(255,255,255,0.05)]',
+        'relative mb-3 break-inside-avoid rounded-lg border border-l-[3px] border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-3 transition focus-within:border-[rgba(245,165,36,0.35)] hover:border-[rgba(245,165,36,0.35)] hover:bg-[rgba(255,255,255,0.05)]',
         edgeColors[stack.display_state] ?? edgeColors.defined,
       )}
     >
+      <Link
+        to={`/stacks/${stack.id}`}
+        aria-label={stack.name}
+        className="absolute inset-0 rounded-lg"
+      />
       <div className="flex items-center gap-2">
         <StackGlyph name={stack.name} icon={stack.metadata?.icon} />
         <span className="min-w-0 truncate font-mono text-sm font-semibold text-[var(--text)]">{stack.name}</span>
@@ -101,14 +107,13 @@ function StackTile({ stack }: { stack: StackListItem }) {
               last: {stack.last_action.action} ({stack.last_action.result})
             </span>
           )}
-          <span className="ml-auto flex shrink-0 gap-2">
+          <span className="relative z-10 ml-auto flex shrink-0 gap-2">
             {links.map((link) => (
               <a
                 key={link.url}
                 href={link.url}
                 target="_blank"
                 rel="noreferrer"
-                onClick={(e) => e.stopPropagation()}
                 className="flex items-center gap-1 text-[var(--accent)] hover:underline"
               >
                 <ExternalLink className="size-3" />
@@ -118,7 +123,7 @@ function StackTile({ stack }: { stack: StackListItem }) {
           </span>
         </div>
       )}
-    </Link>
+    </article>
   )
 }
 

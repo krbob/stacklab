@@ -65,7 +65,7 @@ describe('AuditTable', () => {
     })
 
     renderAudit()
-    fireEvent.click(screen.getByRole('button', { name: 'View detail' }))
+    fireEvent.click(screen.getByRole('button', { name: /pull/ }))
 
     expect(await screen.findByText('Job detail')).toBeInTheDocument()
     expect(mockGetJob).toHaveBeenCalledWith('job_1')

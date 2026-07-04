@@ -66,12 +66,9 @@ export function AuditTable({ entries, showStack = false, onLoadMore, hasMore, lo
                 {entry.duration_ms != null ? `${(entry.duration_ms / 1000).toFixed(1)}s` : '—'}
               </span>
               {hasJob && (
-                <button
-                  onClick={() => openJob(entry.job_id!)}
-                  className="ml-auto text-xs text-[var(--accent)] hover:underline"
-                >
-                  View detail
-                </button>
+                <span aria-hidden className="ml-auto text-xs text-[var(--accent)]">
+                  detail ›
+                </span>
               )}
             </div>
           </div>
