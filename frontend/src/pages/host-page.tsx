@@ -333,7 +333,7 @@ function StacklabLogs() {
 
       <div
         ref={scrollRef}
-        className="h-[400px] overflow-y-auto rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs leading-5"
+        className="h-[calc(100vh-430px)] min-h-[320px] overflow-y-auto rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs leading-5"
       >
         {loading && entries.length === 0 && (
           <div className="py-8 text-center text-[var(--muted)]">Loading logs...</div>
