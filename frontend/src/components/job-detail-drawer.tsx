@@ -75,8 +75,15 @@ function JobDetailDrawerContent({ jobId }: { jobId: string }) {
       {/* Backdrop */}
       <div className="fixed inset-0 z-40 bg-black/40" onClick={closeJob} />
 
-      {/* Drawer */}
-      <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-lg flex-col border-l border-[var(--panel-border)] bg-[var(--panel)] shadow-lg">
+      {/* Drawer — safe-area insets keep the close button clear of the iOS
+          status bar and home indicator. */}
+      <div
+        className="fixed inset-y-0 right-0 z-50 flex w-full max-w-lg flex-col border-l border-[var(--panel-border)] bg-[var(--panel)] shadow-lg"
+        style={{
+          paddingTop: 'env(safe-area-inset-top)',
+          paddingBottom: 'env(safe-area-inset-bottom)',
+        }}
+      >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[var(--panel-border)] px-5 py-4">
           <div>
@@ -89,7 +96,11 @@ function JobDetailDrawerContent({ jobId }: { jobId: string }) {
               </div>
             )}
           </div>
-          <button onClick={closeJob} className="rounded-md p-1 text-[var(--muted)] transition hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]">
+          <button
+            onClick={closeJob}
+            aria-label="Close job detail"
+            className="flex size-9 items-center justify-center rounded-md text-[var(--muted)] transition hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]"
+          >
             <X className="size-5" />
           </button>
         </div>
