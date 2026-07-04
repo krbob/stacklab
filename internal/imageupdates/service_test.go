@@ -1,6 +1,13 @@
 package imageupdates
 
-import "testing"
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
 
 func TestSplitImageRef(t *testing.T) {
 	cases := []struct {
@@ -44,5 +51,49 @@ func TestNormalizeRepository(t *testing.T) {
 	b := normalizeRepository("docker.io/library/nginx")
 	if a != b {
 		t.Fatalf("normalizeRepository mismatch: %q vs %q", a, b)
+	}
+}
+
+func TestCheckImageTreatsAnyMatchingLocalRepoDigestAsUpToDate(t *testing.T) {
+	const currentDigest = "sha256:current"
+
+	registry := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodHead {
+			t.Fatalf("method = %s, want HEAD", r.Method)
+		}
+		if r.URL.Path != "/v2/example/app/manifests/latest" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		w.Header().Set("Docker-Content-Digest", currentDigest)
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(registry.Close)
+
+	registryHost := strings.TrimPrefix(registry.URL, "https://")
+	imageRef := registryHost + "/example/app:latest"
+	repoDigests, err := json.Marshal([]string{
+		registryHost + "/example/app@sha256:old",
+		registryHost + "/example/app@" + currentDigest,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	service := &Service{
+		client: registry.Client(),
+		runDocker: func(ctx context.Context, args ...string) ([]byte, error) {
+			return repoDigests, nil
+		},
+	}
+
+	status := service.checkImage(context.Background(), imageRef)
+	if status.State != StateUpToDate {
+		t.Fatalf("state = %q, want %q (status=%+v)", status.State, StateUpToDate, status)
+	}
+	if status.LocalDigest != currentDigest {
+		t.Fatalf("local digest = %q, want %q", status.LocalDigest, currentDigest)
+	}
+	if status.RemoteDigest != currentDigest {
+		t.Fatalf("remote digest = %q, want %q", status.RemoteDigest, currentDigest)
 	}
 }

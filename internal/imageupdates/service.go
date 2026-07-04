@@ -110,11 +110,11 @@ func (s *Service) checkImage(ctx context.Context, imageRef string) store.ImageUp
 		CheckedAt: time.Now().UTC(),
 	}
 
-	localDigest := s.localRepoDigest(ctx, imageRef)
-	if localDigest == "" {
+	localDigests := s.localRepoDigests(ctx, imageRef)
+	if len(localDigests) == 0 {
 		return status
 	}
-	status.LocalDigest = localDigest
+	status.LocalDigest = localDigests[0]
 
 	remoteDigest, err := s.remoteDigest(ctx, imageRef)
 	if err != nil {
@@ -125,7 +125,8 @@ func (s *Service) checkImage(ctx context.Context, imageRef string) store.ImageUp
 	}
 	status.RemoteDigest = remoteDigest
 
-	if remoteDigest == localDigest {
+	if containsDigest(localDigests, remoteDigest) {
+		status.LocalDigest = remoteDigest
 		status.State = StateUpToDate
 	} else {
 		status.State = StateAvailable
@@ -133,34 +134,45 @@ func (s *Service) checkImage(ctx context.Context, imageRef string) store.ImageUp
 	return status
 }
 
-// localRepoDigest returns the digest the local image was pulled as, matched
-// against the repository of imageRef.
-func (s *Service) localRepoDigest(ctx context.Context, imageRef string) string {
+// localRepoDigests returns the digests the local image is known by, matched
+// against the repository of imageRef. Docker may retain multiple RepoDigests for
+// the same tag/repository, so callers must compare against the full set.
+func (s *Service) localRepoDigests(ctx context.Context, imageRef string) []string {
 	output, err := s.runDocker(ctx, "image", "inspect", "--format", "{{json .RepoDigests}}", imageRef)
 	if err != nil {
-		return ""
+		return nil
 	}
 	var repoDigests []string
 	if err := json.Unmarshal([]byte(strings.TrimSpace(string(output))), &repoDigests); err != nil {
-		return ""
+		return nil
 	}
 
 	repo := normalizeRepository(imageRef)
+	digests := make([]string, 0, len(repoDigests))
 	for _, entry := range repoDigests {
 		name, digest, ok := strings.Cut(entry, "@")
 		if !ok {
 			continue
 		}
 		if normalizeRepository(name) == repo {
-			return digest
+			digests = append(digests, digest)
 		}
 	}
-	if len(repoDigests) == 1 {
+	if len(digests) == 0 && len(repoDigests) == 1 {
 		if _, digest, ok := strings.Cut(repoDigests[0], "@"); ok {
-			return digest
+			digests = append(digests, digest)
 		}
 	}
-	return ""
+	return digests
+}
+
+func containsDigest(digests []string, candidate string) bool {
+	for _, digest := range digests {
+		if digest == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) remoteDigest(ctx context.Context, imageRef string) (string, error) {
