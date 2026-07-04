@@ -3,7 +3,6 @@ import { useOutletContext } from 'react-router-dom'
 import { invokeAction } from '@/lib/api-client'
 import { useJobStream } from '@/hooks/use-job-stream'
 import type { StackDetailResponse } from '@/lib/api-types'
-import { StackBadge } from '@/components/stack-badge'
 import { DeleteStackDialog } from '@/components/delete-stack-dialog'
 import { ProgressPanel } from '@/components/progress-panel'
 import { cn } from '@/lib/cn'
@@ -38,12 +37,9 @@ export function StackOverviewPage() {
         </div>
       )}
 
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <StackBadge
-          displayState={stack.display_state}
-          configState={stack.config_state}
-          activityState={stack.activity_state}
-        />
+      {/* Status lives once in the stack header (stack-layout); the overview
+          only carries the action bar. */}
+      <div className="flex justify-end">
         <ActionBar stack={stack} onAction={refetch} onRemove={() => setShowDelete(true)} />
       </div>
 
