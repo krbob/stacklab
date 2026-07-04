@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { WsContext } from '@/contexts/ws-context'
 import { getActiveJobs } from '@/lib/api-client'
 import type { ActiveJobsResponse } from '@/lib/api-types'
@@ -6,12 +6,16 @@ import type { WsServerFrame } from '@/lib/ws-types'
 
 const FALLBACK_POLL_INTERVAL = 3_000
 
-// Live view of background jobs: pushed over the multiplexed socket
-// (activity.snapshot + activity.update); falls back to REST polling while the
-// socket is down so the UI never goes blind (Slice D).
-export function useActivityStream(): ActiveJobsResponse | null {
-  // Context is optional: without a WsProvider (tests, degraded boot) the hook
-  // behaves as permanently disconnected and polls.
+// eslint-disable-next-line react-refresh/only-export-components
+export const ActivityContext = createContext<ActiveJobsResponse | null>(null)
+
+// Single shared subscription to the global activity stream. Multiple
+// consumers (sidebar activity, host strip, mobile drawer) must not each
+// subscribe: the backend keys subscriptions by stream_id, so a second
+// subscribe/unsubscribe pair would tear down the others' feed.
+export function ActivityProvider({ children }: { children: ReactNode }) {
+  // Context is optional: without a WsProvider (tests, degraded boot) the
+  // provider behaves as permanently disconnected and polls.
   const ws = useContext(WsContext)
   const connected = ws?.connected ?? false
   const send = ws?.send
@@ -20,11 +24,6 @@ export function useActivityStream(): ActiveJobsResponse | null {
   // Older backends do not know activity.subscribe; on a stream error we fall
   // back to REST polling for the rest of the session.
   const [pushUnsupported, setPushUnsupported] = useState(false)
-  const responseRef = useRef<ActiveJobsResponse | null>(null)
-
-  useEffect(() => {
-    responseRef.current = response
-  }, [response])
 
   useEffect(() => {
     if (!connected || !send || !subscribe || pushUnsupported) {
@@ -74,5 +73,5 @@ export function useActivityStream(): ActiveJobsResponse | null {
     }
   }, [connected, send, subscribe, pushUnsupported])
 
-  return response
+  return <ActivityContext.Provider value={response}>{children}</ActivityContext.Provider>
 }

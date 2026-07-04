@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/use-auth'
 import { GlobalActivity } from '@/components/global-activity'
 import { JobDetailDrawer } from '@/components/job-detail-drawer'
 import { HostStrip } from '@/components/host-strip'
+import { ActivityProvider } from '@/contexts/activity-context'
 
 const links = [
   { to: '/stacks', label: 'Stacks', icon: FolderKanban },
@@ -89,6 +90,7 @@ export function RootLayout() {
   }, [mobileNavOpen])
 
   return (
+    <ActivityProvider>
     <div className="min-h-screen">
       <header
         className="sticky top-0 z-30 flex items-center justify-center border-b border-[var(--panel-border)] bg-[var(--bg)] px-4 py-3 lg:hidden"
@@ -174,6 +176,7 @@ export function RootLayout() {
 
       <JobDetailDrawer />
     </div>
+    </ActivityProvider>
   )
 }
 

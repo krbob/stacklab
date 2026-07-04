@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GlobalActivity } from './global-activity'
 import { JobDetailDrawer } from './job-detail-drawer'
 import { JobDrawerProvider } from '@/contexts/job-drawer-context'
+import { ActivityProvider } from '@/contexts/activity-context'
 import type { ActiveJobsResponse, JobDetail } from '@/lib/api-types'
 
 const mockGetActiveJobs = vi.fn()
@@ -20,8 +21,10 @@ function renderActivity() {
   return render(
     <MemoryRouter>
       <JobDrawerProvider>
-        <GlobalActivity />
-        <JobDetailDrawer />
+        <ActivityProvider>
+          <GlobalActivity />
+          <JobDetailDrawer />
+        </ActivityProvider>
       </JobDrawerProvider>
     </MemoryRouter>,
   )

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getMeta } from '@/lib/api-client'
-import { useActivityStream } from '@/hooks/use-activity-stream'
+import { useActivity } from '@/hooks/use-activity'
 import { useJobDrawer } from '@/hooks/use-job-drawer'
 import type { ActiveJobItem, MetaResponse } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
@@ -18,7 +18,7 @@ function jobChipLabel(job: ActiveJobItem): string {
 // fed by the activity stream (Z5 — the system state is always one glance away).
 export function HostStrip() {
   const [meta, setMeta] = useState<MetaResponse | null>(null)
-  const activity = useActivityStream()
+  const activity = useActivity()
   const { openJob } = useJobDrawer()
 
   useEffect(() => {

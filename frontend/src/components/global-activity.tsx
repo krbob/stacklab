@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { getJob } from '@/lib/api-client'
-import { useActivityStream } from '@/hooks/use-activity-stream'
+import { useActivity } from '@/hooks/use-activity'
 import { useJobDrawer } from '@/hooks/use-job-drawer'
 import type { ActiveJobItem, JobDetail } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
@@ -37,7 +37,7 @@ function toActiveJobItem(job: JobDetail): ActiveJobItem {
 }
 
 export function GlobalActivity() {
-  const response = useActivityStream()
+  const response = useActivity()
   const [open, setOpen] = useState(false)
   const [recentlyCompleted, setRecentlyCompleted] = useState<ActiveJobItem[]>([])
   const prevIdsRef = useRef<Set<string>>(new Set())
