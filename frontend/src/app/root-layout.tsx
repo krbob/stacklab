@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Activity, Container, FolderCog, FolderKanban, LogOut, Menu, Monitor, Settings, Wrench, X } from 'lucide-react'
+import { Activity, Container, Ellipsis, FolderCog, FolderKanban, LogOut, Monitor, Settings, Wrench, X } from 'lucide-react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '@/hooks/use-auth'
 import { GlobalActivity } from '@/components/global-activity'
@@ -73,19 +73,10 @@ export function RootLayout() {
   return (
     <div className="min-h-screen">
       <header
-        className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-[var(--panel-border)] bg-[var(--bg)] px-4 py-3 lg:hidden"
+        className="sticky top-0 z-30 flex items-center justify-center border-b border-[var(--panel-border)] bg-[var(--bg)] px-4 py-3 lg:hidden"
         style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
       >
-        <button
-          type="button"
-          onClick={() => setMobileNavOpen(true)}
-          aria-label="Open navigation"
-          className="flex size-11 items-center justify-center rounded-lg border border-[var(--panel-border)] text-[var(--text)]"
-        >
-          <Menu className="size-5" />
-        </button>
         <div className="font-brand text-xs uppercase tracking-[0.32em] text-[var(--accent)]">Stacklab</div>
-        <div className="size-11" aria-hidden />
       </header>
 
       {mobileNavOpen && (
@@ -119,7 +110,7 @@ export function RootLayout() {
         </>
       )}
 
-      <div className="mx-auto flex min-h-screen max-w-[1600px] gap-4 px-4 py-4 md:px-6">
+      <div className="mx-auto flex min-h-screen max-w-[1600px] gap-4 px-4 py-4 pb-24 md:px-6 lg:pb-4">
         <aside className="hidden w-56 shrink-0 rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-[var(--shadow)] lg:flex lg:flex-col">
           <SidebarContent logout={logout} />
         </aside>
@@ -129,7 +120,47 @@ export function RootLayout() {
         </main>
       </div>
 
+      {/* Mobile bottom navigation: primary sections one thumb away; the rest
+          (Config, Docker, Settings) lives behind "More" in the drawer. */}
+      <nav
+        aria-label="Primary"
+        className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-[var(--panel-border)] bg-[var(--bg)] lg:hidden"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        {bottomLinks.map(({ to, label, icon: Icon }) => (
+          <NavLink
+            key={to}
+            to={to}
+            className={({ isActive }) =>
+              [
+                'flex flex-col items-center gap-1 py-2 text-[10px] font-medium transition',
+                isActive ? 'text-[var(--accent)]' : 'text-[var(--muted)]',
+              ].join(' ')
+            }
+          >
+            <Icon className="size-5" />
+            <span>{label}</span>
+          </NavLink>
+        ))}
+        <button
+          type="button"
+          onClick={() => setMobileNavOpen(true)}
+          aria-label="More navigation"
+          className="flex flex-col items-center gap-1 py-2 text-[10px] font-medium text-[var(--muted)] transition"
+        >
+          <Ellipsis className="size-5" />
+          <span>More</span>
+        </button>
+      </nav>
+
       <JobDetailDrawer />
     </div>
   )
 }
+
+const bottomLinks = [
+  { to: '/stacks', label: 'Stacks', icon: FolderKanban },
+  { to: '/host', label: 'Host', icon: Monitor },
+  { to: '/maintenance', label: 'Maint', icon: Wrench },
+  { to: '/audit', label: 'Audit', icon: Activity },
+]
