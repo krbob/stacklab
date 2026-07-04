@@ -132,6 +132,9 @@ func (s *Service) RunUpdate(ctx context.Context, request UpdateRequest, requeste
 				job = updatedJob
 			}
 			job, _ = s.jobs.FinishFailed(ctx, job, "update_stacks_failed", runErr.Error())
+			// After FinishFailed the job state is "failed", so this event lets
+			// step consumers mark the failing step instead of leaving it running.
+			_ = s.jobs.PublishEvent(ctx, job, "job_step_finished", updateStepMessage("Failed", step), "", workflowStepRef(workflow, index))
 			if err := s.audit.RecordJob(ctx, job, updateAuditDetails(request, targetStackIDs)); err != nil && s.logger != nil {
 				s.logger.Warn("record maintenance audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
 			}
@@ -189,6 +192,7 @@ func (s *Service) RunPrune(ctx context.Context, request PruneRequest, requestedB
 				job = updatedJob
 			}
 			job, _ = s.jobs.FinishFailed(ctx, job, "prune_failed", runErr.Error())
+			_ = s.jobs.PublishEvent(ctx, job, "job_step_finished", pruneStepMessage("Failed", step), "", workflowStepRef(workflow, index))
 			if err := s.audit.RecordJob(ctx, job, pruneAuditDetails(request)); err != nil && s.logger != nil {
 				s.logger.Warn("record prune audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
 			}
