@@ -1,6 +1,10 @@
 package jobs
 
-import "time"
+import (
+	"time"
+
+	"stacklab/internal/store"
+)
 
 type ActiveJobsResponse struct {
 	Items   []ActiveJobItem `json:"items"`
@@ -59,12 +63,13 @@ type ActiveJobEvent struct {
 }
 
 type JobEventRecord struct {
-	JobID     string         `json:"job_id"`
-	Sequence  int            `json:"sequence"`
-	Event     string         `json:"event"`
-	State     string         `json:"state"`
-	Message   string         `json:"message,omitempty"`
-	Data      string         `json:"data,omitempty"`
-	Step      *ActiveJobStep `json:"step,omitempty"`
+	JobID     string             `json:"job_id"`
+	Sequence  int                `json:"sequence"`
+	Event     string             `json:"event"`
+	State     string             `json:"state"`
+	Message   string             `json:"message,omitempty"`
+	Data      string             `json:"data,omitempty"`
+	Step      *ActiveJobStep     `json:"step,omitempty"`
+	Progress  *store.JobProgress `json:"progress,omitempty"`
 	Timestamp time.Time      `json:"timestamp"`
 }

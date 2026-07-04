@@ -16,20 +16,56 @@ var ErrNotFound = errors.New("job not found")
 var ErrStackLocked = errors.New("stack locked")
 
 type Service struct {
-	store      *store.Store
-	mu         sync.Mutex
-	lockedByID map[string]string
-	locksByJob map[string][]string
-	subsByJob  map[string]map[chan store.JobEvent]struct{}
-	onTerminal func(store.Job)
+	store        *store.Store
+	mu           sync.Mutex
+	lockedByID   map[string]string
+	locksByJob   map[string][]string
+	subsByJob    map[string]map[chan store.JobEvent]struct{}
+	activitySubs map[chan struct{}]struct{}
+	onTerminal   func(store.Job)
 }
 
 func NewService(jobStore *store.Store) *Service {
 	return &Service{
-		store:      jobStore,
-		lockedByID: map[string]string{},
-		locksByJob: map[string][]string{},
-		subsByJob:  map[string]map[chan store.JobEvent]struct{}{},
+		store:        jobStore,
+		lockedByID:   map[string]string{},
+		locksByJob:   map[string][]string{},
+		subsByJob:    map[string]map[chan store.JobEvent]struct{}{},
+		activitySubs: map[chan struct{}]struct{}{},
+	}
+}
+
+// SubscribeActivity returns a coalesced signal that fires whenever any job
+// publishes an event (state transitions included — every transition emits
+// one). Subscribers re-read ListActive on signal; the channel never carries
+// payloads, so slow consumers cannot lose state (Slice D).
+func (s *Service) SubscribeActivity() (<-chan struct{}, func()) {
+	signal := make(chan struct{}, 1)
+	s.mu.Lock()
+	s.activitySubs[signal] = struct{}{}
+	s.mu.Unlock()
+
+	unsubscribe := func() {
+		s.mu.Lock()
+		delete(s.activitySubs, signal)
+		s.mu.Unlock()
+	}
+	return signal, unsubscribe
+}
+
+func (s *Service) notifyActivity() {
+	s.mu.Lock()
+	channels := make([]chan struct{}, 0, len(s.activitySubs))
+	for channel := range s.activitySubs {
+		channels = append(channels, channel)
+	}
+	s.mu.Unlock()
+
+	for _, channel := range channels {
+		select {
+		case channel <- struct{}{}:
+		default:
+		}
 	}
 }
 
@@ -181,6 +217,7 @@ func (s *Service) PublishEventWithProgress(ctx context.Context, job store.Job, e
 	}
 
 	s.publishLive(event)
+	s.notifyActivity()
 	return nil
 }
 
@@ -258,6 +295,7 @@ func (s *Service) Events(ctx context.Context, id string) (EventsResponse, error)
 			Message:   event.Message,
 			Data:      event.Data,
 			Step:      step,
+			Progress:  event.Progress,
 			Timestamp: event.Timestamp,
 		})
 	}

@@ -166,6 +166,53 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			}); err != nil {
 				return
 			}
+		case "activity.subscribe":
+			if strings.TrimSpace(frame.StreamID) == "" {
+				_ = wsConn.writeJSON(validationErrorFrame(frame, "Invalid activity.subscribe payload."))
+				continue
+			}
+			if existing, ok := subscriptions[frame.StreamID]; ok {
+				existing.Close()
+			}
+
+			signal, unsubscribe := h.jobs.SubscribeActivity()
+			subscription := newWSSubscription(unsubscribe)
+			subscriptions[frame.StreamID] = subscription
+
+			if err := wsConn.writeJSON(wsServerFrame{
+				Type:      "ack",
+				RequestID: frame.RequestID,
+				StreamID:  frame.StreamID,
+				Payload: map[string]any{
+					"status": "subscribed",
+				},
+			}); err != nil {
+				return
+			}
+
+			if snapshot, err := h.jobs.ListActive(ctx); err == nil {
+				if err := wsConn.writeJSON(wsServerFrame{Type: "activity.snapshot", StreamID: frame.StreamID, Payload: snapshot}); err != nil {
+					return
+				}
+			}
+
+			go h.forwardActivity(ctx, wsConn, frame.StreamID, signal, subscription.stop)
+		case "activity.unsubscribe":
+			if existing, ok := subscriptions[frame.StreamID]; ok {
+				existing.Close()
+				delete(subscriptions, frame.StreamID)
+			}
+
+			if err := wsConn.writeJSON(wsServerFrame{
+				Type:      "ack",
+				RequestID: frame.RequestID,
+				StreamID:  frame.StreamID,
+				Payload: map[string]any{
+					"status": "unsubscribed",
+				},
+			}); err != nil {
+				return
+			}
 		case "jobs.subscribe":
 			var payload struct {
 				JobID string `json:"job_id"`
@@ -261,6 +308,54 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// forwardActivity pushes throttled activity.update frames whenever the jobs
+// service signals a change; each frame carries the full active-jobs payload
+// (same shape as GET /api/jobs/active), latest wins.
+func (h *Handler) forwardActivity(ctx context.Context, wsConn *wsConnection, streamID string, signal <-chan struct{}, stop <-chan struct{}) {
+	const minInterval = 500 * time.Millisecond
+	var lastSent time.Time
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-stop:
+			return
+		case <-signal:
+			if wait := minInterval - time.Since(lastSent); wait > 0 {
+				timer := time.NewTimer(wait)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return
+				case <-stop:
+					timer.Stop()
+					return
+				case <-timer.C:
+				}
+			}
+			// Coalesce anything that queued while throttled.
+			for {
+				select {
+				case <-signal:
+					continue
+				default:
+				}
+				break
+			}
+
+			response, err := h.jobs.ListActive(ctx)
+			if err != nil {
+				continue
+			}
+			lastSent = time.Now()
+			if err := wsConn.writeJSON(wsServerFrame{Type: "activity.update", StreamID: streamID, Payload: response}); err != nil {
+				return
+			}
+		}
+	}
+}
+
 func (h *Handler) forwardJobEvents(ctx context.Context, wsConn *wsConnection, streamID string, job store.Job, events <-chan store.JobEvent, stop <-chan struct{}) {
 	for {
 		select {
@@ -295,6 +390,7 @@ func jobEventFrame(streamID string, job store.Job, event store.JobEvent) wsServe
 			"message":   event.Message,
 			"data":      emptyToNil(event.Data),
 			"step":      event.Step,
+			"progress":  event.Progress,
 			"timestamp": event.Timestamp.UTC().Format(time.RFC3339Nano),
 		},
 	}
