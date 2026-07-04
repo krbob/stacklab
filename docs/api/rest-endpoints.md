@@ -1188,6 +1188,73 @@ Rules:
 - `prune_after.include_volumes = true` requires `prune_after.enabled = true`
 - returns `409 stack_locked` if another mutating job already owns one of the selected stacks
 
+## `GET /api/templates`
+
+Purpose:
+
+- list curated stack templates for the create flow (Slice F)
+- operator templates from `<root>/templates/<id>/` (`compose.yaml` +
+  optional `template.yaml` with `name`/`description`); built-in starters
+  when none exist
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "id": "web-service",
+      "name": "Web service",
+      "description": "Single container behind the reverse proxy...",
+      "compose_yaml": "services:\n  app:\n    image: nginx:stable\n...",
+      "built_in": true
+    }
+  ]
+}
+```
+
+## `GET /api/maintenance/image-updates`
+
+Purpose:
+
+- cached per-image update states from the last `check_image_updates` run
+  (Slice B); feeds the `updates` rollup in `GET /api/stacks`
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "image_ref": "adguard/adguardhome:latest",
+      "local_digest": "sha256:aaa...",
+      "remote_digest": "sha256:bbb...",
+      "state": "available",
+      "checked_at": "2026-07-04T16:40:00Z"
+    }
+  ]
+}
+```
+
+## `POST /api/maintenance/image-updates/check`
+
+Purpose:
+
+- start a `check_image_updates` job (anonymous registry digest checks);
+  runs detached from the request like stack actions and reports structured
+  progress (`unit: "images"`)
+
+Response:
+
+```json
+{ "job": { "id": "job_01hr...", "action": "check_image_updates", "state": "running" } }
+```
+
+Notes:
+
+- images that need registry credentials or use build mode report `unknown`
+- results persist in `image_update_status` and refresh the in-memory rollup
+
 ## `GET /api/maintenance/images`
 
 Purpose:

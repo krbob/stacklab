@@ -499,6 +499,45 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /templates:
+    get:
+      tags: [Stacks]
+      operationId: listTemplates
+      responses:
+        '200':
+          description: Curated stack templates (operator-provided or built-in).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemplatesResponse'
+  /maintenance/image-updates:
+    get:
+      tags: [Maintenance]
+      operationId: listImageUpdates
+      responses:
+        '200':
+          description: Cached per-image update states from the last check.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageUpdatesResponse'
+  /maintenance/image-updates/check:
+    post:
+      tags: [Maintenance]
+      operationId: checkImageUpdates
+      responses:
+        '200':
+          description: Image update check job accepted; runs detached.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobEnvelopeResponse'
+        '403':
+          description: Cross-origin request rejected.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /maintenance/update-stacks:
     post:
       tags: [Maintenance]
@@ -2197,6 +2236,12 @@ components:
               required: [defined, running]
             last_action:
               $ref: '#/components/schemas/LastAction'
+            metadata:
+              $ref: '#/components/schemas/StackMetadata'
+            stats:
+              $ref: '#/components/schemas/StackStats'
+            updates:
+              $ref: '#/components/schemas/StackUpdates'
           required: [service_count]
     StackListSummary:
       type: object
@@ -2229,6 +2274,93 @@ components:
         - defined_count
         - orphaned_count
         - container_count
+    StackMetadata:
+      type: object
+      nullable: true
+      properties:
+        icon:
+          type: string
+        links:
+          type: array
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+              url:
+                type: string
+            required: [label, url]
+    StackStats:
+      type: object
+      nullable: true
+      properties:
+        cpu_percent:
+          type: number
+        memory_bytes:
+          type: integer
+        sampled_at:
+          type: string
+          format: date-time
+      required: [cpu_percent, memory_bytes, sampled_at]
+    StackUpdates:
+      type: object
+      nullable: true
+      properties:
+        state:
+          type: string
+          enum: [available, up_to_date, unknown]
+        services_with_updates:
+          type: integer
+        checked_at:
+          type: string
+          format: date-time
+      required: [state, services_with_updates, checked_at]
+    ImageUpdateStatus:
+      type: object
+      properties:
+        image_ref:
+          type: string
+        local_digest:
+          type: string
+        remote_digest:
+          type: string
+        state:
+          type: string
+          enum: [available, up_to_date, unknown]
+        checked_at:
+          type: string
+          format: date-time
+      required: [image_ref, state, checked_at]
+    ImageUpdatesResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImageUpdateStatus'
+      required: [items]
+    StackTemplate:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        compose_yaml:
+          type: string
+        built_in:
+          type: boolean
+      required: [id, name, compose_yaml, built_in]
+    TemplatesResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/StackTemplate'
+      required: [items]
     StackDetailResponse:
       type: object
       properties:
@@ -2970,10 +3102,27 @@ components:
           nullable: true
         step:
           $ref: '#/components/schemas/ActiveJobStep'
+        progress:
+          $ref: '#/components/schemas/JobProgress'
         timestamp:
           type: string
           format: date-time
       required: [job_id, sequence, event, state, timestamp]
+    JobProgress:
+      type: object
+      nullable: true
+      properties:
+        phase:
+          type: string
+        completed:
+          type: integer
+        total:
+          type: integer
+        unit:
+          type: string
+        detail:
+          type: string
+      required: [phase, completed, total, unit]
     ActiveJobItem:
       type: object
       properties:
