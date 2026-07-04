@@ -12,13 +12,14 @@
   automerge: true,
   automergeType: 'pr',
   automergeStrategy: 'rebase',
+  // Release train: stable goes out on day 1, dependency updates merge early in the month,
+  // then nightly builds soak until the next stable release.
   automergeSchedule: [
-    '* * 2 * *',
+    '* * 2-3 * *',
   ],
-  minimumReleaseAge: '3 days',
   platformAutomerge: false,
-  prConcurrentLimit: 6,
-  prHourlyLimit: 4,
+  prConcurrentLimit: 0,
+  prHourlyLimit: 0,
   rebaseWhen: 'behind-base-branch',
   rangeStrategy: 'bump',
   packageRules: [
