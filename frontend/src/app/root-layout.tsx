@@ -93,6 +93,14 @@ export function RootLayout() {
   return (
     <ActivityProvider>
     <div className="min-h-screen">
+      {/* iOS Safari: sticky headers can sit below the status-bar overlay, so
+          scrolled content shows through it. This fixed mask always covers the
+          safe-area strip. */}
+      <div
+        aria-hidden
+        className="fixed inset-x-0 top-0 z-40 bg-[var(--bg)] lg:hidden"
+        style={{ height: 'env(safe-area-inset-top)' }}
+      />
       <header
         className="sticky top-0 z-30 flex items-center justify-center border-b border-[var(--panel-border)] bg-[var(--bg)] px-4 py-3 lg:hidden"
         style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
