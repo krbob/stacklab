@@ -85,7 +85,9 @@ Engineering backlog:
 
 - generate frontend API types from `docs/api/openapi.yaml` and add a CI check that prevents REST contract/type drift
 - split `internal/httpapi/handler.go` by API domain after the auth and job lifecycle hardening work settles
+- join detached job runner goroutines during graceful shutdown so jobs can reliably land as `cancelled` instead of falling back to startup reconciliation as interrupted
 - evaluate tag-triggered release workflows and GoReleaser/nfpm only if they reduce the current release script surface without weakening APT channel validation
+- smoke test terminal and job WebSocket streams under the CSP policy in Safari; if needed, make the `connect-src` directive explicitly cover same-host `ws:` and `wss:` connections
 
 Product backlog:
 
