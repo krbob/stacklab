@@ -13,8 +13,11 @@
   --muted: #97907E;
   --accent: #F5A524;
   --accent-strong: #D97706;
-  --warning: #EAB308;
-  --danger: #EF4444;
+  /* Status colors are a closed set (Z2): amber never signals warning. */
+  --ok: #55D47F;
+  --run: #F5A524;
+  --warning: #F97316;
+  --danger: #F26D5B;
   --shadow: none;
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Space Grotesk", "Inter", ui-sans-serif, system-ui, sans-serif;
@@ -43,10 +46,19 @@ body {
   font-size: 13px;
   color: var(--text);
   background: var(--bg);
-  padding-top: env(safe-area-inset-top);
+  /* Top inset is handled by the sticky mobile header (root-layout), not here —
+     body padding scrolls with content and lets it show inside the notch area. */
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
   padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Native form controls follow the accent, not the UA default blue */
+input[type="checkbox"],
+input[type="radio"],
+input[type="range"],
+progress {
+  accent-color: var(--accent);
 }
 
 /* Prevent iOS input zoom on focus */
