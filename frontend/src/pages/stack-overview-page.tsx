@@ -144,7 +144,8 @@ function ActionBar({
 }) {
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
-  const { state: activeJobState } = useJobStream({ jobId: activeJobId })
+  const activeJobStream = useJobStream({ jobId: activeJobId })
+  const activeJobState = activeJobStream.state
   const terminalActionState = activeJobState === 'succeeded' || activeJobState === 'failed' || activeJobState === 'cancelled' || activeJobState === 'timed_out'
   const runningAction = activeJobId !== null && !terminalActionState
   const locked = stack.activity_state === 'locked' || runningAction
@@ -216,7 +217,7 @@ function ActionBar({
         </div>
       )}
 
-      {activeJobId && <ProgressPanel jobId={activeJobId} onDone={handleJobDone} onClose={() => setActiveJobId(null)} />}
+      {activeJobId && <ProgressPanel jobId={activeJobId} stream={activeJobStream} onDone={handleJobDone} onClose={() => setActiveJobId(null)} />}
     </div>
   )
 }

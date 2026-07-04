@@ -1,9 +1,14 @@
 import { useEffect, useRef } from 'react'
 import { useJobStream } from '@/hooks/use-job-stream'
+import type { JobEvent } from '@/lib/ws-types'
 import { cn } from '@/lib/cn'
 
 interface ProgressPanelProps {
   jobId: string | null
+  /** Pre-subscribed stream from the owner component. The backend keys job
+      subscriptions by stream_id, so two subscribers to the same job would
+      tear each other down — the owner subscribes once and shares. */
+  stream?: { events: JobEvent[]; state: string | null }
   onDone?: (state: string) => void
   onClose?: () => void
 }
@@ -29,8 +34,10 @@ const eventIcons: Record<string, string> = {
   job_finished: '■',
 }
 
-export function ProgressPanel({ jobId, onDone, onClose }: ProgressPanelProps) {
-  const { events, state } = useJobStream({ jobId })
+export function ProgressPanel({ jobId, stream, onDone, onClose }: ProgressPanelProps) {
+  const internal = useJobStream({ jobId: stream ? null : jobId })
+  const events = stream ? stream.events : internal.events
+  const state = stream ? stream.state : internal.state
   const scrollRef = useRef<HTMLDivElement>(null)
   const prevStateRef = useRef<string | null>(null)
 
@@ -56,6 +63,8 @@ export function ProgressPanel({ jobId, onDone, onClose }: ProgressPanelProps) {
 
   const stateInfo = state ? stateLabels[state] : null
   const hasWarning = events.some((e) => e.event === 'job_warning')
+  const latestProgress = [...events].reverse().find((e) => e.progress)?.progress ?? null
+  const visibleEvents = events.filter((e) => !(e.event === 'job_progress' && e.progress))
 
   return (
     <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(0,0,0,0.2)] p-4">
@@ -92,12 +101,32 @@ export function ProgressPanel({ jobId, onDone, onClose }: ProgressPanelProps) {
         </div>
       </div>
 
+      {/* Structured progress meter (latest wins) */}
+      {latestProgress && state === 'running' && latestProgress.total > 0 && (
+        <div className="mt-3">
+          <div className="flex items-center gap-2 font-mono text-[11px] tabular-nums text-[var(--muted)]">
+            <span className="shrink-0">
+              {latestProgress.completed}/{latestProgress.total} {latestProgress.unit}
+            </span>
+            <span className="h-1 flex-1 overflow-hidden rounded-full bg-[rgba(255,255,255,0.07)]">
+              <span
+                className="block h-full bg-[var(--accent)] transition-[width] duration-300"
+                style={{ width: `${Math.min(100, Math.round((latestProgress.completed / latestProgress.total) * 100))}%` }}
+              />
+            </span>
+          </div>
+          {latestProgress.detail && (
+            <div className="mt-1 truncate font-mono text-[10px] text-[var(--muted)] opacity-70">{latestProgress.detail}</div>
+          )}
+        </div>
+      )}
+
       {/* Event stream */}
       <div
         ref={scrollRef}
         className="mt-3 max-h-64 overflow-y-auto font-mono text-xs leading-5"
       >
-        {events.map((event, i) => (
+        {visibleEvents.map((event, i) => (
           <div
             key={i}
             className={cn(
@@ -108,7 +137,7 @@ export function ProgressPanel({ jobId, onDone, onClose }: ProgressPanelProps) {
             )}
           >
             <span className="shrink-0 w-3 text-center">{eventIcons[event.event] ?? '·'}</span>
-            <span className="break-all">
+            <span className="whitespace-pre-wrap break-all">
               {event.message}
               {event.data && (
                 <span className="ml-1 text-[var(--text)]">{event.data}</span>
