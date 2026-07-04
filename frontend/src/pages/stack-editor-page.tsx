@@ -22,6 +22,7 @@ export function StackEditorPage() {
   const [savedEnv, setSavedEnv] = useState('')
 
   const [resolvedContent, setResolvedContent] = useState('')
+  const [warnings, setWarnings] = useState<import('@/lib/api-types').ComposeWarning[]>([])
   const [resolvedValid, setResolvedValid] = useState(true)
   const [resolvedError, setResolvedError] = useState('')
 
@@ -51,6 +52,7 @@ export function StackEditorPage() {
         setResolvedContent(resolved.content)
         setResolvedValid(true)
         setResolvedError('')
+        setWarnings(resolved.warnings ?? [])
       } else if (resolved.error) {
         setResolvedContent('')
         setResolvedValid(false)
@@ -76,6 +78,7 @@ export function StackEditorPage() {
         setResolvedContent(result.content)
         setResolvedValid(true)
         setResolvedError('')
+        setWarnings(result.warnings ?? [])
       } else if (result.error) {
         setResolvedContent('')
         setResolvedValid(false)
@@ -124,6 +127,7 @@ export function StackEditorPage() {
           setResolvedContent(resolved.content)
           setResolvedValid(true)
           setResolvedError('')
+          setWarnings(resolved.warnings ?? [])
         }
       }).catch(() => {})
 
@@ -230,6 +234,15 @@ export function StackEditorPage() {
         )}
         {isDirty && <span className="text-[var(--warning)]">· Unsaved changes</span>}
       </div>
+
+      {/* Advisory lint findings — never block save/deploy (Slice E) */}
+      {warnings.length > 0 && (
+        <div className="flex flex-col gap-1 rounded-md border border-[var(--warning)]/25 bg-[var(--warning)]/5 px-3 py-2 text-xs text-[var(--warning)]">
+          {warnings.map((warning, index) => (
+            <span key={index}>⚠ {warning.message}</span>
+          ))}
+        </div>
+      )}
 
       {/* Editor split */}
       <div className="grid gap-3 xl:grid-cols-2" style={{ height: '500px' }}>

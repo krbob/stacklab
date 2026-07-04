@@ -1,4 +1,6 @@
 import type {
+  ImageUpdateStatus,
+  StackTemplate,
   ActiveJobsResponse,
   AuditResponse,
   ConfigFileResponse,
@@ -278,6 +280,18 @@ export function getStacks(params?: { q?: string; sort?: string }): Promise<Stack
   if (params?.sort) search.set('sort', params.sort)
   const qs = search.toString()
   return request(`/api/stacks${qs ? `?${qs}` : ''}`)
+}
+
+export function getTemplates(): Promise<{ items: StackTemplate[] }> {
+  return request('/api/templates')
+}
+
+export function getImageUpdates(): Promise<{ items: ImageUpdateStatus[] }> {
+  return request('/api/maintenance/image-updates')
+}
+
+export function checkImageUpdates(): Promise<{ images_checked: number; updates_available: number }> {
+  return request('/api/maintenance/image-updates/check', { method: 'POST', body: JSON.stringify({}) })
 }
 
 export function getStack(stackId: string): Promise<StackDetailResponse> {

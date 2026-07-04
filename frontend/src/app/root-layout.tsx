@@ -6,6 +6,7 @@ import { GlobalActivity } from '@/components/global-activity'
 import { JobDetailDrawer } from '@/components/job-detail-drawer'
 import { HostStrip } from '@/components/host-strip'
 import { ActivityProvider } from '@/contexts/activity-context'
+import { CommandPalette } from '@/components/command-palette'
 
 const links = [
   { to: '/stacks', label: 'Stacks', icon: FolderKanban },
@@ -175,6 +176,7 @@ export function RootLayout() {
       </nav>
 
       <JobDetailDrawer />
+      <CommandPalette />
     </div>
     </ActivityProvider>
   )

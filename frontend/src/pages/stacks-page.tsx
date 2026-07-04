@@ -2,13 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ExternalLink } from 'lucide-react'
 
-import { getStacks } from '@/lib/api-client'
+import { checkImageUpdates, getStacks } from '@/lib/api-client'
 import { useApi } from '@/hooks/use-api'
 import type { StackListItem } from '@/lib/api-types'
 import { PageHeader } from '@/components/page-header'
 import { cn } from '@/lib/cn'
 
-type StatusFilter = 'all' | 'problems'
+type StatusFilter = 'all' | 'problems' | 'updates'
 
 const edgeColors: Record<string, string> = {
   running: 'border-l-[var(--ok)]',
@@ -67,6 +67,11 @@ function StackTile({ stack }: { stack: StackListItem }) {
       <div className="flex items-center gap-2">
         <StackGlyph name={stack.name} icon={stack.metadata?.icon} />
         <span className="min-w-0 truncate font-mono text-sm font-semibold text-[var(--text)]">{stack.name}</span>
+        {stack.updates?.state === 'available' && (
+          <span className="shrink-0 rounded border border-[rgba(245,165,36,0.4)] px-1 font-mono text-[9px] font-bold uppercase tracking-wide text-[var(--accent)]">
+            update
+          </span>
+        )}
         <span className={cn('ml-auto shrink-0 text-xs', state.className)}>
           {stack.activity_state === 'locked' ? 'Working…' : state.label}
         </span>
@@ -142,10 +147,24 @@ function StackGlyph({ name, icon }: { name: string; icon?: string }) {
 }
 
 export function StacksPage() {
-  const { data, error, loading } = useApi(() => getStacks(), [])
+  const [reloadKey, setReloadKey] = useState(0)
+  const { data, error, loading } = useApi(() => getStacks(), [reloadKey])
   const [filter, setFilter] = useState('')
   const [status, setStatus] = useState<StatusFilter>('all')
+  const [checking, setChecking] = useState(false)
   const filterRef = useRef<HTMLInputElement>(null)
+
+  async function handleCheckUpdates() {
+    setChecking(true)
+    try {
+      await checkImageUpdates()
+      setReloadKey((key) => key + 1)
+    } catch {
+      // job failures surface in audit; the button simply stops spinning
+    } finally {
+      setChecking(false)
+    }
+  }
 
   // "/" focuses the filter from anywhere on the page (Z5).
   useEffect(() => {
@@ -162,10 +181,12 @@ export function StacksPage() {
 
   const items = useMemo(() => data?.items ?? [], [data])
   const problemCount = useMemo(() => items.filter(hasProblem).length, [items])
+  const updateCount = useMemo(() => items.filter((s) => s.updates?.state === 'available').length, [items])
 
   const visible = items.filter((stack) => {
     if (filter && !stack.name.toLowerCase().includes(filter.toLowerCase())) return false
     if (status === 'problems' && !hasProblem(stack)) return false
+    if (status === 'updates' && stack.updates?.state !== 'available') return false
     return true
   })
 
@@ -230,6 +251,25 @@ export function StacksPage() {
           )}
         >
           Problems {problemCount}
+        </button>
+        <button
+          onClick={() => setStatus('updates')}
+          className={cn(
+            'rounded-md border px-3 py-1.5 text-xs transition',
+            status === 'updates'
+              ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
+              : 'border-[var(--panel-border)] text-[var(--muted)] hover:text-[var(--text)]',
+            updateCount > 0 && status !== 'updates' && 'text-[var(--accent)]',
+          )}
+        >
+          Updates {updateCount}
+        </button>
+        <button
+          onClick={handleCheckUpdates}
+          disabled={checking}
+          className="ml-auto rounded-md border border-[var(--panel-border)] px-3 py-1.5 text-xs text-[var(--muted)] transition hover:text-[var(--text)] disabled:opacity-50"
+        >
+          {checking ? 'Checking…' : 'Check updates'}
         </button>
       </div>
 

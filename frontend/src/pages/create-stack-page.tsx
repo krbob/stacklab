@@ -1,6 +1,8 @@
-import { useCallback, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { createStack } from '@/lib/api-client'
+import { createStack, getTemplates } from '@/lib/api-client'
+import type { StackTemplate } from '@/lib/api-types'
+import { cn } from '@/lib/cn'
 import { YamlEditor } from '@/components/yaml-editor'
 import { ProgressPanel } from '@/components/progress-panel'
 import { PageHeader } from '@/components/page-header'
@@ -15,6 +17,19 @@ export function CreateStackPage() {
   const navigate = useNavigate()
   const [stackId, setStackId] = useState('')
   const [composeYaml, setComposeYaml] = useState(DEFAULT_COMPOSE)
+  const [templates, setTemplates] = useState<StackTemplate[]>([])
+  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null)
+
+  useEffect(() => {
+    getTemplates()
+      .then((response) => setTemplates(response.items))
+      .catch(() => {})
+  }, [])
+
+  function applyTemplate(template: StackTemplate | null) {
+    setSelectedTemplate(template?.id ?? null)
+    setComposeYaml(template?.compose_yaml ?? DEFAULT_COMPOSE)
+  }
   const [deployAfter, setDeployAfter] = useState(false)
   const [creating, setCreating] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
@@ -76,6 +91,47 @@ export function CreateStackPage() {
             </p>
           )}
         </label>
+
+        {templates.length > 0 && (
+          <div>
+            <span className="mb-2 block text-sm text-[var(--muted)]">Start from</span>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => applyTemplate(null)}
+                className={cn(
+                  'rounded-md border px-3 py-1.5 text-xs transition',
+                  selectedTemplate === null
+                    ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
+                    : 'border-[var(--panel-border)] text-[var(--muted)] hover:text-[var(--text)]',
+                )}
+              >
+                Blank
+              </button>
+              {templates.map((template) => (
+                <button
+                  key={template.id}
+                  type="button"
+                  onClick={() => applyTemplate(template)}
+                  title={template.description}
+                  className={cn(
+                    'rounded-md border px-3 py-1.5 text-xs transition',
+                    selectedTemplate === template.id
+                      ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
+                      : 'border-[var(--panel-border)] text-[var(--muted)] hover:text-[var(--text)]',
+                  )}
+                >
+                  {template.name}
+                </button>
+              ))}
+            </div>
+            {selectedTemplate && (
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                {templates.find((template) => template.id === selectedTemplate)?.description}
+              </p>
+            )}
+          </div>
+        )}
 
         <div>
           <span className="mb-2 block text-sm text-[var(--muted)]">Initial compose.yaml</span>

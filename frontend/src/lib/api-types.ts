@@ -272,6 +272,28 @@ export interface StackStats {
   sampled_at: string
 }
 
+export interface StackTemplate {
+  id: string
+  name: string
+  description?: string
+  compose_yaml: string
+  built_in: boolean
+}
+
+export interface StackUpdates {
+  state: 'available' | 'up_to_date' | 'unknown'
+  services_with_updates: number
+  checked_at: string
+}
+
+export interface ImageUpdateStatus {
+  image_ref: string
+  local_digest?: string
+  remote_digest?: string
+  state: 'available' | 'up_to_date' | 'unknown'
+  checked_at: string
+}
+
 export interface StackListItem {
   id: string
   name: string
@@ -284,6 +306,7 @@ export interface StackListItem {
   last_action: LastAction | null
   metadata?: StackMetadata | null
   stats?: StackStats | null
+  updates?: StackUpdates | null
 }
 
 export interface StackListSummary {
@@ -353,6 +376,13 @@ export interface ResolvedConfigResponse {
       column?: number
     }
   }
+  warnings?: ComposeWarning[]
+}
+
+export interface ComposeWarning {
+  code: string
+  service?: string
+  message: string
 }
 
 export interface JobRef {
