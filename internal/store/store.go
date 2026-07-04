@@ -271,6 +271,16 @@ func (s *Store) migrate(ctx context.Context) error {
 		}
 	}
 
+	statements = append(statements,
+		`CREATE TABLE IF NOT EXISTS image_update_status (
+			image_ref TEXT PRIMARY KEY,
+			local_digest TEXT,
+			remote_digest TEXT,
+			state TEXT NOT NULL,
+			checked_at TEXT NOT NULL
+		);`,
+	)
+
 	// Additive columns on existing tables: SQLite has no ADD COLUMN IF NOT
 	// EXISTS, so tolerate the duplicate-column error on re-runs.
 	additiveColumns := []string{
@@ -1176,4 +1186,69 @@ func decodeAuditCursor(value string) (time.Time, string, error) {
 	}
 
 	return requestedAt, parts[1], nil
+}
+
+// --- Image update status (dashboard read-model contract, Slice B) ---
+
+type ImageUpdateStatus struct {
+	ImageRef     string    `json:"image_ref"`
+	LocalDigest  string    `json:"local_digest,omitempty"`
+	RemoteDigest string    `json:"remote_digest,omitempty"`
+	State        string    `json:"state"`
+	CheckedAt    time.Time `json:"checked_at"`
+}
+
+func (s *Store) UpsertImageUpdateStatus(ctx context.Context, status ImageUpdateStatus) error {
+	_, err := s.db.ExecContext(
+		ctx,
+		`INSERT INTO image_update_status (image_ref, local_digest, remote_digest, state, checked_at)
+		 VALUES (?, ?, ?, ?, ?)
+		 ON CONFLICT(image_ref) DO UPDATE SET
+		   local_digest = excluded.local_digest,
+		   remote_digest = excluded.remote_digest,
+		   state = excluded.state,
+		   checked_at = excluded.checked_at`,
+		status.ImageRef,
+		nullIfEmpty(status.LocalDigest),
+		nullIfEmpty(status.RemoteDigest),
+		status.State,
+		status.CheckedAt.UTC().Format(time.RFC3339Nano),
+	)
+	if err != nil {
+		return fmt.Errorf("upsert image update status: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ListImageUpdateStatus(ctx context.Context) ([]ImageUpdateStatus, error) {
+	rows, err := s.db.QueryContext(
+		ctx,
+		`SELECT image_ref, local_digest, remote_digest, state, checked_at FROM image_update_status ORDER BY image_ref ASC`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list image update status: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]ImageUpdateStatus, 0, 16)
+	for rows.Next() {
+		var item ImageUpdateStatus
+		var localDigest, remoteDigest sql.NullString
+		var rawCheckedAt string
+		if err := rows.Scan(&item.ImageRef, &localDigest, &remoteDigest, &item.State, &rawCheckedAt); err != nil {
+			return nil, fmt.Errorf("scan image update status: %w", err)
+		}
+		item.LocalDigest = localDigest.String
+		item.RemoteDigest = remoteDigest.String
+		checkedAt, err := time.Parse(time.RFC3339Nano, rawCheckedAt)
+		if err != nil {
+			return nil, fmt.Errorf("parse image update checked_at: %w", err)
+		}
+		item.CheckedAt = checkedAt
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate image update status: %w", err)
+	}
+	return items, nil
 }

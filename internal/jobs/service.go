@@ -69,6 +69,12 @@ func (s *Service) notifyActivity() {
 	}
 }
 
+// Store exposes the backing store for sibling services wired inside the
+// handler (keeps constructor signatures stable).
+func (s *Service) Store() *store.Store {
+	return s.store
+}
+
 func (s *Service) SetTerminalHook(hook func(store.Job)) {
 	s.onTerminal = hook
 }

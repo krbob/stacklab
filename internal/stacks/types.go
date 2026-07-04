@@ -77,9 +77,24 @@ type StackListResponse struct {
 
 type StackListItem struct {
 	StackHeader
-	ServiceCount ServiceCount `json:"service_count"`
-	LastAction   *LastAction  `json:"last_action"`
-	Stats        *StackStats  `json:"stats"`
+	ServiceCount ServiceCount  `json:"service_count"`
+	LastAction   *LastAction   `json:"last_action"`
+	Stats        *StackStats   `json:"stats"`
+	Updates      *StackUpdates `json:"updates"`
+}
+
+// StackUpdates is the per-stack rollup of image update checks (Slice B/A3).
+type StackUpdates struct {
+	State               string    `json:"state"` // available | up_to_date | unknown
+	ServicesWithUpdates int       `json:"services_with_updates"`
+	CheckedAt           time.Time `json:"checked_at"`
+}
+
+// ImageUpdateState is the per-image input for the rollup, provided by the
+// image updates service (kept local to avoid a store dependency).
+type ImageUpdateState struct {
+	State     string
+	CheckedAt time.Time
 }
 
 type StackListSummary struct {
@@ -261,10 +276,19 @@ type DeleteStackRequest struct {
 }
 
 type ResolvedConfigResponse struct {
-	StackID string       `json:"stack_id"`
-	Valid   bool         `json:"valid"`
-	Content string       `json:"content,omitempty"`
-	Error   *ErrorDetail `json:"error,omitempty"`
+	StackID  string           `json:"stack_id"`
+	Valid    bool             `json:"valid"`
+	Content  string           `json:"content,omitempty"`
+	Error    *ErrorDetail     `json:"error,omitempty"`
+	Warnings []ComposeWarning `json:"warnings,omitempty"`
+}
+
+// ComposeWarning is an advisory lint finding (Slice E); warnings never block
+// save or deploy.
+type ComposeWarning struct {
+	Code    string `json:"code"`
+	Service string `json:"service,omitempty"`
+	Message string `json:"message"`
 }
 
 type ErrorDetail struct {

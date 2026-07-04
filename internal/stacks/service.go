@@ -53,14 +53,89 @@ type composeCLI struct {
 type ServiceReader struct {
 	cfg       config.Config
 	logger    *slog.Logger
-	hostShell bool
-	stats     *StatsCollector
+	hostShell    bool
+	stats        *StatsCollector
+	updateStatus func() map[string]ImageUpdateState
 }
 
 // AttachStatsCollector wires the host-level stats collector; list responses
 // enrich items from its snapshot when present.
 func (s *ServiceReader) AttachStatsCollector(collector *StatsCollector) {
 	s.stats = collector
+}
+
+// AttachUpdateStatus wires the per-image update state provider (Slice B);
+// list responses roll it up per stack when present.
+func (s *ServiceReader) AttachUpdateStatus(provider func() map[string]ImageUpdateState) {
+	s.updateStatus = provider
+}
+
+// AllImageRefs returns the unique image references used by managed stacks
+// (image and hybrid services only — build-mode services have no registry tag).
+func (s *ServiceReader) AllImageRefs(ctx context.Context) ([]string, error) {
+	allStacks, err := s.readStacks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]struct{}{}
+	refs := make([]string, 0, len(allStacks))
+	for _, stack := range allStacks {
+		for _, service := range stack.Services {
+			if service.ImageRef == nil || *service.ImageRef == "" {
+				continue
+			}
+			if _, ok := seen[*service.ImageRef]; ok {
+				continue
+			}
+			seen[*service.ImageRef] = struct{}{}
+			refs = append(refs, *service.ImageRef)
+		}
+	}
+	sort.Strings(refs)
+	return refs, nil
+}
+
+// rollupUpdates aggregates per-image update states into the stack-level
+// summary. nil when nothing about the stack's images is known yet.
+func rollupUpdates(services []Service, statusByImage map[string]ImageUpdateState) *StackUpdates {
+	if len(statusByImage) == 0 {
+		return nil
+	}
+
+	known := 0
+	upToDate := 0
+	withUpdates := 0
+	var checkedAt time.Time
+	for _, service := range services {
+		if service.ImageRef == nil {
+			continue
+		}
+		status, ok := statusByImage[*service.ImageRef]
+		if !ok {
+			continue
+		}
+		known++
+		if status.CheckedAt.After(checkedAt) {
+			checkedAt = status.CheckedAt
+		}
+		switch status.State {
+		case "available":
+			withUpdates++
+		case "up_to_date":
+			upToDate++
+		}
+	}
+	if known == 0 {
+		return nil
+	}
+
+	state := "unknown"
+	if withUpdates > 0 {
+		state = "available"
+	} else if upToDate == known {
+		state = "up_to_date"
+	}
+	return &StackUpdates{State: state, ServicesWithUpdates: withUpdates, CheckedAt: checkedAt}
 }
 
 type MaintenanceStepOptions struct {
@@ -120,6 +195,10 @@ func (s *ServiceReader) List(ctx context.Context, query ListQuery) (StackListRes
 	if s.stats != nil {
 		statsByProject = s.stats.Snapshot()
 	}
+	var updateStatusByImage map[string]ImageUpdateState
+	if s.updateStatus != nil {
+		updateStatusByImage = s.updateStatus()
+	}
 
 	for _, stack := range allStacks {
 		if query.Search != "" && !strings.Contains(stack.ID, strings.ToLower(query.Search)) {
@@ -136,6 +215,7 @@ func (s *ServiceReader) List(ctx context.Context, query ListQuery) (StackListRes
 			ServiceCount: ServiceCount{Defined: len(stack.Services), Running: stack.runningServiceCount()},
 			LastAction:   nil,
 			Stats:        stackStats,
+			Updates:      rollupUpdates(stack.Services, updateStatusByImage),
 		})
 
 		summary.StackCount++
@@ -290,9 +370,10 @@ func (s *ServiceReader) ResolvedConfigDraft(ctx context.Context, stackID string,
 	}
 
 	return ResolvedConfigResponse{
-		StackID: stack.ID,
-		Valid:   true,
-		Content: content,
+		StackID:  stack.ID,
+		Valid:    true,
+		Content:  content,
+		Warnings: LintCompose([]byte(request.ComposeYAML)),
 	}, nil
 }
 
@@ -1563,10 +1644,16 @@ func (s *ServiceReader) resolveCurrent(ctx context.Context, stack discoveredStac
 		}
 	}
 
+	var warnings []ComposeWarning
+	if raw, readErr := os.ReadFile(stack.ComposeFilePath); readErr == nil {
+		warnings = LintCompose(raw)
+	}
+
 	return ResolvedConfigResponse{
-		StackID: stack.ID,
-		Valid:   true,
-		Content: content,
+		StackID:  stack.ID,
+		Valid:    true,
+		Content:  content,
+		Warnings: warnings,
 	}
 }
 

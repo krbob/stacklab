@@ -19,6 +19,7 @@ import (
 	"stacklab/internal/dockerregistryauth"
 	"stacklab/internal/gitworkspace"
 	"stacklab/internal/hostinfo"
+	"stacklab/internal/imageupdates"
 	"stacklab/internal/jobs"
 	"stacklab/internal/maintenance"
 	"stacklab/internal/maintenancejobs"
@@ -45,6 +46,7 @@ type Handler struct {
 	jobs            *jobs.Service
 	terminals       *terminal.Service
 	stackReader     *stacks.ServiceReader
+	imageUpdates    *imageupdates.Service
 	hostInfo        hostInfoReader
 	dockerAdmin     dockerAdminReader
 	dockerRegistry  dockerRegistryReader
@@ -137,6 +139,18 @@ func NewHandlerWithContext(appCtx context.Context, cfg config.Config, logger *sl
 	statsCollector := stacks.NewStatsCollector(logger)
 	statsCollector.Start(appCtx)
 	stackReader.AttachStatsCollector(statsCollector)
+	imageUpdateService := imageupdates.NewService(logger, jobService.Store())
+	if err := imageUpdateService.Load(appCtx); err != nil {
+		logger.Warn("load image update status failed", slog.String("err", err.Error()))
+	}
+	stackReader.AttachUpdateStatus(func() map[string]stacks.ImageUpdateState {
+		cached := imageUpdateService.StatusByImage()
+		result := make(map[string]stacks.ImageUpdateState, len(cached))
+		for ref, status := range cached {
+			result[ref] = stacks.ImageUpdateState{State: status.State, CheckedAt: status.CheckedAt}
+		}
+		return result
+	})
 	maintenanceService := maintenance.NewService()
 	handler := &Handler{
 		appCtx:        appCtx,
@@ -163,6 +177,7 @@ func NewHandlerWithContext(appCtx context.Context, cfg config.Config, logger *sl
 			_ = auditService.RecordTerminalEvent(context.Background(), event.StackID, event.SessionID, event.ContainerID, "local", action, result, details)
 		}),
 		stackReader:     stackReader,
+		imageUpdates:    imageUpdateService,
 		hostInfo:        hostinfo.NewService(cfg, time.Now().UTC()),
 		dockerAdmin:     dockeradmin.NewService(cfg),
 		dockerRegistry:  dockerregistryauth.NewService(cfg),
@@ -208,6 +223,9 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("POST /api/git/workspace/push", h.withAuth(h.handleGitWorkspacePush))
 	h.mux.HandleFunc("POST /api/maintenance/update-stacks", h.withAuth(h.handleUpdateStacksMaintenance))
 	h.mux.HandleFunc("GET /api/maintenance/images", h.withAuth(h.handleMaintenanceImages))
+	h.mux.HandleFunc("GET /api/templates", h.withAuth(h.handleTemplates))
+	h.mux.HandleFunc("GET /api/maintenance/image-updates", h.withAuth(h.handleImageUpdatesList))
+	h.mux.HandleFunc("POST /api/maintenance/image-updates/check", h.withAuth(h.handleImageUpdatesCheck))
 	h.mux.HandleFunc("GET /api/maintenance/networks", h.withAuth(h.handleMaintenanceNetworks))
 	h.mux.HandleFunc("POST /api/maintenance/networks", h.withAuth(h.handleCreateMaintenanceNetwork))
 	h.mux.HandleFunc("DELETE /api/maintenance/networks/{name}", h.withAuth(h.handleDeleteMaintenanceNetwork))
@@ -918,6 +936,82 @@ type maintenancePruneRequest struct {
 type dockerAdminValidateRequest struct {
 	Settings   dockeradmin.ManagedSettings `json:"settings"`
 	RemoveKeys []string                    `json:"remove_keys"`
+}
+
+func (h *Handler) handleTemplates(w http.ResponseWriter, r *http.Request) {
+	response, err := h.stackReader.Templates(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to list templates.", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleImageUpdatesList(w http.ResponseWriter, r *http.Request) {
+	cached := h.imageUpdates.StatusByImage()
+	items := make([]store.ImageUpdateStatus, 0, len(cached))
+	for _, status := range cached {
+		items = append(items, status)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].ImageRef < items[j].ImageRef })
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+// handleImageUpdatesCheck runs a check_image_updates job synchronously (like
+// the other maintenance jobs) with structured per-image progress.
+func (h *Handler) handleImageUpdatesCheck(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	refs, err := h.stackReader.AllImageRefs(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to list stack images.", nil)
+		return
+	}
+
+	job, err := h.jobs.Start(r.Context(), "", "check_image_updates", "local")
+	if err != nil {
+		writeError(w, http.StatusConflict, "conflict", err.Error(), nil)
+		return
+	}
+
+	results := h.imageUpdates.CheckImages(r.Context(), refs, func(done, total int, detail string) {
+		_ = h.jobs.PublishEventWithProgress(r.Context(), job, "job_progress", "Checking image updates.", "", nil, &store.JobProgress{
+			Phase:     "check",
+			Completed: done,
+			Total:     total,
+			Unit:      "images",
+			Detail:    detail,
+		})
+	})
+
+	available := 0
+	for _, status := range results {
+		if status.State == imageupdates.StateAvailable {
+			available++
+		}
+		_ = h.jobs.PublishEvent(r.Context(), job, "job_log", "Checked "+status.ImageRef+".", status.State, nil)
+	}
+
+	job, err = h.jobs.FinishSucceeded(r.Context(), job)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to finish job.", nil)
+		return
+	}
+	if err := h.audit.RecordJob(r.Context(), job, map[string]any{
+		"images_checked":    len(results),
+		"updates_available": available,
+	}); err != nil {
+		h.logger.Warn("record image update audit failed", slog.String("err", err.Error()))
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"job":               job,
+		"images_checked":    len(results),
+		"updates_available": available,
+	})
 }
 
 func (h *Handler) handleUpdateStacksMaintenance(w http.ResponseWriter, r *http.Request) {
