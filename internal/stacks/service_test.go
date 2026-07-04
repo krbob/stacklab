@@ -115,6 +115,43 @@ services:
 	}
 }
 
+func TestNormalizePortMappingsDeduplicatesIPv4IPv6Bindings(t *testing.T) {
+	t.Parallel()
+
+	ports := []PortMapping{
+		{Published: 8081, Target: 80, Protocol: "tcp"},
+		{Published: 8081, Target: 80, Protocol: "TCP"},
+		{Published: 9443, Target: 443, Protocol: "tcp"},
+	}
+	got := normalizePortMappings(ports)
+	want := []PortMapping{
+		{Published: 8081, Target: 80, Protocol: "tcp"},
+		{Published: 9443, Target: 443, Protocol: "tcp"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("normalizePortMappings() = %#v, want %#v", got, want)
+	}
+}
+
+func TestDefinitionWarningChangedSuppressesRepeatedSignature(t *testing.T) {
+	t.Parallel()
+
+	reader := &ServiceReader{}
+	if !reader.definitionWarningChanged("invalid", "parse", "yaml error") {
+		t.Fatal("first warning should be reported")
+	}
+	if reader.definitionWarningChanged("invalid", "parse", "yaml error") {
+		t.Fatal("repeated warning should be suppressed")
+	}
+	if !reader.definitionWarningChanged("invalid", "parse", "different yaml error") {
+		t.Fatal("changed warning should be reported")
+	}
+	reader.clearDefinitionWarning("invalid", "parse")
+	if !reader.definitionWarningChanged("invalid", "parse", "different yaml error") {
+		t.Fatal("warning should be reported after clear")
+	}
+}
+
 func TestDeriveRuntimeState(t *testing.T) {
 	t.Parallel()
 

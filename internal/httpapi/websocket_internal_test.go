@@ -47,6 +47,33 @@ func TestCalculateNetworkRates(t *testing.T) {
 	}
 }
 
+func TestAddDockerStatsTotalsUsesMaxMemoryLimit(t *testing.T) {
+	t.Parallel()
+
+	totals := map[string]float64{
+		"cpu_percent":              0,
+		"memory_bytes":             0,
+		"memory_limit_bytes":       0,
+		"network_rx_bytes_per_sec": 0,
+		"network_tx_bytes_per_sec": 0,
+	}
+	addDockerStatsTotals(totals, dockerStatsRecord{CPU: 1.5, Memory: 100, MemLimit: 4 << 30}, 10, 20)
+	addDockerStatsTotals(totals, dockerStatsRecord{CPU: 0.5, Memory: 200, MemLimit: 4 << 30}, 30, 40)
+
+	if totals["cpu_percent"] != 2 {
+		t.Fatalf("cpu total = %v, want 2", totals["cpu_percent"])
+	}
+	if totals["memory_bytes"] != 300 {
+		t.Fatalf("memory total = %v, want 300", totals["memory_bytes"])
+	}
+	if totals["memory_limit_bytes"] != float64(4<<30) {
+		t.Fatalf("memory limit = %v, want %v", totals["memory_limit_bytes"], float64(4<<30))
+	}
+	if totals["network_rx_bytes_per_sec"] != 40 || totals["network_tx_bytes_per_sec"] != 60 {
+		t.Fatalf("network totals = rx %v tx %v, want rx 40 tx 60", totals["network_rx_bytes_per_sec"], totals["network_tx_bytes_per_sec"])
+	}
+}
+
 func TestParseTimestampedLogLine(t *testing.T) {
 	t.Parallel()
 

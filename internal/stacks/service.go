@@ -51,11 +51,13 @@ type composeCLI struct {
 }
 
 type ServiceReader struct {
-	cfg          config.Config
-	logger       *slog.Logger
-	hostShell    bool
-	stats        *StatsCollector
-	updateStatus func() map[string]ImageUpdateState
+	cfg                  config.Config
+	logger               *slog.Logger
+	hostShell            bool
+	stats                *StatsCollector
+	updateStatus         func() map[string]ImageUpdateState
+	definitionWarningMu  sync.Mutex
+	definitionWarningLog map[string]string
 }
 
 // AttachStatsCollector wires the host-level stats collector; list responses
@@ -144,8 +146,9 @@ type MaintenanceStepOptions struct {
 
 func NewServiceReader(cfg config.Config, logger *slog.Logger) *ServiceReader {
 	return &ServiceReader{
-		cfg:    cfg,
-		logger: logger,
+		cfg:                  cfg,
+		logger:               logger,
+		definitionWarningLog: map[string]string{},
 	}
 }
 
@@ -791,7 +794,7 @@ func (s *ServiceReader) scanDefinitions() (map[string]definitionSnapshot, error)
 
 		content, err := os.ReadFile(composePath)
 		if err != nil {
-			s.logger.Warn("failed to read compose file", slog.String("stack_id", entry.Name()), slog.String("err", err.Error()))
+			s.logDefinitionWarning("failed to read compose file", entry.Name(), "read", err)
 			result[entry.Name()] = definitionSnapshot{
 				ConfigState: ConfigStateInvalid,
 				CreatedAt:   createdAt,
@@ -799,12 +802,15 @@ func (s *ServiceReader) scanDefinitions() (map[string]definitionSnapshot, error)
 			}
 			continue
 		}
+		s.clearDefinitionWarning(entry.Name(), "read")
 
 		services, metadata, parseErr := parseComposeServices(stackRoot, content)
 		configState := ConfigStateUnknown
 		if parseErr != nil {
-			s.logger.Warn("failed to parse compose file", slog.String("stack_id", entry.Name()), slog.String("err", parseErr.Error()))
+			s.logDefinitionWarning("failed to parse compose file", entry.Name(), "parse", parseErr)
 			configState = ConfigStateInvalid
+		} else {
+			s.clearDefinitionWarning(entry.Name(), "parse")
 		}
 
 		result[entry.Name()] = definitionSnapshot{
@@ -817,6 +823,39 @@ func (s *ServiceReader) scanDefinitions() (map[string]definitionSnapshot, error)
 	}
 
 	return result, nil
+}
+
+func (s *ServiceReader) logDefinitionWarning(message, stackID, kind string, err error) {
+	if s.logger == nil || err == nil {
+		return
+	}
+	args := []any{slog.String("stack_id", stackID), slog.String("err", err.Error())}
+	if s.definitionWarningChanged(stackID, kind, err.Error()) {
+		s.logger.Warn(message, args...)
+		return
+	}
+	s.logger.Debug(message, args...)
+}
+
+func (s *ServiceReader) definitionWarningChanged(stackID, kind, signature string) bool {
+	key := stackID + ":" + kind
+	s.definitionWarningMu.Lock()
+	defer s.definitionWarningMu.Unlock()
+	if s.definitionWarningLog == nil {
+		s.definitionWarningLog = map[string]string{}
+	}
+	if s.definitionWarningLog[key] == signature {
+		return false
+	}
+	s.definitionWarningLog[key] = signature
+	return true
+}
+
+func (s *ServiceReader) clearDefinitionWarning(stackID, kind string) {
+	key := stackID + ":" + kind
+	s.definitionWarningMu.Lock()
+	delete(s.definitionWarningLog, key)
+	s.definitionWarningMu.Unlock()
 }
 
 func (s *ServiceReader) scanRuntime(ctx context.Context) map[string][]Container {
@@ -871,12 +910,7 @@ func (s *ServiceReader) scanRuntime(ctx context.Context) map[string][]Container 
 				})
 			}
 		}
-		sort.Slice(ports, func(i, j int) bool {
-			if ports[i].Published == ports[j].Published {
-				return ports[i].Target < ports[j].Target
-			}
-			return ports[i].Published < ports[j].Published
-		})
+		ports = normalizePortMappings(ports)
 
 		var healthStatus *string
 		if inspectedContainer.State.Health != nil {
@@ -1119,13 +1153,48 @@ func parseComposePorts(values []any) []PortMapping {
 		}
 	}
 
-	sort.Slice(ports, func(i, j int) bool {
-		if ports[i].Published == ports[j].Published {
-			return ports[i].Target < ports[j].Target
+	return normalizePortMappings(ports)
+}
+
+type portMappingIdentity struct {
+	Published int
+	Target    int
+	Protocol  string
+}
+
+func normalizePortMappings(ports []PortMapping) []PortMapping {
+	if len(ports) == 0 {
+		return ports
+	}
+	seen := make(map[portMappingIdentity]struct{}, len(ports))
+	result := make([]PortMapping, 0, len(ports))
+	for _, port := range ports {
+		protocol := strings.ToLower(strings.TrimSpace(port.Protocol))
+		if protocol == "" {
+			protocol = "tcp"
 		}
-		return ports[i].Published < ports[j].Published
+		identity := portMappingIdentity{
+			Published: port.Published,
+			Target:    port.Target,
+			Protocol:  protocol,
+		}
+		if _, ok := seen[identity]; ok {
+			continue
+		}
+		seen[identity] = struct{}{}
+		port.Protocol = identity.Protocol
+		result = append(result, port)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Published == result[j].Published {
+			if result[i].Target == result[j].Target {
+				return result[i].Protocol < result[j].Protocol
+			}
+			return result[i].Target < result[j].Target
+		}
+		return result[i].Published < result[j].Published
 	})
-	return ports
+	return result
 }
 
 func parseShortPortMapping(value string) (PortMapping, bool) {

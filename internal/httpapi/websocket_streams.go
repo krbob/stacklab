@@ -241,11 +241,7 @@ func (h *Handler) forwardStackStats(ctx context.Context, wsConn *wsConnection, s
 					txBytes:   record.NetTX,
 					timestamp: now,
 				}
-				totals["cpu_percent"] += record.CPU
-				totals["memory_bytes"] += float64(record.Memory)
-				totals["memory_limit_bytes"] += float64(record.MemLimit)
-				totals["network_rx_bytes_per_sec"] += rxRate
-				totals["network_tx_bytes_per_sec"] += txRate
+				addDockerStatsTotals(totals, record, rxRate, txRate)
 
 				containerPayloads = append(containerPayloads, map[string]any{
 					"container_id":             container.ID,
@@ -325,6 +321,16 @@ func scanLogStream(ctx context.Context, wsConn *wsConnection, streamID string, c
 			return
 		}
 	}
+}
+
+func addDockerStatsTotals(totals map[string]float64, record dockerStatsRecord, rxRate, txRate float64) {
+	totals["cpu_percent"] += record.CPU
+	totals["memory_bytes"] += float64(record.Memory)
+	if limit := float64(record.MemLimit); limit > totals["memory_limit_bytes"] {
+		totals["memory_limit_bytes"] = limit
+	}
+	totals["network_rx_bytes_per_sec"] += rxRate
+	totals["network_tx_bytes_per_sec"] += txRate
 }
 
 func collectDockerStats(ctx context.Context, containers []stacks.Container) (map[string]dockerStatsRecord, error) {
