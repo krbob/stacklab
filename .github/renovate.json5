@@ -16,7 +16,7 @@
     '* * 2 * *',
   ],
   minimumReleaseAge: '3 days',
-  platformAutomerge: true,
+  platformAutomerge: false,
   prConcurrentLimit: 6,
   prHourlyLimit: 4,
   rebaseWhen: 'behind-base-branch',
