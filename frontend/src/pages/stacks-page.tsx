@@ -3,8 +3,7 @@ import { Link } from 'react-router-dom'
 import { ExternalLink } from 'lucide-react'
 
 import { checkImageUpdates, getStacks } from '@/lib/api-client'
-import { useApi } from '@/hooks/use-api'
-import type { StackListItem } from '@/lib/api-types'
+import type { StackListItem, StackListResponse } from '@/lib/api-types'
 import { PageHeader } from '@/components/page-header'
 import { cn } from '@/lib/cn'
 
@@ -150,7 +149,38 @@ function StackGlyph({ name, icon }: { name: string; icon?: string }) {
 
 export function StacksPage() {
   const [reloadKey, setReloadKey] = useState(0)
-  const { data, error, loading } = useApi(() => getStacks(), [reloadKey])
+  const [data, setData] = useState<StackListResponse | null>(null)
+  const [error, setError] = useState<Error | null>(null)
+  const loading = data === null && error === null
+
+  // The stats collector samples every 10s server-side; refresh the list on
+  // the same cadence — silently, keeping the previous data on screen (and on
+  // poll errors), and only while the tab is visible.
+  useEffect(() => {
+    let cancelled = false
+    let hasData = false
+    const load = () => {
+      getStacks()
+        .then((response) => {
+          if (cancelled) return
+          hasData = true
+          setData(response)
+          setError(null)
+        })
+        .catch((err) => {
+          if (!cancelled && !hasData) setError(err instanceof Error ? err : new Error('Failed to load stacks'))
+        })
+    }
+    load()
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') load()
+    }, 10_000)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [reloadKey])
+
   const [filter, setFilter] = useState('')
   const [status, setStatus] = useState<StatusFilter>('all')
   const [checking, setChecking] = useState(false)
