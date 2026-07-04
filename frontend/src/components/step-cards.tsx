@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { JobEvent } from '@/lib/ws-types'
 import { cn } from '@/lib/cn'
 
@@ -57,9 +57,25 @@ export function StepCards({ events }: StepCardsProps) {
 
 function StepCard({ step }: { step: StepData }) {
   const [expanded, setExpanded] = useState(false)
+  const [clipped, setClipped] = useState(false)
   const [nowMs, setNowMs] = useState(() => Date.now())
+  const previewRef = useRef<HTMLDivElement | null>(null)
   const status = statusLabel[step.state] ?? statusLabel.queued
   const dot = statusDot[step.state] ?? statusDot.queued
+
+  // A single logical line can wrap to many rendered lines, so "does it fit"
+  // must be measured, not derived from the line count.
+  useEffect(() => {
+    if (expanded) return
+    const el = previewRef.current
+    if (!el) return
+    const measure = () => setClipped(el.scrollHeight > el.clientHeight + 1)
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [expanded, step.logLines.length])
 
   useEffect(() => {
     if (step.state !== 'running') return
@@ -73,6 +89,7 @@ function StepCard({ step }: { step: StepData }) {
 
   const previewLines = step.logLines.slice(-2)
   const hasMore = step.logLines.length > 2
+  const showToggle = hasMore || clipped || expanded
 
   return (
     <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-3">
@@ -91,10 +108,13 @@ function StepCard({ step }: { step: StepData }) {
       {/* Output preview / expanded */}
       {step.logLines.length > 0 && (
         <div className="mt-2">
-          <div className={cn(
-            'overflow-hidden rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.25)] px-2 py-1.5 font-mono text-xs leading-5',
-            !expanded && 'max-h-14',
-          )}>
+          <div
+            ref={previewRef}
+            className={cn(
+              'relative overflow-hidden rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.25)] px-2 py-1.5 font-mono text-xs leading-5 [overflow-wrap:anywhere]',
+              !expanded && 'max-h-[4.75rem]',
+            )}
+          >
             {(expanded ? step.logLines : previewLines).map((line, i) => (
               <div key={i} className={cn(
                 line.type === 'job_error' ? 'text-red-400' :
@@ -105,13 +125,16 @@ function StepCard({ step }: { step: StepData }) {
                 {line.data && <span className="text-[var(--text)]"> {line.data}</span>}
               </div>
             ))}
+            {!expanded && (hasMore || clipped) && (
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-[#100C05] to-transparent" aria-hidden />
+            )}
           </div>
-          {hasMore && (
+          {showToggle && (
             <button
               onClick={() => setExpanded(!expanded)}
               className="mt-1 text-xs text-[var(--accent)] hover:underline"
             >
-              {expanded ? 'Collapse' : `Show all (${step.logLines.length} lines)`}
+              {expanded ? 'Collapse' : hasMore ? `Show all (${step.logLines.length} lines)` : 'Show all'}
             </button>
           )}
         </div>
