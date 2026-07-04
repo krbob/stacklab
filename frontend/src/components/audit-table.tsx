@@ -38,7 +38,16 @@ export function AuditTable({ entries, showStack = false, onLoadMore, hasMore, lo
 
         return (
           <div key={entry.id} data-testid="audit-row">
-            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-4 py-3 text-sm">
+            <div
+              onClick={hasJob ? () => openJob(entry.job_id!) : undefined}
+              onKeyDown={hasJob ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openJob(entry.job_id!) } } : undefined}
+              role={hasJob ? 'button' : undefined}
+              tabIndex={hasJob ? 0 : undefined}
+              className={cn(
+                'flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-4 py-3 text-sm',
+                hasJob && 'cursor-pointer transition hover:border-[rgba(245,165,36,0.25)] hover:bg-[rgba(255,255,255,0.04)]',
+              )}
+            >
               <span className="w-36 shrink-0 text-xs tabular-nums text-[var(--muted)]">
                 {new Date(entry.requested_at).toLocaleString()}
               </span>
