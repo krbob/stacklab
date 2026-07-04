@@ -18,16 +18,16 @@ interface StepData {
 }
 
 const statusDot: Record<string, string> = {
-  running: 'animate-pulse bg-sky-400',
-  succeeded: 'bg-emerald-400',
-  failed: 'bg-red-400',
+  running: 'animate-pulse bg-[var(--run)]',
+  succeeded: 'bg-[var(--ok)]',
+  failed: 'bg-[var(--danger)]',
   queued: 'bg-stone-600',
 }
 
 const statusLabel: Record<string, { text: string; color: string }> = {
-  running: { text: 'Running', color: 'text-sky-400' },
-  succeeded: { text: 'Done', color: 'text-emerald-400' },
-  failed: { text: 'Failed', color: 'text-red-400' },
+  running: { text: 'Running', color: 'text-[var(--run)]' },
+  succeeded: { text: 'Done', color: 'text-[var(--ok)]' },
+  failed: { text: 'Failed', color: 'text-[var(--danger)]' },
   queued: { text: 'Queued', color: 'text-stone-500' },
 }
 
@@ -117,8 +117,8 @@ function StepCard({ step }: { step: StepData }) {
           >
             {(expanded ? step.logLines : previewLines).map((line, i) => (
               <div key={i} className={cn(
-                line.type === 'job_error' ? 'text-red-400' :
-                line.type === 'job_warning' ? 'text-amber-400' :
+                line.type === 'job_error' ? 'text-[var(--danger)]' :
+                line.type === 'job_warning' ? 'text-[var(--warning)]' :
                 'text-[var(--muted)]',
               )}>
                 {line.message}

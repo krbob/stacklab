@@ -113,7 +113,7 @@ export function StackStatsPage() {
     return (
       <div className="flex flex-col gap-3">
         {!connected && (
-          <div className="text-xs text-amber-400">Stream disconnected. Reconnecting...</div>
+          <div className="text-xs text-[var(--warning)]">Stream disconnected. Reconnecting...</div>
         )}
         <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-8 text-center">
           <div className="text-sm text-[var(--muted)]">Waiting for stats...</div>
@@ -133,7 +133,7 @@ export function StackStatsPage() {
   return (
     <div className="flex flex-col gap-4">
       {!connected && (
-        <div className="text-xs text-amber-400">Stream disconnected. Reconnecting...</div>
+        <div className="text-xs text-[var(--warning)]">Stream disconnected. Reconnecting...</div>
       )}
 
       <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-3 text-xs text-[var(--muted)]">
@@ -145,22 +145,22 @@ export function StackStatsPage() {
           label="Stack CPU"
           value={`${totals.cpu_percent.toFixed(1)}%`}
           history={stackCpuHistory}
-          color="#22d3ee"
+          color="#F5A524"
         />
         <MetricCard
           label="Stack RAM"
           value={formatBytes(totals.memory_bytes)}
           detail={totals.memory_limit_bytes > 0 ? `/ ${formatBytes(totals.memory_limit_bytes)}` : undefined}
           history={stackMemoryHistory}
-          color="#a78bfa"
+          color="#E8C07A"
         />
         <MetricCard
           label="Stack Net"
           value={(
             <>
-              <span className="text-emerald-400">↓{formatRate(totals.network_rx_bytes_per_sec)}</span>
+              <span className="text-[var(--ok)]">↓{formatRate(totals.network_rx_bytes_per_sec)}</span>
               <span className="mx-2 text-[var(--muted)]">·</span>
-              <span className="text-amber-400">↑{formatRate(totals.network_tx_bytes_per_sec)}</span>
+              <span className="text-[var(--warning)]">↑{formatRate(totals.network_tx_bytes_per_sec)}</span>
             </>
           )}
           detail="combined trend"
@@ -193,8 +193,8 @@ export function StackStatsPage() {
                     <span className="text-[var(--muted)]">CPU</span>
                     <span className="text-[var(--text)]">{c.cpu_percent.toFixed(1)}%</span>
                   </div>
-                  <PercentBar value={c.cpu_percent} max={100} color="bg-cyan-400" />
-                  <Sparkline values={cpuHistory} color="#22d3ee" />
+                  <PercentBar value={c.cpu_percent} max={100} color="bg-[var(--accent)]" />
+                  <Sparkline values={cpuHistory} color="#F5A524" />
                 </div>
 
                 {/* Memory */}
@@ -211,18 +211,18 @@ export function StackStatsPage() {
                   <PercentBar
                     value={c.memory_bytes}
                     max={c.memory_limit_bytes || c.memory_bytes * 2}
-                    color="bg-violet-400"
+                    color="bg-[#E8C07A]"
                   />
-                  <Sparkline values={memHistory} color="#a78bfa" />
+                  <Sparkline values={memHistory} color="#E8C07A" />
                 </div>
               </div>
 
               {/* Network */}
               <div className="mt-2 text-sm">
                 <span className="text-[var(--muted)]">Net </span>
-                <span className="text-emerald-400">↓{formatRate(c.network_rx_bytes_per_sec)}</span>
+                <span className="text-[var(--ok)]">↓{formatRate(c.network_rx_bytes_per_sec)}</span>
                 <span className="mx-1 text-[var(--muted)]">·</span>
-                <span className="text-amber-400">↑{formatRate(c.network_tx_bytes_per_sec)}</span>
+                <span className="text-[var(--warning)]">↑{formatRate(c.network_tx_bytes_per_sec)}</span>
               </div>
             </div>
           )

@@ -7,6 +7,7 @@ import { MaintenanceCleanup } from '@/components/maintenance-cleanup'
 import { MaintenanceNetworks } from '@/components/maintenance-networks'
 import { MaintenanceVolumes } from '@/components/maintenance-volumes'
 import { StepCards } from '@/components/step-cards'
+import { PageHeader } from '@/components/page-header'
 import type { StackListItem } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
 
@@ -14,9 +15,9 @@ type MaintenanceTab = 'update' | 'images' | 'networks' | 'volumes' | 'cleanup'
 type TargetMode = 'all' | 'selected'
 
 const stepStatusColors: Record<string, string> = {
-  running: 'text-sky-400',
-  succeeded: 'text-emerald-400',
-  failed: 'text-red-400',
+  running: 'text-[var(--run)]',
+  succeeded: 'text-[var(--ok)]',
+  failed: 'text-[var(--danger)]',
   queued: 'text-stone-500',
 }
 
@@ -92,20 +93,23 @@ export function MaintenancePage() {
   return (
     <div className="flex flex-col gap-4" style={{ minHeight: 'calc(100vh - 120px)' }}>
       {/* Tab bar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <h2 className="text-2xl font-semibold tracking-[-0.04em] text-[var(--text)]">Maintenance</h2>
-        <div className="flex max-w-full gap-1 overflow-x-auto sm:ml-4">
-          {([['update', 'Update'], ['images', 'Images'], ['networks', 'Networks'], ['volumes', 'Volumes'], ['cleanup', 'Cleanup']] as const).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setActiveTab(key)}
-              className={cn('shrink-0 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs transition', activeTab === key ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <PageHeader
+        kicker="System"
+        title="Maintenance"
+        actions={
+          <div className="flex max-w-full gap-1 overflow-x-auto">
+            {([['update', 'Update'], ['images', 'Images'], ['networks', 'Networks'], ['volumes', 'Volumes'], ['cleanup', 'Cleanup']] as const).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setActiveTab(key)}
+                className={cn('shrink-0 whitespace-nowrap rounded-md border px-3 py-1.5 text-xs transition', activeTab === key ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        }
+      />
 
       <div className={activeTab === 'images' ? '' : 'hidden'}>
         <MaintenanceImages />
@@ -171,7 +175,7 @@ export function MaintenancePage() {
             <input type="checkbox" checked={removeOrphans} onChange={(e) => setRemoveOrphans(e.target.checked)} disabled={running} className="rounded" />
             Remove orphan containers
           </label>
-          <label className="flex items-center gap-2 text-xs text-amber-400">
+          <label className="flex items-center gap-2 text-xs text-[var(--warning)]">
             <input
               type="checkbox"
               checked={pruneAfter}
@@ -186,7 +190,7 @@ export function MaintenancePage() {
             Run prune after update
           </label>
           {pruneAfter && (
-            <label className="ml-5 flex items-center gap-2 text-xs text-red-400">
+            <label className="ml-5 flex items-center gap-2 text-xs text-[var(--danger)]">
               <input type="checkbox" checked={pruneVolumes} onChange={(e) => setPruneVolumes(e.target.checked)} disabled={running} className="rounded" />
               Include volumes in prune
             </label>
@@ -198,12 +202,12 @@ export function MaintenancePage() {
           data-testid="maintenance-start"
           onClick={handleStart}
           disabled={running || !canStart}
-          className="mt-5 w-full rounded-2xl bg-[var(--accent)] px-4 py-3 text-sm font-medium text-black transition hover:brightness-105 disabled:opacity-40"
+          className="mt-5 w-full rounded-lg bg-[var(--accent)] px-4 py-3 text-sm font-medium text-black transition hover:brightness-105 disabled:opacity-40"
         >
           {running ? 'Running...' : 'Start update'}
         </button>
 
-        {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+        {error && <p className="mt-2 text-xs text-[var(--danger)]">{error}</p>}
       </div>
 
       {/* Right: progress */}
@@ -220,7 +224,7 @@ export function MaintenancePage() {
           <div className="mt-4 flex flex-col gap-3">
             {/* Job state header */}
             <div className="flex items-center gap-2">
-              {jobState === 'running' && <span className="inline-block size-2 animate-pulse rounded-full bg-sky-400" />}
+              {jobState === 'running' && <span className="inline-block size-2 animate-pulse rounded-full bg-[var(--run)]" />}
               <span className={cn('text-sm font-medium', stepStatusColors[jobState ?? ''] ?? 'text-[var(--muted)]')}>
                 {jobState === 'running' ? 'Running' : jobState === 'succeeded' ? 'Succeeded' : jobState === 'failed' ? 'Failed' : jobState ?? 'Starting'}
               </span>
@@ -244,10 +248,10 @@ function StackCheckbox({ stack, checked, onChange, disabled }: {
   disabled: boolean
 }) {
   const stateColors: Record<string, string> = {
-    running: 'text-emerald-400',
+    running: 'text-[var(--ok)]',
     stopped: 'text-stone-500',
-    partial: 'text-amber-400',
-    error: 'text-red-400',
+    partial: 'text-[var(--warning)]',
+    error: 'text-[var(--danger)]',
     defined: 'text-stone-600',
   }
 

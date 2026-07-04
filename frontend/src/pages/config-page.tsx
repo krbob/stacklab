@@ -19,12 +19,12 @@ const entryIcons: Record<string, typeof File> = {
 }
 
 const statusPrefixes: Record<string, { letter: string; color: string }> = {
-  modified: { letter: 'M', color: 'text-emerald-400' },
-  added: { letter: 'A', color: 'text-sky-400' },
-  deleted: { letter: 'D', color: 'text-red-400' },
-  renamed: { letter: 'R', color: 'text-violet-400' },
-  untracked: { letter: 'U', color: 'text-amber-400' },
-  conflicted: { letter: 'C', color: 'text-red-400' },
+  modified: { letter: 'M', color: 'text-[var(--accent)]' },
+  added: { letter: 'A', color: 'text-[var(--ok)]' },
+  deleted: { letter: 'D', color: 'text-[var(--danger)]' },
+  renamed: { letter: 'R', color: 'text-[var(--muted)]' },
+  untracked: { letter: 'U', color: 'text-[var(--warning)]' },
+  conflicted: { letter: 'C', color: 'text-[var(--danger)]' },
 }
 
 export function ConfigPage() {
@@ -266,7 +266,7 @@ export function ConfigPage() {
           <button
             onClick={() => handleModeSwitch('files')}
             className={cn(
-              'flex-1 rounded-full border px-3 py-1.5 text-xs transition',
+              'flex-1 rounded-md border px-3 py-1.5 text-xs transition',
               mode === 'files'
                 ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
                 : 'border-[var(--panel-border)] text-[var(--muted)]',
@@ -279,7 +279,7 @@ export function ConfigPage() {
             disabled={!gitAvailable && !gitLoading}
             title={!gitAvailable ? (gitReason ?? 'Git not available') : undefined}
             className={cn(
-              'flex-1 rounded-full border px-3 py-1.5 text-xs transition disabled:opacity-40',
+              'flex-1 rounded-md border px-3 py-1.5 text-xs transition disabled:opacity-40',
               mode === 'changes'
                 ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
                 : 'border-[var(--panel-border)] text-[var(--muted)]',
@@ -299,7 +299,7 @@ export function ConfigPage() {
                 ))}
               </div>
             )}
-            {treeError && <p className="text-xs text-red-400">{treeError}</p>}
+            {treeError && <p className="text-xs text-[var(--danger)]">{treeError}</p>}
             {!treeLoading && !treeError && (
               <nav className="flex-1 space-y-0.5 overflow-y-auto">
                 {parentPath !== null && (
@@ -343,14 +343,14 @@ export function ConfigPage() {
                 {[1, 2, 3].map((i) => <div key={i} className="h-6 animate-pulse rounded bg-[rgba(255,255,255,0.05)]" />)}
               </div>
             )}
-            {gitError && <p className="text-xs text-red-400">{gitError}</p>}
+            {gitError && <p className="text-xs text-[var(--danger)]">{gitError}</p>}
             {!gitLoading && !gitError && gitAvailable && (
               <div className="flex-1 space-y-2 overflow-y-auto">
                 {gitBranch && (
                   <div className="flex items-center gap-2 px-2 py-1 text-xs text-[var(--muted)]">
                     <GitBranch className="size-3" />
                     <span>{gitBranch}</span>
-                    {gitAhead > 0 && <span className="text-amber-400">+{gitAhead}</span>}
+                    {gitAhead > 0 && <span className="text-[var(--warning)]">+{gitAhead}</span>}
                   </div>
                 )}
                 {gitClean && <p className="px-2 py-4 text-xs text-[var(--muted)]">Working tree clean</p>}
@@ -379,7 +379,7 @@ export function ConfigPage() {
                             <button onClick={() => openDiff(item.path)} className="flex min-w-0 flex-1 items-center gap-1">
                               {prefix && <span className={cn('w-3 shrink-0 font-mono font-bold', prefix.color)}>{prefix.letter}</span>}
                               <span className={cn('truncate', isBlocked && 'opacity-50')}>{fileName}</span>
-                              {isBlocked && <span className="shrink-0 text-amber-400" title="Access blocked">⚠</span>}
+                              {isBlocked && <span className="shrink-0 text-[var(--warning)]" title="Access blocked">⚠</span>}
                             </button>
                           </div>
                         )
@@ -429,7 +429,7 @@ export function ConfigPage() {
               <div className="flex flex-1 items-center justify-center"><div className="text-sm text-[var(--muted)]">Loading file...</div></div>
             )}
             {fileError && (
-              <div className="rounded-2xl border border-red-400/20 bg-red-400/5 px-4 py-3 text-sm text-red-400">{fileError}</div>
+              <div className="rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">{fileError}</div>
             )}
             {selectedFile && (
               <>
@@ -437,8 +437,8 @@ export function ConfigPage() {
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="text-lg font-medium text-[var(--text)]">{selectedFile.name}</h3>
-                      <span className="rounded-full border border-[var(--panel-border)] px-2 py-0.5 text-xs text-[var(--muted)]">{selectedFile.type.replace('_', ' ')}</span>
-                      {selectedFile.git_ignored && <span className="rounded-full border border-[var(--panel-border)] px-2 py-0.5 text-xs text-[var(--muted)]">ignored</span>}
+                      <span className="rounded-md border border-[var(--panel-border)] px-2 py-0.5 text-xs text-[var(--muted)]">{selectedFile.type.replace('_', ' ')}</span>
+                      {selectedFile.git_ignored && <span className="rounded-md border border-[var(--panel-border)] px-2 py-0.5 text-xs text-[var(--muted)]">ignored</span>}
                     </div>
                     <div className="mt-1 flex items-center gap-3 text-xs text-[var(--muted)]">
                       <span>{selectedFile.path}</span>
@@ -448,15 +448,15 @@ export function ConfigPage() {
                   </div>
                   {selectedFile.type === 'text_file' && selectedFile.writable && (
                     <div className="flex items-center gap-2">
-                      {isDirty && <span className="text-xs text-amber-400">Unsaved changes</span>}
-                      {isDirty && <button onClick={handleDiscard} className="rounded-full border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]">Discard</button>}
-                      <button data-testid="config-save" onClick={handleSave} disabled={saving || !isDirty} className="rounded-full border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40">
+                      {isDirty && <span className="text-xs text-[var(--warning)]">Unsaved changes</span>}
+                      {isDirty && <button onClick={handleDiscard} className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]">Discard</button>}
+                      <button data-testid="config-save" onClick={handleSave} disabled={saving || !isDirty} className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40">
                         {saving ? 'Saving...' : 'Save'}
                       </button>
                     </div>
                   )}
                 </div>
-                {saveMessage && <div className={cn('mt-2 text-xs', saveMessage.type === 'success' ? 'text-emerald-400' : 'text-red-400')}>{saveMessage.text}</div>}
+                {saveMessage && <div className={cn('mt-2 text-xs', saveMessage.type === 'success' ? 'text-[var(--ok)]' : 'text-[var(--danger)]')}>{saveMessage.text}</div>}
                 <div className="mt-3 flex-1" style={{ minHeight: '400px' }}>
                   {selectedFile.blocked_reason ? (
                     <BlockedFileCard
@@ -500,7 +500,7 @@ export function ConfigPage() {
               </div>
             )}
             {diffLoading && <div className="flex flex-1 items-center justify-center"><div className="text-sm text-[var(--muted)]">Loading diff...</div></div>}
-            {diffError && <div className="rounded-2xl border border-red-400/20 bg-red-400/5 px-4 py-3 text-sm text-red-400">{diffError}</div>}
+            {diffError && <div className="rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">{diffError}</div>}
             {selectedDiff && (
               <>
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -508,7 +508,7 @@ export function ConfigPage() {
                     <div className="flex items-center gap-2">
                       <h3 className="text-lg font-medium text-[var(--text)]">{selectedDiff.path.split('/').pop()}</h3>
                       {statusPrefixes[selectedDiff.status] && (
-                        <span className={cn('rounded-full border border-[var(--panel-border)] px-2 py-0.5 text-xs', statusPrefixes[selectedDiff.status].color)}>
+                        <span className={cn('rounded-md border border-[var(--panel-border)] px-2 py-0.5 text-xs', statusPrefixes[selectedDiff.status].color)}>
                           {selectedDiff.status}
                         </span>
                       )}
@@ -526,7 +526,7 @@ export function ConfigPage() {
                         handleModeSwitch('files')
                         openFile(configPath)
                       }}
-                      className="rounded-full border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]"
+                      className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]"
                     >
                       Open in editor
                     </button>
@@ -534,7 +534,7 @@ export function ConfigPage() {
                   {selectedDiff.status !== 'deleted' && selectedDiff.scope === 'stacks' && selectedDiff.stack_id && (
                     <Link
                       to={`/stacks/${selectedDiff.stack_id}/editor`}
-                      className="rounded-full border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]"
+                      className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]"
                     >
                       Open stack editor
                     </Link>

@@ -3,6 +3,7 @@ import { getGlobalAudit } from '@/lib/api-client'
 import { useApi } from '@/hooks/use-api'
 import { AuditTable } from '@/components/audit-table'
 import type { AuditEntry } from '@/lib/api-types'
+import { PageHeader } from '@/components/page-header'
 
 export function GlobalAuditPage() {
   const [allEntries, setAllEntries] = useState<AuditEntry[]>([])
@@ -30,12 +31,11 @@ export function GlobalAuditPage() {
 
   return (
     <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
-      <div className="font-brand text-xs uppercase tracking-[0.28em] text-[var(--accent)]">System</div>
-      <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-[var(--text)]">Audit log</h2>
+      <PageHeader kicker="System" title="Audit log" />
 
       <div className="mt-6">
         {error && (
-          <div className="rounded-2xl border border-red-400/20 bg-red-400/5 px-4 py-3 text-sm text-red-400">
+          <div className="rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">
             Failed to load audit: {error.message}
           </div>
         )}

@@ -61,7 +61,7 @@ export function GitCommitBar({ selectedPaths, hasUpstream, aheadCount, onCommitt
     <div className="border-t border-[var(--panel-border)] pt-3">
       {/* Result message */}
       {result && (
-        <div className={cn('mb-2 text-xs', result.type === 'success' ? 'text-emerald-400' : 'text-red-400')}>
+        <div className={cn('mb-2 text-xs', result.type === 'success' ? 'text-[var(--ok)]' : 'text-[var(--danger)]')}>
           {result.text}
         </div>
       )}
@@ -107,7 +107,7 @@ export function GitCommitBar({ selectedPaths, hasUpstream, aheadCount, onCommitt
           <button
             onClick={() => setShowCommitInput(true)}
             disabled={selectedPaths.size === 0 || committing}
-            className="ml-auto rounded-full border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40"
+            className="ml-auto rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40"
           >
             Commit
           </button>
@@ -118,7 +118,7 @@ export function GitCommitBar({ selectedPaths, hasUpstream, aheadCount, onCommitt
             onClick={handlePush}
             disabled={pushing}
             data-testid="git-push"
-            className="rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-xs text-amber-400 disabled:opacity-40"
+            className="rounded-md border border-[var(--warning)]/30 bg-[var(--warning)]/10 px-3 py-1 text-xs text-[var(--warning)] disabled:opacity-40"
           >
             {pushing ? 'Pushing...' : `Push (${aheadCount} ahead)`}
           </button>

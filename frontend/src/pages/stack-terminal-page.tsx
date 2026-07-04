@@ -92,7 +92,7 @@ export function StackTerminalPage() {
           <button
             onClick={terminal.open}
             disabled={!connected || !selectedContainerId}
-            className="rounded-full border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1 text-xs text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40"
+            className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1 text-xs text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40"
           >
             {terminal.state === 'ended' || terminal.state === 'error' ? 'New session' : 'Connect'}
           </button>
@@ -101,7 +101,7 @@ export function StackTerminalPage() {
         ) : (
           <button
             onClick={terminal.close}
-            className="rounded-full border border-red-400/30 px-3 py-1 text-xs text-red-400 transition hover:bg-red-400/10"
+            className="rounded-md border border-[var(--danger)]/30 px-3 py-1 text-xs text-[var(--danger)] transition hover:bg-[var(--danger)]/10"
           >
             Disconnect
           </button>
@@ -110,23 +110,23 @@ export function StackTerminalPage() {
 
       {/* Status messages */}
       {terminal.state === 'ended' && terminal.exitInfo && (
-        <div className="text-xs text-amber-400">
+        <div className="text-xs text-[var(--warning)]">
           {EXIT_REASONS[terminal.exitInfo.reason] ?? terminal.exitInfo.reason}
           {terminal.exitInfo.reason === 'process_exit' && ` (code ${terminal.exitInfo.exit_code})`}
         </div>
       )}
       {terminal.state === 'error' && terminal.errorMessage && (
-        <div className="text-xs text-red-400">{terminal.errorMessage}</div>
+        <div className="text-xs text-[var(--danger)]">{terminal.errorMessage}</div>
       )}
       {!connected && terminal.state === 'connected' && (
-        <div className="text-xs text-amber-400">Connection lost. Attempting to reattach...</div>
+        <div className="text-xs text-[var(--warning)]">Connection lost. Attempting to reattach...</div>
       )}
 
       {/* Connection indicator */}
       <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
         <span className={cn(
           'inline-block size-2 rounded-full',
-          terminal.state === 'connected' ? 'bg-emerald-400' : 'bg-stone-600',
+          terminal.state === 'connected' ? 'bg-[var(--ok)]' : 'bg-stone-600',
         )} />
         {terminal.state === 'connected' ? 'Connected' : terminal.state === 'connecting' ? 'Connecting...' : 'Disconnected'}
       </div>

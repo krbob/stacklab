@@ -3,10 +3,10 @@ import { useJobDrawer } from '@/hooks/use-job-drawer'
 import { cn } from '@/lib/cn'
 
 const resultColors: Record<string, string> = {
-  succeeded: 'text-emerald-400',
-  failed: 'text-red-400',
+  succeeded: 'text-[var(--ok)]',
+  failed: 'text-[var(--danger)]',
   cancelled: 'text-[var(--muted)]',
-  timed_out: 'text-red-400',
+  timed_out: 'text-[var(--danger)]',
 }
 
 interface AuditTableProps {
@@ -77,7 +77,7 @@ export function AuditTable({ entries, showStack = false, onLoadMore, hasMore, lo
         <button
           data-testid="audit-load-more"
           onClick={onLoadMore}
-          className="rounded-full border border-[var(--panel-border)] px-4 py-2 text-sm text-[var(--muted)] hover:text-[var(--text)]"
+          className="rounded-md border border-[var(--panel-border)] px-4 py-2 text-sm text-[var(--muted)] hover:text-[var(--text)]"
         >
           Load more
         </button>

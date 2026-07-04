@@ -6,19 +6,19 @@ describe('DiffView', () => {
   it('renders added lines with green color class', () => {
     render(<DiffView diff="+added line" />)
     const line = screen.getByText('+added line')
-    expect(line.closest('div')).toHaveClass('text-emerald-400')
+    expect(line.closest('div')).toHaveClass('text-[var(--ok)]')
   })
 
   it('renders removed lines with red color class', () => {
     render(<DiffView diff="-removed line" />)
     const line = screen.getByText('-removed line')
-    expect(line.closest('div')).toHaveClass('text-red-400')
+    expect(line.closest('div')).toHaveClass('text-[var(--danger)]')
   })
 
-  it('renders hunk headers with cyan color class', () => {
+  it('renders hunk headers with accent color class', () => {
     render(<DiffView diff="@@ -1,3 +1,4 @@" />)
     const line = screen.getByText('@@ -1,3 +1,4 @@')
-    expect(line.closest('div')).toHaveClass('text-cyan-400')
+    expect(line.closest('div')).toHaveClass('text-[var(--accent)]')
   })
 
   it('renders context lines with muted color', () => {

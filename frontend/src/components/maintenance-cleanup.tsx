@@ -12,9 +12,9 @@ function formatBytes(bytes: number): string {
 }
 
 const stepStatusColors: Record<string, string> = {
-  running: 'text-sky-400',
-  succeeded: 'text-emerald-400',
-  failed: 'text-red-400',
+  running: 'text-[var(--run)]',
+  succeeded: 'text-[var(--ok)]',
+  failed: 'text-[var(--danger)]',
   queued: 'text-stone-500',
 }
 
@@ -77,8 +77,8 @@ export function MaintenanceCleanup() {
         <div className="mt-4 space-y-2">
           <ScopeCheckbox label="Unused images" checked={pruneImages} onChange={setPruneImages} disabled={running} count={p?.images.count} bytes={p?.images.reclaimable_bytes} />
           <ScopeCheckbox label="Build cache" checked={pruneBuildCache} onChange={setPruneBuildCache} disabled={running} count={p?.build_cache.count} bytes={p?.build_cache.reclaimable_bytes} />
-          <ScopeCheckbox label="Stopped containers" checked={pruneStopped} onChange={setPruneStopped} disabled={running} count={p?.stopped_containers.count} bytes={p?.stopped_containers.reclaimable_bytes} color="text-amber-400" />
-          <ScopeCheckbox label="Unused volumes" checked={pruneVolumes} onChange={setPruneVolumes} disabled={running} count={p?.volumes.count} bytes={p?.volumes.reclaimable_bytes} color="text-red-400" />
+          <ScopeCheckbox label="Stopped containers" checked={pruneStopped} onChange={setPruneStopped} disabled={running} count={p?.stopped_containers.count} bytes={p?.stopped_containers.reclaimable_bytes} color="text-[var(--warning)]" />
+          <ScopeCheckbox label="Unused volumes" checked={pruneVolumes} onChange={setPruneVolumes} disabled={running} count={p?.volumes.count} bytes={p?.volumes.reclaimable_bytes} color="text-[var(--danger)]" />
         </div>
 
         {/* Total reclaimable */}
@@ -95,12 +95,12 @@ export function MaintenanceCleanup() {
           data-testid="maintenance-prune"
           onClick={handlePrune}
           disabled={running || (!pruneImages && !pruneBuildCache && !pruneStopped && !pruneVolumes)}
-          className="mt-4 w-full rounded-2xl border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm font-medium text-red-400 transition hover:bg-red-400/20 disabled:opacity-40"
+          className="mt-4 w-full rounded-lg border border-[var(--danger)]/30 bg-[var(--danger)]/10 px-4 py-3 text-sm font-medium text-[var(--danger)] transition hover:bg-[var(--danger)]/20 disabled:opacity-40"
         >
           {running ? 'Cleaning...' : 'Run cleanup'}
         </button>
 
-        {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+        {error && <p className="mt-2 text-xs text-[var(--danger)]">{error}</p>}
       </div>
 
       {/* Right: progress */}
@@ -116,7 +116,7 @@ export function MaintenanceCleanup() {
         {jobId && (
           <div className="mt-3 flex flex-col gap-3">
             <div className="flex items-center gap-2">
-              {jobState === 'running' && <span className="inline-block size-2 animate-pulse rounded-full bg-sky-400" />}
+              {jobState === 'running' && <span className="inline-block size-2 animate-pulse rounded-full bg-[var(--run)]" />}
               <span className={cn('text-sm font-medium', stepStatusColors[jobState ?? ''] ?? 'text-[var(--muted)]')}>
                 {jobState === 'running' ? 'Running' : jobState === 'succeeded' ? 'Succeeded' : jobState === 'failed' ? 'Failed' : jobState ?? 'Starting'}
               </span>

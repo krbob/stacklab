@@ -2,17 +2,17 @@ import type { DisplayState, ConfigState, ActivityState } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
 
 const runtimeStyles: Record<DisplayState, { dot: string; label: string; text: string }> = {
-  running: { dot: 'bg-emerald-400', label: 'Running', text: 'text-emerald-400' },
+  running: { dot: 'bg-[var(--ok)]', label: 'Running', text: 'text-[var(--ok)]' },
   stopped: { dot: 'bg-stone-500', label: 'Stopped', text: 'text-stone-400' },
-  partial: { dot: 'bg-amber-400', label: 'Partial', text: 'text-amber-400' },
-  error: { dot: 'bg-red-400', label: 'Error', text: 'text-red-400' },
+  partial: { dot: 'bg-[var(--warning)]', label: 'Partial', text: 'text-[var(--warning)]' },
+  error: { dot: 'bg-[var(--danger)]', label: 'Error', text: 'text-[var(--danger)]' },
   defined: { dot: 'bg-stone-600 border border-stone-500', label: 'Defined', text: 'text-stone-500' },
-  orphaned: { dot: 'bg-red-500', label: 'Orphaned', text: 'text-red-400' },
+  orphaned: { dot: 'bg-red-500', label: 'Orphaned', text: 'text-[var(--danger)]' },
 }
 
 const configLabels: Partial<Record<ConfigState, { label: string; className: string }>> = {
-  drifted: { label: 'Drifted', className: 'text-amber-400' },
-  invalid: { label: 'Invalid', className: 'text-red-400' },
+  drifted: { label: 'Drifted', className: 'text-[var(--warning)]' },
+  invalid: { label: 'Invalid', className: 'text-[var(--danger)]' },
 }
 
 export function StackBadge({
@@ -32,7 +32,7 @@ export function StackBadge({
       <div className="relative flex items-center gap-2">
         <span className={cn('inline-block size-2.5 rounded-full', runtime.dot)} />
         {activityState === 'locked' && (
-          <span className="absolute -left-0.5 -top-0.5 size-3.5 animate-ping rounded-full bg-sky-400/40" />
+          <span className="absolute -left-0.5 -top-0.5 size-3.5 animate-ping rounded-full bg-[var(--run)]/40" />
         )}
         <span className={cn('text-sm font-medium', runtime.text)}>{runtime.label}</span>
       </div>
@@ -44,7 +44,7 @@ export function StackBadge({
       )}
 
       {activityState === 'locked' && (
-        <span className="text-xs text-sky-400">· Locked</span>
+        <span className="text-xs text-[var(--run)]">· Locked</span>
       )}
     </div>
   )

@@ -5,15 +5,16 @@ import { useLogStream } from '@/hooks/use-log-stream'
 import { useWs } from '@/hooks/use-ws'
 import { cn } from '@/lib/cn'
 
+// Warm hues only: service labels must never collide with status colors (Z2).
 const SERVICE_COLORS = [
-  'text-cyan-400',
-  'text-violet-400',
-  'text-amber-400',
-  'text-emerald-400',
-  'text-rose-400',
-  'text-sky-400',
-  'text-orange-400',
-  'text-lime-400',
+  'text-[var(--accent)]',
+  'text-[#E8C07A]',
+  'text-[#C9855B]',
+  'text-[#B5A276]',
+  'text-[#F0D090]',
+  'text-[#D9B08C]',
+  'text-[#A68A64]',
+  'text-[#8C7B5A]',
 ]
 
 export function StackLogsPage() {
@@ -87,7 +88,7 @@ export function StackLogsPage() {
           <button
             onClick={() => setSelectedServices([])}
             className={cn(
-              'rounded-full border px-3 py-1 text-xs transition',
+              'rounded-md border px-3 py-1 text-xs transition',
               selectedServices.length === 0
                 ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
                 : 'border-[var(--panel-border)] text-[var(--muted)] hover:text-[var(--text)]',
@@ -104,7 +105,7 @@ export function StackLogsPage() {
                 )
               }
               className={cn(
-                'rounded-full border px-3 py-1 text-xs transition',
+                'rounded-md border px-3 py-1 text-xs transition',
                 selectedServices.includes(name)
                   ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
                   : 'border-[var(--panel-border)] text-[var(--muted)] hover:text-[var(--text)]',
@@ -120,19 +121,19 @@ export function StackLogsPage() {
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           placeholder="Filter..."
-          className="ml-auto rounded-full border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
+          className="ml-auto rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
         />
 
         <button
           onClick={paused ? resume : pause}
-          className="rounded-full border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]"
+          className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]"
         >
           {paused ? 'Resume' : 'Pause'}
         </button>
 
         <button
           onClick={clear}
-          className="rounded-full border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]"
+          className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]"
         >
           Clear
         </button>
@@ -140,10 +141,10 @@ export function StackLogsPage() {
 
       {/* Connection status */}
       {!connected && (
-        <div className="text-xs text-amber-400">Stream disconnected. Reconnecting...</div>
+        <div className="text-xs text-[var(--warning)]">Stream disconnected. Reconnecting...</div>
       )}
       {paused && (
-        <div className="text-xs text-amber-400">Paused — new logs are buffered.</div>
+        <div className="text-xs text-[var(--warning)]">Paused — new logs are buffered.</div>
       )}
 
       {/* Log output */}

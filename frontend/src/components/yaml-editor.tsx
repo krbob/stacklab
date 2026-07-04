@@ -3,8 +3,8 @@ import { EditorView, keymap } from '@codemirror/view'
 import { EditorState } from '@codemirror/state'
 import { basicSetup } from 'codemirror'
 import { yaml } from '@codemirror/lang-yaml'
-import { oneDark } from '@codemirror/theme-one-dark'
 import { indentWithTab } from '@codemirror/commands'
+import { amberConsole } from '@/lib/editor-theme'
 
 interface YamlEditorProps {
   value: string
@@ -29,7 +29,7 @@ export function YamlEditor({ value, onChange, readOnly = false }: YamlEditorProp
       extensions: [
         basicSetup,
         yaml(),
-        oneDark,
+        amberConsole,
         keymap.of([indentWithTab]),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {

@@ -14,13 +14,13 @@ export function DiffView({ diff, truncated = false }: DiffViewProps) {
         let color = 'text-[var(--muted)]'
         let bg = ''
         if (line.startsWith('+') && !line.startsWith('+++')) {
-          color = 'text-emerald-400'
-          bg = 'bg-emerald-400/5'
+          color = 'text-[var(--ok)]'
+          bg = 'bg-[var(--ok)]/5'
         } else if (line.startsWith('-') && !line.startsWith('---')) {
-          color = 'text-red-400'
-          bg = 'bg-red-400/5'
+          color = 'text-[var(--danger)]'
+          bg = 'bg-[var(--danger)]/5'
         } else if (line.startsWith('@@')) {
-          color = 'text-cyan-400'
+          color = 'text-[var(--accent)]'
         }
 
         return (
@@ -31,7 +31,7 @@ export function DiffView({ diff, truncated = false }: DiffViewProps) {
       })}
 
       {truncated && (
-        <div className="mt-2 rounded border border-amber-400/20 bg-amber-400/5 px-2 py-1 text-xs text-amber-400">
+        <div className="mt-2 rounded border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-2 py-1 text-xs text-[var(--warning)]">
           Diff truncated — file is too large to display completely.
         </div>
       )}

@@ -132,7 +132,7 @@ export function GlobalActivity() {
       >
         <span className={cn(
           'inline-block size-2 rounded-full',
-          activeCount > 0 ? 'animate-pulse bg-sky-400' : failedRecent ? 'bg-red-400' : 'bg-emerald-400',
+          activeCount > 0 ? 'animate-pulse bg-[var(--run)]' : failedRecent ? 'bg-[var(--danger)]' : 'bg-[var(--ok)]',
         )} />
         <span className="text-[var(--text)]">
           {activeCount > 0
@@ -190,12 +190,12 @@ function JobRow({ job, terminal = false, onOpen }: { job: ActiveJobItem; termina
       <span className={cn(
         'size-1.5 shrink-0 rounded-full',
         job.state === 'running'
-          ? 'animate-pulse bg-sky-400'
+          ? 'animate-pulse bg-[var(--run)]'
           : job.state === 'queued' || job.state === 'cancel_requested'
-            ? 'bg-amber-400'
+            ? 'bg-[var(--warning)]'
             : isFailure
-              ? 'bg-red-400'
-              : 'bg-emerald-400',
+              ? 'bg-[var(--danger)]'
+              : 'bg-[var(--ok)]',
       )} />
       <span className="min-w-0 flex-1 truncate text-left text-[var(--text)]">
         {action}
@@ -205,7 +205,7 @@ function JobRow({ job, terminal = false, onOpen }: { job: ActiveJobItem; termina
         <span className="shrink-0 text-[var(--muted)]">{job.current_step.index}/{job.current_step.total}</span>
       )}
       {terminal && (
-        <span className={cn('shrink-0', isFailure ? 'text-red-400' : isSuccess ? 'text-emerald-400' : 'text-[var(--muted)]')}>
+        <span className={cn('shrink-0', isFailure ? 'text-[var(--danger)]' : isSuccess ? 'text-[var(--ok)]' : 'text-[var(--muted)]')}>
           {isFailure ? 'Failed' : isSuccess ? 'Done' : job.state}
         </span>
       )}

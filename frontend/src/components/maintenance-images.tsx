@@ -41,7 +41,7 @@ export function MaintenanceImages() {
             <button
               key={v}
               onClick={() => setUsage(v)}
-              className={cn('rounded-full border px-2.5 py-1 text-xs transition', usage === v ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
+              className={cn('rounded-md border px-2.5 py-1 text-xs transition', usage === v ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
             >
               {v}
             </button>
@@ -54,7 +54,7 @@ export function MaintenanceImages() {
             <button
               key={v}
               onClick={() => setOrigin(v)}
-              className={cn('rounded-full border px-2.5 py-1 text-xs transition', origin === v ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
+              className={cn('rounded-md border px-2.5 py-1 text-xs transition', origin === v ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
             >
               {v.replace('_', ' ')}
             </button>
@@ -65,17 +65,17 @@ export function MaintenanceImages() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search..."
-            className="rounded-full border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
+            className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
           />
 
-          <button onClick={refetch} className="rounded-full border border-[var(--panel-border)] px-2.5 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]">
+          <button onClick={refetch} className="rounded-md border border-[var(--panel-border)] px-2.5 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]">
             Refresh
           </button>
         </div>
       </div>
 
       {error && (
-        <div className="mt-3 rounded-2xl border border-red-400/20 bg-red-400/5 px-4 py-3 text-sm text-red-400">
+        <div className="mt-3 rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">
           {error.message}
         </div>
       )}
@@ -103,7 +103,7 @@ function ImageRow({ image }: { image: MaintenanceImageItem }) {
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="truncate font-mono text-[var(--text)]">{image.reference || `${image.repository}:${image.tag}`}</span>
-          {image.is_dangling && <span className="shrink-0 text-amber-400">dangling</span>}
+          {image.is_dangling && <span className="shrink-0 text-[var(--warning)]">dangling</span>}
           {image.is_unused && <span className="shrink-0 text-stone-500">unused</span>}
         </div>
         <div className="mt-1 flex flex-wrap gap-3 text-[var(--muted)]">

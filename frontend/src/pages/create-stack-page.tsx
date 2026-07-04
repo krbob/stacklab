@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { createStack } from '@/lib/api-client'
 import { YamlEditor } from '@/components/yaml-editor'
 import { ProgressPanel } from '@/components/progress-panel'
+import { PageHeader } from '@/components/page-header'
 
 const STACK_ID_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const DEFAULT_COMPOSE = `services:
@@ -52,8 +53,7 @@ export function CreateStackPage() {
 
   return (
     <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
-      <div className="font-brand text-xs uppercase tracking-[0.28em] text-[var(--accent)]">New stack</div>
-      <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-[var(--text)]">Create stack</h2>
+      <PageHeader kicker="New stack" title="Create stack" />
 
       <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4">
         <label className="block">
@@ -65,10 +65,10 @@ export function CreateStackPage() {
             onChange={(e) => setStackId(e.target.value.toLowerCase())}
             placeholder="my-new-app"
             disabled={creating}
-            className="w-full max-w-md rounded-2xl border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-3 font-mono text-[var(--text)] outline-none transition focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50"
+            className="w-full max-w-md rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-3 font-mono text-[var(--text)] outline-none transition focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50"
           />
           {stackId.length > 0 && !idValid && (
-            <p className="mt-1 text-xs text-red-400">Lowercase letters, numbers, and dashes only.</p>
+            <p className="mt-1 text-xs text-[var(--danger)]">Lowercase letters, numbers, and dashes only.</p>
           )}
           {idValid && (
             <p className="mt-1 text-xs text-[var(--muted)]">
@@ -96,7 +96,7 @@ export function CreateStackPage() {
         </label>
 
         {error && (
-          <div className="rounded-2xl border border-red-400/20 bg-red-400/5 px-4 py-3 text-sm text-red-400">
+          <div className="rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">
             {error}
           </div>
         )}
@@ -107,7 +107,7 @@ export function CreateStackPage() {
           <button
             type="button"
             onClick={() => navigate('/stacks')}
-            className="rounded-full border border-[var(--panel-border)] px-4 py-2 text-sm text-[var(--muted)] hover:text-[var(--text)]"
+            className="rounded-md border border-[var(--panel-border)] px-4 py-2 text-sm text-[var(--muted)] hover:text-[var(--text)]"
           >
             Cancel
           </button>
@@ -115,7 +115,7 @@ export function CreateStackPage() {
             data-testid="create-stack-submit"
             type="submit"
             disabled={!idValid || creating}
-            className="rounded-full border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40"
+            className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40"
           >
             {creating ? 'Creating...' : deployAfter ? 'Create & Deploy' : 'Create'}
           </button>

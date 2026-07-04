@@ -75,15 +75,15 @@ export function MaintenanceNetworks() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {(['all', 'used', 'unused'] as const).map((v) => (
-            <button key={v} onClick={() => setUsage(v)} className={cn('rounded-full border px-2.5 py-1 text-xs transition', usage === v ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}>{v}</button>
+            <button key={v} onClick={() => setUsage(v)} className={cn('rounded-md border px-2.5 py-1 text-xs transition', usage === v ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}>{v}</button>
           ))}
           <span className="text-stone-700">|</span>
           {(['all', 'stack_managed', 'external'] as const).map((v) => (
-            <button key={v} onClick={() => setOrigin(v)} className={cn('rounded-full border px-2.5 py-1 text-xs transition', origin === v ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}>{v.replace('_', ' ')}</button>
+            <button key={v} onClick={() => setOrigin(v)} className={cn('rounded-md border px-2.5 py-1 text-xs transition', origin === v ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}>{v.replace('_', ' ')}</button>
           ))}
-          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search..." className="rounded-full border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
-          <button onClick={() => setShowCreate(true)} className="rounded-full border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-2.5 py-1 text-xs text-[var(--text)]">Create network</button>
-          <button onClick={refetch} className="rounded-full border border-[var(--panel-border)] px-2.5 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]">Refresh</button>
+          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search..." className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
+          <button onClick={() => setShowCreate(true)} className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-2.5 py-1 text-xs text-[var(--text)]">Create network</button>
+          <button onClick={refetch} className="rounded-md border border-[var(--panel-border)] px-2.5 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]">Refresh</button>
         </div>
       </div>
 
@@ -93,7 +93,7 @@ export function MaintenanceNetworks() {
           <div className="w-full max-w-sm rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5" onClick={(e) => e.stopPropagation()}>
             <h4 className="text-sm font-medium text-[var(--text)]">Create network</h4>
             <input type="text" value={createName} onChange={(e) => setCreateName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleCreate() }} placeholder="Network name" autoFocus disabled={creating} className="mt-3 w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
-            {createError && <p className="mt-2 text-xs text-red-400">{createError}</p>}
+            {createError && <p className="mt-2 text-xs text-[var(--danger)]">{createError}</p>}
             <div className="mt-4 flex justify-end gap-2">
               <button onClick={() => setShowCreate(false)} className="rounded-md border border-[var(--panel-border)] px-3 py-1.5 text-xs text-[var(--muted)]">Cancel</button>
               <button onClick={handleCreate} disabled={creating || !createName.trim()} className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1.5 text-xs text-[var(--text)] disabled:opacity-40">Create</button>
@@ -102,8 +102,8 @@ export function MaintenanceNetworks() {
         </div>
       )}
 
-      {actionError && <div className="mt-3 rounded-md border border-red-400/20 bg-red-400/5 px-4 py-3 text-sm text-red-400">{actionError}</div>}
-      {error && <div className="mt-3 rounded-md border border-red-400/20 bg-red-400/5 px-4 py-3 text-sm text-red-400">{error.message}</div>}
+      {actionError && <div className="mt-3 rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">{actionError}</div>}
+      {error && <div className="mt-3 rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">{error.message}</div>}
 
       <div className="mt-4 space-y-1">
         {loading && networks.length === 0 && [1, 2, 3].map((i) => <div key={i} className="h-14 animate-pulse rounded-[12px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)]" />)}
@@ -114,7 +114,7 @@ export function MaintenanceNetworks() {
               <div className="flex items-center gap-2">
                 <span className="font-mono text-[var(--text)]">{net.name}</span>
                 {net.is_unused && <span className="text-stone-500">unused</span>}
-                {net.internal && <span className="text-amber-400">internal</span>}
+                {net.internal && <span className="text-[var(--warning)]">internal</span>}
                 {net.source === 'external' && <span className="text-[var(--muted)]">external</span>}
               </div>
               <div className="mt-1 flex flex-wrap gap-3 font-mono text-[var(--muted)]">
@@ -136,7 +136,7 @@ export function MaintenanceNetworks() {
                 onClick={() => handleDelete(net.name)}
                 disabled={!canDelete(net)}
                 aria-label={`Remove ${net.name}`}
-                className="rounded-full border border-red-400/30 px-2 py-1 text-xs text-red-400 transition hover:bg-red-400/10 disabled:opacity-30 disabled:hover:bg-transparent"
+                className="rounded-md border border-[var(--danger)]/30 px-2 py-1 text-xs text-[var(--danger)] transition hover:bg-[var(--danger)]/10 disabled:opacity-30 disabled:hover:bg-transparent"
               >
                 Remove
               </button>

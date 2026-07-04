@@ -9,12 +9,12 @@ interface ProgressPanelProps {
 
 const stateLabels: Record<string, { label: string; color: string }> = {
   queued: { label: 'Queued', color: 'text-[var(--muted)]' },
-  running: { label: 'Running', color: 'text-sky-400' },
-  succeeded: { label: 'Succeeded', color: 'text-emerald-400' },
-  failed: { label: 'Failed', color: 'text-red-400' },
-  cancel_requested: { label: 'Cancelling', color: 'text-amber-400' },
+  running: { label: 'Running', color: 'text-[var(--run)]' },
+  succeeded: { label: 'Succeeded', color: 'text-[var(--ok)]' },
+  failed: { label: 'Failed', color: 'text-[var(--danger)]' },
+  cancel_requested: { label: 'Cancelling', color: 'text-[var(--warning)]' },
   cancelled: { label: 'Cancelled', color: 'text-[var(--muted)]' },
-  timed_out: { label: 'Timed out', color: 'text-red-400' },
+  timed_out: { label: 'Timed out', color: 'text-[var(--danger)]' },
 }
 
 const eventIcons: Record<string, string> = {
@@ -62,13 +62,13 @@ export function ProgressPanel({ jobId, onDone }: ProgressPanelProps) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           {state === 'running' && (
-            <span className="inline-block size-2 animate-pulse rounded-full bg-sky-400" />
+            <span className="inline-block size-2 animate-pulse rounded-full bg-[var(--run)]" />
           )}
           <span className={cn('text-sm font-medium', stateInfo?.color ?? 'text-[var(--muted)]')}>
             {stateInfo?.label ?? 'Pending'}
           </span>
           {hasWarning && state === 'succeeded' && (
-            <span className="text-xs text-amber-400">with warnings</span>
+            <span className="text-xs text-[var(--warning)]">with warnings</span>
           )}
         </div>
 
@@ -90,8 +90,8 @@ export function ProgressPanel({ jobId, onDone }: ProgressPanelProps) {
             key={i}
             className={cn(
               'flex gap-2',
-              event.event === 'job_warning' && 'text-amber-400',
-              event.event === 'job_error' && 'text-red-400',
+              event.event === 'job_warning' && 'text-[var(--warning)]',
+              event.event === 'job_error' && 'text-[var(--danger)]',
               event.event !== 'job_warning' && event.event !== 'job_error' && 'text-[var(--muted)]',
             )}
           >

@@ -9,12 +9,12 @@ import { ProgressPanel } from '@/components/progress-panel'
 import { cn } from '@/lib/cn'
 
 const containerStatusColor: Record<string, string> = {
-  running: 'bg-emerald-400',
+  running: 'bg-[var(--ok)]',
   created: 'bg-stone-500',
-  restarting: 'bg-amber-400',
-  paused: 'bg-amber-400',
+  restarting: 'bg-[var(--warning)]',
+  paused: 'bg-[var(--warning)]',
   exited: 'bg-stone-500',
-  dead: 'bg-red-400',
+  dead: 'bg-[var(--danger)]',
 }
 
 const healthIcon: Record<string, string> = {
@@ -33,7 +33,7 @@ export function StackOverviewPage() {
   return (
     <div className="flex flex-col gap-5">
       {stack.runtime_state === 'orphaned' && (
-        <div className="rounded-2xl border border-amber-400/30 bg-amber-400/5 px-4 py-3 text-sm text-amber-400">
+        <div className="rounded-lg border border-[var(--warning)]/30 bg-[var(--warning)]/5 px-4 py-3 text-sm text-[var(--warning)]">
           Stack definition missing — runtime containers exist without compose.yaml.
         </div>
       )}
@@ -75,7 +75,7 @@ export function StackOverviewPage() {
                     {container?.health_status && (
                       <span className={cn(
                         'text-xs',
-                        container.health_status === 'healthy' ? 'text-emerald-400' : 'text-red-400',
+                        container.health_status === 'healthy' ? 'text-[var(--ok)]' : 'text-[var(--danger)]',
                       )}>
                         {healthIcon[container.health_status]}
                       </span>
@@ -186,9 +186,9 @@ function ActionBar({
               disabled={locked}
               onClick={() => handleAction(btn.action)}
               className={cn(
-                'rounded-full border px-3 py-1.5 text-xs font-medium transition disabled:opacity-40',
+                'rounded-md border px-3 py-1.5 text-xs font-medium transition disabled:opacity-40',
                 btn.variant === 'danger'
-                  ? 'border-red-400/30 text-red-400 hover:bg-red-400/10'
+                  ? 'border-[var(--danger)]/30 text-[var(--danger)] hover:bg-[var(--danger)]/10'
                   : 'border-[var(--panel-border)] text-[var(--text)] hover:bg-[rgba(255,255,255,0.05)]',
               )}
             >
@@ -201,7 +201,7 @@ function ActionBar({
           <button
             disabled={locked}
             onClick={onRemove}
-            className="rounded-full border border-red-400/30 px-3 py-1.5 text-xs font-medium text-red-400 transition hover:bg-red-400/10 disabled:opacity-40"
+            className="rounded-md border border-[var(--danger)]/30 px-3 py-1.5 text-xs font-medium text-[var(--danger)] transition hover:bg-[var(--danger)]/10 disabled:opacity-40"
           >
             Remove
           </button>
@@ -209,7 +209,7 @@ function ActionBar({
       </div>
 
       {actionError && (
-        <div className="rounded-2xl border border-red-400/20 bg-red-400/5 px-4 py-3 text-sm text-red-400">
+        <div className="rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">
           {actionError}
         </div>
       )}

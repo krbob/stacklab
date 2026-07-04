@@ -3,6 +3,7 @@ import { getMeta, changePassword, getNotificationSettings, updateNotificationSet
 import { useJobDrawer } from '@/hooks/use-job-drawer'
 import type { MetaResponse, MaintenanceSchedulesResponse, ScheduleFrequency, ScheduleWeekday, StackListItem, StacklabUpdateOverviewResponse } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
+import { PageHeader } from '@/components/page-header'
 
 export function SettingsPage() {
   const [meta, setMeta] = useState<MetaResponse | null>(null)
@@ -46,19 +47,19 @@ export function SettingsPage() {
 
   return (
     <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
-      <h2 className="text-3xl font-semibold tracking-[-0.04em] text-[var(--text)]">Settings</h2>
+      <PageHeader kicker="System" title="Settings" />
 
       <div className="mt-6 space-y-8">
         {/* Password */}
         <div>
           <h3 className="text-sm font-medium text-[var(--text)]">Change password</h3>
           <form onSubmit={handlePasswordChange} className="mt-3 max-w-md space-y-3">
-            <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Current password" disabled={saving} className="w-full rounded-2xl border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50" />
-            <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="New password" disabled={saving} className="w-full rounded-2xl border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50" />
-            <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirm new password" disabled={saving} className="w-full rounded-2xl border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50" />
-            {passwordError && <p className="text-sm text-red-400">{passwordError}</p>}
-            {passwordSuccess && <p className="text-sm text-emerald-400">Password updated</p>}
-            <button type="submit" disabled={saving || !currentPassword || !newPassword || !confirmPassword} className="rounded-full border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40">
+            <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Current password" disabled={saving} className="w-full rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50" />
+            <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="New password" disabled={saving} className="w-full rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50" />
+            <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirm new password" disabled={saving} className="w-full rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50" />
+            {passwordError && <p className="text-sm text-[var(--danger)]">{passwordError}</p>}
+            {passwordSuccess && <p className="text-sm text-[var(--ok)]">Password updated</p>}
+            <button type="submit" disabled={saving || !currentPassword || !newPassword || !confirmPassword} className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40">
               {saving ? 'Updating...' : 'Update password'}
             </button>
           </form>
@@ -248,8 +249,8 @@ function NotificationsSection() {
             Webhook
           </label>
           <input type="url" value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} placeholder="https://hooks.example.com/stacklab" className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
-          {webhookTestResult && <p className={webhookTestResult.type === 'success' ? 'text-xs text-emerald-400' : 'text-xs text-red-400'}>{webhookTestResult.text}</p>}
-          <button onClick={handleTestWebhook} disabled={testingWebhook || !webhookUrl.trim()} className="rounded-full border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)] disabled:opacity-40">
+          {webhookTestResult && <p className={webhookTestResult.type === 'success' ? 'text-xs text-[var(--ok)]' : 'text-xs text-[var(--danger)]'}>{webhookTestResult.text}</p>}
+          <button onClick={handleTestWebhook} disabled={testingWebhook || !webhookUrl.trim()} className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)] disabled:opacity-40">
             {testingWebhook ? 'Sending...' : 'Send test'}
           </button>
         </div>
@@ -262,7 +263,7 @@ function NotificationsSection() {
           </label>
           <div className="space-y-2">
             <div>
-              <label className="mb-1 block text-[10px] text-[var(--muted)]">Bot token {botTokenConfigured && !telegramBotToken && <span className="text-emerald-400">(configured)</span>}</label>
+              <label className="mb-1 block text-[10px] text-[var(--muted)]">Bot token {botTokenConfigured && !telegramBotToken && <span className="text-[var(--ok)]">(configured)</span>}</label>
               <div className="flex gap-2">
                 <input
                   type={showBotToken ? 'text' : 'password'}
@@ -281,8 +282,8 @@ function NotificationsSection() {
               <input type="text" value={telegramChatId} onChange={(e) => setTelegramChatId(e.target.value)} placeholder="-1001234567890" className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
             </div>
           </div>
-          {telegramTestResult && <p className={telegramTestResult.type === 'success' ? 'text-xs text-emerald-400' : 'text-xs text-red-400'}>{telegramTestResult.text}</p>}
-          <button onClick={handleTestTelegram} disabled={testingTelegram || (!telegramBotToken && !botTokenConfigured) || !telegramChatId.trim()} className="rounded-full border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)] disabled:opacity-40">
+          {telegramTestResult && <p className={telegramTestResult.type === 'success' ? 'text-xs text-[var(--ok)]' : 'text-xs text-[var(--danger)]'}>{telegramTestResult.text}</p>}
+          <button onClick={handleTestTelegram} disabled={testingTelegram || (!telegramBotToken && !botTokenConfigured) || !telegramChatId.trim()} className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)] disabled:opacity-40">
             {testingTelegram ? 'Sending...' : 'Send test'}
           </button>
         </div>
@@ -340,9 +341,9 @@ function NotificationsSection() {
         </div>
 
         {/* Save feedback */}
-        {saveResult && <p className={saveResult.type === 'success' ? 'text-xs text-emerald-400' : 'text-xs text-red-400'}>{saveResult.text}</p>}
+        {saveResult && <p className={saveResult.type === 'success' ? 'text-xs text-[var(--ok)]' : 'text-xs text-[var(--danger)]'}>{saveResult.text}</p>}
 
-        <button onClick={handleSave} disabled={savingNotif || !isDirty} className="rounded-full border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-xs text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40">
+        <button onClick={handleSave} disabled={savingNotif || !isDirty} className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-xs text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40">
           {savingNotif ? 'Saving...' : 'Save'}
         </button>
       </div>
@@ -542,8 +543,8 @@ function SchedulesSection() {
             <label className="flex items-center gap-2"><input type="checkbox" checked={updatePull} onChange={(e) => setUpdatePull(e.target.checked)} className="rounded" />Pull images</label>
             <label className="flex items-center gap-2"><input type="checkbox" checked={updateBuild} onChange={(e) => setUpdateBuild(e.target.checked)} className="rounded" />Build images</label>
             <label className="flex items-center gap-2"><input type="checkbox" checked={updateOrphans} onChange={(e) => setUpdateOrphans(e.target.checked)} className="rounded" />Remove orphans</label>
-            <label className="flex items-center gap-2 text-amber-400"><input type="checkbox" checked={updatePrune} onChange={(e) => { setUpdatePrune(e.target.checked); if (!e.target.checked) setUpdatePruneVol(false) }} className="rounded" />Prune after update</label>
-            {updatePrune && <label className="ml-5 flex items-center gap-2 text-red-400"><input type="checkbox" checked={updatePruneVol} onChange={(e) => setUpdatePruneVol(e.target.checked)} className="rounded" />Include volumes</label>}
+            <label className="flex items-center gap-2 text-[var(--warning)]"><input type="checkbox" checked={updatePrune} onChange={(e) => { setUpdatePrune(e.target.checked); if (!e.target.checked) setUpdatePruneVol(false) }} className="rounded" />Prune after update</label>
+            {updatePrune && <label className="ml-5 flex items-center gap-2 text-[var(--danger)]"><input type="checkbox" checked={updatePruneVol} onChange={(e) => setUpdatePruneVol(e.target.checked)} className="rounded" />Include volumes</label>}
           </div>
 
           <ScheduleStatusFooter status={data?.update.status} onOpenJob={openJob} />
@@ -568,16 +569,16 @@ function SchedulesSection() {
           <div className="space-y-1 text-xs text-[var(--muted)]">
             <label className="flex items-center gap-2"><input type="checkbox" checked={pruneImages} onChange={(e) => setPruneImages(e.target.checked)} className="rounded" />Unused images</label>
             <label className="flex items-center gap-2"><input type="checkbox" checked={pruneBuildCache} onChange={(e) => setPruneBuildCache(e.target.checked)} className="rounded" />Build cache</label>
-            <label className="flex items-center gap-2 text-amber-400"><input type="checkbox" checked={pruneStopped} onChange={(e) => setPruneStopped(e.target.checked)} className="rounded" />Stopped containers</label>
-            <label className="flex items-center gap-2 text-red-400"><input type="checkbox" checked={pruneVolumes} onChange={(e) => setPruneVolumes(e.target.checked)} className="rounded" />Unused volumes</label>
+            <label className="flex items-center gap-2 text-[var(--warning)]"><input type="checkbox" checked={pruneStopped} onChange={(e) => setPruneStopped(e.target.checked)} className="rounded" />Stopped containers</label>
+            <label className="flex items-center gap-2 text-[var(--danger)]"><input type="checkbox" checked={pruneVolumes} onChange={(e) => setPruneVolumes(e.target.checked)} className="rounded" />Unused volumes</label>
           </div>
 
           <ScheduleStatusFooter status={data?.prune.status} onOpenJob={openJob} />
         </div>
 
-        {saveResult && <p className={saveResult.type === 'success' ? 'text-xs text-emerald-400' : 'text-xs text-red-400'}>{saveResult.text}</p>}
+        {saveResult && <p className={saveResult.type === 'success' ? 'text-xs text-[var(--ok)]' : 'text-xs text-[var(--danger)]'}>{saveResult.text}</p>}
 
-        <button onClick={handleSave} disabled={savingSchedules} className="rounded-full border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-xs text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40">
+        <button onClick={handleSave} disabled={savingSchedules} className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-xs text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40">
           {savingSchedules ? 'Saving...' : 'Save schedules'}
         </button>
       </div>
@@ -589,7 +590,7 @@ function FrequencyToggle({ value, onChange }: { value: ScheduleFrequency; onChan
   return (
     <div className="flex gap-1">
       {(['daily', 'weekly'] as const).map((f) => (
-        <button key={f} onClick={() => onChange(f)} className={cn('rounded-full border px-2.5 py-1 text-xs transition', value === f ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}>
+        <button key={f} onClick={() => onChange(f)} className={cn('rounded-md border px-2.5 py-1 text-xs transition', value === f ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}>
           {f === 'daily' ? 'Daily' : 'Weekly'}
         </button>
       ))}
@@ -604,7 +605,7 @@ function WeekdayPicker({ value, onChange }: { value: ScheduleWeekday[]; onChange
         <button
           key={d}
           onClick={() => onChange(value.includes(d) ? value.filter((w) => w !== d) : [...value, d])}
-          className={cn('rounded-full border px-2 py-1 text-[10px] transition', value.includes(d) ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
+          className={cn('rounded-md border px-2 py-1 text-[10px] transition', value.includes(d) ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
         >
           {WEEKDAY_LABELS[d]}
         </button>
@@ -616,7 +617,7 @@ function WeekdayPicker({ value, onChange }: { value: ScheduleWeekday[]; onChange
 function ScheduleStatusFooter({ status, onOpenJob }: { status?: MaintenanceSchedulesResponse['update']['status']; onOpenJob: (id: string) => void }) {
   if (!status) return null
 
-  const resultColors: Record<string, string> = { succeeded: 'text-emerald-400', failed: 'text-red-400', skipped: 'text-amber-400', running: 'text-sky-400' }
+  const resultColors: Record<string, string> = { succeeded: 'text-[var(--ok)]', failed: 'text-[var(--danger)]', skipped: 'text-[var(--warning)]', running: 'text-[var(--run)]' }
 
   return (
     <div className="border-t border-[var(--panel-border)] pt-2 font-mono text-[10px] text-[var(--muted)]">
@@ -630,7 +631,7 @@ function ScheduleStatusFooter({ status, onOpenJob }: { status?: MaintenanceSched
           )}
         </div>
       )}
-      {status.last_message && <div className="text-amber-400">{status.last_message}</div>}
+      {status.last_message && <div className="text-[var(--warning)]">{status.last_message}</div>}
     </div>
   )
 }
@@ -691,7 +692,7 @@ function StacklabUpdateSection() {
     return (
       <div>
         <h3 className="text-sm font-medium text-[var(--text)]">Stacklab update</h3>
-        <p className="mt-2 text-xs text-red-400">{error}</p>
+        <p className="mt-2 text-xs text-[var(--danger)]">{error}</p>
       </div>
     )
   }
@@ -722,7 +723,7 @@ function StacklabUpdateSection() {
           {pkg.candidate_version && pkg.candidate_version !== pkg.installed_version && (
             <>
               <span className="text-[var(--muted)]">Candidate</span>
-              <span className="text-emerald-400">{pkg.candidate_version}</span>
+              <span className="text-[var(--ok)]">{pkg.candidate_version}</span>
             </>
           )}
           {pkg.configured_channel && (
@@ -736,8 +737,8 @@ function StacklabUpdateSection() {
         {/* Update available badge */}
         {pkg.update_available && (
           <div className="flex items-center gap-2 text-xs">
-            <span className="inline-block size-2 rounded-full bg-emerald-400" />
-            <span className="text-emerald-400">Update available: {pkg.candidate_version}</span>
+            <span className="inline-block size-2 rounded-full bg-[var(--ok)]" />
+            <span className="text-[var(--ok)]">Update available: {pkg.candidate_version}</span>
           </div>
         )}
         {pkg.supported && !pkg.update_available && (
@@ -746,36 +747,36 @@ function StacklabUpdateSection() {
 
         {/* Unsupported state */}
         {!pkg.supported && (
-          <p className="text-xs text-amber-400">{pkg.message ?? 'Self-update is only available for APT installs.'}</p>
+          <p className="text-xs text-[var(--warning)]">{pkg.message ?? 'Self-update is only available for APT installs.'}</p>
         )}
 
         {/* Write capability warning */}
         {pkg.supported && !cap.supported && (
-          <p className="text-xs text-amber-400">{cap.reason ?? 'Self-update helper is not configured.'}</p>
+          <p className="text-xs text-[var(--warning)]">{cap.reason ?? 'Self-update helper is not configured.'}</p>
         )}
 
         {/* Runtime status */}
         {runtime && (runtime.result || runtimeRunning) && (
           <div className="border-t border-[var(--panel-border)] pt-2 font-mono text-[10px] text-[var(--muted)]">
             <div className="flex items-center gap-2">
-              <span>Last: <span className={runtime.result === 'succeeded' ? 'text-emerald-400' : runtime.result === 'failed' ? 'text-red-400' : 'text-sky-400'}>{runtime.result || 'running'}</span></span>
+              <span>Last: <span className={runtime.result === 'succeeded' ? 'text-[var(--ok)]' : runtime.result === 'failed' ? 'text-[var(--danger)]' : 'text-[var(--run)]'}>{runtime.result || 'running'}</span></span>
               {runtime.finished_at && <span>{new Date(runtime.finished_at).toLocaleString()}</span>}
               {runtime.job_id && (
                 <button onClick={() => openJob(runtime.job_id!)} className="text-[var(--accent)] hover:underline">View job</button>
               )}
             </div>
-            {runtime.message && <div className="text-amber-400">{runtime.message}</div>}
+            {runtime.message && <div className="text-[var(--warning)]">{runtime.message}</div>}
           </div>
         )}
 
-        {applyError && <p className="text-xs text-red-400">{applyError}</p>}
+        {applyError && <p className="text-xs text-[var(--danger)]">{applyError}</p>}
 
         {/* Action */}
         {pkg.supported && cap.supported && (
           <button
             onClick={handleApply}
             disabled={isRunning || !pkg.update_available}
-            className="rounded-full border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-xs text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40"
+            className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-xs text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40"
           >
             {isRunning ? 'Updating...' : 'Update Stacklab'}
           </button>

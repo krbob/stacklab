@@ -30,7 +30,7 @@ function SidebarContent({ onNavigate, logout }: { onNavigate?: () => void; logou
             onClick={onNavigate}
             className={({ isActive }) =>
               [
-                'flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm transition',
+                'flex items-center gap-3 rounded-lg border px-4 py-3 text-sm transition',
                 isActive
                   ? 'border-[var(--panel-border)] bg-[rgba(245,165,36,0.10)] text-[var(--text)] shadow-[inset_2px_0_0_var(--accent)]'
                   : 'border-transparent bg-transparent text-[var(--muted)] hover:border-[var(--panel-border)] hover:bg-[rgba(255,255,255,0.03)] hover:text-[var(--text)]',
@@ -47,7 +47,7 @@ function SidebarContent({ onNavigate, logout }: { onNavigate?: () => void; logou
         <GlobalActivity />
         <button
           onClick={() => logout()}
-          className="flex w-full items-center gap-3 rounded-2xl border border-transparent px-4 py-3 text-sm text-[var(--muted)] transition hover:border-[var(--panel-border)] hover:bg-[rgba(255,255,255,0.03)] hover:text-[var(--text)]"
+          className="flex w-full items-center gap-3 rounded-lg border border-transparent px-4 py-3 text-sm text-[var(--muted)] transition hover:border-[var(--panel-border)] hover:bg-[rgba(255,255,255,0.03)] hover:text-[var(--text)]"
         >
           <LogOut className="size-4" />
           <span>Log out</span>
@@ -80,7 +80,7 @@ export function RootLayout() {
           type="button"
           onClick={() => setMobileNavOpen(true)}
           aria-label="Open navigation"
-          className="flex size-11 items-center justify-center rounded-2xl border border-[var(--panel-border)] text-[var(--text)]"
+          className="flex size-11 items-center justify-center rounded-lg border border-[var(--panel-border)] text-[var(--text)]"
         >
           <Menu className="size-5" />
         </button>

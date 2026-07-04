@@ -18,6 +18,7 @@ import type {
   DockerRegistryStatusResponse,
 } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
+import { PageHeader } from '@/components/page-header'
 
 export function DockerAdminPage() {
   const { data: overview, error: overviewError, loading: overviewLoading, refetch: refetchOverview } = useApi(() => getDockerAdminOverview(), [])
@@ -32,7 +33,7 @@ export function DockerAdminPage() {
   return (
     <div className="flex flex-col gap-4">
       <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
-        <h2 className="text-3xl font-semibold tracking-[-0.04em] text-[var(--text)]">Docker</h2>
+        <PageHeader kicker="System" title="Docker" />
 
         {overviewLoading && (
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -43,7 +44,7 @@ export function DockerAdminPage() {
         )}
 
         {overviewError && (
-          <div className="mt-4 rounded-2xl border border-red-400/20 bg-red-400/5 px-4 py-3 text-sm text-red-400">
+          <div className="mt-4 rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">
             Failed to load Docker overview: {overviewError.message}
           </div>
         )}
@@ -56,7 +57,7 @@ export function DockerAdminPage() {
         <h3 className="text-lg font-medium text-[var(--text)]">daemon.json</h3>
 
         {configLoading && <div className="mt-3 h-48 animate-pulse rounded-md bg-[rgba(255,255,255,0.02)]" />}
-        {configError && <p className="mt-3 text-sm text-red-400">{configError.message}</p>}
+        {configError && <p className="mt-3 text-sm text-[var(--danger)]">{configError.message}</p>}
         {daemonConfig && <DaemonConfigViewer config={daemonConfig} />}
       </section>
 
@@ -96,7 +97,7 @@ function OverviewCards({ overview }: { overview: DockerAdminOverviewResponse }) 
             <div className="mt-2 flex items-center gap-2">
               <span className={cn(
                 'inline-block size-2 rounded-full',
-                service.active_state === 'active' ? 'bg-emerald-400' : 'bg-stone-500',
+                service.active_state === 'active' ? 'bg-[var(--ok)]' : 'bg-stone-500',
               )} />
               <span className="text-lg font-medium text-[var(--text)]">{service.active_state || 'unknown'}</span>
             </div>
@@ -110,7 +111,7 @@ function OverviewCards({ overview }: { overview: DockerAdminOverviewResponse }) 
           </>
         ) : (
           <div className="mt-2">
-            <span className="text-sm text-amber-400">Not available</span>
+            <span className="text-sm text-[var(--warning)]">Not available</span>
             <p className="mt-1 text-xs text-[var(--muted)]">
               {service.message || 'systemd service status is not supported on this host.'}
             </p>
@@ -135,7 +136,7 @@ function OverviewCards({ overview }: { overview: DockerAdminOverviewResponse }) 
           </>
         ) : (
           <div className="mt-2">
-            <span className="text-sm text-red-400">Unavailable</span>
+            <span className="text-sm text-[var(--danger)]">Unavailable</span>
             {engine.message && <p className="mt-1 text-xs text-[var(--muted)]">{engine.message}</p>}
           </div>
         )}
@@ -149,7 +150,7 @@ function OverviewCards({ overview }: { overview: DockerAdminOverviewResponse }) 
             <div className="mt-2 flex items-center gap-2">
               <span className={cn(
                 'inline-block size-2 rounded-full',
-                daemon_config.valid_json ? 'bg-emerald-400' : 'bg-red-400',
+                daemon_config.valid_json ? 'bg-[var(--ok)]' : 'bg-[var(--danger)]',
               )} />
               <span className="text-sm text-[var(--text)]">{daemon_config.valid_json ? 'Valid JSON' : 'Invalid JSON'}</span>
             </div>
@@ -206,7 +207,7 @@ function DaemonConfigViewer({ config }: { config: DockerDaemonConfigResponse }) 
       </div>
 
       {!config.valid_json && config.parse_error && (
-        <div className="rounded-md border border-red-400/20 bg-red-400/5 px-4 py-2 text-xs text-red-400">
+        <div className="rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-2 text-xs text-[var(--danger)]">
           Parse error: {config.parse_error}
         </div>
       )}
@@ -347,7 +348,7 @@ function ManagedSettingsForm({ currentSummary, writeCapability, onApplyDone }: {
 
       {/* Preview mode banner */}
       {!writeCapability.supported && (
-        <div className="mt-2 rounded-md border border-amber-400/20 bg-amber-400/5 px-4 py-2 text-xs text-amber-400">
+        <div className="mt-2 rounded-md border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-4 py-2 text-xs text-[var(--warning)]">
           Preview mode — changes can be validated but not applied yet.
           {writeCapability.reason && <span className="ml-1 text-[var(--muted)]">{writeCapability.reason}</span>}
         </div>
@@ -409,7 +410,7 @@ function ManagedSettingsForm({ currentSummary, writeCapability, onApplyDone }: {
             className={cn(
               'rounded-md border px-4 py-2 text-xs transition',
               canApply
-                ? 'border-red-400/30 bg-red-400/10 text-red-400 hover:bg-red-400/20'
+                ? 'border-[var(--danger)]/30 bg-[var(--danger)]/10 text-[var(--danger)] hover:bg-[var(--danger)]/20'
                 : 'border-[var(--panel-border)] text-[var(--muted)] opacity-40',
             )}
           >
@@ -420,7 +421,7 @@ function ManagedSettingsForm({ currentSummary, writeCapability, onApplyDone }: {
 
       {/* Validate error */}
       {validateError && (
-        <div className="mt-3 rounded-md border border-red-400/20 bg-red-400/5 px-4 py-2 text-xs text-red-400">
+        <div className="mt-3 rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-2 text-xs text-[var(--danger)]">
           {validateError}
         </div>
       )}
@@ -429,12 +430,12 @@ function ManagedSettingsForm({ currentSummary, writeCapability, onApplyDone }: {
       {validateResult && (
         <div className="mt-4 space-y-3">
           <div className="flex items-center gap-2 text-xs">
-            <span className={cn('inline-block size-2 rounded-full', validateResult.warnings.length > 0 ? 'bg-amber-400' : 'bg-emerald-400')} />
+            <span className={cn('inline-block size-2 rounded-full', validateResult.warnings.length > 0 ? 'bg-[var(--warning)]' : 'bg-[var(--ok)]')} />
             <span className="text-[var(--text)]">
               Validation {validateResult.warnings.length > 0 ? 'passed with warnings' : 'passed'}
             </span>
             {validateResult.requires_restart && (
-              <span className="text-amber-400">· Requires Docker restart</span>
+              <span className="text-[var(--warning)]">· Requires Docker restart</span>
             )}
           </div>
 
@@ -445,7 +446,7 @@ function ManagedSettingsForm({ currentSummary, writeCapability, onApplyDone }: {
           )}
 
           {validateResult.warnings.map((w, i) => (
-            <div key={i} className="text-xs text-amber-400">{w}</div>
+            <div key={i} className="text-xs text-[var(--warning)]">{w}</div>
           ))}
 
           {/* Preview content */}
@@ -460,7 +461,7 @@ function ManagedSettingsForm({ currentSummary, writeCapability, onApplyDone }: {
 
       {/* Apply error */}
       {applyError && (
-        <div className="mt-3 rounded-md border border-red-400/20 bg-red-400/5 px-4 py-2 text-xs text-red-400">
+        <div className="mt-3 rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-2 text-xs text-[var(--danger)]">
           {applyError}
         </div>
       )}
@@ -471,12 +472,12 @@ function ManagedSettingsForm({ currentSummary, writeCapability, onApplyDone }: {
           <h4 className="text-sm font-medium text-[var(--text)]">Apply progress</h4>
 
           <div className="flex items-center gap-2 text-xs">
-            {!applyTerminal && <span className="inline-block size-2 animate-pulse rounded-full bg-sky-400" />}
+            {!applyTerminal && <span className="inline-block size-2 animate-pulse rounded-full bg-[var(--run)]" />}
             <span className={cn(
               'font-medium',
-              applyJobState === 'running' ? 'text-sky-400' :
-              applyJobState === 'succeeded' ? 'text-emerald-400' :
-              applyJobState === 'failed' ? 'text-red-400' :
+              applyJobState === 'running' ? 'text-[var(--run)]' :
+              applyJobState === 'succeeded' ? 'text-[var(--ok)]' :
+              applyJobState === 'failed' ? 'text-[var(--danger)]' :
               'text-[var(--muted)]',
             )}>
               {applyJobState === 'running' ? 'Applying...' :
@@ -490,7 +491,7 @@ function ManagedSettingsForm({ currentSummary, writeCapability, onApplyDone }: {
 
           {/* Result card */}
           {applyJobState === 'succeeded' && (
-            <div className="rounded-md border border-emerald-400/20 bg-emerald-400/5 px-4 py-3 text-xs text-emerald-400">
+            <div className="rounded-md border border-[var(--ok)]/20 bg-[var(--ok)]/5 px-4 py-3 text-xs text-[var(--ok)]">
               Docker configuration applied and Docker restarted successfully.
               {applyBackupPath && (
                 <div className="mt-1 text-[var(--muted)]">
@@ -500,7 +501,7 @@ function ManagedSettingsForm({ currentSummary, writeCapability, onApplyDone }: {
             </div>
           )}
           {applyJobState === 'failed' && (
-            <div className="rounded-md border border-amber-400/20 bg-amber-400/5 px-4 py-3 text-xs text-amber-400">
+            <div className="rounded-md border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-4 py-3 text-xs text-[var(--warning)]">
               {applyRollbackAttempted
                 ? 'Apply failed. A rollback was attempted; the previous configuration should be restored.'
                 : 'Apply failed. Check the step details above before retrying.'}
@@ -618,7 +619,7 @@ function RegistryAuthSection({
       {loading && <div className="mt-3 h-32 animate-pulse rounded-md bg-[rgba(255,255,255,0.02)]" />}
 
       {error && (
-        <div className="mt-3 rounded-md border border-red-400/20 bg-red-400/5 px-4 py-2 text-xs text-red-400">
+        <div className="mt-3 rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-2 text-xs text-[var(--danger)]">
           Failed to load Docker registry auth status: {error.message}
         </div>
       )}
@@ -636,7 +637,7 @@ function RegistryAuthSection({
           )}
 
           {status.exists && !status.valid_json && status.parse_error && (
-            <div className="rounded-md border border-red-400/20 bg-red-400/5 px-4 py-3 text-xs text-red-400">
+            <div className="rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-xs text-[var(--danger)]">
               Docker config is invalid JSON: {status.parse_error}
             </div>
           )}
@@ -660,13 +661,13 @@ function RegistryAuthSection({
                         {item.username ? `Username: ${item.username}` : 'Username unavailable'} · Source: {item.source}
                       </div>
                       {item.last_error && (
-                        <div className="mt-1 text-xs text-amber-400">{item.last_error}</div>
+                        <div className="mt-1 text-xs text-[var(--warning)]">{item.last_error}</div>
                       )}
                     </div>
                     <button
                       onClick={() => handleLogout(item.registry)}
                       disabled={submitting || actionInProgress}
-                      className="rounded-md border border-red-400/30 px-3 py-1.5 text-xs text-red-400 transition hover:bg-red-400/10 disabled:opacity-40"
+                      className="rounded-md border border-[var(--danger)]/30 px-3 py-1.5 text-xs text-[var(--danger)] transition hover:bg-[var(--danger)]/10 disabled:opacity-40"
                     >
                       Logout
                     </button>
@@ -727,7 +728,7 @@ function RegistryAuthSection({
           </div>
 
           {submitError && (
-            <div className="rounded-md border border-red-400/20 bg-red-400/5 px-4 py-2 text-xs text-red-400">
+            <div className="rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-2 text-xs text-[var(--danger)]">
               {submitError}
             </div>
           )}
@@ -735,12 +736,12 @@ function RegistryAuthSection({
           {activeJobId && (
             <div className="space-y-3">
               <div className="flex items-center gap-2 text-xs">
-                {!terminal && <span className="inline-block size-2 animate-pulse rounded-full bg-sky-400" />}
+                {!terminal && <span className="inline-block size-2 animate-pulse rounded-full bg-[var(--run)]" />}
                 <span className={cn(
                   'font-medium',
-                  state === 'running' ? 'text-sky-400' :
-                  state === 'succeeded' ? 'text-emerald-400' :
-                  state === 'failed' ? 'text-red-400' :
+                  state === 'running' ? 'text-[var(--run)]' :
+                  state === 'succeeded' ? 'text-[var(--ok)]' :
+                  state === 'failed' ? 'text-[var(--danger)]' :
                   'text-[var(--muted)]',
                 )}>
                   {state === 'running'
@@ -759,8 +760,8 @@ function RegistryAuthSection({
                 <div className={cn(
                   'rounded-md border px-4 py-2 text-xs',
                   state === 'succeeded'
-                    ? 'border-emerald-400/20 bg-emerald-400/5 text-emerald-400'
-                    : 'border-red-400/20 bg-red-400/5 text-red-400',
+                    ? 'border-[var(--ok)]/20 bg-[var(--ok)]/5 text-[var(--ok)]'
+                    : 'border-[var(--danger)]/20 bg-[var(--danger)]/5 text-[var(--danger)]',
                 )}>
                   {latestLogLine}
                 </div>

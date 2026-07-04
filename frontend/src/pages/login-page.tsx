@@ -55,7 +55,7 @@ export function LoginPage() {
               placeholder="••••••••"
               autoFocus
               disabled={loading}
-              className="w-full rounded-2xl border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-3 text-[var(--text)] outline-none transition focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50"
+              className="w-full rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-3 text-[var(--text)] outline-none transition focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50"
             />
           </label>
 
@@ -67,7 +67,7 @@ export function LoginPage() {
             data-testid="login-submit"
             type="submit"
             disabled={loading || !password.trim()}
-            className="w-full rounded-2xl bg-[var(--accent)] px-4 py-3 text-sm font-medium text-black transition hover:brightness-105 disabled:opacity-50"
+            className="w-full rounded-lg bg-[var(--accent)] px-4 py-3 text-sm font-medium text-black transition hover:brightness-105 disabled:opacity-50"
           >
             {loading ? 'Logging in...' : 'Log in'}
           </button>

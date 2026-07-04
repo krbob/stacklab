@@ -33,7 +33,7 @@ export function StackLayout() {
           <div className="h-4 w-80 rounded bg-[rgba(255,255,255,0.03)]" />
           <div className="flex gap-2">
             {[1, 2, 3, 4, 5, 6].map((i) => (
-              <div key={i} className="h-9 w-20 rounded-full bg-[rgba(255,255,255,0.03)]" />
+              <div key={i} className="h-9 w-20 rounded-md bg-[rgba(255,255,255,0.03)]" />
             ))}
           </div>
         </div>
@@ -44,7 +44,7 @@ export function StackLayout() {
   if (error || !data) {
     return (
       <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
-        <p className="text-sm text-red-400">
+        <p className="text-sm text-[var(--danger)]">
           Failed to load stack: {error?.message ?? 'Unknown error'}
         </p>
       </section>
@@ -78,7 +78,7 @@ export function StackLayout() {
                 <span
                   key={label}
                   title={`${label} is not available for this stack`}
-                  className="cursor-not-allowed rounded-full border border-[var(--panel-border)] px-4 py-2 text-sm text-stone-600"
+                  className="cursor-not-allowed rounded-md border border-[var(--panel-border)] px-4 py-2 text-sm text-stone-600"
                 >
                   {label}
                 </span>
@@ -92,7 +92,7 @@ export function StackLayout() {
                 to={to}
                 className={({ isActive }) =>
                   cn(
-                    'rounded-full border px-4 py-2 text-sm transition',
+                    'rounded-md border px-4 py-2 text-sm transition',
                     isActive
                       ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
                       : 'border-[var(--panel-border)] text-[var(--muted)] hover:border-[rgba(245,165,36,0.25)] hover:text-[var(--text)]',

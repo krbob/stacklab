@@ -11,7 +11,7 @@ export function NotFoundPage() {
         </p>
         <Link
           to="/stacks"
-          className="mt-8 inline-flex rounded-full border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)]"
+          className="mt-8 inline-flex rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)]"
         >
           Back to stacks
         </Link>

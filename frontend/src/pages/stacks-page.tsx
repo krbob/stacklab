@@ -3,41 +3,40 @@ import { Link } from 'react-router-dom'
 import { getStacks } from '@/lib/api-client'
 import { useApi } from '@/hooks/use-api'
 import { StackBadge } from '@/components/stack-badge'
+import { PageHeader } from '@/components/page-header'
 
 export function StacksPage() {
   const { data, error, loading } = useApi(() => getStacks(), [])
 
   return (
     <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
-      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div>
-          <div className="font-brand text-xs uppercase tracking-[0.28em] text-[var(--accent)]">Dashboard</div>
-          <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-[var(--text)]">Stacks</h2>
-        </div>
-
-        <Link
-          to="/stacks/new"
-          className="rounded-full border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)]"
-        >
-          New stack
-        </Link>
-      </div>
-
-      {data?.summary && (
-        <div className="mt-4 flex flex-wrap gap-4 text-sm text-[var(--muted)]">
-          <span>{data.summary.stack_count} stacks</span>
-          <span className="text-emerald-400">{data.summary.running_count} running</span>
-          {data.summary.stopped_count > 0 && (
-            <span>{data.summary.stopped_count} stopped</span>
-          )}
-          {data.summary.error_count > 0 && (
-            <span className="text-red-400">{data.summary.error_count} error</span>
-          )}
-          <span>
-            {data.summary.container_count.running}/{data.summary.container_count.total} containers
-          </span>
-        </div>
-      )}
+      <PageHeader
+        kicker="Dashboard"
+        title="Stacks"
+        meta={data?.summary && (
+          <>
+            <span>{data.summary.stack_count} stacks</span>
+            <span className="text-[var(--ok)]">{data.summary.running_count} running</span>
+            {data.summary.stopped_count > 0 && (
+              <span>{data.summary.stopped_count} stopped</span>
+            )}
+            {data.summary.error_count > 0 && (
+              <span className="text-[var(--danger)]">{data.summary.error_count} error</span>
+            )}
+            <span>
+              {data.summary.container_count.running}/{data.summary.container_count.total} containers
+            </span>
+          </>
+        )}
+        actions={
+          <Link
+            to="/stacks/new"
+            className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)]"
+          >
+            New stack
+          </Link>
+        }
+      />
 
       <div className="mt-6 grid gap-3">
         {loading && (
@@ -49,8 +48,8 @@ export function StacksPage() {
         )}
 
         {error && (
-          <div className="rounded-md border border-red-400/20 bg-red-400/5 p-5">
-            <p className="text-sm text-red-400">Failed to load stacks: {error.message}</p>
+          <div className="rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 p-5">
+            <p className="text-sm text-[var(--danger)]">Failed to load stacks: {error.message}</p>
           </div>
         )}
 
@@ -87,7 +86,7 @@ export function StacksPage() {
             </p>
             <Link
               to="/stacks/new"
-              className="mt-4 inline-block rounded-full border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)]"
+              className="mt-4 inline-block rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)]"
             >
               Create your first stack
             </Link>

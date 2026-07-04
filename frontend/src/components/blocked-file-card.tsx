@@ -62,9 +62,9 @@ export function BlockedFileCard({ stateKey, blockedReason, permissions, repairCa
   }, [onRepair, recursive])
 
   return (
-    <div className="flex h-full items-center justify-center rounded border border-amber-400/20 bg-amber-400/5">
+    <div className="flex h-full items-center justify-center rounded border border-[var(--warning)]/20 bg-[var(--warning)]/5">
       <div className="max-w-md p-8 text-center">
-        <ShieldAlert className="mx-auto size-10 text-amber-400" />
+        <ShieldAlert className="mx-auto size-10 text-[var(--warning)]" />
         <h4 className="mt-3 text-base font-medium text-[var(--text)]">File access blocked</h4>
         <p className="mt-2 text-sm text-[var(--muted)]">
           {reasonMessages[blockedReason ?? ''] ?? 'Stacklab cannot access this file with the current service user.'}
@@ -79,11 +79,11 @@ export function BlockedFileCard({ stateKey, blockedReason, permissions, repairCa
             <span className="text-[var(--muted)]">Mode</span>
             <span className="text-[var(--text)]">{permissions.mode}</span>
             <span className="text-[var(--muted)]">Readable</span>
-            <span className={permissions.readable ? 'text-emerald-400' : 'text-red-400'}>
+            <span className={permissions.readable ? 'text-[var(--ok)]' : 'text-[var(--danger)]'}>
               {permissions.readable ? 'Yes' : 'No'}
             </span>
             <span className="text-[var(--muted)]">Writable</span>
-            <span className={permissions.writable ? 'text-emerald-400' : 'text-red-400'}>
+            <span className={permissions.writable ? 'text-[var(--ok)]' : 'text-[var(--danger)]'}>
               {permissions.writable ? 'Yes' : 'No'}
             </span>
           </div>
@@ -122,13 +122,13 @@ export function BlockedFileCard({ stateKey, blockedReason, permissions, repairCa
         )}
 
         {repairError && (
-          <div className="mt-3 text-xs text-red-400">{repairError}</div>
+          <div className="mt-3 text-xs text-[var(--danger)]">{repairError}</div>
         )}
 
         {/* Repair result */}
         {repairResult && (
-          <div className={cn('mt-4 rounded-md border px-4 py-3 text-left text-xs', repairResult.repaired ? 'border-emerald-400/20 bg-emerald-400/5' : 'border-amber-400/20 bg-amber-400/5')}>
-            <div className={repairResult.repaired ? 'text-emerald-400' : 'text-amber-400'}>
+          <div className={cn('mt-4 rounded-md border px-4 py-3 text-left text-xs', repairResult.repaired ? 'border-[var(--ok)]/20 bg-[var(--ok)]/5' : 'border-[var(--warning)]/20 bg-[var(--warning)]/5')}>
+            <div className={repairResult.repaired ? 'text-[var(--ok)]' : 'text-[var(--warning)]'}>
               {repairResult.repaired ? `Repaired (${repairResult.changed_items} item${repairResult.changed_items !== 1 ? 's' : ''} changed)` : 'No changes needed'}
             </div>
 
@@ -146,16 +146,16 @@ export function BlockedFileCard({ stateKey, blockedReason, permissions, repairCa
               <span className="text-[var(--text)]">{repairResult.target_permissions_after.mode}</span>
 
               <span className="text-[var(--muted)]">Readable</span>
-              <span className={repairResult.target_permissions_before.readable ? 'text-emerald-400' : 'text-red-400'}>
+              <span className={repairResult.target_permissions_before.readable ? 'text-[var(--ok)]' : 'text-[var(--danger)]'}>
                 {repairResult.target_permissions_before.readable ? 'Yes' : 'No'}
               </span>
-              <span className={repairResult.target_permissions_after.readable ? 'text-emerald-400' : 'text-red-400'}>
+              <span className={repairResult.target_permissions_after.readable ? 'text-[var(--ok)]' : 'text-[var(--danger)]'}>
                 {repairResult.target_permissions_after.readable ? 'Yes' : 'No'}
               </span>
             </div>
 
             {repairResult.warnings && repairResult.warnings.length > 0 && (
-              <div className="mt-2 text-amber-400">
+              <div className="mt-2 text-[var(--warning)]">
                 {repairResult.warnings.map((w, i) => <div key={i}>{w}</div>)}
               </div>
             )}
@@ -164,7 +164,7 @@ export function BlockedFileCard({ stateKey, blockedReason, permissions, repairCa
               <button
                 type="button"
                 onClick={() => setRepairResult(null)}
-                className="rounded-full border border-[var(--panel-border)] px-3 py-1 text-[10px] text-[var(--muted)] transition hover:text-[var(--text)]"
+                className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-[10px] text-[var(--muted)] transition hover:text-[var(--text)]"
               >
                 Done
               </button>

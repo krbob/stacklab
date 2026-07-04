@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { getHostOverview, getStacklabLogs } from '@/lib/api-client'
 import type { HostOverviewResponse, StacklabLogEntry } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
+import { PageHeader } from '@/components/page-header'
 import { formatBytes, formatUptime } from '@/pages/host-page-utils'
 
 const OVERVIEW_POLL_INTERVAL_MS = 5_000
@@ -81,7 +82,7 @@ export function HostPage() {
     <div className="flex flex-col gap-4">
       {/* Overview cards */}
       <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
-        <h2 className="text-3xl font-semibold tracking-[-0.04em] text-[var(--text)]">Host</h2>
+        <PageHeader kicker="System" title="Host" />
 
         {overviewLoading && !overview && (
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -92,7 +93,7 @@ export function HostPage() {
         )}
 
         {overviewError && (
-          <div className="mt-4 rounded-2xl border border-red-400/20 bg-red-400/5 px-4 py-3 text-sm text-red-400">
+          <div className="mt-4 rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">
             Failed to load host overview: {overviewError.message}
           </div>
         )}
@@ -162,21 +163,21 @@ function OverviewCards({
               <span className="text-[var(--muted)]">CPU ({resources.cpu.core_count} cores)</span>
               <span className="text-[var(--text)]">{resources.cpu.usage_percent.toFixed(1)}%</span>
             </div>
-            <PercentBar value={resources.cpu.usage_percent} color="bg-cyan-400" />
+            <PercentBar value={resources.cpu.usage_percent} color="bg-[var(--accent)]" />
           </div>
           <div>
             <div className="flex justify-between text-xs">
               <span className="text-[var(--muted)]">Memory</span>
               <span className="text-[var(--text)]">{formatBytes(resources.memory.used_bytes)} / {formatBytes(resources.memory.total_bytes)}</span>
             </div>
-            <PercentBar value={resources.memory.usage_percent} color="bg-violet-400" />
+            <PercentBar value={resources.memory.usage_percent} color="bg-[#E8C07A]" />
           </div>
           <div>
             <div className="flex justify-between text-xs">
               <span className="text-[var(--muted)]">Disk</span>
               <span className="text-[var(--text)]">{formatBytes(resources.disk.used_bytes)} / {formatBytes(resources.disk.total_bytes)}</span>
             </div>
-            <PercentBar value={resources.disk.usage_percent} color="bg-amber-400" />
+            <PercentBar value={resources.disk.usage_percent} color="bg-[var(--warning)]" />
           </div>
         </div>
       </div>
@@ -256,8 +257,8 @@ function StacklabLogs() {
   const levelColor: Record<string, string> = {
     debug: 'text-stone-500',
     info: 'text-[var(--muted)]',
-    warn: 'text-amber-400',
-    error: 'text-red-400',
+    warn: 'text-[var(--warning)]',
+    error: 'text-[var(--danger)]',
   }
 
   return (
@@ -271,7 +272,7 @@ function StacklabLogs() {
             <button
               onClick={() => setLevel('')}
               className={cn(
-                'rounded-full border px-2.5 py-1 text-xs transition',
+                'rounded-md border px-2.5 py-1 text-xs transition',
                 !level
                   ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
                   : 'border-[var(--panel-border)] text-[var(--muted)]',
@@ -284,7 +285,7 @@ function StacklabLogs() {
                 key={l}
                 onClick={() => setLevel(l)}
                 className={cn(
-                  'rounded-full border px-2.5 py-1 text-xs transition',
+                  'rounded-md border px-2.5 py-1 text-xs transition',
                   level === l
                     ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
                     : 'border-[var(--panel-border)] text-[var(--muted)]',
@@ -300,13 +301,13 @@ function StacklabLogs() {
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Filter..."
-            className="rounded-full border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
+            className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
           />
 
           <button
             onClick={() => setFollowing(!following)}
             className={cn(
-              'rounded-full border px-2.5 py-1 text-xs transition',
+              'rounded-md border px-2.5 py-1 text-xs transition',
               following
                 ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
                 : 'border-[var(--panel-border)] text-[var(--muted)]',
@@ -317,7 +318,7 @@ function StacklabLogs() {
 
           <button
             onClick={() => { setEntries([]); cursorRef.current = null; setLoading(true); fetchLogs(false) }}
-            className="rounded-full border border-[var(--panel-border)] px-2.5 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]"
+            className="rounded-md border border-[var(--panel-border)] px-2.5 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]"
           >
             Refresh
           </button>
@@ -325,7 +326,7 @@ function StacklabLogs() {
       </div>
 
       {error && (
-        <div className="rounded-2xl border border-red-400/20 bg-red-400/5 px-4 py-3 text-sm text-red-400">
+        <div className="rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">
           {error}
         </div>
       )}

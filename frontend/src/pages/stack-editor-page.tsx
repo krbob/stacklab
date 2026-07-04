@@ -155,7 +155,7 @@ export function StackEditorPage() {
   return (
     <div className="flex flex-col gap-3">
       {error && (
-        <div className="rounded-2xl border border-red-400/20 bg-red-400/5 px-4 py-3 text-sm text-red-400">
+        <div className="rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">
           {error}
         </div>
       )}
@@ -166,7 +166,7 @@ export function StackEditorPage() {
           <button
             onClick={() => setActiveTab('compose')}
             className={cn(
-              'rounded-full border px-3 py-1 text-xs transition',
+              'rounded-md border px-3 py-1 text-xs transition',
               activeTab === 'compose'
                 ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
                 : 'border-[var(--panel-border)] text-[var(--muted)]',
@@ -177,7 +177,7 @@ export function StackEditorPage() {
           <button
             onClick={() => setActiveTab('env')}
             className={cn(
-              'rounded-full border px-3 py-1 text-xs transition',
+              'rounded-md border px-3 py-1 text-xs transition',
               activeTab === 'env'
                 ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
                 : 'border-[var(--panel-border)] text-[var(--muted)]',
@@ -190,14 +190,14 @@ export function StackEditorPage() {
         <div className="flex items-center gap-2">
           <button
             onClick={handlePreview}
-            className="rounded-full border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]"
+            className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]"
           >
             Preview
           </button>
           {isDirty && (
             <button
               onClick={handleDiscard}
-              className="rounded-full border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]"
+              className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]"
             >
               Discard
             </button>
@@ -206,7 +206,7 @@ export function StackEditorPage() {
             data-testid="editor-save"
             onClick={() => handleSave(false)}
             disabled={saving || stack.activity_state === 'locked'}
-            className="rounded-full border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40"
+            className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40"
           >
             {saving ? 'Saving...' : 'Save'}
           </button>
@@ -214,7 +214,7 @@ export function StackEditorPage() {
             data-testid="editor-save-deploy"
             onClick={() => handleSave(true)}
             disabled={saving || !resolvedValid || stack.activity_state === 'locked'}
-            className="rounded-full border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40"
+            className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40"
           >
             Save & Deploy
           </button>
@@ -224,11 +224,11 @@ export function StackEditorPage() {
       {/* Validation status */}
       <div className="flex items-center gap-2 text-xs">
         {resolvedValid ? (
-          <span className="text-emerald-400">✓ Config valid</span>
+          <span className="text-[var(--ok)]">✓ Config valid</span>
         ) : (
-          <span className="text-red-400">✗ {resolvedError || 'Invalid config'}</span>
+          <span className="text-[var(--danger)]">✗ {resolvedError || 'Invalid config'}</span>
         )}
-        {isDirty && <span className="text-amber-400">· Unsaved changes</span>}
+        {isDirty && <span className="text-[var(--warning)]">· Unsaved changes</span>}
       </div>
 
       {/* Editor split */}
@@ -253,7 +253,7 @@ export function StackEditorPage() {
           {resolvedContent ? (
             <pre className="whitespace-pre-wrap text-[var(--text)]">{resolvedContent}</pre>
           ) : resolvedError ? (
-            <pre className="text-red-400">{resolvedError}</pre>
+            <pre className="text-[var(--danger)]">{resolvedError}</pre>
           ) : (
             <span>Click "Preview" to resolve current editor contents.</span>
           )}

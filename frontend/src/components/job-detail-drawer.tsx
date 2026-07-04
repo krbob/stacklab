@@ -10,12 +10,12 @@ import { cn } from '@/lib/cn'
 
 const stateColors: Record<string, string> = {
   queued: 'text-stone-500',
-  running: 'text-sky-400',
-  succeeded: 'text-emerald-400',
-  failed: 'text-red-400',
-  cancel_requested: 'text-amber-400',
+  running: 'text-[var(--run)]',
+  succeeded: 'text-[var(--ok)]',
+  failed: 'text-[var(--danger)]',
+  cancel_requested: 'text-[var(--warning)]',
   cancelled: 'text-[var(--muted)]',
-  timed_out: 'text-red-400',
+  timed_out: 'text-[var(--danger)]',
 }
 
 function toJobEvent(e: JobHistoryEvent): JobEvent {
@@ -104,7 +104,7 @@ function JobDetailDrawerContent({ jobId }: { jobId: string }) {
           )}
 
           {error && (
-            <div className="rounded-md border border-red-400/20 bg-red-400/5 px-4 py-3 text-sm text-red-400">
+            <div className="rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">
               {error.message}
             </div>
           )}
@@ -158,8 +158,8 @@ function JobDetailDrawerContent({ jobId }: { jobId: string }) {
                     <div className="space-y-0.5 rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.25)] p-3 font-mono text-xs leading-5">
                       {events.map((event) => (
                         <div key={event.sequence} className={cn(
-                          event.event === 'job_error' ? 'text-red-400' :
-                          event.event === 'job_warning' ? 'text-amber-400' :
+                          event.event === 'job_error' ? 'text-[var(--danger)]' :
+                          event.event === 'job_warning' ? 'text-[var(--warning)]' :
                           'text-[var(--muted)]',
                         )}>
                           {event.message}

@@ -113,7 +113,7 @@ export function StackFilesPage() {
             {[1, 2, 3].map((i) => <div key={i} className="h-6 animate-pulse rounded bg-[rgba(255,255,255,0.05)]" />)}
           </div>
         )}
-        {treeError && <p className="text-xs text-red-400">{treeError.message}</p>}
+        {treeError && <p className="text-xs text-[var(--danger)]">{treeError.message}</p>}
         {!treeLoading && !treeError && (
           <nav className="space-y-0.5">
             {parentPath !== null && (
@@ -155,15 +155,15 @@ export function StackFilesPage() {
           </div>
         )}
         {fileLoading && <div className="flex flex-1 items-center justify-center"><p className="text-sm text-[var(--muted)]">Loading file...</p></div>}
-        {fileError && <div className="rounded-md border border-red-400/20 bg-red-400/5 px-4 py-3 text-sm text-red-400">{fileError}</div>}
+        {fileError && <div className="rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">{fileError}</div>}
         {selectedFile && (
           <>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="text-lg font-medium text-[var(--text)]">{selectedFile.name}</h3>
-                  {isDockerfile(selectedFile.name) && <span className="rounded border border-[var(--panel-border)] px-1.5 py-0.5 text-xs text-amber-400">build</span>}
-                  <span className="rounded-full border border-[var(--panel-border)] px-2 py-0.5 text-xs text-[var(--muted)]">{selectedFile.type.replace('_', ' ')}</span>
+                  {isDockerfile(selectedFile.name) && <span className="rounded border border-[var(--panel-border)] px-1.5 py-0.5 text-xs text-[var(--warning)]">build</span>}
+                  <span className="rounded-md border border-[var(--panel-border)] px-2 py-0.5 text-xs text-[var(--muted)]">{selectedFile.type.replace('_', ' ')}</span>
                 </div>
                 <div className="mt-1 text-xs text-[var(--muted)]">
                   {selectedFile.path} · {new Date(selectedFile.modified_at).toLocaleString()}
@@ -171,15 +171,15 @@ export function StackFilesPage() {
               </div>
               {selectedFile.type === 'text_file' && selectedFile.writable && !selectedFile.blocked_reason && (
                 <div className="flex items-center gap-2">
-                  {isDirty && <span className="text-xs text-amber-400">Unsaved changes</span>}
-                  {isDirty && <button onClick={() => setEditContent(selectedFile.content ?? '')} className="rounded-full border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]">Discard</button>}
-                  <button onClick={handleSave} disabled={saving || !isDirty} className="rounded-full border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40">
+                  {isDirty && <span className="text-xs text-[var(--warning)]">Unsaved changes</span>}
+                  {isDirty && <button onClick={() => setEditContent(selectedFile.content ?? '')} className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]">Discard</button>}
+                  <button onClick={handleSave} disabled={saving || !isDirty} className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40">
                     {saving ? 'Saving...' : 'Save'}
                   </button>
                 </div>
               )}
             </div>
-            {saveMessage && <div className={cn('mt-2 text-xs', saveMessage.type === 'success' ? 'text-emerald-400' : 'text-red-400')}>{saveMessage.text}</div>}
+            {saveMessage && <div className={cn('mt-2 text-xs', saveMessage.type === 'success' ? 'text-[var(--ok)]' : 'text-[var(--danger)]')}>{saveMessage.text}</div>}
             <div className="mt-3 flex-1" style={{ minHeight: '300px' }}>
               {selectedFile.blocked_reason ? (
                 <BlockedFileCard
@@ -247,7 +247,7 @@ function TreeRow({ entry, isRoot, isSelected, onOpenFile, onNavigateDir, onGoToE
         isSelected ? 'bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'text-[var(--muted)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]',
       )}
     >
-      <Icon className={cn('size-3.5', isDockerfile(entry.name) && 'text-amber-400')} />
+      <Icon className={cn('size-3.5', isDockerfile(entry.name) && 'text-[var(--warning)]')} />
       <span className="truncate">{entry.name}</span>
     </button>
   )

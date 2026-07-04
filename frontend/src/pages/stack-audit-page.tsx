@@ -33,7 +33,7 @@ export function StackAuditPage() {
   return (
     <div>
       {error && (
-        <div className="mb-3 rounded-2xl border border-red-400/20 bg-red-400/5 px-4 py-3 text-sm text-red-400">
+        <div className="mb-3 rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">
           Failed to load history: {error.message}
         </div>
       )}
