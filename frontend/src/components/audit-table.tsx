@@ -38,19 +38,19 @@ export function AuditTable({ entries, showStack = false, onLoadMore, hasMore, lo
 
         return (
           <div key={entry.id} data-testid="audit-row">
-            <div className="flex min-w-0 items-center gap-3 overflow-hidden rounded border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-4 py-3 text-sm">
-              <span className="shrink-0 text-xs text-[var(--muted)]" style={{ width: '140px' }}>
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-4 py-3 text-sm">
+              <span className="w-36 shrink-0 text-xs tabular-nums text-[var(--muted)]">
                 {new Date(entry.requested_at).toLocaleString()}
               </span>
               {showStack && entry.stack_id && (
-                <span className="shrink-0 truncate font-medium text-[var(--text)]" style={{ width: '100px' }}>
+                <span className="max-w-40 truncate font-medium text-[var(--text)]" title={entry.stack_id}>
                   {entry.stack_id}
                 </span>
               )}
-              <span className="shrink-0 truncate font-mono text-xs text-[var(--text)]" style={{ width: '130px' }}>
+              <span className="min-w-0 flex-1 truncate font-mono text-xs text-[var(--text)]" title={entry.action}>
                 {entry.action}
               </span>
-              <span className={cn('shrink-0 w-20 text-xs', resultColors[entry.result] ?? 'text-[var(--muted)]')}>
+              <span className={cn('w-24 shrink-0 text-xs', resultColors[entry.result] ?? 'text-[var(--muted)]')}>
                 {entry.result === 'succeeded' ? '✓' : '✗'} {entry.result}
               </span>
               <span className="text-xs text-[var(--muted)]">
