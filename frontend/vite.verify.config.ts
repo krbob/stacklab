@@ -27,6 +27,9 @@ export default defineConfig({
             proxyReq.setHeader('origin', 'https://stacklab.bobinski.net')
             proxyReq.setHeader('referer', 'https://stacklab.bobinski.net/')
           })
+          proxy.on('proxyReqWs', (proxyReq) => {
+            proxyReq.setHeader('origin', 'https://stacklab.bobinski.net')
+          })
           proxy.on('proxyRes', (proxyRes) => {
             const cookies = proxyRes.headers['set-cookie']
             if (cookies) {
