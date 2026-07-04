@@ -26,6 +26,7 @@ Implemented and already exercised on Linux staging hosts:
 - scheduled maintenance policies for stack updates and cleanup
 - global activity indicator and retained job detail drawer
 - Docker daemon administration for selected `daemon.json` keys with validate/apply workflow
+- Docker registry auth for private images with login/logout in `/docker`
 - webhook and Telegram notifications for job, maintenance, runtime, and Stacklab self-health events
 - stack-local auxiliary file browsing/editing for files such as `Dockerfile`
 - browser E2E, Docker-backed integration tests, and staging validation on Linux `amd64` and `arm64`
@@ -43,17 +44,9 @@ Implemented and already exercised on Linux staging hosts:
 - keep templates Compose-first and transparent
 - avoid remote template catalogs until the local workflow is stable
 
-### 2. Docker Registry Auth For Private Images
+### 2. Polish And Adoption
 
-- add Docker `login` / `logout` support inside `/docker`
-- write credentials into the same `DOCKER_CONFIG` path Stacklab already uses for Compose operations
-- keep the scope narrow:
-  - private image auth only
-  - no registry browser
-  - no registry administration
-
-### 3. Polish And Adoption
-
+- richer operation progress for stack actions, pull/build-heavy flows, and background work visibility
 - theme toggle with system preference support
 - host-level system information widgets on dashboard views
 - custom project metadata such as icon and useful external links
@@ -87,13 +80,21 @@ Engineering backlog:
 - split `internal/httpapi/handler.go` by API domain after the auth and job lifecycle hardening work settles
 - join detached job runner goroutines during graceful shutdown so jobs can reliably land as `cancelled` instead of falling back to startup reconciliation as interrupted
 - evaluate tag-triggered release workflows and GoReleaser/nfpm only if they reduce the current release script surface without weakening APT channel validation
+- turn the existing README screenshot capture script into a GitHub workflow that boots a deterministic demo harness, refreshes screenshots, uploads review artifacts, and optionally opens a docs-only update when tracked screenshots drift
 - smoke test terminal and job WebSocket streams under the CSP policy in Safari; if needed, make the `connect-src` directive explicitly cover same-host `ws:` and `wss:` connections
 
 Product backlog:
 
 - complete deploy-baseline drift detection by persisting normalized `compose.yaml` and `.env` hashes after successful deploy-oriented actions
+- implement `resolved-config?source=last_valid` from the persisted deploy baseline so operators can compare the current draft with the last known good resolved Compose model
+- add optional scheduled-update config snapshot commits: when a scheduled stack update starts from a clean Git workspace, updates at least one container, succeeds, and leaves controlled config files changed, Stacklab can create an automatic Git commit for those generated config changes instead of mixing them with later operator edits
+- add stack backup orchestration for managed config, data directories, and named volumes: discover per-stack backup targets, schedule backup jobs, surface retention and restore metadata, emit audit/notifications, and provide a deliberate replacement path for sidecar tools such as Backrest without becoming a generic whole-host backup product
+- add service/container-level exclusions for scheduled updates, so automatic maintenance can skip selected Compose services or named containers while still updating the rest of the stack and reporting skipped targets explicitly
 - add Compose lint warnings for risky or missing operational defaults such as absent healthchecks, missing restart policies, and public `0.0.0.0` port binds
+- expand Compose and Docker diagnostics with operator-facing checks for restart policies, healthchecks, startup ordering, resource limits, log growth risk, and daemon settings that affect homelab reliability
 - add image update checks that can notify when a registry tag resolves to a new digest
+- upgrade global activity from low-rate polling to WebSocket push once background activity volume justifies the extra transport complexity
+- evaluate additional narrow Docker admin settings after the current managed-key model proves safe, especially log driver/log retention, stable `host-gateway` IPs, and read-only advisories for `default-ulimits`, `userns-remap`, CDI/runtimes, and cgroup driver choices
 - add stack definition backup/export workflows for operator recovery and migration
 
 ## Explicitly De-Prioritized
