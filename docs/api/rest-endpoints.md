@@ -1571,6 +1571,17 @@ Response:
         "action": "pull",
         "result": "succeeded",
         "finished_at": "2026-04-03T18:42:00Z"
+      },
+      "metadata": {
+        "icon": "nextcloud",
+        "links": [
+          { "label": "Web UI", "url": "https://nextcloud.example.net" }
+        ]
+      },
+      "stats": {
+        "cpu_percent": 2.1,
+        "memory_bytes": 1288490188,
+        "sampled_at": "2026-07-04T14:31:50Z"
       }
     }
   ],
@@ -1593,6 +1604,12 @@ Notes:
 
 - `display_state` is included for UI convenience even though it equals `runtime_state`
 - the list response is intentionally compact compared to stack detail
+- `metadata` comes from the optional `x-stacklab` block in `compose.yaml`
+  (icon slug + up to 8 http(s) links); invalid blocks degrade to `null`
+- `stats` is a cached per-stack aggregate from the host-level collector
+  (10s sampling); `null` when the stack has no running containers or the
+  sample is older than 30s — see
+  `docs/api/dashboard-read-model-and-progress.md` (Slice A)
 
 ## `GET /api/stacks/{stackId}`
 
