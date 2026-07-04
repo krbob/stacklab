@@ -52,10 +52,11 @@ function StackTile({ stack }: { stack: StackListItem }) {
   // Stretched-link card: the stack link is an overlay, so external metadata
   // links are siblings, not anchors nested inside an anchor.
   return (
+    <div className="break-inside-avoid pb-3">
     <article
       data-testid={`stack-card-${stack.id}`}
       className={cn(
-        'relative mb-3 break-inside-avoid rounded-lg border border-l-[3px] border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-3 transition focus-within:border-[rgba(245,165,36,0.35)] hover:border-[rgba(245,165,36,0.35)] hover:bg-[rgba(255,255,255,0.05)]',
+        'relative rounded-lg border border-l-[3px] border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-3 transition focus-within:border-[rgba(245,165,36,0.35)] hover:border-[rgba(245,165,36,0.35)] hover:bg-[rgba(255,255,255,0.05)]',
         edgeColors[stack.display_state] ?? edgeColors.defined,
       )}
     >
@@ -129,6 +130,7 @@ function StackTile({ stack }: { stack: StackListItem }) {
         </div>
       )}
     </article>
+    </div>
   )
 }
 
@@ -278,7 +280,9 @@ export function StacksPage() {
         {loading && (
           <div className="columns-[15rem] gap-3">
             {[1, 2, 3, 4, 5, 6].map((i) => (
-              <div key={i} className="mb-3 h-20 break-inside-avoid animate-pulse rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)]" />
+              <div key={i} className="break-inside-avoid pb-3">
+                <div className="h-20 animate-pulse rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)]" />
+              </div>
             ))}
           </div>
         )}

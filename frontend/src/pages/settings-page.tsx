@@ -101,10 +101,14 @@ export function SettingsPage() {
 }
 
 function SettingsCard({ children }: { children: ReactNode }) {
+  // Wrapper padding instead of margin: bottom margins bleed across CSS
+  // multi-column breaks and misalign column tops.
   return (
-    <section className="mb-4 break-inside-avoid rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
-      {children}
-    </section>
+    <div className="break-inside-avoid pb-4">
+      <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+        {children}
+      </section>
+    </div>
   )
 }
 
