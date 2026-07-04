@@ -404,6 +404,24 @@ Rules:
   - `cancelled`
   - `timed_out`
 - `step` is `null` for non-workflow jobs
+- `job_progress` events for pull/build-heavy steps may additionally carry a
+  structured `progress` object (additive, Slice C of
+  `dashboard-read-model-and-progress.md`):
+
+```json
+"progress": {
+  "phase": "pull",
+  "completed": 7,
+  "total": 12,
+  "unit": "layers",
+  "detail": "0d6922a6b13e extracting"
+}
+```
+
+  - `unit` is `layers` (pull), `steps` (build), or `services` (up)
+  - emission is throttled server-side (~2/s per step); consumers should treat
+    each event as a snapshot, latest wins
+  - events without `progress` keep their existing meaning
 - `stack_id` may be `null` for workspace-scoped jobs such as bulk maintenance
 - `step.target_stack_id` may be present for workspace-scoped workflow jobs
 
