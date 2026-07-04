@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { getMeta, changePassword, getNotificationSettings, updateNotificationSettings, sendNotificationTest, getMaintenanceSchedules, updateMaintenanceSchedules, getStacks, getStacklabUpdateOverview, applyStacklabUpdate } from '@/lib/api-client'
 import { useJobDrawer } from '@/hooks/use-job-drawer'
 import type { MetaResponse, MaintenanceSchedulesResponse, ScheduleFrequency, ScheduleWeekday, StackListItem, StacklabUpdateOverviewResponse } from '@/lib/api-types'
@@ -46,12 +46,15 @@ export function SettingsPage() {
   }, [currentPassword, newPassword, confirmPassword])
 
   return (
-    <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
-      <PageHeader kicker="System" title="Settings" />
+    <div className="flex flex-col gap-4">
+      <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+        <PageHeader kicker="System" title="Settings" />
+      </section>
 
-      <div className="mt-6 space-y-8">
+      {/* Staggered card grid: every section owns its save button and status */}
+      <div className="columns-[26rem] gap-4">
         {/* Password */}
-        <div>
+        <SettingsCard>
           <h3 className="text-sm font-medium text-[var(--text)]">Change password</h3>
           <form onSubmit={handlePasswordChange} className="mt-3 max-w-md space-y-3">
             <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Current password" disabled={saving} className="w-full rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50" />
@@ -63,20 +66,26 @@ export function SettingsPage() {
               {saving ? 'Updating...' : 'Update password'}
             </button>
           </form>
-        </div>
+        </SettingsCard>
 
         {/* Notifications */}
-        <NotificationsSection />
+        <SettingsCard>
+          <NotificationsSection />
+        </SettingsCard>
 
         {/* Maintenance Schedules */}
-        <SchedulesSection />
+        <SettingsCard>
+          <SchedulesSection />
+        </SettingsCard>
 
         {/* Stacklab Update */}
-        <StacklabUpdateSection />
+        <SettingsCard>
+          <StacklabUpdateSection />
+        </SettingsCard>
 
         {/* About */}
         {meta && (
-          <div>
+          <SettingsCard>
             <h3 className="text-sm font-medium text-[var(--text)]">About</h3>
             <div className="mt-3 grid gap-2 text-sm text-[var(--muted)]">
               <div>Stacklab {meta.app.version}</div>
@@ -84,9 +93,17 @@ export function SettingsPage() {
               <div>Docker Compose {meta.docker.compose_version}</div>
               <div>Stack root: <code className="font-mono text-[var(--text)]">{meta.environment.stack_root}</code></div>
             </div>
-          </div>
+          </SettingsCard>
         )}
       </div>
+    </div>
+  )
+}
+
+function SettingsCard({ children }: { children: ReactNode }) {
+  return (
+    <section className="mb-4 break-inside-avoid rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+      {children}
     </section>
   )
 }
