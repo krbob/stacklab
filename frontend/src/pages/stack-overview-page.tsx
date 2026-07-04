@@ -161,8 +161,10 @@ function ActionBar({
     }
   }, [stack.id])
 
+  // Refresh stack state but keep the output visible — closing here used to
+  // unmount the panel the instant the replay reached the terminal event, so
+  // build/pull logs flashed for a frame and vanished.
   const handleJobDone = useCallback(() => {
-    setActiveJobId(null)
     onAction()
   }, [onAction])
 
@@ -214,7 +216,7 @@ function ActionBar({
         </div>
       )}
 
-      {activeJobId && <ProgressPanel jobId={activeJobId} onDone={handleJobDone} />}
+      {activeJobId && <ProgressPanel jobId={activeJobId} onDone={handleJobDone} onClose={() => setActiveJobId(null)} />}
     </div>
   )
 }

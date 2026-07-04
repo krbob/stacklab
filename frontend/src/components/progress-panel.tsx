@@ -5,6 +5,7 @@ import { cn } from '@/lib/cn'
 interface ProgressPanelProps {
   jobId: string | null
   onDone?: (state: string) => void
+  onClose?: () => void
 }
 
 const stateLabels: Record<string, { label: string; color: string }> = {
@@ -28,7 +29,7 @@ const eventIcons: Record<string, string> = {
   job_finished: '■',
 }
 
-export function ProgressPanel({ jobId, onDone }: ProgressPanelProps) {
+export function ProgressPanel({ jobId, onDone, onClose }: ProgressPanelProps) {
   const { events, state } = useJobStream({ jobId })
   const scrollRef = useRef<HTMLDivElement>(null)
   const prevStateRef = useRef<string | null>(null)
@@ -72,12 +73,23 @@ export function ProgressPanel({ jobId, onDone }: ProgressPanelProps) {
           )}
         </div>
 
-        {events.length > 0 && (
-          <span className="text-xs text-[var(--muted)]">
-            {events[0].action}
-            {events[0].step && ` · step ${events[0].step.index}/${events[0].step.total}`}
-          </span>
-        )}
+        <div className="flex items-center gap-3">
+          {events.length > 0 && (
+            <span className="text-xs text-[var(--muted)]">
+              {events[0].action}
+              {events[0].step && ` · step ${events[0].step.index}/${events[0].step.total}`}
+            </span>
+          )}
+          {onClose && (
+            <button
+              onClick={onClose}
+              aria-label="Close output"
+              className="rounded px-1.5 text-xs text-[var(--muted)] transition hover:text-[var(--text)]"
+            >
+              ✕
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Event stream */}
