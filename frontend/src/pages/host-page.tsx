@@ -125,9 +125,9 @@ function OverviewCards({
   return (
     <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
       {/* Stacklab */}
-      <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4">
+      <div className="min-w-0 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4">
         <div className="font-brand text-xs uppercase tracking-wider text-[var(--accent)]">Stacklab</div>
-        <div className="mt-2 text-lg font-medium text-[var(--text)]">{stacklab.version}</div>
+        <div className="mt-2 break-all text-lg font-medium text-[var(--text)]">{stacklab.version}</div>
         <div className="mt-1 space-y-0.5 text-xs text-[var(--muted)]">
           {stacklab.commit && <div>Commit: {stacklab.commit.slice(0, 8)}</div>}
           <div>Started: {new Date(stacklab.started_at).toLocaleString()}</div>
@@ -135,9 +135,9 @@ function OverviewCards({
       </div>
 
       {/* Host */}
-      <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4">
+      <div className="min-w-0 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4">
         <div className="font-brand text-xs uppercase tracking-wider text-[var(--accent)]">System</div>
-        <div className="mt-2 text-lg font-medium text-[var(--text)]">{host.hostname}</div>
+        <div className="mt-2 break-all text-lg font-medium text-[var(--text)]">{host.hostname}</div>
         <div className="mt-1 space-y-0.5 text-xs text-[var(--muted)]">
           <div>{host.os_name}</div>
           <div>Kernel: {host.kernel_version}</div>
