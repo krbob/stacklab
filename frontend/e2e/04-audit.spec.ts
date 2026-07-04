@@ -41,7 +41,7 @@ test.describe('Global Audit', () => {
       await expect(row).toBeVisible()
       await expect(row.getByText('save_definition')).toBeVisible()
 
-      await row.getByRole('button', { name: 'View detail' }).click()
+      await row.click()
       const drawer = page.locator('div.fixed.inset-y-0.right-0')
       await expect(drawer.getByText('Job detail')).toBeVisible()
       await expect(drawer).toContainText('save_definition')

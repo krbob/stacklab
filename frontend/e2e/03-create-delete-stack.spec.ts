@@ -27,7 +27,7 @@ test.describe('Create and Delete Stack', () => {
 
     // Should navigate to the new stack detail
     await expect(page).toHaveURL(new RegExp(`/stacks/${TEST_STACK}`), { timeout: 15_000 })
-    await expect(page.getByText(TEST_STACK)).toBeVisible()
+    await expect(page.getByRole('heading', { name: TEST_STACK })).toBeVisible()
 
     // Go back to dashboard to verify it appears
     await page.getByRole('link', { name: 'Stacks' }).first().click()
