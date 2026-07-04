@@ -70,7 +70,7 @@ export function YamlEditor({ value, onChange, readOnly = false }: YamlEditorProp
   return (
     <div
       ref={containerRef}
-      className="h-full overflow-hidden rounded border border-[var(--panel-border)]"
+      className="h-full min-w-0 max-w-full overflow-hidden rounded border border-[var(--panel-border)]"
     />
   )
 }

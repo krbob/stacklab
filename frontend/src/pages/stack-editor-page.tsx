@@ -233,7 +233,7 @@ export function StackEditorPage() {
 
       {/* Editor split */}
       <div className="grid gap-3 xl:grid-cols-2" style={{ height: '500px' }}>
-        <div className="min-h-0">
+        <div className="min-h-0 min-w-0">
           {activeTab === 'compose' ? (
             <YamlEditor
               value={composeYaml}
@@ -246,7 +246,7 @@ export function StackEditorPage() {
             />
           )}
         </div>
-        <div className="min-h-0 overflow-auto rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs text-[var(--muted)]">
+        <div className="min-h-0 min-w-0 overflow-auto rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs text-[var(--muted)]">
           <div className="mb-2 text-[var(--accent)] text-xs uppercase tracking-wider">
             Resolved config
           </div>

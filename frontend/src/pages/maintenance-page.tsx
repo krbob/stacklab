@@ -92,14 +92,14 @@ export function MaintenancePage() {
   return (
     <div className="flex flex-col gap-4" style={{ minHeight: 'calc(100vh - 120px)' }}>
       {/* Tab bar */}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <h2 className="text-2xl font-semibold tracking-[-0.04em] text-[var(--text)]">Maintenance</h2>
-        <div className="ml-4 flex gap-1">
+        <div className="flex max-w-full gap-1 overflow-x-auto sm:ml-4">
           {([['update', 'Update'], ['images', 'Images'], ['networks', 'Networks'], ['volumes', 'Volumes'], ['cleanup', 'Cleanup']] as const).map(([key, label]) => (
             <button
               key={key}
               onClick={() => setActiveTab(key)}
-              className={cn('rounded-full border px-3 py-1.5 text-xs transition', activeTab === key ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
+              className={cn('shrink-0 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs transition', activeTab === key ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
             >
               {label}
             </button>
