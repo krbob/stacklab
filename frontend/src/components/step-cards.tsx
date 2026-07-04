@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { JobEvent } from '@/lib/ws-types'
+import type { JobEvent, JobProgress } from '@/lib/ws-types'
 import { cn } from '@/lib/cn'
 
 interface StepCardsProps {
@@ -14,6 +14,7 @@ interface StepData {
   state: 'running' | 'succeeded' | 'failed' | 'queued'
   startedAt: string | null
   finishedAt: string | null
+  progress: JobProgress | null
   logLines: { message: string; data?: string | null; type: string }[]
 }
 
@@ -105,6 +106,26 @@ function StepCard({ step }: { step: StepData }) {
         <span className="text-xs text-[var(--muted)]">{elapsed}</span>
       </div>
 
+      {/* Structured progress meter (running steps with streaming data) */}
+      {step.progress && step.state === 'running' && step.progress.total > 0 && (
+        <div className="mt-2">
+          <div className="flex items-center gap-2 font-mono text-[11px] tabular-nums text-[var(--muted)]">
+            <span className="shrink-0">
+              {step.progress.completed}/{step.progress.total} {step.progress.unit}
+            </span>
+            <span className="h-1 flex-1 overflow-hidden rounded-full bg-[rgba(255,255,255,0.07)]">
+              <span
+                className="block h-full bg-[var(--accent)] transition-[width] duration-300"
+                style={{ width: `${Math.min(100, Math.round((step.progress.completed / step.progress.total) * 100))}%` }}
+              />
+            </span>
+          </div>
+          {step.progress.detail && (
+            <div className="mt-1 truncate font-mono text-[10px] text-[var(--muted)] opacity-70">{step.progress.detail}</div>
+          )}
+        </div>
+      )}
+
       {/* Output preview / expanded */}
       {step.logLines.length > 0 && (
         <div className="mt-2">
@@ -160,6 +181,7 @@ function buildSteps(events: JobEvent[]): StepData[] {
         state: 'queued',
         startedAt: null,
         finishedAt: null,
+        progress: null,
         logLines: [],
       })
     }
@@ -172,6 +194,12 @@ function buildSteps(events: JobEvent[]): StepData[] {
     } else if (event.event === 'job_step_finished') {
       step.state = event.state === 'failed' ? 'failed' : 'succeeded'
       step.finishedAt = event.timestamp
+    }
+
+    // Structured progress updates feed the meter, not the log dump.
+    if (event.event === 'job_progress' && event.progress) {
+      step.progress = event.progress
+      continue
     }
 
     if (event.event === 'job_log' || event.event === 'job_progress' || event.event === 'job_warning' || event.event === 'job_error') {

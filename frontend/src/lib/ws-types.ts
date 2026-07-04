@@ -81,7 +81,16 @@ export interface JobEvent {
     action: string
     target_stack_id?: string
   } | null
+  progress?: JobProgress | null
   timestamp: string
+}
+
+export interface JobProgress {
+  phase: string
+  completed: number
+  total: number
+  unit: string
+  detail?: string
 }
 
 // --- Terminal ---

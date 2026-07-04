@@ -100,6 +100,33 @@ describe('StepCards', () => {
     expect(screen.getByText('15s')).toBeInTheDocument()
   })
 
+  it('renders a progress meter for running steps with structured progress', () => {
+    const events: JobEvent[] = [
+      makeEvent({
+        event: 'job_step_started',
+        state: 'running',
+        message: 'Starting pull for demo.',
+        timestamp: '2026-04-09T10:00:00Z',
+        step: { index: 1, total: 1, action: 'pull', target_stack_id: 'demo' },
+      }),
+      makeEvent({
+        event: 'job_progress',
+        state: 'running',
+        message: 'Progress pull for demo.',
+        timestamp: '2026-04-09T10:00:02Z',
+        step: { index: 1, total: 1, action: 'pull', target_stack_id: 'demo' },
+        progress: { phase: 'pull', completed: 7, total: 12, unit: 'layers', detail: '0d6922a6b13e extracting' },
+      }),
+    ]
+
+    render(<StepCards events={events} />)
+
+    expect(screen.getByText('7/12 layers')).toBeInTheDocument()
+    expect(screen.getByText('0d6922a6b13e extracting')).toBeInTheDocument()
+    // structured progress must not land in the log dump
+    expect(screen.queryByText('Progress pull for demo.')).not.toBeInTheDocument()
+  })
+
   it('expands collapsed output on demand', () => {
     const events: JobEvent[] = [
       makeEvent({
