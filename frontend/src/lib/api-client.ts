@@ -290,7 +290,7 @@ export function getImageUpdates(): Promise<{ items: ImageUpdateStatus[] }> {
   return request('/api/maintenance/image-updates')
 }
 
-export function checkImageUpdates(): Promise<{ images_checked: number; updates_available: number }> {
+export function checkImageUpdates(): Promise<{ job: { id: string } }> {
   return request('/api/maintenance/image-updates/check', { method: 'POST', body: JSON.stringify({}) })
 }
 

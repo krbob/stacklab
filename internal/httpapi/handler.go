@@ -978,8 +978,19 @@ func (h *Handler) handleImageUpdatesCheck(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	results := h.imageUpdates.CheckImages(r.Context(), refs, func(done, total int, detail string) {
-		_ = h.jobs.PublishEventWithProgress(r.Context(), job, "job_progress", "Checking image updates.", "", nil, &store.JobProgress{
+	// Detached like stack actions: registry lookups can outlive the request
+	// (or its proxy), and finalization must never ride a cancelled context.
+	go h.runImageUpdateCheckJob(job, refs)
+
+	writeJSON(w, http.StatusOK, map[string]any{"job": job})
+}
+
+func (h *Handler) runImageUpdateCheckJob(job store.Job, refs []string) {
+	runCtx, cancel := h.stackActionContext()
+	defer cancel()
+
+	results := h.imageUpdates.CheckImages(runCtx, refs, func(done, total int, detail string) {
+		_ = h.jobs.PublishEventWithProgress(runCtx, job, "job_progress", "Checking image updates.", "", nil, &store.JobProgress{
 			Phase:     "check",
 			Completed: done,
 			Total:     total,
@@ -988,31 +999,35 @@ func (h *Handler) handleImageUpdatesCheck(w http.ResponseWriter, r *http.Request
 		})
 	})
 
+	ctx, finishCancel := h.jobFinalizationContext()
+	defer finishCancel()
+
+	if runCtx.Err() != nil {
+		if _, err := h.jobs.FinishTimedOut(ctx, job, "check_image_updates_timeout", "Image update check timed out."); err != nil {
+			h.logger.Error("finish image update check failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+		}
+		return
+	}
+
 	available := 0
 	for _, status := range results {
 		if status.State == imageupdates.StateAvailable {
 			available++
 		}
-		_ = h.jobs.PublishEvent(r.Context(), job, "job_log", "Checked "+status.ImageRef+".", status.State, nil)
+		_ = h.jobs.PublishEvent(ctx, job, "job_log", "Checked "+status.ImageRef+".", status.State, nil)
 	}
 
-	job, err = h.jobs.FinishSucceeded(r.Context(), job)
+	finishedJob, err := h.jobs.FinishSucceeded(ctx, job)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to finish job.", nil)
+		h.logger.Error("finish image update check failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
 		return
 	}
-	if err := h.audit.RecordJob(r.Context(), job, map[string]any{
+	if err := h.audit.RecordJob(ctx, finishedJob, map[string]any{
 		"images_checked":    len(results),
 		"updates_available": available,
 	}); err != nil {
 		h.logger.Warn("record image update audit failed", slog.String("err", err.Error()))
 	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"job":               job,
-		"images_checked":    len(results),
-		"updates_available": available,
-	})
 }
 
 func (h *Handler) handleUpdateStacksMaintenance(w http.ResponseWriter, r *http.Request) {
