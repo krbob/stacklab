@@ -48,3 +48,44 @@ func TestConsumeComposeProgressPlainOutputOnly(t *testing.T) {
 		t.Fatalf("text = %q", text.String())
 	}
 }
+
+func TestConsumePlainProgressPull(t *testing.T) {
+	input := strings.Join([]string{
+		" adguardhome Pulling ",
+		" 0d6922a6b13e Pulling fs layer ",
+		" f6a4c3e338ed Pulling fs layer ",
+		" 0d6922a6b13e Pull complete ",
+		" f6a4c3e338ed Already exists ",
+		" adguardhome Pulled ",
+	}, "\n")
+
+	var text bytes.Buffer
+	var updates []StepProgress
+	consumePlainProgress(strings.NewReader(input), &text, func(p StepProgress) {
+		updates = append(updates, p)
+	})
+
+	if len(updates) == 0 {
+		t.Fatal("no updates")
+	}
+	final := updates[len(updates)-1]
+	if final.Completed != 2 || final.Total != 2 {
+		t.Fatalf("final = %+v, want 2/2", final)
+	}
+	if !strings.Contains(text.String(), "adguardhome Pulled") {
+		t.Fatalf("text lost lines: %q", text.String())
+	}
+}
+
+func TestConsumePlainProgressContainers(t *testing.T) {
+	input := "Container adguardhome Recreate\nContainer adguardhome Recreated\nContainer adguardhome Starting\nContainer adguardhome Started\n"
+	var text bytes.Buffer
+	var updates []StepProgress
+	consumePlainProgress(strings.NewReader(input), &text, func(p StepProgress) {
+		updates = append(updates, p)
+	})
+	final := updates[len(updates)-1]
+	if final.Completed != 1 || final.Total != 1 {
+		t.Fatalf("final = %+v, want 1/1", final)
+	}
+}

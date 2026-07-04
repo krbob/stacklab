@@ -6,8 +6,10 @@ import (
 	"context"
 	"encoding/json"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -58,9 +60,31 @@ func (s *ServiceReader) RunMaintenanceStepStreaming(ctx context.Context, stackID
 	}
 }
 
+// jsonProgressUnsupported flips permanently once the local compose rejects
+// --progress json (added around compose v2.30); older versions stream
+// --progress plain instead, parsed heuristically.
+var jsonProgressUnsupported atomic.Bool
+
+const unsupportedJSONProgressMarker = `unsupported --progress value "json"`
+
 func (s *ServiceReader) runComposeActionStreaming(ctx context.Context, stack discoveredStack, onProgress func(StepProgress), action string, extraArgs ...string) (string, error) {
+	if !jsonProgressUnsupported.Load() {
+		combined, err := s.runComposeProgressMode(ctx, stack, "json", onProgress, action, extraArgs...)
+		if err != nil && strings.Contains(err.Error(), unsupportedJSONProgressMarker) {
+			jsonProgressUnsupported.Store(true)
+			if s.logger != nil {
+				s.logger.Info("compose does not support --progress json; falling back to plain parsing")
+			}
+		} else {
+			return combined, err
+		}
+	}
+	return s.runComposeProgressMode(ctx, stack, "plain", onProgress, action, extraArgs...)
+}
+
+func (s *ServiceReader) runComposeProgressMode(ctx context.Context, stack discoveredStack, mode string, onProgress func(StepProgress), action string, extraArgs ...string) (string, error) {
 	command, args := composeCommand(ctx, stack.RootPath, stack.ComposeFilePath, stack.EnvFilePath)
-	args = append(args, "--progress", "json", action)
+	args = append(args, "--progress", mode, action)
 	args = append(args, extraArgs...)
 
 	cmd := exec.CommandContext(ctx, command, args...)
@@ -82,7 +106,11 @@ func (s *ServiceReader) runComposeActionStreaming(ctx context.Context, stack dis
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		consumeComposeProgress(stderrPipe, &stderrText, onProgress)
+		if mode == "json" {
+			consumeComposeProgress(stderrPipe, &stderrText, onProgress)
+		} else {
+			consumePlainProgress(stderrPipe, &stderrText, onProgress)
+		}
 	}()
 	wg.Wait()
 
@@ -96,6 +124,82 @@ func (s *ServiceReader) runComposeActionStreaming(ctx context.Context, stack dis
 		return combined, &composeError{message: message}
 	}
 	return combined, nil
+}
+
+var (
+	plainLayerPattern     = regexp.MustCompile(`^\s*([0-9a-f]{10,12})\s+(.+)$`)
+	plainContainerPattern = regexp.MustCompile(`^\s*Container\s+(\S+)\s+(\S+)`)
+)
+
+var plainDoneStatuses = map[string]bool{
+	"Pull complete":  true,
+	"Already exists": true,
+	"Started":        true,
+	"Running":        true,
+	"Healthy":        true,
+	"Removed":        true,
+	"Pulled":         true,
+}
+
+// consumePlainProgress derives coarse progress from --progress plain output:
+// pull layers and container lifecycle lines both follow a stable
+// "<id> <status>" shape. All lines are preserved as text.
+func consumePlainProgress(r interface{ Read([]byte) (int, error) }, text *bytes.Buffer, onProgress func(StepProgress)) {
+	doneByID := map[string]bool{}
+	lastEmit := time.Time{}
+	lastCompleted := -1
+	lastDetail := ""
+
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimRight(scanner.Text(), " ")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		text.WriteString(strings.TrimSpace(line))
+		text.WriteString("\n")
+		if onProgress == nil {
+			continue
+		}
+
+		id, status := "", ""
+		if match := plainLayerPattern.FindStringSubmatch(line); match != nil {
+			id, status = match[1], strings.TrimSpace(match[2])
+		} else if match := plainContainerPattern.FindStringSubmatch(line); match != nil {
+			id, status = "container:"+match[1], strings.TrimSpace(match[2])
+		} else {
+			continue
+		}
+
+		if !doneByID[id] {
+			doneByID[id] = plainDoneStatuses[status]
+		}
+		lastDetail = strings.TrimSpace(line)
+
+		completed := 0
+		for _, done := range doneByID {
+			if done {
+				completed++
+			}
+		}
+		now := time.Now()
+		if completed != lastCompleted || now.Sub(lastEmit) >= progressEmitInterval {
+			lastCompleted = completed
+			lastEmit = now
+			onProgress(StepProgress{Completed: completed, Total: len(doneByID), Detail: lastDetail})
+		}
+	}
+
+	if onProgress != nil && len(doneByID) > 0 {
+		completed := 0
+		for _, done := range doneByID {
+			if done {
+				completed++
+			}
+		}
+		onProgress(StepProgress{Completed: completed, Total: len(doneByID), Detail: lastDetail})
+	}
 }
 
 type composeError struct{ message string }
