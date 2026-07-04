@@ -134,6 +134,9 @@ func NewHandlerWithContext(appCtx context.Context, cfg config.Config, logger *sl
 		appCtx = context.Background()
 	}
 	stackReader := stacks.NewServiceReader(cfg, logger)
+	statsCollector := stacks.NewStatsCollector(logger)
+	statsCollector.Start(appCtx)
+	stackReader.AttachStatsCollector(statsCollector)
 	maintenanceService := maintenance.NewService()
 	handler := &Handler{
 		appCtx:        appCtx,

@@ -50,7 +50,7 @@ services:
       - worker-data:/var/lib/worker
 `)
 
-	services, err := parseComposeServices(stackRoot, content)
+	services, _, err := parseComposeServices(stackRoot, content)
 	if err != nil {
 		t.Fatalf("parseComposeServices() error = %v", err)
 	}

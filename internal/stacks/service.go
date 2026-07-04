@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"net/url"
 	"regexp"
 	"runtime"
 	"sort"
@@ -53,6 +54,13 @@ type ServiceReader struct {
 	cfg       config.Config
 	logger    *slog.Logger
 	hostShell bool
+	stats     *StatsCollector
+}
+
+// AttachStatsCollector wires the host-level stats collector; list responses
+// enrich items from its snapshot when present.
+func (s *ServiceReader) AttachStatsCollector(collector *StatsCollector) {
+	s.stats = collector
 }
 
 type MaintenanceStepOptions struct {
@@ -108,15 +116,26 @@ func (s *ServiceReader) List(ctx context.Context, query ListQuery) (StackListRes
 	items := make([]StackListItem, 0, len(allStacks))
 	summary := StackListSummary{}
 
+	var statsByProject map[string]StackStats
+	if s.stats != nil {
+		statsByProject = s.stats.Snapshot()
+	}
+
 	for _, stack := range allStacks {
 		if query.Search != "" && !strings.Contains(stack.ID, strings.ToLower(query.Search)) {
 			continue
+		}
+
+		var stackStats *StackStats
+		if sample, ok := statsByProject[stack.ID]; ok && stack.runningContainerCount() > 0 {
+			stackStats = &sample
 		}
 
 		items = append(items, StackListItem{
 			StackHeader:  stack.header(),
 			ServiceCount: ServiceCount{Defined: len(stack.Services), Running: stack.runningServiceCount()},
 			LastAction:   nil,
+			Stats:        stackStats,
 		})
 
 		summary.StackCount++
@@ -546,6 +565,7 @@ type discoveredStack struct {
 	ConfigPath       string
 	DataPath         string
 	Services         []Service
+	Metadata         *StackMetadata
 	Containers       []Container
 	RuntimeState     RuntimeState
 	ConfigState      ConfigState
@@ -558,6 +578,7 @@ type discoveredStack struct {
 
 type definitionSnapshot struct {
 	Services    []Service
+	Metadata    *StackMetadata
 	ConfigState ConfigState
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
@@ -621,6 +642,7 @@ func (s *ServiceReader) readStacks(ctx context.Context) ([]discoveredStack, erro
 		if definition, ok := definedStacks[id]; ok {
 			stack.DefinitionExists = true
 			stack.Services = definition.Services
+			stack.Metadata = definition.Metadata
 			stack.ConfigState = definition.ConfigState
 			stack.CreatedAt = definition.CreatedAt
 			stack.UpdatedAt = definition.UpdatedAt
@@ -697,7 +719,7 @@ func (s *ServiceReader) scanDefinitions() (map[string]definitionSnapshot, error)
 			continue
 		}
 
-		services, parseErr := parseComposeServices(stackRoot, content)
+		services, metadata, parseErr := parseComposeServices(stackRoot, content)
 		configState := ConfigStateUnknown
 		if parseErr != nil {
 			s.logger.Warn("failed to parse compose file", slog.String("stack_id", entry.Name()), slog.String("err", parseErr.Error()))
@@ -706,6 +728,7 @@ func (s *ServiceReader) scanDefinitions() (map[string]definitionSnapshot, error)
 
 		result[entry.Name()] = definitionSnapshot{
 			Services:    services,
+			Metadata:    metadata,
 			ConfigState: configState,
 			CreatedAt:   createdAt,
 			UpdatedAt:   updatedAt,
@@ -850,7 +873,49 @@ func normalizeContainerStatus(state string) string {
 }
 
 type composeDefinition struct {
-	Services map[string]composeService `yaml:"services"`
+	Services  map[string]composeService `yaml:"services"`
+	XStacklab *composeXStacklab         `yaml:"x-stacklab"`
+}
+
+type composeXStacklab struct {
+	Icon  string `yaml:"icon"`
+	Links []struct {
+		Label string `yaml:"label"`
+		URL   string `yaml:"url"`
+	} `yaml:"links"`
+}
+
+var metadataIconPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+
+const metadataMaxLinks = 8
+
+// parseStackMetadata validates the x-stacklab block into StackMetadata.
+// Anything invalid is dropped field-by-field rather than failing the stack.
+func parseStackMetadata(x *composeXStacklab) *StackMetadata {
+	if x == nil {
+		return nil
+	}
+
+	meta := StackMetadata{}
+	if metadataIconPattern.MatchString(x.Icon) {
+		meta.Icon = x.Icon
+	}
+	for _, link := range x.Links {
+		if len(meta.Links) == metadataMaxLinks {
+			break
+		}
+		label := strings.TrimSpace(link.Label)
+		parsed, err := url.Parse(strings.TrimSpace(link.URL))
+		if err != nil || label == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+			continue
+		}
+		meta.Links = append(meta.Links, StackMetaLink{Label: label, URL: parsed.String()})
+	}
+
+	if meta.Icon == "" && len(meta.Links) == 0 {
+		return nil
+	}
+	return &meta
 }
 
 type composeService struct {
@@ -862,14 +927,16 @@ type composeService struct {
 	Healthcheck any    `yaml:"healthcheck"`
 }
 
-func parseComposeServices(stackRoot string, content []byte) ([]Service, error) {
+func parseComposeServices(stackRoot string, content []byte) ([]Service, *StackMetadata, error) {
 	var doc composeDefinition
 	if err := yaml.Unmarshal(content, &doc); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
+	metadata := parseStackMetadata(doc.XStacklab)
+
 	if len(doc.Services) == 0 {
-		return []Service{}, nil
+		return []Service{}, metadata, nil
 	}
 
 	names := make([]string, 0, len(doc.Services))
@@ -895,7 +962,7 @@ func parseComposeServices(stackRoot string, content []byte) ([]Service, error) {
 		})
 	}
 
-	return services, nil
+	return services, metadata, nil
 }
 
 func parseServiceSource(stackRoot, image string, build any) (ServiceMode, *string, *string, *string) {
@@ -1591,6 +1658,7 @@ func (s discoveredStack) header() StackHeader {
 		ConfigState:   s.ConfigState,
 		ActivityState: s.ActivityState,
 		HealthSummary: s.HealthSummary,
+		Metadata:      s.Metadata,
 	}
 }
 

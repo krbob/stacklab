@@ -79,6 +79,7 @@ type StackListItem struct {
 	StackHeader
 	ServiceCount ServiceCount `json:"service_count"`
 	LastAction   *LastAction  `json:"last_action"`
+	Stats        *StackStats  `json:"stats"`
 }
 
 type StackListSummary struct {
@@ -116,15 +117,38 @@ type StackDetail struct {
 }
 
 type StackHeader struct {
-	ID            string        `json:"id"`
-	Name          string        `json:"name"`
-	CreatedAt     time.Time     `json:"created_at"`
-	UpdatedAt     time.Time     `json:"updated_at"`
-	DisplayState  RuntimeState  `json:"display_state"`
-	RuntimeState  RuntimeState  `json:"runtime_state"`
-	ConfigState   ConfigState   `json:"config_state"`
-	ActivityState ActivityState `json:"activity_state"`
-	HealthSummary HealthSummary `json:"health_summary"`
+	ID            string         `json:"id"`
+	Name          string         `json:"name"`
+	CreatedAt     time.Time      `json:"created_at"`
+	UpdatedAt     time.Time      `json:"updated_at"`
+	DisplayState  RuntimeState   `json:"display_state"`
+	RuntimeState  RuntimeState   `json:"runtime_state"`
+	ConfigState   ConfigState    `json:"config_state"`
+	ActivityState ActivityState  `json:"activity_state"`
+	HealthSummary HealthSummary  `json:"health_summary"`
+	Metadata      *StackMetadata `json:"metadata"`
+}
+
+// StackMetadata carries operator-authored presentation hints from the
+// x-stacklab extension block in compose.yaml. Invalid blocks degrade to nil —
+// metadata must never make a stack unreadable.
+type StackMetadata struct {
+	Icon  string          `json:"icon,omitempty"`
+	Links []StackMetaLink `json:"links,omitempty"`
+}
+
+type StackMetaLink struct {
+	Label string `json:"label"`
+	URL   string `json:"url"`
+}
+
+// StackStats is a point-in-time resource aggregate produced by the host-level
+// stats collector; nil when the stack has no running containers or the sample
+// is stale.
+type StackStats struct {
+	CPUPercent  float64   `json:"cpu_percent"`
+	MemoryBytes int64     `json:"memory_bytes"`
+	SampledAt   time.Time `json:"sampled_at"`
 }
 
 type HealthSummary struct {
