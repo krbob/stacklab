@@ -70,7 +70,7 @@ func TestRunRepairACLGrantsAccessWithoutChangingMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EvalSymlinks(target) error = %v", err)
 	}
-	if calls[0][0] != "-m" || !strings.HasPrefix(calls[0][1], "u:") || !strings.HasSuffix(calls[0][1], ":rwX") || calls[0][2] != resolvedTarget {
+	if !hasACLEntry(calls[0], "u:", ":rwX") || !hasExactACL(calls[0], "m::rwX") || calls[0][len(calls[0])-1] != resolvedTarget {
 		t.Fatalf("unexpected setfacl args: %#v", calls[0])
 	}
 }
@@ -105,8 +105,14 @@ func TestRunRepairACLRecursiveAddsDefaultACLForDirectories(t *testing.T) {
 	if !hasDefaultACL(calls[0]) || !hasDefaultACL(calls[1]) {
 		t.Fatalf("directory calls missing default ACL: %#v", calls)
 	}
+	if !hasExactACL(calls[0], "d:m::rwx") || !hasExactACL(calls[1], "d:m::rwx") {
+		t.Fatalf("directory calls missing default ACL mask: %#v", calls)
+	}
 	if hasDefaultACL(calls[2]) {
 		t.Fatalf("file call unexpectedly has default ACL: %#v", calls[2])
+	}
+	if !hasExactACL(calls[2], "m::rwX") {
+		t.Fatalf("file call missing ACL mask: %#v", calls[2])
 	}
 }
 
@@ -119,8 +125,21 @@ func replaceACLCommand(replacement func(string, ...string) ([]byte, error)) func
 }
 
 func hasDefaultACL(args []string) bool {
+	return hasACLEntry(args, "d:u:", ":rwX")
+}
+
+func hasACLEntry(args []string, prefix, suffix string) bool {
 	for _, arg := range args {
-		if strings.HasPrefix(arg, "d:u:") && strings.HasSuffix(arg, ":rwX") {
+		if strings.HasPrefix(arg, prefix) && strings.HasSuffix(arg, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasExactACL(args []string, value string) bool {
+	for _, arg := range args {
+		if arg == value {
 			return true
 		}
 	}

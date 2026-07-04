@@ -353,10 +353,11 @@ func grantACL(path string, info os.FileInfo, uid int) error {
 	}
 
 	entry := fmt.Sprintf("u:%d:rwX", uid)
-	args := []string{"-m", entry, path}
+	maskEntry := "m::rwX"
+	args := []string{"-m", entry, "-m", maskEntry, path}
 	if info.IsDir() {
 		defaultEntry := fmt.Sprintf("d:u:%d:rwX", uid)
-		args = []string{"-m", entry, "-m", defaultEntry, path}
+		args = []string{"-m", entry, "-m", maskEntry, "-m", defaultEntry, "-m", "d:m::rwx", path}
 	}
 
 	output, err := runACLCommand("setfacl", args...)
