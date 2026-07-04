@@ -9,7 +9,13 @@
   ],
   dependencyDashboard: true,
   assigneesFromCodeOwners: false,
-  automerge: false,
+  automerge: true,
+  automergeType: 'pr',
+  automergeStrategy: 'rebase',
+  automergeSchedule: [
+    '* * 2 * *',
+  ],
+  minimumReleaseAge: '3 days',
   platformAutomerge: true,
   prConcurrentLimit: 6,
   prHourlyLimit: 4,
@@ -45,32 +51,7 @@
       groupSlug: 'frontend-dev',
     },
     {
-      description: 'Automerge low-risk frontend devDependency patch and minor updates once per month after the stable release and a short stability delay.',
-      matchManagers: [
-        'npm',
-      ],
-      matchFileNames: [
-        'frontend/package.json',
-      ],
-      matchDepTypes: [
-        'devDependencies',
-      ],
-      matchUpdateTypes: [
-        'minor',
-        'patch',
-        'pin',
-        'digest',
-      ],
-      automerge: true,
-      automergeType: 'pr',
-      automergeStrategy: 'rebase',
-      automergeSchedule: [
-        '* * 2 * *',
-      ],
-      minimumReleaseAge: '3 days',
-    },
-    {
-      description: 'Keep high-risk Go runtime modules ungrouped for deliberate review.',
+      description: 'Keep high-risk Go runtime modules ungrouped.',
       matchManagers: [
         'gomod',
       ],
@@ -108,39 +89,20 @@
       groupSlug: 'github-actions-low-risk',
     },
     {
-      description: 'Automerge low-risk GitHub Actions patch and minor updates once per month after the stable release and a stability delay.',
+      description: 'Group remaining GitHub Actions updates into one PR.',
       matchManagers: [
         'github-actions',
       ],
       matchPackageNames: [
-        'actions/checkout',
-        'actions/setup-go',
-        'actions/setup-node',
-      ],
-      matchUpdateTypes: [
-        'minor',
-        'patch',
-        'pin',
-        'digest',
-      ],
-      automerge: true,
-      automergeType: 'pr',
-      automergeStrategy: 'rebase',
-      automergeSchedule: [
-        '* * 2 * *',
-      ],
-      minimumReleaseAge: '7 days',
-    },
-    {
-      description: 'Group remaining GitHub Actions updates into a manual review PR.',
-      matchManagers: [
-        'github-actions',
+        '!actions/checkout',
+        '!actions/setup-go',
+        '!actions/setup-node',
       ],
       groupName: 'github actions',
       groupSlug: 'github-actions',
     },
     {
-      description: 'Keep major updates separate for deliberate review.',
+      description: 'Keep major updates separate.',
       matchUpdateTypes: [
         'major',
       ],
