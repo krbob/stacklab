@@ -131,10 +131,12 @@ func (s *Service) RunUpdate(ctx context.Context, request UpdateRequest, requeste
 			if updatedJob, updateErr := s.jobs.UpdateWorkflow(ctx, job, workflow); updateErr == nil {
 				job = updatedJob
 			}
+			// Mark the failing step before the terminal transition so live
+			// consumers never see a finished job with a step still running.
+			failingJob := job
+			failingJob.State = "failed"
+			_ = s.jobs.PublishEvent(ctx, failingJob, "job_step_finished", updateStepMessage("Failed", step), "", workflowStepRef(workflow, index))
 			job, _ = s.jobs.FinishFailed(ctx, job, "update_stacks_failed", runErr.Error())
-			// After FinishFailed the job state is "failed", so this event lets
-			// step consumers mark the failing step instead of leaving it running.
-			_ = s.jobs.PublishEvent(ctx, job, "job_step_finished", updateStepMessage("Failed", step), "", workflowStepRef(workflow, index))
 			if err := s.audit.RecordJob(ctx, job, updateAuditDetails(request, targetStackIDs)); err != nil && s.logger != nil {
 				s.logger.Warn("record maintenance audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
 			}
@@ -191,8 +193,10 @@ func (s *Service) RunPrune(ctx context.Context, request PruneRequest, requestedB
 			if updatedJob, updateErr := s.jobs.UpdateWorkflow(ctx, job, workflow); updateErr == nil {
 				job = updatedJob
 			}
+			failingJob := job
+			failingJob.State = "failed"
+			_ = s.jobs.PublishEvent(ctx, failingJob, "job_step_finished", pruneStepMessage("Failed", step), "", workflowStepRef(workflow, index))
 			job, _ = s.jobs.FinishFailed(ctx, job, "prune_failed", runErr.Error())
-			_ = s.jobs.PublishEvent(ctx, job, "job_step_finished", pruneStepMessage("Failed", step), "", workflowStepRef(workflow, index))
 			if err := s.audit.RecordJob(ctx, job, pruneAuditDetails(request)); err != nil && s.logger != nil {
 				s.logger.Warn("record prune audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
 			}
