@@ -6,10 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"net/url"
 	"regexp"
 	"runtime"
 	"sort"
@@ -51,8 +51,8 @@ type composeCLI struct {
 }
 
 type ServiceReader struct {
-	cfg       config.Config
-	logger    *slog.Logger
+	cfg          config.Config
+	logger       *slog.Logger
 	hostShell    bool
 	stats        *StatsCollector
 	updateStatus func() map[string]ImageUpdateState

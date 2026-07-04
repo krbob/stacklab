@@ -189,7 +189,7 @@ func parseMemBytes(value string) int64 {
 	}
 
 	multipliers := map[string]float64{
-		"B": 1,
+		"B":   1,
 		"KIB": 1 << 10, "MIB": 1 << 20, "GIB": 1 << 30, "TIB": 1 << 40,
 		"KB": 1e3, "MB": 1e6, "GB": 1e9, "TB": 1e12,
 	}

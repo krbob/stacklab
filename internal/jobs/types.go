@@ -71,5 +71,5 @@ type JobEventRecord struct {
 	Data      string             `json:"data,omitempty"`
 	Step      *ActiveJobStep     `json:"step,omitempty"`
 	Progress  *store.JobProgress `json:"progress,omitempty"`
-	Timestamp time.Time      `json:"timestamp"`
+	Timestamp time.Time          `json:"timestamp"`
 }
