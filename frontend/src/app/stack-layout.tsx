@@ -78,7 +78,7 @@ export function StackLayout() {
                 <span
                   key={label}
                   title={`${label} is not available for this stack`}
-                  className="cursor-not-allowed rounded-full border border-[var(--panel-border)] px-4 py-2 text-sm text-zinc-600"
+                  className="cursor-not-allowed rounded-full border border-[var(--panel-border)] px-4 py-2 text-sm text-stone-600"
                 >
                   {label}
                 </span>
@@ -94,8 +94,8 @@ export function StackLayout() {
                   cn(
                     'rounded-full border px-4 py-2 text-sm transition',
                     isActive
-                      ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]'
-                      : 'border-[var(--panel-border)] text-[var(--muted)] hover:border-[rgba(34,197,94,0.25)] hover:text-[var(--text)]',
+                      ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
+                      : 'border-[var(--panel-border)] text-[var(--muted)] hover:border-[rgba(245,165,36,0.25)] hover:text-[var(--text)]',
                   )
                 }
               >

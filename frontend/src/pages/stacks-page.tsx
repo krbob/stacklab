@@ -17,7 +17,7 @@ export function StacksPage() {
 
         <Link
           to="/stacks/new"
-          className="rounded-full border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(34,197,94,0.2)]"
+          className="rounded-full border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)]"
         >
           New stack
         </Link>
@@ -59,7 +59,7 @@ export function StacksPage() {
             key={stack.id}
             data-testid={`stack-card-${stack.id}`}
             to={`/stacks/${stack.id}`}
-            className="flex flex-col gap-3 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-5 py-4 transition hover:border-[rgba(34,197,94,0.25)] hover:bg-[rgba(255,255,255,0.05)] md:flex-row md:items-center md:justify-between"
+            className="flex flex-col gap-3 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-5 py-4 transition hover:border-[rgba(245,165,36,0.25)] hover:bg-[rgba(255,255,255,0.05)] md:flex-row md:items-center md:justify-between"
           >
             <div className="flex flex-col gap-1">
               <div className="text-lg font-medium text-[var(--text)]">{stack.name}</div>
@@ -87,7 +87,7 @@ export function StacksPage() {
             </p>
             <Link
               to="/stacks/new"
-              className="mt-4 inline-block rounded-full border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(34,197,94,0.2)]"
+              className="mt-4 inline-block rounded-full border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)]"
             >
               Create your first stack
             </Link>

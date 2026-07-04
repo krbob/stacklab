@@ -268,7 +268,7 @@ export function ConfigPage() {
             className={cn(
               'flex-1 rounded-full border px-3 py-1.5 text-xs transition',
               mode === 'files'
-                ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]'
+                ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
                 : 'border-[var(--panel-border)] text-[var(--muted)]',
             )}
           >
@@ -281,7 +281,7 @@ export function ConfigPage() {
             className={cn(
               'flex-1 rounded-full border px-3 py-1.5 text-xs transition disabled:opacity-40',
               mode === 'changes'
-                ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]'
+                ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
                 : 'border-[var(--panel-border)] text-[var(--muted)]',
             )}
           >
@@ -312,7 +312,7 @@ export function ConfigPage() {
                   const isDir = entry.type === 'directory'
                   const isSelected = selectedFile?.path === entry.path
                   return (
-                    <button key={entry.path} onClick={() => isDir ? navigateDir(entry.path) : openFile(entry.path)} className={cn('flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition', isSelected ? 'bg-[rgba(34,197,94,0.14)] text-[var(--text)]' : 'text-[var(--muted)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]')}>
+                    <button key={entry.path} onClick={() => isDir ? navigateDir(entry.path) : openFile(entry.path)} className={cn('flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition', isSelected ? 'bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'text-[var(--muted)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]')}>
                       {entry.stack_id && isDir && treePath === '' ? <FolderKanban className="size-3.5 text-[var(--accent)]" /> : <Icon className="size-3.5" />}
                       <span className="truncate">{entry.name}</span>
                     </button>
@@ -326,7 +326,7 @@ export function ConfigPage() {
                 )}
                 {creatingFile && (
                   <div className="flex items-center gap-1 px-2 py-1">
-                    <input type="text" value={newFileName} onChange={(e) => setNewFileName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFile(); if (e.key === 'Escape') setCreatingFile(false) }} placeholder="filename" autoFocus className="w-full rounded border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)]" />
+                    <input type="text" value={newFileName} onChange={(e) => setNewFileName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFile(); if (e.key === 'Escape') setCreatingFile(false) }} placeholder="filename" autoFocus className="w-full rounded border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
                   </div>
                 )}
               </nav>
@@ -373,7 +373,7 @@ export function ConfigPage() {
                         const isChecked = selectedGitPaths.has(item.path)
                         const isBlocked = !item.commit_allowed
                         return (
-                          <div key={item.path} className={cn('flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition', isDiffSelected ? 'bg-[rgba(34,197,94,0.14)] text-[var(--text)]' : 'text-[var(--muted)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]')}>
+                          <div key={item.path} className={cn('flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition', isDiffSelected ? 'bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'text-[var(--muted)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]')}>
                             <input type="checkbox" checked={isChecked} onChange={() => toggleGitPath(item.path)} disabled={isBlocked} title={isBlocked ? 'File cannot be committed — permissions blocked' : undefined} className="rounded shrink-0 disabled:opacity-30" />
                             <button onClick={() => openDiff(item.path)} className="flex min-w-0 flex-1 items-center gap-1">
                               {prefix && <span className={cn('w-3 shrink-0 font-mono font-bold', prefix.color)}>{prefix.letter}</span>}
@@ -448,7 +448,7 @@ export function ConfigPage() {
                     <div className="flex items-center gap-2">
                       {isDirty && <span className="text-xs text-amber-400">Unsaved changes</span>}
                       {isDirty && <button onClick={handleDiscard} className="rounded-full border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]">Discard</button>}
-                      <button data-testid="config-save" onClick={handleSave} disabled={saving || !isDirty} className="rounded-full border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40">
+                      <button data-testid="config-save" onClick={handleSave} disabled={saving || !isDirty} className="rounded-full border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40">
                         {saving ? 'Saving...' : 'Save'}
                       </button>
                     </div>
@@ -514,7 +514,7 @@ export function ConfigPage() {
                     <div className="mt-1 flex items-center gap-3 text-xs text-[var(--muted)]">
                       <span>{selectedDiff.path}</span>
                       {selectedDiff.stack_id && <Link to={`/stacks/${selectedDiff.stack_id}`} className="text-[var(--accent)] hover:underline">{selectedDiff.stack_id}</Link>}
-                      <span className="text-zinc-600">{selectedDiff.scope}</span>
+                      <span className="text-stone-600">{selectedDiff.scope}</span>
                     </div>
                   </div>
                   {selectedDiff.status !== 'deleted' && selectedDiff.scope === 'config' && !selectedDiff.blocked_reason && (

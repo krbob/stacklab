@@ -15,7 +15,7 @@ const stepStatusColors: Record<string, string> = {
   running: 'text-sky-400',
   succeeded: 'text-emerald-400',
   failed: 'text-red-400',
-  queued: 'text-zinc-500',
+  queued: 'text-stone-500',
 }
 
 export function MaintenanceCleanup() {

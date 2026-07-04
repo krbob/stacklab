@@ -9,7 +9,7 @@ import type { JobEvent } from '@/lib/ws-types'
 import { cn } from '@/lib/cn'
 
 const stateColors: Record<string, string> = {
-  queued: 'text-zinc-500',
+  queued: 'text-stone-500',
   running: 'text-sky-400',
   succeeded: 'text-emerald-400',
   failed: 'text-red-400',

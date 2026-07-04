@@ -3,10 +3,10 @@ import { cn } from '@/lib/cn'
 
 const runtimeStyles: Record<DisplayState, { dot: string; label: string; text: string }> = {
   running: { dot: 'bg-emerald-400', label: 'Running', text: 'text-emerald-400' },
-  stopped: { dot: 'bg-zinc-500', label: 'Stopped', text: 'text-zinc-400' },
+  stopped: { dot: 'bg-stone-500', label: 'Stopped', text: 'text-stone-400' },
   partial: { dot: 'bg-amber-400', label: 'Partial', text: 'text-amber-400' },
   error: { dot: 'bg-red-400', label: 'Error', text: 'text-red-400' },
-  defined: { dot: 'bg-zinc-600 border border-zinc-500', label: 'Defined', text: 'text-zinc-500' },
+  defined: { dot: 'bg-stone-600 border border-stone-500', label: 'Defined', text: 'text-stone-500' },
   orphaned: { dot: 'bg-red-500', label: 'Orphaned', text: 'text-red-400' },
 }
 

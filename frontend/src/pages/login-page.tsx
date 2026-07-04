@@ -33,9 +33,9 @@ export function LoginPage() {
         <div className="flex items-center gap-3">
           <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" className="size-10 shrink-0">
             <rect width="64" height="64" rx="12" fill="#0A0A0B" />
-            <rect x="12" y="15" width="40" height="9" rx="4.5" fill="#22C55E" />
-            <rect x="16" y="28" width="32" height="9" rx="4.5" fill="#22C55E" opacity="0.5" />
-            <rect x="20" y="41" width="24" height="9" rx="4.5" fill="#22C55E" opacity="0.25" />
+            <rect x="12" y="15" width="40" height="9" rx="4.5" fill="#F5A524" />
+            <rect x="16" y="28" width="32" height="9" rx="4.5" fill="#F5A524" opacity="0.5" />
+            <rect x="20" y="41" width="24" height="9" rx="4.5" fill="#F5A524" opacity="0.25" />
           </svg>
           <div className="font-brand text-xs uppercase tracking-[0.32em] text-[var(--accent)]">Stacklab</div>
         </div>
@@ -55,7 +55,7 @@ export function LoginPage() {
               placeholder="••••••••"
               autoFocus
               disabled={loading}
-              className="w-full rounded-2xl border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-3 text-[var(--text)] outline-none transition focus:border-[rgba(34,197,94,0.35)] disabled:opacity-50"
+              className="w-full rounded-2xl border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-3 text-[var(--text)] outline-none transition focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50"
             />
           </label>
 
@@ -67,7 +67,7 @@ export function LoginPage() {
             data-testid="login-submit"
             type="submit"
             disabled={loading || !password.trim()}
-            className="w-full rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-medium text-black transition hover:brightness-105 disabled:opacity-50"
+            className="w-full rounded-2xl bg-[var(--accent)] px-4 py-3 text-sm font-medium text-black transition hover:brightness-105 disabled:opacity-50"
           >
             {loading ? 'Logging in...' : 'Log in'}
           </button>

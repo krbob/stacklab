@@ -10,10 +10,10 @@ import { cn } from '@/lib/cn'
 
 const containerStatusColor: Record<string, string> = {
   running: 'bg-emerald-400',
-  created: 'bg-zinc-500',
+  created: 'bg-stone-500',
   restarting: 'bg-amber-400',
   paused: 'bg-amber-400',
-  exited: 'bg-zinc-500',
+  exited: 'bg-stone-500',
   dead: 'bg-red-400',
 }
 
@@ -69,7 +69,7 @@ export function StackOverviewPage() {
                   <div className="flex items-center gap-2">
                     <span className={cn(
                       'inline-block size-2 rounded-full',
-                      containerStatusColor[container?.status ?? 'created'] ?? 'bg-zinc-600',
+                      containerStatusColor[container?.status ?? 'created'] ?? 'bg-stone-600',
                     )} />
                     <span className="text-base font-medium text-[var(--text)]">{svc.name}</span>
                     {container?.health_status && (
@@ -107,7 +107,7 @@ export function StackOverviewPage() {
                     )}
 
                     {!container && (
-                      <div className="text-zinc-600">Not created</div>
+                      <div className="text-stone-600">Not created</div>
                     )}
 
                     {svc.volumes.length > 0 && (

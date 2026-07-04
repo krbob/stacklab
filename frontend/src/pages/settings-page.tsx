@@ -53,12 +53,12 @@ export function SettingsPage() {
         <div>
           <h3 className="text-sm font-medium text-[var(--text)]">Change password</h3>
           <form onSubmit={handlePasswordChange} className="mt-3 max-w-md space-y-3">
-            <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Current password" disabled={saving} className="w-full rounded-2xl border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(34,197,94,0.35)] disabled:opacity-50" />
-            <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="New password" disabled={saving} className="w-full rounded-2xl border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(34,197,94,0.35)] disabled:opacity-50" />
-            <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirm new password" disabled={saving} className="w-full rounded-2xl border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(34,197,94,0.35)] disabled:opacity-50" />
+            <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Current password" disabled={saving} className="w-full rounded-2xl border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50" />
+            <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="New password" disabled={saving} className="w-full rounded-2xl border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50" />
+            <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirm new password" disabled={saving} className="w-full rounded-2xl border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50" />
             {passwordError && <p className="text-sm text-red-400">{passwordError}</p>}
             {passwordSuccess && <p className="text-sm text-emerald-400">Password updated</p>}
-            <button type="submit" disabled={saving || !currentPassword || !newPassword || !confirmPassword} className="rounded-full border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(34,197,94,0.2)] disabled:opacity-40">
+            <button type="submit" disabled={saving || !currentPassword || !newPassword || !confirmPassword} className="rounded-full border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40">
               {saving ? 'Updating...' : 'Update password'}
             </button>
           </form>
@@ -247,7 +247,7 @@ function NotificationsSection() {
             <input type="checkbox" checked={webhookEnabled} onChange={(e) => setWebhookEnabled(e.target.checked)} className="rounded" />
             Webhook
           </label>
-          <input type="url" value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} placeholder="https://hooks.example.com/stacklab" className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)]" />
+          <input type="url" value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} placeholder="https://hooks.example.com/stacklab" className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
           {webhookTestResult && <p className={webhookTestResult.type === 'success' ? 'text-xs text-emerald-400' : 'text-xs text-red-400'}>{webhookTestResult.text}</p>}
           <button onClick={handleTestWebhook} disabled={testingWebhook || !webhookUrl.trim()} className="rounded-full border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)] disabled:opacity-40">
             {testingWebhook ? 'Sending...' : 'Send test'}
@@ -269,7 +269,7 @@ function NotificationsSection() {
                   value={telegramBotToken}
                   onChange={(e) => setTelegramBotToken(e.target.value)}
                   placeholder={botTokenConfigured ? '(leave empty to keep current)' : '123456:ABC-DEF1234'}
-                  className="flex-1 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)]"
+                  className="flex-1 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
                 />
                 <button onClick={() => setShowBotToken(!showBotToken)} className="rounded-md border border-[var(--panel-border)] px-2 py-1 text-[10px] text-[var(--muted)] hover:text-[var(--text)]">
                   {showBotToken ? 'Hide' : 'Show'}
@@ -278,7 +278,7 @@ function NotificationsSection() {
             </div>
             <div>
               <label className="mb-1 block text-[10px] text-[var(--muted)]">Chat ID</label>
-              <input type="text" value={telegramChatId} onChange={(e) => setTelegramChatId(e.target.value)} placeholder="-1001234567890" className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)]" />
+              <input type="text" value={telegramChatId} onChange={(e) => setTelegramChatId(e.target.value)} placeholder="-1001234567890" className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
             </div>
           </div>
           {telegramTestResult && <p className={telegramTestResult.type === 'success' ? 'text-xs text-emerald-400' : 'text-xs text-red-400'}>{telegramTestResult.text}</p>}
@@ -342,7 +342,7 @@ function NotificationsSection() {
         {/* Save feedback */}
         {saveResult && <p className={saveResult.type === 'success' ? 'text-xs text-emerald-400' : 'text-xs text-red-400'}>{saveResult.text}</p>}
 
-        <button onClick={handleSave} disabled={savingNotif || !isDirty} className="rounded-full border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] px-4 py-2 text-xs text-[var(--text)] transition hover:bg-[rgba(34,197,94,0.2)] disabled:opacity-40">
+        <button onClick={handleSave} disabled={savingNotif || !isDirty} className="rounded-full border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-xs text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40">
           {savingNotif ? 'Saving...' : 'Save'}
         </button>
       </div>
@@ -577,7 +577,7 @@ function SchedulesSection() {
 
         {saveResult && <p className={saveResult.type === 'success' ? 'text-xs text-emerald-400' : 'text-xs text-red-400'}>{saveResult.text}</p>}
 
-        <button onClick={handleSave} disabled={savingSchedules} className="rounded-full border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] px-4 py-2 text-xs text-[var(--text)] transition hover:bg-[rgba(34,197,94,0.2)] disabled:opacity-40">
+        <button onClick={handleSave} disabled={savingSchedules} className="rounded-full border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-xs text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40">
           {savingSchedules ? 'Saving...' : 'Save schedules'}
         </button>
       </div>
@@ -589,7 +589,7 @@ function FrequencyToggle({ value, onChange }: { value: ScheduleFrequency; onChan
   return (
     <div className="flex gap-1">
       {(['daily', 'weekly'] as const).map((f) => (
-        <button key={f} onClick={() => onChange(f)} className={cn('rounded-full border px-2.5 py-1 text-xs transition', value === f ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}>
+        <button key={f} onClick={() => onChange(f)} className={cn('rounded-full border px-2.5 py-1 text-xs transition', value === f ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}>
           {f === 'daily' ? 'Daily' : 'Weekly'}
         </button>
       ))}
@@ -604,7 +604,7 @@ function WeekdayPicker({ value, onChange }: { value: ScheduleWeekday[]; onChange
         <button
           key={d}
           onClick={() => onChange(value.includes(d) ? value.filter((w) => w !== d) : [...value, d])}
-          className={cn('rounded-full border px-2 py-1 text-[10px] transition', value.includes(d) ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
+          className={cn('rounded-full border px-2 py-1 text-[10px] transition', value.includes(d) ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
         >
           {WEEKDAY_LABELS[d]}
         </button>
@@ -775,7 +775,7 @@ function StacklabUpdateSection() {
           <button
             onClick={handleApply}
             disabled={isRunning || !pkg.update_available}
-            className="rounded-full border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] px-4 py-2 text-xs text-[var(--text)] transition hover:bg-[rgba(34,197,94,0.2)] disabled:opacity-40"
+            className="rounded-full border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-xs text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40"
           >
             {isRunning ? 'Updating...' : 'Update Stacklab'}
           </button>

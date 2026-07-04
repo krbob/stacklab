@@ -99,7 +99,7 @@ export function BlockedFileCard({ stateKey, blockedReason, permissions, repairCa
             <button
               onClick={handleRepair}
               disabled={repairing}
-              className="rounded-md border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] px-4 py-2 text-xs text-[var(--text)] transition hover:bg-[rgba(34,197,94,0.2)] disabled:opacity-40"
+              className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-xs text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40"
             >
               {repairing ? 'Repairing...' : 'Repair access'}
             </button>
@@ -134,8 +134,8 @@ export function BlockedFileCard({ stateKey, blockedReason, permissions, repairCa
 
             <div className="mt-2 grid grid-cols-[auto_1fr_1fr] gap-x-3 gap-y-0.5 font-mono">
               <span className="text-[var(--muted)]" />
-              <span className="text-zinc-500">Before</span>
-              <span className="text-zinc-500">After</span>
+              <span className="text-stone-500">Before</span>
+              <span className="text-stone-500">After</span>
 
               <span className="text-[var(--muted)]">Owner</span>
               <span className="text-[var(--muted)]">{repairResult.target_permissions_before.owner_name ?? '—'}</span>

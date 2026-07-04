@@ -41,20 +41,20 @@ export function MaintenanceImages() {
             <button
               key={v}
               onClick={() => setUsage(v)}
-              className={cn('rounded-full border px-2.5 py-1 text-xs transition', usage === v ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
+              className={cn('rounded-full border px-2.5 py-1 text-xs transition', usage === v ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
             >
               {v}
             </button>
           ))}
 
-          <span className="text-zinc-700">|</span>
+          <span className="text-stone-700">|</span>
 
           {/* Origin filter */}
           {(['all', 'stack_managed', 'external'] as const).map((v) => (
             <button
               key={v}
               onClick={() => setOrigin(v)}
-              className={cn('rounded-full border px-2.5 py-1 text-xs transition', origin === v ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
+              className={cn('rounded-full border px-2.5 py-1 text-xs transition', origin === v ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
             >
               {v.replace('_', ' ')}
             </button>
@@ -65,7 +65,7 @@ export function MaintenanceImages() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search..."
-            className="rounded-full border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)]"
+            className="rounded-full border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
           />
 
           <button onClick={refetch} className="rounded-full border border-[var(--panel-border)] px-2.5 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]">
@@ -104,7 +104,7 @@ function ImageRow({ image }: { image: MaintenanceImageItem }) {
         <div className="flex items-center gap-2">
           <span className="truncate font-mono text-[var(--text)]">{image.reference || `${image.repository}:${image.tag}`}</span>
           {image.is_dangling && <span className="shrink-0 text-amber-400">dangling</span>}
-          {image.is_unused && <span className="shrink-0 text-zinc-500">unused</span>}
+          {image.is_unused && <span className="shrink-0 text-stone-500">unused</span>}
         </div>
         <div className="mt-1 flex flex-wrap gap-3 text-[var(--muted)]">
           <span>{formatBytes(image.size_bytes)}</span>
@@ -119,7 +119,7 @@ function ImageRow({ image }: { image: MaintenanceImageItem }) {
               ))}
             </span>
           )}
-          <span className="font-mono text-zinc-600">{image.id.slice(0, 12)}</span>
+          <span className="font-mono text-stone-600">{image.id.slice(0, 12)}</span>
         </div>
       </div>
     </div>

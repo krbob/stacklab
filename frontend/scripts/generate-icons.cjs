@@ -8,8 +8,8 @@ const path = require('path');
 
 const OUT_DIR = path.join(__dirname, '..', 'public', 'icons');
 
-const BG = { r: 0x0a, g: 0x0a, b: 0x0b };
-const ACCENT = { r: 0x22, g: 0xc5, b: 0x5e };
+const BG = { r: 0x0c, g: 0x09, b: 0x06 };
+const ACCENT = { r: 0xf5, g: 0xa5, b: 0x24 };
 
 function blendPixel(buf, size, x, y, c, alpha) {
   if (x < 0 || x >= size || y < 0 || y >= size) return;

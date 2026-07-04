@@ -254,7 +254,7 @@ function StacklabLogs() {
     : entries
 
   const levelColor: Record<string, string> = {
-    debug: 'text-zinc-500',
+    debug: 'text-stone-500',
     info: 'text-[var(--muted)]',
     warn: 'text-amber-400',
     error: 'text-red-400',
@@ -273,7 +273,7 @@ function StacklabLogs() {
               className={cn(
                 'rounded-full border px-2.5 py-1 text-xs transition',
                 !level
-                  ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]'
+                  ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
                   : 'border-[var(--panel-border)] text-[var(--muted)]',
               )}
             >
@@ -286,7 +286,7 @@ function StacklabLogs() {
                 className={cn(
                   'rounded-full border px-2.5 py-1 text-xs transition',
                   level === l
-                    ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]'
+                    ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
                     : 'border-[var(--panel-border)] text-[var(--muted)]',
                 )}
               >
@@ -300,7 +300,7 @@ function StacklabLogs() {
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Filter..."
-            className="rounded-full border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)]"
+            className="rounded-full border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
           />
 
           <button
@@ -308,7 +308,7 @@ function StacklabLogs() {
             className={cn(
               'rounded-full border px-2.5 py-1 text-xs transition',
               following
-                ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]'
+                ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
                 : 'border-[var(--panel-border)] text-[var(--muted)]',
             )}
           >
@@ -346,7 +346,7 @@ function StacklabLogs() {
 
         {filteredEntries.map((entry) => (
           <div key={entry.cursor || `${entry.timestamp}-${entry.message}`} className="flex gap-2 hover:bg-[rgba(255,255,255,0.02)]">
-            <span className="shrink-0 text-zinc-600">
+            <span className="shrink-0 text-stone-600">
               {new Date(entry.timestamp).toLocaleTimeString()}
             </span>
             <span className={cn('shrink-0 w-12', levelColor[entry.level] ?? 'text-[var(--muted)]')}>

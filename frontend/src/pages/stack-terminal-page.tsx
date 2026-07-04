@@ -92,7 +92,7 @@ export function StackTerminalPage() {
           <button
             onClick={terminal.open}
             disabled={!connected || !selectedContainerId}
-            className="rounded-full border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] px-3 py-1 text-xs text-[var(--text)] transition hover:bg-[rgba(34,197,94,0.2)] disabled:opacity-40"
+            className="rounded-full border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1 text-xs text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40"
           >
             {terminal.state === 'ended' || terminal.state === 'error' ? 'New session' : 'Connect'}
           </button>
@@ -126,7 +126,7 @@ export function StackTerminalPage() {
       <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
         <span className={cn(
           'inline-block size-2 rounded-full',
-          terminal.state === 'connected' ? 'bg-emerald-400' : 'bg-zinc-600',
+          terminal.state === 'connected' ? 'bg-emerald-400' : 'bg-stone-600',
         )} />
         {terminal.state === 'connected' ? 'Connected' : terminal.state === 'connecting' ? 'Connecting...' : 'Disconnected'}
       </div>

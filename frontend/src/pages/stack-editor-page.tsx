@@ -168,7 +168,7 @@ export function StackEditorPage() {
             className={cn(
               'rounded-full border px-3 py-1 text-xs transition',
               activeTab === 'compose'
-                ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]'
+                ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
                 : 'border-[var(--panel-border)] text-[var(--muted)]',
             )}
           >
@@ -179,7 +179,7 @@ export function StackEditorPage() {
             className={cn(
               'rounded-full border px-3 py-1 text-xs transition',
               activeTab === 'env'
-                ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]'
+                ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
                 : 'border-[var(--panel-border)] text-[var(--muted)]',
             )}
           >
@@ -206,7 +206,7 @@ export function StackEditorPage() {
             data-testid="editor-save"
             onClick={() => handleSave(false)}
             disabled={saving || stack.activity_state === 'locked'}
-            className="rounded-full border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40"
+            className="rounded-full border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40"
           >
             {saving ? 'Saving...' : 'Save'}
           </button>
@@ -214,7 +214,7 @@ export function StackEditorPage() {
             data-testid="editor-save-deploy"
             onClick={() => handleSave(true)}
             disabled={saving || !resolvedValid || stack.activity_state === 'locked'}
-            className="rounded-full border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40"
+            className="rounded-full border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40"
           >
             Save & Deploy
           </button>

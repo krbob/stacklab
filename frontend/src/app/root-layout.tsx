@@ -32,7 +32,7 @@ function SidebarContent({ onNavigate, logout }: { onNavigate?: () => void; logou
               [
                 'flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm transition',
                 isActive
-                  ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]'
+                  ? 'border-[var(--panel-border)] bg-[rgba(245,165,36,0.10)] text-[var(--text)] shadow-[inset_2px_0_0_var(--accent)]'
                   : 'border-transparent bg-transparent text-[var(--muted)] hover:border-[var(--panel-border)] hover:bg-[rgba(255,255,255,0.03)] hover:text-[var(--text)]',
               ].join(' ')
             }

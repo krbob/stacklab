@@ -140,7 +140,7 @@ export function StackFilesPage() {
             )}
             {creatingFile && (
               <div className="px-2 py-1">
-                <input type="text" value={newFileName} onChange={(e) => setNewFileName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFile(); if (e.key === 'Escape') setCreatingFile(false) }} placeholder="filename" autoFocus className="w-full rounded border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)]" />
+                <input type="text" value={newFileName} onChange={(e) => setNewFileName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFile(); if (e.key === 'Escape') setCreatingFile(false) }} placeholder="filename" autoFocus className="w-full rounded border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
               </div>
             )}
           </nav>
@@ -173,7 +173,7 @@ export function StackFilesPage() {
                 <div className="flex items-center gap-2">
                   {isDirty && <span className="text-xs text-amber-400">Unsaved changes</span>}
                   {isDirty && <button onClick={() => setEditContent(selectedFile.content ?? '')} className="rounded-full border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]">Discard</button>}
-                  <button onClick={handleSave} disabled={saving || !isDirty} className="rounded-full border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40">
+                  <button onClick={handleSave} disabled={saving || !isDirty} className="rounded-full border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40">
                     {saving ? 'Saving...' : 'Save'}
                   </button>
                 </div>
@@ -230,7 +230,7 @@ function TreeRow({ entry, isRoot, isSelected, onOpenFile, onNavigateDir, onGoToE
       <button
         onClick={onGoToEditor}
         title="Edit in the Editor tab"
-        className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-zinc-600 transition hover:text-[var(--muted)]"
+        className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-stone-600 transition hover:text-[var(--muted)]"
       >
         <Icon className="size-3.5" />
         <span className="truncate">{entry.name}</span>
@@ -244,7 +244,7 @@ function TreeRow({ entry, isRoot, isSelected, onOpenFile, onNavigateDir, onGoToE
       onClick={() => isDir ? onNavigateDir(entry.path) : onOpenFile(entry.path)}
       className={cn(
         'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition',
-        isSelected ? 'bg-[rgba(34,197,94,0.14)] text-[var(--text)]' : 'text-[var(--muted)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]',
+        isSelected ? 'bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'text-[var(--muted)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]',
       )}
     >
       <Icon className={cn('size-3.5', isDockerfile(entry.name) && 'text-amber-400')} />

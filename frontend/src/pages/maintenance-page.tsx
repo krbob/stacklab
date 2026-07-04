@@ -17,7 +17,7 @@ const stepStatusColors: Record<string, string> = {
   running: 'text-sky-400',
   succeeded: 'text-emerald-400',
   failed: 'text-red-400',
-  queued: 'text-zinc-500',
+  queued: 'text-stone-500',
 }
 
 export function MaintenancePage() {
@@ -99,7 +99,7 @@ export function MaintenancePage() {
             <button
               key={key}
               onClick={() => setActiveTab(key)}
-              className={cn('rounded-full border px-3 py-1.5 text-xs transition', activeTab === key ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
+              className={cn('rounded-full border px-3 py-1.5 text-xs transition', activeTab === key ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
             >
               {label}
             </button>
@@ -198,7 +198,7 @@ export function MaintenancePage() {
           data-testid="maintenance-start"
           onClick={handleStart}
           disabled={running || !canStart}
-          className="mt-5 w-full rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-medium text-black transition hover:brightness-105 disabled:opacity-40"
+          className="mt-5 w-full rounded-2xl bg-[var(--accent)] px-4 py-3 text-sm font-medium text-black transition hover:brightness-105 disabled:opacity-40"
         >
           {running ? 'Running...' : 'Start update'}
         </button>
@@ -245,16 +245,16 @@ function StackCheckbox({ stack, checked, onChange, disabled }: {
 }) {
   const stateColors: Record<string, string> = {
     running: 'text-emerald-400',
-    stopped: 'text-zinc-500',
+    stopped: 'text-stone-500',
     partial: 'text-amber-400',
     error: 'text-red-400',
-    defined: 'text-zinc-600',
+    defined: 'text-stone-600',
   }
 
   return (
     <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition hover:bg-[rgba(255,255,255,0.03)]">
       <input type="checkbox" checked={checked} onChange={onChange} disabled={disabled} className="rounded" />
-      <span className={cn('inline-block size-1.5 rounded-full', stateColors[stack.runtime_state] ?? 'bg-zinc-600')} />
+      <span className={cn('inline-block size-1.5 rounded-full', stateColors[stack.runtime_state] ?? 'bg-stone-600')} />
       <span className="text-[var(--text)]">{stack.name}</span>
       <span className="text-[var(--muted)]">{stack.service_count.running}/{stack.service_count.defined}</span>
     </label>

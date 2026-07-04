@@ -96,7 +96,7 @@ function OverviewCards({ overview }: { overview: DockerAdminOverviewResponse }) 
             <div className="mt-2 flex items-center gap-2">
               <span className={cn(
                 'inline-block size-2 rounded-full',
-                service.active_state === 'active' ? 'bg-emerald-400' : 'bg-zinc-500',
+                service.active_state === 'active' ? 'bg-emerald-400' : 'bg-stone-500',
               )} />
               <span className="text-lg font-medium text-[var(--text)]">{service.active_state || 'unknown'}</span>
             </div>
@@ -166,7 +166,7 @@ function OverviewCards({ overview }: { overview: DockerAdminOverviewResponse }) 
               {daemon_config.summary.live_restore != null && (
                 <div>Live restore: {daemon_config.summary.live_restore ? 'yes' : 'no'}</div>
               )}
-              <div className="mt-1 text-zinc-600">{daemon_config.configured_keys.length} keys configured</div>
+              <div className="mt-1 text-stone-600">{daemon_config.configured_keys.length} keys configured</div>
             </div>
           </>
         ) : (
@@ -362,7 +362,7 @@ function ManagedSettingsForm({ currentSummary, writeCapability, onApplyDone }: {
             value={dns}
             onChange={(e) => setDns(e.target.value)}
             placeholder="192.168.1.2, 8.8.8.8"
-            className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)]"
+            className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
           />
         </label>
 
@@ -373,7 +373,7 @@ function ManagedSettingsForm({ currentSummary, writeCapability, onApplyDone }: {
             value={mirrors}
             onChange={(e) => setMirrors(e.target.value)}
             placeholder="https://mirror.local"
-            className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)]"
+            className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
           />
         </label>
 
@@ -384,7 +384,7 @@ function ManagedSettingsForm({ currentSummary, writeCapability, onApplyDone }: {
             value={insecure}
             onChange={(e) => setInsecure(e.target.value)}
             placeholder="registry.local:5000"
-            className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)]"
+            className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
           />
         </label>
 
@@ -397,7 +397,7 @@ function ManagedSettingsForm({ currentSummary, writeCapability, onApplyDone }: {
           <button
             onClick={handleValidate}
             disabled={validating}
-            className="rounded-md border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] px-4 py-2 text-xs text-[var(--text)] transition hover:bg-[rgba(34,197,94,0.2)] disabled:opacity-40"
+            className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-xs text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40"
           >
             {validating ? 'Validating...' : 'Validate'}
           </button>
@@ -687,7 +687,7 @@ function RegistryAuthSection({
                   value={registry}
                   onChange={(e) => setRegistry(e.target.value)}
                   placeholder="ghcr.io"
-                  className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)]"
+                  className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
                 />
               </label>
 
@@ -698,7 +698,7 @@ function RegistryAuthSection({
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="bob"
-                  className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)]"
+                  className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
                 />
               </label>
             </div>
@@ -710,7 +710,7 @@ function RegistryAuthSection({
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Token or password"
-                className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)]"
+                className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
               />
             </label>
 
@@ -718,7 +718,7 @@ function RegistryAuthSection({
               <button
                 onClick={handleLogin}
                 disabled={!canSubmitLogin}
-                className="rounded-md border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] px-4 py-2 text-xs text-[var(--text)] transition hover:bg-[rgba(34,197,94,0.2)] disabled:opacity-40"
+                className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-xs text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40"
               >
                 {submitting && activeAction === 'login' ? 'Logging in...' : 'Login'}
               </button>

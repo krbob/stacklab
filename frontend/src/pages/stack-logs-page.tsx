@@ -89,7 +89,7 @@ export function StackLogsPage() {
             className={cn(
               'rounded-full border px-3 py-1 text-xs transition',
               selectedServices.length === 0
-                ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]'
+                ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
                 : 'border-[var(--panel-border)] text-[var(--muted)] hover:text-[var(--text)]',
             )}
           >
@@ -106,7 +106,7 @@ export function StackLogsPage() {
               className={cn(
                 'rounded-full border px-3 py-1 text-xs transition',
                 selectedServices.includes(name)
-                  ? 'border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.14)] text-[var(--text)]'
+                  ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
                   : 'border-[var(--panel-border)] text-[var(--muted)] hover:text-[var(--text)]',
               )}
             >
@@ -120,7 +120,7 @@ export function StackLogsPage() {
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           placeholder="Filter..."
-          className="ml-auto rounded-full border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(34,197,94,0.35)]"
+          className="ml-auto rounded-full border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
         />
 
         <button
@@ -157,7 +157,7 @@ export function StackLogsPage() {
         )}
         {filteredEntries.map((entry, i) => (
           <div key={i} className="flex gap-2 hover:bg-[rgba(255,255,255,0.02)]">
-            <span className="shrink-0 text-zinc-600">
+            <span className="shrink-0 text-stone-600">
               {new Date(entry.timestamp).toLocaleTimeString()}
             </span>
             <span className={cn('shrink-0 w-24 truncate', colorMap.get(entry.service_name))}>
