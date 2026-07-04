@@ -1,0 +1,771 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body style="margin:0">
+<title>StackLab — przegląd UI i finalny design</title>
+<style>
+  :root {
+    --bg: #0C0906;
+    --panel: #171107;
+    --raised: #201808;
+    --line: rgba(245, 165, 36, 0.14);
+    --line-soft: rgba(245, 165, 36, 0.08);
+    --text: #F2EADB;
+    --muted: #99917E;
+    --dim: #6E6757;
+    --accent: #F5A524;
+    --accent-ink: #201302;
+    --ok: #55D47F;
+    --warn: #F97316;
+    --err: #F26D5B;
+    --run: #55D47F;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  html { background: var(--bg); }
+  body {
+    font-family: var(--sans);
+    color: var(--text);
+    background:
+      radial-gradient(1100px 500px at 70% -10%, rgba(245,165,36,0.05), transparent 60%),
+      var(--bg);
+    line-height: 1.6;
+    padding: 0 20px 96px;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; }
+  .prose { max-width: 72ch; }
+
+  /* ── typography ── */
+  .kicker {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  h1 {
+    font-size: clamp(28px, 4.5vw, 42px);
+    font-weight: 650;
+    letter-spacing: -0.03em;
+    line-height: 1.12;
+    margin: 10px 0 14px;
+    text-wrap: balance;
+  }
+  h2 {
+    font-size: 22px;
+    font-weight: 620;
+    letter-spacing: -0.02em;
+    margin: 0 0 6px;
+  }
+  h3 { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
+  p { margin: 0 0 12px; }
+  .lede { font-size: 16.5px; color: var(--muted); max-width: 66ch; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, .mono { font-family: var(--mono); font-size: 0.92em; }
+  code {
+    background: rgba(245,165,36,0.07);
+    border: 1px solid var(--line-soft);
+    border-radius: 4px;
+    padding: 1px 5px;
+    white-space: nowrap;
+  }
+  ::selection { background: rgba(245,165,36,0.25); }
+
+  /* ── page chrome ── */
+  header.masthead {
+    padding: 56px 0 8px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 40px;
+  }
+  .meta-row {
+    display: flex; flex-wrap: wrap; gap: 10px 26px;
+    font-family: var(--mono); font-size: 12px; color: var(--dim);
+    padding: 14px 0 22px;
+  }
+  .meta-row b { color: var(--muted); font-weight: 500; }
+
+  section { margin: 0 0 56px; }
+  .sec-head {
+    display: flex; align-items: baseline; gap: 14px;
+    border-bottom: 1px solid var(--line-soft);
+    padding-bottom: 10px; margin-bottom: 20px;
+  }
+  .sec-head .idx {
+    font-family: var(--mono); font-size: 12px; color: var(--dim);
+  }
+
+  /* ── findings ── */
+  .finding {
+    display: grid;
+    grid-template-columns: 64px 1fr;
+    gap: 16px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .finding:last-child { border-bottom: none; }
+  .sev {
+    font-family: var(--mono); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.08em;
+    align-self: start; justify-self: start;
+    padding: 3px 8px; border-radius: 4px; margin-top: 2px;
+  }
+  .sev.p1 { color: #FFB4A8; background: rgba(242,109,91,0.13); border: 1px solid rgba(242,109,91,0.3); }
+  .sev.p2 { color: #FFC46B; background: rgba(245,165,36,0.10); border: 1px solid rgba(245,165,36,0.28); }
+  .sev.p3 { color: var(--muted); background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); }
+  .finding h3 { font-size: 14.5px; }
+  .finding p { font-size: 13.5px; color: var(--muted); margin: 2px 0 0; max-width: 78ch; }
+  .finding .ref { font-family: var(--mono); font-size: 11.5px; color: var(--dim); display: block; margin-top: 6px; }
+
+  /* ── token table ── */
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  .tbl-scroll { overflow-x: auto; border: 1px solid var(--line-soft); border-radius: 8px; }
+  th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--line-soft); }
+  th {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--dim); font-weight: 600;
+    background: rgba(255,255,255,0.015);
+  }
+  tr:last-child td { border-bottom: none; }
+  td.mono { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .swatch {
+    display: inline-block; width: 13px; height: 13px; border-radius: 3px;
+    border: 1px solid rgba(255,255,255,0.14); vertical-align: -2px; margin-right: 8px;
+  }
+
+  /* ── mockup viewport frames ── */
+  .frame {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--panel);
+    overflow: hidden;
+    margin: 18px 0 10px;
+    box-shadow: 0 18px 50px rgba(0,0,0,0.45);
+  }
+  .frame-bar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--line-soft);
+    background: rgba(0,0,0,0.25);
+    font-family: var(--mono); font-size: 11px; color: var(--dim);
+  }
+  .frame-bar .dot { width: 8px; height: 8px; border-radius: 50%; background: #3A3227; }
+  .frame-body { padding: 20px; background: var(--bg); }
+  .caption { font-size: 12.5px; color: var(--dim); margin: 0 0 26px; }
+
+  /* ── mockup: stacks staggered grid ── */
+  .m-grid { columns: 3 220px; column-gap: 12px; }
+  .tile {
+    break-inside: avoid;
+    background: var(--panel);
+    border: 1px solid var(--line-soft);
+    border-left: 3px solid var(--ok);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin: 0 0 12px;
+  }
+  .tile.err { border-left-color: var(--err); }
+  .tile.warn { border-left-color: var(--warn); }
+  .tile .t-head { display: flex; align-items: center; gap: 8px; }
+  .tile .t-name { font-family: var(--mono); font-size: 13.5px; font-weight: 600; }
+  .tile .t-upd {
+    margin-left: auto; font-family: var(--mono); font-size: 9.5px;
+    color: var(--accent); border: 1px solid rgba(245,165,36,0.35);
+    border-radius: 4px; padding: 1px 5px; letter-spacing: 0.05em;
+  }
+  .tile .t-sub { font-family: var(--mono); font-size: 11px; color: var(--dim); margin-top: 3px; }
+  .tile .t-stats {
+    display: flex; gap: 12px; margin-top: 10px;
+    font-family: var(--mono); font-size: 10.5px; color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .meter { flex: 1; align-self: center; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.07); overflow: hidden; }
+  .meter i { display: block; height: 100%; background: var(--accent); opacity: 0.75; }
+  .tile .t-svc { margin-top: 10px; display: flex; flex-direction: column; gap: 5px; }
+  .svc-row {
+    display: flex; align-items: center; gap: 7px;
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+  }
+  .pip { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+  .pip.err { background: var(--err); }
+  .m-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; }
+  .m-search {
+    flex: 1; max-width: 300px;
+    font-family: var(--mono); font-size: 11.5px; color: var(--dim);
+    border: 1px solid var(--line-soft); border-radius: 6px;
+    padding: 6px 10px; background: rgba(255,255,255,0.02);
+  }
+  .m-chip {
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+    border: 1px solid var(--line-soft); border-radius: 6px; padding: 5px 10px;
+  }
+  .m-chip.on { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); font-weight: 600; }
+  .kbd {
+    font-family: var(--mono); font-size: 10px; color: var(--dim);
+    border: 1px solid rgba(255,255,255,0.12); border-bottom-width: 2px;
+    border-radius: 4px; padding: 0 5px; margin-left: 6px;
+  }
+
+  /* ── mockup: progress step ── */
+  .step {
+    background: var(--panel); border: 1px solid var(--line-soft);
+    border-radius: 8px; padding: 10px 12px; margin-bottom: 10px;
+  }
+  .step .s-head {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 12px;
+  }
+  .step .s-log {
+    margin-top: 8px; padding: 8px 10px;
+    background: rgba(0,0,0,0.3); border: 1px solid var(--line-soft); border-radius: 6px;
+    font-family: var(--mono); font-size: 11px; line-height: 1.65; color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  .step .s-log .hl { color: var(--text); }
+  .s-more {
+    display: inline-block; margin-top: 7px;
+    font-family: var(--mono); font-size: 11px; color: var(--accent);
+  }
+  .fade-demo { position: relative; max-height: 72px; overflow: hidden; }
+  .fade-demo::after {
+    content: ""; position: absolute; inset: auto 0 0 0; height: 26px;
+    background: linear-gradient(transparent, var(--panel));
+  }
+
+  /* ── mockup: phone ── */
+  .phones { display: flex; flex-wrap: wrap; gap: 26px; justify-content: center; }
+  .phone {
+    width: 250px; border: 1px solid var(--line);
+    border-radius: 26px; background: var(--bg); overflow: hidden;
+    box-shadow: 0 18px 50px rgba(0,0,0,0.5);
+  }
+  .phone .ph-status {
+    height: 26px; display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 9px; color: var(--dim);
+    background: var(--bg);
+  }
+  .phone .ph-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px; border-bottom: 1px solid var(--line-soft); background: var(--bg);
+  }
+  .phone .ph-head .ttl { font-family: var(--mono); font-size: 10px; letter-spacing: 0.24em; color: var(--accent); }
+  .ph-body { padding: 10px; min-height: 240px; }
+  .ph-nav {
+    display: grid; grid-template-columns: repeat(5, 1fr);
+    border-top: 1px solid var(--line-soft); background: var(--panel);
+    padding: 7px 4px 12px;
+  }
+  .ph-nav span {
+    text-align: center; font-family: var(--mono); font-size: 8.5px; color: var(--dim);
+    display: flex; flex-direction: column; gap: 3px; align-items: center;
+  }
+  .ph-nav span.on { color: var(--accent); }
+  .ph-nav i { width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid currentColor; display: block; }
+  .ph-row {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--panel); border: 1px solid var(--line-soft);
+    border-radius: 7px; padding: 8px 10px; margin-bottom: 7px;
+  }
+  .ph-row .nm { font-family: var(--mono); font-size: 11px; font-weight: 600; }
+  .ph-row .sb { font-family: var(--mono); font-size: 9px; color: var(--dim); margin-left: auto; }
+  .ph-tabs { display: flex; gap: 6px; overflow: hidden; margin: 2px 0 10px; }
+  .ph-tab {
+    font-family: var(--mono); font-size: 9.5px; color: var(--muted);
+    border: 1px solid var(--line-soft); border-radius: 5px; padding: 3px 8px; white-space: nowrap;
+  }
+  .ph-tab.on { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); font-weight: 700; }
+  .ph-sheet {
+    margin-top: 14px; border: 1px solid var(--line);
+    border-bottom: none; border-radius: 12px 12px 0 0;
+    background: var(--raised); padding: 10px 12px 16px;
+  }
+  .ph-sheet .grab { width: 34px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.15); margin: 0 auto 10px; }
+  .ph-file { font-family: var(--mono); font-size: 10px; color: var(--muted); padding: 4px 0 4px 12px; }
+  .ph-file.dir { color: var(--accent); padding-left: 0; }
+
+  /* ── principles cards ── */
+  .prin-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+  .prin {
+    background: var(--panel); border: 1px solid var(--line-soft);
+    border-radius: 8px; padding: 16px;
+  }
+  .prin .no { font-family: var(--mono); font-size: 11px; color: var(--accent); letter-spacing: 0.1em; }
+  .prin h3 { margin: 6px 0 4px; font-size: 14px; }
+  .prin p { font-size: 12.5px; color: var(--muted); margin: 0; }
+
+  /* ── roadmap ── */
+  .stage { display: grid; grid-template-columns: 92px 1fr; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line-soft); }
+  .stage:last-child { border-bottom: none; }
+  .stage .tag { font-family: var(--mono); font-size: 11.5px; color: var(--accent); }
+  .stage p { font-size: 13.5px; color: var(--muted); margin: 2px 0 0; }
+  ul.tight { margin: 4px 0 0; padding-left: 18px; font-size: 13.5px; color: var(--muted); }
+  ul.tight li { margin-bottom: 3px; }
+  ul.tight code { white-space: normal; }
+
+  .note {
+    border: 1px solid var(--line); border-radius: 8px;
+    background: rgba(245,165,36,0.05);
+    padding: 12px 16px; font-size: 13px; color: var(--muted);
+    margin: 14px 0;
+  }
+  .note b { color: var(--text); font-weight: 600; }
+
+  @media (max-width: 640px) {
+    .finding { grid-template-columns: 1fr; gap: 6px; }
+    .stage { grid-template-columns: 1fr; gap: 4px; }
+    .frame-body { padding: 12px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+<header class="masthead">
+  <div class="kicker">Stacklab · UI Lead · 2026-07-04</div>
+  <h1>Przegląd UI i finalny design<br>„Amber Console v2"</h1>
+  <p class="lede">Pełny audyt live’a (desktop + mobile, wszystkie ekrany, Playwright na produkcji) oraz finalna specyfikacja designu: produktowa i dojrzała, ale z charakterem nerdowskiego narzędzia do homelabu.</p>
+  <div class="meta-row">
+    <span><b>Instancja:</b> stacklab.bobinski.net</span>
+    <span><b>Build:</b> 2026.07.0~nightly20260704</span>
+    <span><b>Zakres:</b> 14 ekranów × desktop 1440 / mobile 390</span>
+  </div>
+</header>
+
+<!-- ════════════════ TLDR ════════════════ -->
+<section>
+  <div class="sec-head"><span class="idx">01</span><h2>Werdykt</h2></div>
+  <div class="prose">
+    <p>Token swap na Amber Console dał tożsamość kolorystyczną, ale <b>struktura ekranów została ta sama co przed revampem</b>: jednokolumnowe listy na 10% szerokości ekranu, puste stany zamiast treści, brak wyszukiwania i filtrów. Do tego zestaw realnych bugów — w tym trzy, które blokują użycie telefonu (Config bez drzewa plików, poziomy overflow w Maintenance i edytorze) i jeden, który ukrywa wynik pracy narzędzia (ucinany output kroków aktualizacji).</p>
+    <p>Rekomendacja: jeden etap bugfixów (P1, ~dzień pracy), potem przebudowa layoutów wg specyfikacji z sekcji 04–06. Kolory zostają — zmienia się gęstość, siatka i spójność komponentów.</p>
+  </div>
+</section>
+
+<!-- ════════════════ BUGI ════════════════ -->
+<section>
+  <div class="sec-head"><span class="idx">02</span><h2>Bugi — do naprawy przed designem</h2></div>
+
+  <div class="finding">
+    <span class="sev p1">P1</span>
+    <div>
+      <h3>Ucinany output kroków w Maintenance i Audit → details</h3>
+      <p>Zwinięty podgląd kroku pokazuje ostatnie 2 <em>logiczne</em> linie przycięte do <code>max-h-14</code> (56px). Jedna długa linia (np. output <code>docker pull</code> dla transmission) zawija się na 6+ linii wizualnych i jest ucinana w połowie wiersza. Gorzej: przycisk „Show all” pojawia się tylko gdy linii logicznych jest &gt;2 — więc pojedyncza długa linia <b>nie ma żadnego sposobu na rozwinięcie</b>. Ten sam komponent renderuje szczegóły joba w Audit, stąd identyczny objaw w obu miejscach.</p>
+      <span class="ref">frontend/src/components/step-cards.tsx:74–96 · naprawa: przełącznik widoczny gdy zawartość faktycznie przekracza wysokość (pomiar scrollHeight), fade-out zamiast twardego cięcia, overflow-wrap: anywhere</span>
+    </div>
+  </div>
+
+  <div class="finding">
+    <span class="sev p1">P1</span>
+    <div>
+      <h3>Mobile: przeglądarka plików w Config nie istnieje</h3>
+      <p>Lewy panel z drzewem ma <code>hidden … lg:flex</code> bez żadnej mobilnej alternatywy. Na telefonie zostaje pusty stan z instrukcją „Browse the config workspace in the tree on the left” — wskazującą na panel, którego nie ma. Cała sekcja jest bezużyteczna poniżej 1024px.</p>
+      <span class="ref">frontend/src/pages/config-page.tsx:257 · naprawa docelowa: bottom-sheet z drzewem (mockup w sekcji 06)</span>
+    </div>
+  </div>
+
+  <div class="finding">
+    <span class="sev p1">P1</span>
+    <div>
+      <h3>Mobile: poziomy overflow strony w Maintenance i edytorze</h3>
+      <p>Rząd zakładek Update/Images/Networks/Volumes/Cleanup nie zawija się ani nie scrolluje — wypycha stronę poza viewport, całe body scrolluje się w bok. Edytor CodeMirror (stack editor i Create stack) wymusza szerokość ~1600px na 390px viewportu. Strona „pływa” poziomo na każdym z tych ekranów.</p>
+      <span class="ref">frontend/src/pages/maintenance-page.tsx:95–107 (tab-row: brak overflow-x-auto) · stack-editor-page / create-stack-page (CodeMirror: brak min-w-0 + maxWidth na kontenerze)</span>
+    </div>
+  </div>
+
+  <div class="finding">
+    <span class="sev p1">P1</span>
+    <div>
+      <h3>Mobile: treść widoczna nad górnym toolbarem</h3>
+      <p>Sticky header ma tło <code>bg-[var(--bg)]/95</code> + <code>backdrop-blur</code> i zero paddingu na <code>safe-area-inset-top</code>. Przy scrollu treść prześwituje przez półprzezroczyste tło, a na iPhonie z notchem przewija się w pasku statusu <em>nad</em> headerem (viewport ma <code>viewport-fit=cover</code>). Header potrzebuje nieprzezroczystego tła i <code>padding-top: env(safe-area-inset-top)</code>.</p>
+      <span class="ref">frontend/src/app/root-layout.tsx:75</span>
+    </div>
+  </div>
+
+  <div class="finding">
+    <span class="sev p1">P1</span>
+    <div>
+      <h3>Host: wersja Stacklaba nachodzi na hostname sąsiedniej karty</h3>
+      <p>Długi string wersji <code>2026.07.0~nightly20260704+gmask1</code> w <code>text-lg</code> nie łamie się ani nie przycina — wypływa z komórki grida i nakłada na „homelab” w karcie System. Na zrzucie wygląda to jak zlepek „gma­sk­hn1elab”. Karty potrzebują <code>min-w-0</code> + <code>break-all</code> (albo skróconej wersji z pełną w tooltipie).</p>
+      <span class="ref">frontend/src/pages/host-page.tsx:130</span>
+    </div>
+  </div>
+
+  <div class="finding">
+    <span class="sev p2">P2</span>
+    <div>
+      <h3>Audit: nazwy akcji ucięte przez sztywne szerokości kolumn</h3>
+      <p><code>update_maintenance_schedules</code> renderuje się jako „update_maintenan…” — kolumny mają zafiksowane <code>width: 100px/130px</code> z truncate. Do tego „View detail” pojawia się tylko przy niektórych wpisach, a wiersze bez niego nie są klikalne — niespójna interakcja.</p>
+      <span class="ref">frontend/src/components/audit-table.tsx:46–50</span>
+    </div>
+  </div>
+
+  <div class="finding">
+    <span class="sev p2">P2</span>
+    <div>
+      <h3>Stack overview: zdublowany status „Running”</h3>
+      <p>Status stoi w nagłówku strony (prawy górny róg) i drugi raz nad przyciskami akcji. Na mobile oba lądują jeden pod drugim w odległości ~300px.</p>
+      <span class="ref">frontend/src/app/stack-layout.tsx + stack-overview-page.tsx</span>
+    </div>
+  </div>
+
+  <div class="finding">
+    <span class="sev p3">P3</span>
+    <div>
+      <h3>Stats: „Waiting for stats...” bez limitu czasu</h3>
+      <p>Przy braku danych z WS ekran wisi na komunikacie bez spinnera, timeoutu i podpowiedzi. Warto dodać stan błędu po ~10s.</p>
+      <span class="ref">frontend/src/pages/stack-stats-page.tsx</span>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════ REVIEW DESKTOP ════════════════ -->
+<section>
+  <div class="sec-head"><span class="idx">03</span><h2>Review — co ciągnie UI w dół</h2></div>
+
+  <div class="finding">
+    <span class="sev p2">P2</span>
+    <div>
+      <h3>Stacks: lista 1-kolumnowa marnuje 90% ekranu</h3>
+      <p>19 identycznych wierszy „1/1 services · Running” na pełną szerokość 1600px. Karta nie niesie żadnej informacji poza nazwą; wszystko jest zielone, więc nic nie przyciąga wzroku. Brak wyszukiwania, sortowania i filtra statusu — przy 19 stackach już potrzebne. Twój instynkt z kafelkami w staggered gridzie jest słuszny — mockup i spec w sekcji 05.</p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <span class="sev p2">P2</span>
+    <div>
+      <h3>Settings: jedna wąska kolumna, 4500px wysokości</h3>
+      <p>Zmiana hasła, powiadomienia, harmonogramy, self-update i About sklejone w jeden pion o szerokości ~450px na 1600px ekranu. Sekcje mają niespójne style (część w kartach, część luzem), a trzy różne przyciski zapisu („Update password”, „Save”, „Save schedules”) działają każdy na inną część formularza — łatwo zapisać nie to, co się edytowało. Docelowo: siatka kart-sekcji (spec w 05).</p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <span class="sev p2">P2</span>
+    <div>
+      <h3>Rozjechany system kolorów pomocniczych</h3>
+      <p>Poza paletą Amber Console w UI żyją: <b>sky-400</b> (kroki running), <b>cyan</b> (nazwy serwisów w logach), <b>fiolet</b> (pasek Memory na Host), <b>niebieskie natywne checkboxy</b> (Maintenance i Settings — brak <code>accent-*</code>, radio je ma) i granatowy <b>One Dark</b> w CodeMirror. Każdy z nich to obcy akcent w bursztynowej konsoli. Running powinno być amber (to „praca w toku” — semantyka akcentu), serwisy w logach — amber/muted, Memory — amber jak reszta meterów, checkboxy — <code>accent-[var(--accent)]</code>, a CodeMirror dostaje własny theme (spec w 05).</p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <span class="sev p2">P2</span>
+    <div>
+      <h3>Niespójna geometria: trzy rodziny promieni naraz</h3>
+      <p>Karty mają radius 8px, przyciski akcji to pełne pigułki (<code>rounded-full</code>), nav i inputy logowania — <code>rounded-2xl</code> (16px). Pigułkowe przyciski przy kanciastych kartach wyglądają konsumencko i gryzą się z „instrument panel” z założeń Amber Console. Finalny design: jedna skala (8/6/4), pigułki tylko dla chipów statusu.</p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <span class="sev p3">P3</span>
+    <div>
+      <h3>Niespójna hierarchia nagłówków stron</h3>
+      <p>Stacks i Audit mają kicker (DASHBOARD/SYSTEM) + duży tytuł, Maintenance ma tytuł inline z zakładkami, Settings i Docker nie mają kickera wcale. Rozmiar tytułu skacze 24→30→36px między ekranami. Jeden wzorzec nagłówka (kicker · tytuł · akcje kontekstowe po prawej) na wszystkich ekranach.</p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <span class="sev p3">P3</span>
+    <div>
+      <h3>Puste stany bez treści i akcji</h3>
+      <p>„Select a file to view or edit”, „Configure and start an update workflow”, „Waiting for stats...” — na ekranach, gdzie panel zajmuje 70% szerokości. Puste stany to darmowa okazja na charakter (ASCII/boot-log vibe) i na skróty akcji („ostatnia aktualizacja: wczoraj 06:00 · 19/19 ok → Uruchom ponownie”).</p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <span class="sev p3">P3</span>
+    <div>
+      <h3>Destrukcyjne akcje w jednym rzędzie ze zwykłymi</h3>
+      <p>Na stack overview „Down” i „Remove” (czerwone) stoją w tym samym rzędzie pigułek co „Deploy”, „Restart”, „Pull”. Wystarczy separator/overflow-menu, żeby ochronić przed misclickiem — zwłaszcza na telefonie, gdzie rząd się zawija i „Remove” ląduje pod kciukiem.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════ FINALNY DESIGN — ZASADY ════════════════ -->
+<section>
+  <div class="sec-head"><span class="idx">04</span><h2>Finalny design — zasady</h2></div>
+  <p class="prose" style="color: var(--muted);">Amber Console zostaje — to już jest tożsamość. v2 nie zmienia palety, tylko dokręca strukturę do poziomu produktu. Pięć zasad, którymi rozstrzygamy każdą przyszłą decyzję:</p>
+  <div class="prin-grid">
+    <div class="prin"><div class="no">Z1</div><h3>Gęstość to szacunek</h3><p>Homelab-admin przyszedł po informację, nie po white-space. Każdy ekran pokazuje stan systemu bez klikania: siatka zamiast listy, telemetria zamiast pustych kart.</p></div>
+    <div class="prin"><div class="no">Z2</div><h3>Amber = tożsamość, nie status</h3><p>Bursztyn tylko dla marki, nawigacji, akcji podstawowej i „pracy w toku”. Statusy mają własną, zamkniętą czwórkę: ok / warn / err / off. Nic innego na ekranie nie jest zielone ani czerwone.</p></div>
+    <div class="prin"><div class="no">Z3</div><h3>Mono niesie dane</h3><p>Wszystko co jest wartością — nazwy stacków, wersje, czasy, ścieżki, logi — w mono z <code>tabular-nums</code>. Tekst interfejsu w sans. Ta granica robi „nerdowski” charakter lepiej niż jakikolwiek ornament.</p></div>
+    <div class="prin"><div class="no">Z4</div><h3>Jedna geometria</h3><p>Radius: karty 8 / kontrolki 6 / chipy 4. Pigułki znikają poza chipami statusu. Border zamiast cienia buduje hierarchię — jak w panelu przyrządów.</p></div>
+    <div class="prin"><div class="no">Z5</div><h3>Klawiatura to feature</h3><p>Hotkeye <code>1–7</code> dla nawigacji, <code>/</code> filtr, <code>⌘K</code> paleta poleceń, <code>j/k</code> po kafelkach. Widoczne w UI (podpisy w nav), nie ukryte. To jest ta część „hobbystycznego projektu”, która daje frajdę.</p></div>
+  </div>
+
+  <h3 style="margin-top: 28px;">Tokeny v2 — delta względem obecnych</h3>
+  <div class="tbl-scroll" style="margin-top: 10px;">
+  <table>
+    <tr><th>Token</th><th>Wartość</th><th>Zmiana / uwaga</th></tr>
+    <tr><td class="mono">--accent</td><td class="mono"><span class="swatch" style="background:#F5A524"></span>#F5A524</td><td class="mono">bez zmian — tożsamość</td></tr>
+    <tr><td class="mono">--status-ok</td><td class="mono"><span class="swatch" style="background:#55D47F"></span>#55D47F</td><td class="mono">bez zmian</td></tr>
+    <tr><td class="mono">--status-warn</td><td class="mono"><span class="swatch" style="background:#F97316"></span>#F97316</td><td class="mono">NOWE: warn przestaje dziedziczyć amber (ryzyko z propozycji R2 zmaterializowało się — „Run prune” wygląda jak ostrzeżenie)</td></tr>
+    <tr><td class="mono">--status-err</td><td class="mono"><span class="swatch" style="background:#F26D5B"></span>#F26D5B</td><td class="mono">bez zmian</td></tr>
+    <tr><td class="mono">--status-run</td><td class="mono"><span class="swatch" style="background:#F5A524"></span>amber, pulsujący</td><td class="mono">NOWE: zastępuje sky-400 — „w toku” to semantyka akcentu</td></tr>
+    <tr><td class="mono">--radius / -ctl / -chip</td><td class="mono">8 / 6 / 4 px</td><td class="mono">NOWE: koniec rounded-full i rounded-2xl</td></tr>
+    <tr><td class="mono">editor theme</td><td class="mono">bg #131722 → #171107</td><td class="mono">NOWE: własny theme CodeMirror na tokenach (yaml: klucze amber, wartości text, komentarze dim)</td></tr>
+    <tr><td class="mono">chart-1…4</td><td class="mono">#F5A524 · #8AB8A0 · #C9A0DC → ujednolicone</td><td class="mono">NOWE: metery Host = amber; wykresy uPlot: amber + desaturowane pochodne, nie fiolet/cyan</td></tr>
+  </table>
+  </div>
+</section>
+
+<!-- ════════════════ DESKTOP MOCKUPY ════════════════ -->
+<section>
+  <div class="sec-head"><span class="idx">05</span><h2>Desktop — struktura ekranów</h2></div>
+
+  <h3>Stacks: staggered grid kafelków z telemetrią</h3>
+  <p class="prose" style="color: var(--muted); font-size: 13.5px;">Kafelek rośnie z zawartością (masonry przez CSS columns — zero JS): stack 1-serwisowy jest niski, wieloserwisowy pokazuje listę serwisów. Lewa krawędź niesie status, badge „UPDATE” pokazuje dostępną aktualizację obrazu (dane już są po stronie Maintenance → Images). Pasek narzędzi: filtr <code>/</code>, przełączniki statusu, licznik. Kafelek klika się w całości; hover podnosi border do amber.</p>
+
+  <div class="frame">
+    <div class="frame-bar"><span class="dot"></span><span class="dot"></span> stacklab / stacks · 1440px</div>
+    <div class="frame-body">
+      <div class="m-toolbar">
+        <span class="m-search">/ filtruj stacki…</span>
+        <span class="m-chip on">Wszystkie 19</span>
+        <span class="m-chip">Problemy 1</span>
+        <span class="m-chip">Do aktualizacji 3</span>
+        <span class="kbd">j/k</span><span class="kbd">enter</span>
+      </div>
+      <div class="m-grid">
+        <div class="tile">
+          <div class="t-head"><span class="t-name">adguardhome</span><span class="t-upd">UPDATE</span></div>
+          <div class="t-sub">up 12d 4h · adguard/adguardhome:latest</div>
+          <div class="t-stats"><span>cpu 0.4%</span><span class="meter"><i style="width:4%"></i></span><span>mem 89M</span><span class="meter"><i style="width:12%"></i></span></div>
+        </div>
+        <div class="tile">
+          <div class="t-head"><span class="t-name">fusznik</span></div>
+          <div class="t-sub">up 3d 11h</div>
+          <div class="t-svc">
+            <div class="svc-row"><span class="pip"></span>app · 0.2% · 210M</div>
+            <div class="svc-row"><span class="pip"></span>db · 0.1% · 310M</div>
+          </div>
+        </div>
+        <div class="tile err">
+          <div class="t-head"><span class="t-name">transmission</span></div>
+          <div class="t-sub">restart loop · exit 1 · 2 min temu</div>
+          <div class="t-svc">
+            <div class="svc-row"><span class="pip err"></span>transmission · restarting (4×)</div>
+          </div>
+          <div class="t-stats"><span style="color:var(--err)">ostatni job: up · failed</span></div>
+        </div>
+        <div class="tile">
+          <div class="t-head"><span class="t-name">jellyfin</span><span class="t-upd">UPDATE</span></div>
+          <div class="t-sub">up 12d 4h · jellyfin/jellyfin:10.9</div>
+          <div class="t-stats"><span>cpu 2.1%</span><span class="meter"><i style="width:9%"></i></span><span>mem 1.2G</span><span class="meter"><i style="width:34%"></i></span></div>
+        </div>
+        <div class="tile">
+          <div class="t-head"><span class="t-name">traefik</span></div>
+          <div class="t-sub">up 12d 4h · 14 routerów</div>
+        </div>
+        <div class="tile">
+          <div class="t-head"><span class="t-name">stock-analyst</span></div>
+          <div class="t-sub">up 2h 10m</div>
+          <div class="t-svc">
+            <div class="svc-row"><span class="pip"></span>api · 0.8% · 420M</div>
+            <div class="svc-row"><span class="pip"></span>worker · 3.2% · 610M</div>
+          </div>
+        </div>
+        <div class="tile">
+          <div class="t-head"><span class="t-name">wireguard</span></div>
+          <div class="t-sub">up 12d 4h · 3 peers</div>
+        </div>
+        <div class="tile">
+          <div class="t-head"><span class="t-name">uptime-kuma</span><span class="t-upd">UPDATE</span></div>
+          <div class="t-sub">up 12d 4h</div>
+        </div>
+        <div class="tile">
+          <div class="t-head"><span class="t-name">samba</span></div>
+          <div class="t-sub">up 12d 4h</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="caption">Mockup: docelowy /stacks. Chip „Problemy” filtruje po statusie ≠ ok; badge UPDATE zasilany z istniejącego endpointu inventory obrazów. Kafelek z błędem jest jedynym czerwonym elementem na ekranie — Z2 w praktyce.</p>
+
+  <h3>Maintenance / Audit: naprawiony podgląd kroku</h3>
+  <p class="prose" style="color: var(--muted); font-size: 13.5px;">Zwinięty krok pokazuje ~3 linie z fade-outem (nigdy twardego cięcia w połowie wiersza), „Show all” pojawia się zawsze, gdy zawartość przekracza wysokość — mierzone po renderze, nie po liczbie linii. Output łamie się przez <code>overflow-wrap: anywhere</code>. Layout dwupanelowy zostaje, ale Progress przy bezczynności pokazuje historię ostatnich przebiegów zamiast pustki.</p>
+
+  <div class="frame">
+    <div class="frame-bar"><span class="dot"></span><span class="dot"></span> maintenance / progress · krok zwinięty i rozwinięty</div>
+    <div class="frame-body">
+      <div class="step">
+        <div class="s-head">
+          <span class="pip" style="background: var(--accent)"></span>
+          <span style="font-weight:700">pull</span>
+          <span style="color:var(--dim)">· transmission · 32/40</span>
+          <span style="margin-left:auto; color: var(--ok)">Done</span>
+          <span style="color:var(--dim)">8s</span>
+        </div>
+        <div class="s-log fade-demo">
+          <span style="color:var(--dim)">Output pull for transmission.</span>
+          <span class="hl"> transmission Pulling 0d6922a6b13e Pulling fs layer f6a4c3e338ed Pulling fs layer 39ba75f17b2e Pulling fs layer 08ddb546124f Pulling fs layer 2e9c0dc322a3 Pulling fs layer 49e28a90d4f9 Pulling fs layer f242564bbc14 Pulling fs layer d84c8712c5e1 Pulling fs layer…</span>
+        </div>
+        <span class="s-more">Show all (23 lines)</span>
+      </div>
+      <div class="step">
+        <div class="s-head">
+          <span class="pip" style="background: var(--accent)"></span>
+          <span style="font-weight:700">up</span>
+          <span style="color:var(--dim)">· transmission · 33/40</span>
+          <span style="margin-left:auto; color: var(--ok)">Done</span>
+          <span style="color:var(--dim)">6s</span>
+        </div>
+        <div class="s-log">
+          <span style="color:var(--dim)">Output up for transmission.</span>
+          <span class="hl"> Container transmission Recreate</span><br>
+          <span class="hl">Container transmission Recreated · Container transmission Starting · Container transmission Started</span>
+        </div>
+        <span class="s-more">Collapse</span>
+      </div>
+    </div>
+  </div>
+  <p class="caption">Fade-out sygnalizuje „jest więcej” zanim użytkownik kliknie; pełny output zawsze osiągalny. Dot „running” w amber (Z2), nie sky.</p>
+
+  <h3>Pozostałe ekrany — decyzje</h3>
+  <ul class="tight">
+    <li><b>Settings → siatka kart-sekcji</b> (Twoje kafelki): Bezpieczeństwo · Powiadomienia · Harmonogramy · Self-update · About w staggered gridzie 2-kolumnowym. Każda karta ma własny przycisk zapisu i status („zapisano 14:02”). Koniec scrollowania 4500px.</li>
+    <li><b>Audit → pełnoprawna tabela</b>: elastyczne kolumny (bez sztywnych 100px), każdy wiersz klikalny do szczegółu, filtr po akcji/stacku/statusie + zakres dat, paginacja. Czas w mono z <code>tabular-nums</code>.</li>
+    <li><b>Host → dwie kolumny</b>: karty przeglądowe zwężone (metery wszystkie amber), logi Stacklaba dostają pełną wysokość viewportu zamiast okna 500px.</li>
+    <li><b>Stack detail → pasek statusu</b>: status raz, przy tytule; akcje destrukcyjne (Down/Remove) za separatorem lub w menu „⋯”; zakładki jako podkreślenia (tab bar), nie pigułki — odróżnią się od przycisków akcji.</li>
+    <li><b>Nagłówek globalny</b>: host-strip w stylu k9s nad treścią — <code>homelab · docker 26.1.5 · 19/19 up · disk 15.7/31G</code> — zawsze widoczny stan świata (dane z /host już są).</li>
+    <li><b>Nav</b>: podpisy hotkeyów <code>1–7</code> przy pozycjach, aktywna pozycja: lewy rail 2px amber (już jest) — bez pigułkowego tła.</li>
+  </ul>
+</section>
+
+<!-- ════════════════ MOBILE ════════════════ -->
+<section>
+  <div class="sec-head"><span class="idx">06</span><h2>Mobile — strategia, nie skalowanie</h2></div>
+  <p class="prose" style="color: var(--muted);">Projekt jest desktop-first i tak zostaje, ale telefon musi obsłużyć scenariusz „coś padło, sprawdzam z kanapy”: status, logi, restart, szybka edycja konfiga. Cztery decyzje:</p>
+
+  <div class="phones">
+    <div class="phone">
+      <div class="ph-status">14:32 · homelab · 19/19 up</div>
+      <div class="ph-head"><span class="ttl">STACKLAB</span><span style="font-family:var(--mono);font-size:9px;color:var(--dim)">⌘K</span></div>
+      <div class="ph-body">
+        <div class="ph-row"><span class="pip"></span><span class="nm">adguardhome</span><span class="sb">0.4% · 89M</span></div>
+        <div class="ph-row"><span class="pip err"></span><span class="nm">transmission</span><span class="sb" style="color:var(--err)">restarting</span></div>
+        <div class="ph-row"><span class="pip"></span><span class="nm">jellyfin</span><span class="sb">2.1% · 1.2G</span></div>
+        <div class="ph-row"><span class="pip"></span><span class="nm">traefik</span><span class="sb">up 12d</span></div>
+        <div class="ph-row"><span class="pip"></span><span class="nm">wireguard</span><span class="sb">up 12d</span></div>
+      </div>
+      <div class="ph-nav">
+        <span class="on"><i></i>Stacks</span><span><i></i>Host</span><span><i></i>Maint</span><span><i></i>Audit</span><span><i></i>Więcej</span>
+      </div>
+    </div>
+
+    <div class="phone">
+      <div class="ph-status">14:32</div>
+      <div class="ph-head"><span class="ttl">CONFIG</span><span style="font-family:var(--mono);font-size:9px;color:var(--accent)">Pliki ▾</span></div>
+      <div class="ph-body" style="display:flex; flex-direction:column; justify-content:flex-end; padding-bottom:0;">
+        <div style="font-family:var(--mono); font-size:10px; color:var(--dim); padding: 0 4px 8px;">traefik/traefik.yml · zapisano 14:02</div>
+        <div class="ph-sheet">
+          <div class="grab"></div>
+          <div class="ph-file dir">▸ adguardhome</div>
+          <div class="ph-file dir">▾ traefik</div>
+          <div class="ph-file" style="color:var(--accent)">traefik.yml</div>
+          <div class="ph-file">dynamic.yml</div>
+          <div class="ph-file dir">▸ wireguard</div>
+        </div>
+      </div>
+      <div class="ph-nav">
+        <span><i></i>Stacks</span><span><i></i>Host</span><span><i></i>Maint</span><span><i></i>Audit</span><span class="on"><i></i>Więcej</span>
+      </div>
+    </div>
+
+    <div class="phone">
+      <div class="ph-status">14:32</div>
+      <div class="ph-head"><span class="ttl">‹ TRANSMISSION</span><span class="pip err" style="width:7px;height:7px"></span></div>
+      <div class="ph-body">
+        <div class="ph-tabs">
+          <span class="ph-tab on">Overview</span><span class="ph-tab">Logs</span><span class="ph-tab">Editor</span><span class="ph-tab">Stats</span><span class="ph-tab">Fi…</span>
+        </div>
+        <div class="ph-row" style="flex-direction:column; align-items:flex-start; gap:3px;">
+          <span class="nm" style="color:var(--err)">restarting (4×) · exit 1</span>
+          <span style="font-family:var(--mono); font-size:9px; color:var(--dim)">lscr.io/linuxserver/transmission:latest</span>
+        </div>
+        <div class="ph-row" style="justify-content:space-between;">
+          <span style="font-family:var(--mono); font-size:10px; color:var(--accent); font-weight:700;">Restart</span>
+          <span style="font-family:var(--mono); font-size:10px; color:var(--muted)">Logs</span>
+          <span style="font-family:var(--mono); font-size:10px; color:var(--muted)">Stop</span>
+          <span style="font-family:var(--mono); font-size:10px; color:var(--dim)">⋯</span>
+        </div>
+      </div>
+      <div class="ph-nav">
+        <span class="on"><i></i>Stacks</span><span><i></i>Host</span><span><i></i>Maint</span><span><i></i>Audit</span><span><i></i>Więcej</span>
+      </div>
+    </div>
+  </div>
+  <p class="caption" style="text-align:center; margin-top: 18px;">Mockupy: /stacks jako zwarte wiersze (nie karty ×3 wysokości) + host-strip w pasku statusu · Config z drzewem w bottom-sheet · stack detail ze scrollowanymi zakładkami i pływającym paskiem akcji.</p>
+
+  <ul class="tight">
+    <li><b>Bottom nav zamiast hamburgera</b> — 4 sekcje + „Więcej” (Config, Docker, Settings). Hamburger zostaje tylko jako fallback w „Więcej”. Nav ma <code>env(safe-area-inset-bottom)</code>.</li>
+    <li><b>Header nieprzezroczysty</b> + <code>safe-area-inset-top</code> (bugfix P1) — a treść host-stripa ląduje w nim zamiast logotypu, który nic nie robi.</li>
+    <li><b>Drzewa plików (Config, Files) jako bottom-sheet</b> — wzorzec znany z map/muzyki, jedna ręka, edytor zajmuje cały ekran.</li>
+    <li><b>Zakładki poziomo scrollowane</b> (<code>overflow-x-auto</code>, bez zawijania na 3 rzędy), tabele → karty, edytor z <code>min-w-0</code> i fontem ≥16px (inaczej iOS zoomuje przy focusie).</li>
+  </ul>
+</section>
+
+<!-- ════════════════ BACKLOG → DESIGN ════════════════ -->
+<section>
+  <div class="sec-head"><span class="idx">07</span><h2>Backlog → design <span style="font-weight:400; color:var(--dim); font-size:14px;">(uzupełnienie po przeglądzie roadmapy)</span></h2></div>
+  <p class="prose" style="color: var(--muted);">Przegląd <code>docs/roadmap.md</code> wyłuskał pozycje, które finalny design powinien skonsumować od razu — zamiast dobudowywać je później obok nowych layoutów. Zmiany API zaprojektowane w <code>docs/api/dashboard-read-model-and-progress.md</code> (wszystkie addytywne):</p>
+  <ul class="tight">
+    <li><b>Strukturalny progres, nie log-dump</b> (roadmap: „richer operation progress"): step cards dostają pasek postępu i licznik jednostek — <code>pull · 7/12 layers · extracting 45MB/120MB</code> — z nowego pola <code>progress</code> na eventach jobów (Slice C). Surowe logi zostają jako zwijany szczegół. Dotyczy Maintenance, akcji stacka i szczegółu w Audit.</li>
+    <li><b>Widoczność pracy w tle</b>: host-strip pokazuje żywy chip aktywnego joba („1 job · pull traefik 30/40") + tray; kafelki dostają badge aktywności. Push <code>activity.subscribe</code> po istniejącym WS (Slice D), dzisiejszy polling zostaje jako fallback.</li>
+    <li><b>Drift i health za darmo</b>: <code>config_state: drifted</code>, <code>partial/error</code> i <code>health_summary</code> już są w <code>GET /api/stacks</code> — frontend ich nie konsumuje. Kafelki: badge DRIFT, stan partial, unhealthy jako warn. Do tego diff „draft vs last valid" w edytorze po domknięciu deploy-baseline (Slice E).</li>
+    <li><b>Ikony i linki stacków</b> (roadmap: custom project metadata): blok <code>x-stacklab</code> w compose.yaml (icon, links) → kafelek z ikoną aplikacji i skokiem do jej web UI. Compose-first, wersjonowane w git (Slice A2).</li>
+    <li><b>Badge UPDATE naprawdę</b>: nowy job <code>check_image_updates</code> (digest lokalny vs rejestr, harmonogramowalny, notyfikacja przy zmianie na „available") + rollup per stack (Slice B/A3) — a nie doraźne rozszerzenie inventory.</li>
+    <li><b>Create stack z szablonami</b> (roadmap goal #1): picker lokalnych szablonów zamiast pustego edytora (Slice F).</li>
+    <li><b>Lint Compose</b>: <code>warnings[]</code> w validate (brak healthchecka, restart policy, bind 0.0.0.0) → gutter edytora + chip warn na kafelku; nigdy nie blokuje deployu (Slice E).</li>
+    <li><b>Wykluczenia serwisów z harmonogramów</b>: checklist per serwis w karcie harmonogramu; pominięte cele raportowane w progresie.</li>
+    <li><b>Theme toggle — de-priorytet</b>: sprzeczny z decyzją round-2 („dark themes only"); v2 zostaje dark-only.</li>
+  </ul>
+</section>
+
+<!-- ════════════════ ROADMAP ════════════════ -->
+<section>
+  <div class="sec-head"><span class="idx">08</span><h2>Plan wdrożenia</h2></div>
+  <div class="stage">
+    <span class="tag">Etap 1<br>bugfixy</span>
+    <div>
+      <h3>P1 z sekcji 02 — bez zmian designu</h3>
+      <p>step-cards (pomiar wysokości + fade + „Show all”), config-page mobile fallback (choćby tymczasowy select), overflow w maintenance/edytorze, header safe-area, host-page break-all, audit szerokości kolumn. Wszystko małe, izolowane PR-y.</p>
+    </div>
+  </div>
+  <div class="stage">
+    <span class="tag">Etap 2<br>tokeny</span>
+    <div>
+      <h3>Porządki w systemie</h3>
+      <p>Nowe tokeny (warn/run/radius), czystka obcych kolorów (sky/cyan/fiolet/niebieskie checkboxy), theme CodeMirror na tokenach, ujednolicony nagłówek stron, geometria 8/6/4. Jeden PR „design tokens v2”.</p>
+    </div>
+  </div>
+  <div class="stage">
+    <span class="tag">Etap 3<br>layouty</span>
+    <div>
+      <h3>Przebudowy strukturalne</h3>
+      <p>Stacks staggered grid (konsumpcja drift/health/partial + API Slice A1/A2: stats i metadata) → Settings siatka sekcji → Audit tabela z filtrami → mobile bottom nav + bottom-sheety. Kolejność wg widoczności: stacks widzisz zawsze, settings raz w tygodniu.</p>
+    </div>
+  </div>
+  <div class="stage">
+    <span class="tag">Etap 4<br>progres</span>
+    <div>
+      <h3>Strukturalny progres i praca w tle</h3>
+      <p>Pole <code>progress</code> na eventach jobów + paski postępu w step cards (Slice C) → push <code>activity.subscribe</code> (Slice D) → host-strip z żywym chipem, tray jobów, hotkeye i ⌘K (Z5).</p>
+    </div>
+  </div>
+  <div class="stage">
+    <span class="tag">Etap 5<br>funkcje</span>
+    <div>
+      <h3>Nowe powierzchnie</h3>
+      <p>Update checks + badge UPDATE (Slice B/A3) → lint Compose i diff „last valid" (Slice E) → szablony w Create stack (Slice F) → wykluczenia serwisów w harmonogramach.</p>
+    </div>
+  </div>
+
+  <div class="note"><b>Architektura API:</b> wszystkie zmiany zaprojektowane jako addytywne wycinki w <code>docs/api/dashboard-read-model-and-progress.md</code> — sekwencja A1/A2 → C → D → B/A3 → E/F. Backend ma już drift, health i partial w kontrakcie <code>GET /api/stacks</code>; największa nowa powierzchnia to klient rejestru dla update checks.</div>
+</section>
+
+<footer style="border-top: 1px solid var(--line-soft); padding-top: 18px; font-family: var(--mono); font-size: 11px; color: var(--dim);">
+  stacklab · ui review &amp; final design spec · amber console v2 · zrzuty źródłowe: playwright, produkcja 2026-07-04
+</footer>
+</div>
+</body>
+</html>
