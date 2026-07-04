@@ -256,6 +256,22 @@ export interface Container {
   networks: string[]
 }
 
+export interface StackMetadata {
+  icon?: string
+  links?: StackMetaLink[]
+}
+
+export interface StackMetaLink {
+  label: string
+  url: string
+}
+
+export interface StackStats {
+  cpu_percent: number
+  memory_bytes: number
+  sampled_at: string
+}
+
 export interface StackListItem {
   id: string
   name: string
@@ -266,6 +282,8 @@ export interface StackListItem {
   health_summary: HealthSummary
   service_count: ServiceCount
   last_action: LastAction | null
+  metadata?: StackMetadata | null
+  stats?: StackStats | null
 }
 
 export interface StackListSummary {
