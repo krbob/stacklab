@@ -685,6 +685,7 @@ export interface ConfigTreeEntry {
   size_bytes: number
   modified_at: string
   stack_id: string | null
+  git_ignored: boolean
   permissions: FilePermissions
 }
 
@@ -704,6 +705,7 @@ export interface ConfigFileResponse {
   encoding: string | null
   size_bytes: number
   modified_at: string
+  git_ignored: boolean
   readable: boolean
   writable: boolean
   blocked_reason: string | null

@@ -688,6 +688,7 @@ Response:
       "size_bytes": 0,
       "modified_at": "2026-04-04T11:55:00Z",
       "stack_id": "nextcloud",
+      "git_ignored": true,
       "permissions": {
         "owner_uid": 1000,
         "owner_name": "bob",
@@ -705,6 +706,7 @@ Response:
       "size_bytes": 1782,
       "modified_at": "2026-04-04T12:00:00Z",
       "stack_id": "nextcloud",
+      "git_ignored": false,
       "permissions": {
         "owner_uid": 1000,
         "owner_name": "bob",

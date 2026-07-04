@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -45,6 +46,46 @@ func TestServiceTreeListsSortedEntriesWithStackIDs(t *testing.T) {
 	}
 	if response.Items[2].StackID != nil {
 		t.Fatalf("unexpected stack_id on non-stack file: %#v", response.Items[2].StackID)
+	}
+}
+
+func TestServiceMarksGitIgnoredConfigEntries(t *testing.T) {
+	t.Parallel()
+
+	service, root := newTestService(t)
+	repoRoot := filepath.Dir(root)
+	runGit(t, repoRoot, "init", "-b", "main")
+	mustWriteFile(t, filepath.Join(repoRoot, ".gitignore"), "config/ignored.env\nconfig/cache/\n")
+	mustMkdirAll(t, filepath.Join(root, "cache"))
+	mustWriteFile(t, filepath.Join(root, "cache", "runtime.db"), "ignored\n")
+	mustWriteFile(t, filepath.Join(root, "ignored.env"), "SECRET=true\n")
+	mustWriteFile(t, filepath.Join(root, "visible.env"), "DEBUG=true\n")
+
+	response, err := service.Tree(context.Background(), "")
+	if err != nil {
+		t.Fatalf("Tree(root) error = %v", err)
+	}
+
+	itemsByName := map[string]TreeEntry{}
+	for _, item := range response.Items {
+		itemsByName[item.Name] = item
+	}
+	if !itemsByName["cache"].GitIgnored {
+		t.Fatalf("expected ignored directory to be marked ignored: %#v", itemsByName["cache"])
+	}
+	if !itemsByName["ignored.env"].GitIgnored {
+		t.Fatalf("expected ignored file to be marked ignored: %#v", itemsByName["ignored.env"])
+	}
+	if itemsByName["visible.env"].GitIgnored {
+		t.Fatalf("expected visible file to not be marked ignored: %#v", itemsByName["visible.env"])
+	}
+
+	file, err := service.File(context.Background(), "ignored.env")
+	if err != nil {
+		t.Fatalf("File(ignored.env) error = %v", err)
+	}
+	if !file.GitIgnored {
+		t.Fatalf("expected ignored file response to be marked ignored: %#v", file)
 	}
 }
 
@@ -278,5 +319,15 @@ func mustWriteFile(t *testing.T, path, content string) {
 	mustMkdirAll(t, filepath.Dir(path))
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile(%s) error = %v", path, err)
+	}
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	command := exec.Command("git", args...)
+	command.Dir = dir
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, string(output))
 	}
 }

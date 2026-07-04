@@ -312,9 +312,10 @@ export function ConfigPage() {
                   const isDir = entry.type === 'directory'
                   const isSelected = selectedFile?.path === entry.path
                   return (
-                    <button key={entry.path} onClick={() => isDir ? navigateDir(entry.path) : openFile(entry.path)} className={cn('flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition', isSelected ? 'bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'text-[var(--muted)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]')}>
+                    <button key={entry.path} onClick={() => isDir ? navigateDir(entry.path) : openFile(entry.path)} className={cn('flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition', isSelected ? 'bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'text-[var(--muted)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]', entry.git_ignored && !isSelected && 'opacity-55')}>
                       {entry.stack_id && isDir && treePath === '' ? <FolderKanban className="size-3.5 text-[var(--accent)]" /> : <Icon className="size-3.5" />}
-                      <span className="truncate">{entry.name}</span>
+                      <span className="min-w-0 flex-1 truncate text-left">{entry.name}</span>
+                      {entry.git_ignored && <span aria-hidden="true" className="shrink-0 rounded border border-[var(--panel-border)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]">ignored</span>}
                     </button>
                   )
                 })}
@@ -437,6 +438,7 @@ export function ConfigPage() {
                     <div className="flex items-center gap-2">
                       <h3 className="text-lg font-medium text-[var(--text)]">{selectedFile.name}</h3>
                       <span className="rounded-full border border-[var(--panel-border)] px-2 py-0.5 text-xs text-[var(--muted)]">{selectedFile.type.replace('_', ' ')}</span>
+                      {selectedFile.git_ignored && <span className="rounded-full border border-[var(--panel-border)] px-2 py-0.5 text-xs text-[var(--muted)]">ignored</span>}
                     </div>
                     <div className="mt-1 flex items-center gap-3 text-xs text-[var(--muted)]">
                       <span>{selectedFile.path}</span>

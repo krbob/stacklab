@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"sort"
@@ -28,6 +29,7 @@ var (
 )
 
 type Service struct {
+	repoRoot      string
 	workspaceRoot string
 	repairer      permissionRepairer
 }
@@ -38,19 +40,22 @@ type permissionRepairer interface {
 }
 
 func NewService(cfg config.Config) *Service {
-	root := filepath.Join(cfg.RootDir, "config")
+	repoRoot := cfg.RootDir
+	if absolute, err := filepath.Abs(repoRoot); err == nil {
+		repoRoot = absolute
+	}
+	root := filepath.Join(repoRoot, "config")
 	if absolute, err := filepath.Abs(root); err == nil {
 		root = absolute
 	}
 	return &Service{
+		repoRoot:      repoRoot,
 		workspaceRoot: root,
 		repairer:      workspacerepair.NewService(cfg),
 	}
 }
 
 func (s *Service) Tree(ctx context.Context, currentPath string) (TreeResponse, error) {
-	_ = ctx
-
 	if err := os.MkdirAll(s.workspaceRoot, 0o755); err != nil {
 		return TreeResponse{}, fmt.Errorf("create config workspace root: %w", err)
 	}
@@ -124,6 +129,7 @@ func (s *Service) Tree(ctx context.Context, currentPath string) (TreeResponse, e
 			Permissions: permissions,
 		})
 	}
+	s.markGitIgnored(ctx, items)
 
 	sort.Slice(items, func(i, j int) bool {
 		leftDir := items[i].Type == EntryTypeDirectory
@@ -150,8 +156,6 @@ func (s *Service) Tree(ctx context.Context, currentPath string) (TreeResponse, e
 }
 
 func (s *Service) File(ctx context.Context, filePath string) (FileResponse, error) {
-	_ = ctx
-
 	normalized, err := normalizeRequiredFilePath(filePath)
 	if err != nil {
 		return FileResponse{}, err
@@ -188,6 +192,7 @@ func (s *Service) File(ctx context.Context, filePath string) (FileResponse, erro
 		StackID:          deriveStackID(normalized),
 		SizeBytes:        info.Size(),
 		ModifiedAt:       info.ModTime().UTC(),
+		GitIgnored:       s.isGitIgnored(ctx, normalized, false),
 		Readable:         readable,
 		Writable:         entryType == EntryTypeTextFile && readable && permissions.Writable,
 		BlockedReason:    blockedReason,
@@ -216,6 +221,78 @@ func (s *Service) File(ctx context.Context, filePath string) (FileResponse, erro
 
 	response.Writable = false
 	return response, nil
+}
+
+func (s *Service) markGitIgnored(ctx context.Context, items []TreeEntry) {
+	ignored := s.gitIgnoredPaths(ctx, items)
+	for index := range items {
+		items[index].GitIgnored = ignored[items[index].Path]
+	}
+}
+
+func (s *Service) isGitIgnored(ctx context.Context, relativePath string, isDir bool) bool {
+	entryType := EntryTypeTextFile
+	if isDir {
+		entryType = EntryTypeDirectory
+	}
+	ignored := s.gitIgnoredPaths(ctx, []TreeEntry{{
+		Path: relativePath,
+		Type: entryType,
+	}})
+	return ignored[relativePath]
+}
+
+func (s *Service) gitIgnoredPaths(ctx context.Context, items []TreeEntry) map[string]bool {
+	ignored := make(map[string]bool)
+	if len(items) == 0 || strings.TrimSpace(s.repoRoot) == "" {
+		return ignored
+	}
+
+	repoToConfigPath := make(map[string]string, len(items))
+	var stdin strings.Builder
+	for _, item := range items {
+		if item.Path == "" {
+			continue
+		}
+		repoPath := path.Join("config", item.Path)
+		repoToConfigPath[repoPath] = item.Path
+		stdin.WriteString(repoPath)
+		stdin.WriteByte('\n')
+		if item.Type == EntryTypeDirectory {
+			dirPath := repoPath + "/"
+			repoToConfigPath[dirPath] = item.Path
+			stdin.WriteString(dirPath)
+			stdin.WriteByte('\n')
+		}
+	}
+	if len(repoToConfigPath) == 0 {
+		return ignored
+	}
+
+	command := exec.CommandContext(ctx, "git", "-C", s.repoRoot, "check-ignore", "--stdin")
+	command.Stdin = strings.NewReader(stdin.String())
+	output, err := command.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			return ignored
+		}
+		return ignored
+	}
+
+	lines := strings.Split(strings.ReplaceAll(string(output), "\r\n", "\n"), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		if relativePath, ok := repoToConfigPath[line]; ok {
+			ignored[relativePath] = true
+			continue
+		}
+		if relativePath, ok := repoToConfigPath[strings.TrimSuffix(line, "/")]; ok {
+			ignored[relativePath] = true
+		}
+	}
+	return ignored
 }
 
 func (s *Service) SaveFile(ctx context.Context, request SaveFileRequest) (SaveFileResponse, error) {

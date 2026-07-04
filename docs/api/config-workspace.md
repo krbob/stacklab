@@ -95,6 +95,7 @@ Response:
       "size_bytes": 1782,
       "modified_at": "2026-04-04T12:00:00Z",
       "stack_id": "nextcloud",
+      "git_ignored": false,
       "permissions": {
         "owner_uid": 1000,
         "owner_name": "bob",
@@ -112,6 +113,7 @@ Response:
       "size_bytes": 0,
       "modified_at": "2026-04-04T11:55:00Z",
       "stack_id": "nextcloud",
+      "git_ignored": true,
       "permissions": {
         "owner_uid": 1000,
         "owner_name": "bob",
@@ -130,6 +132,7 @@ Notes:
 
 - the response is directory-scoped, not a full recursive tree
 - `stack_id` is derived from the first path segment when it matches a stack directory convention
+- `git_ignored` indicates whether Git ignores the entry based on the repository ignore rules
 - each item includes `permissions` for the current file or directory inode
 - sorting should be deterministic:
   - directories first

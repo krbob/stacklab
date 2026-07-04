@@ -1944,9 +1944,11 @@ components:
         stack_id:
           type: string
           nullable: true
+        git_ignored:
+          type: boolean
         permissions:
           $ref: '#/components/schemas/FilePermissions'
-      required: [name, path, type, size_bytes, modified_at, permissions]
+      required: [name, path, type, size_bytes, modified_at, git_ignored, permissions]
     ConfigFileResponse:
       type: object
       properties:
@@ -1970,6 +1972,8 @@ components:
         modified_at:
           type: string
           format: date-time
+        git_ignored:
+          type: boolean
         readable:
           type: boolean
         writable:
@@ -1979,7 +1983,7 @@ components:
           nullable: true
         permissions:
           $ref: '#/components/schemas/FilePermissions'
-      required: [path, name, type, size_bytes, modified_at, readable, writable, permissions]
+      required: [path, name, type, size_bytes, modified_at, git_ignored, readable, writable, permissions]
     ConfigFileSaveRequest:
       type: object
       properties:

@@ -64,6 +64,7 @@ const rootTree: ConfigTreeResponse = {
       size_bytes: 0,
       modified_at: '2026-04-04T12:00:00Z',
       stack_id: 'demo',
+      git_ignored: false,
       permissions: {
         owner_uid: 1000,
         owner_name: 'bob',
@@ -89,6 +90,7 @@ const demoTree: ConfigTreeResponse = {
       size_bytes: 20,
       modified_at: '2026-04-04T12:00:00Z',
       stack_id: 'demo',
+      git_ignored: false,
       permissions: {
         owner_uid: 1000,
         owner_name: 'bob',
@@ -111,6 +113,7 @@ const fileBefore: ConfigFileResponse = {
   encoding: 'utf-8',
   size_bytes: 24,
   modified_at: '2026-04-04T12:00:00Z',
+  git_ignored: false,
   readable: true,
   writable: true,
   blocked_reason: null,
@@ -198,6 +201,7 @@ const blockedFile: ConfigFileResponse = {
   encoding: null,
   size_bytes: 12,
   modified_at: '2026-04-04T12:00:00Z',
+  git_ignored: false,
   readable: false,
   writable: false,
   blocked_reason: 'not_readable',
@@ -349,6 +353,40 @@ describe('ConfigPage', () => {
     expect(mockGetConfigFile).toHaveBeenLastCalledWith('demo/app.conf')
   })
 
+  it('marks git-ignored config entries and selected files', async () => {
+    mockGetConfigTree.mockResolvedValue({
+      ...rootTree,
+      items: [
+        {
+          name: 'ignored.env',
+          path: 'ignored.env',
+          type: 'text_file',
+          size_bytes: 12,
+          modified_at: '2026-04-04T12:00:00Z',
+          stack_id: null,
+          git_ignored: true,
+          permissions: rootTree.items[0].permissions,
+        },
+      ],
+    })
+    mockGetConfigFile.mockResolvedValue({
+      ...fileBefore,
+      path: 'ignored.env',
+      name: 'ignored.env',
+      stack_id: null,
+      git_ignored: true,
+    })
+
+    renderPage()
+
+    const ignoredButton = await screen.findByRole('button', { name: 'ignored.env' })
+    expect(ignoredButton).toHaveTextContent('ignored')
+    fireEvent.click(ignoredButton)
+
+    expect(await screen.findByLabelText('yaml-editor')).toBeInTheDocument()
+    expect(screen.getAllByText('ignored')).toHaveLength(2)
+  })
+
   it('renders Changes mode and opens a diff, then switches back to editor', async () => {
     mockGetConfigFile.mockResolvedValue(fileBefore)
 
@@ -423,6 +461,7 @@ describe('ConfigPage', () => {
             size_bytes: 4096,
             modified_at: '2026-04-04T12:00:00Z',
             stack_id: 'demo',
+            git_ignored: false,
             permissions: {
               owner_uid: 1000,
               owner_name: 'bob',
@@ -444,6 +483,7 @@ describe('ConfigPage', () => {
       encoding: null,
       size_bytes: 4096,
       modified_at: '2026-04-04T12:00:00Z',
+      git_ignored: false,
       readable: true,
       writable: false,
       blocked_reason: null,
@@ -535,6 +575,7 @@ describe('ConfigPage', () => {
             size_bytes: 12,
             modified_at: '2026-04-04T12:00:00Z',
             stack_id: 'demo',
+            git_ignored: false,
             permissions: blockedFile.permissions,
           },
         ],

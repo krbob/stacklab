@@ -30,6 +30,7 @@ type TreeEntry struct {
 	SizeBytes   int64              `json:"size_bytes"`
 	ModifiedAt  time.Time          `json:"modified_at"`
 	StackID     *string            `json:"stack_id"`
+	GitIgnored  bool               `json:"git_ignored"`
 	Permissions fsmeta.Permissions `json:"permissions"`
 }
 
@@ -42,6 +43,7 @@ type FileResponse struct {
 	Encoding         *string                    `json:"encoding"`
 	SizeBytes        int64                      `json:"size_bytes"`
 	ModifiedAt       time.Time                  `json:"modified_at"`
+	GitIgnored       bool                       `json:"git_ignored"`
 	Readable         bool                       `json:"readable"`
 	Writable         bool                       `json:"writable"`
 	BlockedReason    *string                    `json:"blocked_reason"`
