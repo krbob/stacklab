@@ -246,6 +246,13 @@ func (s *Store) migrate(ctx context.Context) error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_job_events_job_sequence ON job_events (job_id, sequence ASC);`,
 		`CREATE INDEX IF NOT EXISTS idx_job_events_timestamp ON job_events (timestamp);`,
+		`CREATE TABLE IF NOT EXISTS image_update_status (
+			image_ref TEXT PRIMARY KEY,
+			local_digest TEXT,
+			remote_digest TEXT,
+			state TEXT NOT NULL,
+			checked_at TEXT NOT NULL
+		);`,
 		`CREATE TABLE IF NOT EXISTS audit_entries (
 			id TEXT PRIMARY KEY,
 			stack_id TEXT,
@@ -270,16 +277,6 @@ func (s *Store) migrate(ctx context.Context) error {
 			return fmt.Errorf("migrate sqlite store: %w", err)
 		}
 	}
-
-	statements = append(statements,
-		`CREATE TABLE IF NOT EXISTS image_update_status (
-			image_ref TEXT PRIMARY KEY,
-			local_digest TEXT,
-			remote_digest TEXT,
-			state TEXT NOT NULL,
-			checked_at TEXT NOT NULL
-		);`,
-	)
 
 	// Additive columns on existing tables: SQLite has no ADD COLUMN IF NOT
 	// EXISTS, so tolerate the duplicate-column error on re-runs.
