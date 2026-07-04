@@ -7,6 +7,7 @@ import { YamlEditor } from '@/components/yaml-editor'
 import { DiffView } from '@/components/diff-view'
 import { GitCommitBar } from '@/components/git-commit-bar'
 import { BlockedFileCard } from '@/components/blocked-file-card'
+import { BottomSheet } from '@/components/bottom-sheet'
 import { cn } from '@/lib/cn'
 
 type Mode = 'files' | 'changes'
@@ -29,6 +30,7 @@ const statusPrefixes: Record<string, { letter: string; color: string }> = {
 
 export function ConfigPage() {
   const [mode, setMode] = useState<Mode>('files')
+  const [sheetOpen, setSheetOpen] = useState(false)
 
   // --- Files mode state ---
   const [treePath, setTreePath] = useState('')
@@ -109,6 +111,7 @@ export function ConfigPage() {
     } finally {
       setFileLoading(false)
     }
+    setSheetOpen(false)
   }, [])
 
   const navigateDir = useCallback((path: string) => {
@@ -201,6 +204,7 @@ export function ConfigPage() {
     } finally {
       setDiffLoading(false)
     }
+    setSheetOpen(false)
   }, [])
 
   const groupedGitItems = useMemo(() => {
@@ -254,8 +258,8 @@ export function ConfigPage() {
 
   return (
     <div className="flex flex-col gap-4 lg:flex-row" style={{ minHeight: 'calc(100vh - 120px)' }}>
-      {/* Left panel: full-width block above the editor on mobile, sidebar on lg+ */}
-      <div className="flex max-h-[50vh] w-full shrink-0 flex-col overflow-y-auto rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-[var(--shadow)] lg:max-h-none lg:w-64 lg:overflow-visible">
+      {/* Workspace panel: desktop sidebar; on mobile a bottom sheet */}
+      <div className="hidden w-64 shrink-0 flex-col rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-[var(--shadow)] lg:flex">
         <div className="mb-3 text-xs uppercase tracking-wider text-[var(--accent)]">Config workspace</div>
         <p className="mb-3 text-xs text-[var(--muted)]">
           Files here live under <span className="font-mono">{workspaceRoot ?? 'the managed config root'}</span>. They are only used when a stack mounts or references them.
@@ -411,6 +415,176 @@ export function ConfigPage() {
           </>
         )}
       </div>
+
+      <button
+        type="button"
+        data-testid="config-open-tree"
+        onClick={() => setSheetOpen(true)}
+        className="flex items-center justify-between rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-2.5 text-sm text-[var(--text)] lg:hidden"
+      >
+        <span className="font-mono text-xs uppercase tracking-wider text-[var(--accent)]">
+          {mode === 'files' ? 'Files' : 'Changes'}
+        </span>
+        <span className="min-w-0 truncate pl-3 font-mono text-xs text-[var(--muted)]">
+          {mode === 'files' ? (selectedFile?.path ?? 'Browse…') : (selectedChangePath ?? 'Browse…')} ▾
+        </span>
+      </button>
+      <BottomSheet open={sheetOpen} onClose={() => setSheetOpen(false)} label="Config workspace">
+        <div className="mb-3 text-xs uppercase tracking-wider text-[var(--accent)]">Config workspace</div>
+        <p className="mb-3 text-xs text-[var(--muted)]">
+          Files here live under <span className="font-mono">{workspaceRoot ?? 'the managed config root'}</span>. They are only used when a stack mounts or references them.
+        </p>
+
+        {/* Mode toggle */}
+        <div className="mb-3 flex gap-1">
+          <button
+            onClick={() => handleModeSwitch('files')}
+            className={cn(
+              'flex-1 rounded-md border px-3 py-1.5 text-xs transition',
+              mode === 'files'
+                ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
+                : 'border-[var(--panel-border)] text-[var(--muted)]',
+            )}
+          >
+            Files
+          </button>
+          <button
+            onClick={() => handleModeSwitch('changes')}
+            disabled={!gitAvailable && !gitLoading}
+            title={!gitAvailable ? (gitReason ?? 'Git not available') : undefined}
+            className={cn(
+              'flex-1 rounded-md border px-3 py-1.5 text-xs transition disabled:opacity-40',
+              mode === 'changes'
+                ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
+                : 'border-[var(--panel-border)] text-[var(--muted)]',
+            )}
+          >
+            Changes{gitItems.length > 0 && ` (${gitItems.length})`}
+          </button>
+        </div>
+
+        {/* Files mode tree */}
+        {mode === 'files' && (
+          <>
+            {treeLoading && (
+              <div className="space-y-2">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-6 animate-pulse rounded bg-[rgba(255,255,255,0.05)]" />
+                ))}
+              </div>
+            )}
+            {treeError && <p className="text-xs text-[var(--danger)]">{treeError}</p>}
+            {!treeLoading && !treeError && (
+              <nav className="flex-1 space-y-0.5 overflow-y-auto">
+                {parentPath !== null && (
+                  <button onClick={() => navigateDir(parentPath)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-[var(--muted)] transition hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]">
+                    <Folder className="size-3.5" /><span>.. (up)</span>
+                  </button>
+                )}
+                {treeEntries.map((entry) => {
+                  const Icon = entryIcons[entry.type] ?? File
+                  const isDir = entry.type === 'directory'
+                  const isSelected = selectedFile?.path === entry.path
+                  return (
+                    <button key={entry.path} onClick={() => isDir ? navigateDir(entry.path) : openFile(entry.path)} className={cn('flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition', isSelected ? 'bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'text-[var(--muted)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]', entry.git_ignored && !isSelected && 'opacity-55')}>
+                      {entry.stack_id && isDir && treePath === '' ? <FolderKanban className="size-3.5 text-[var(--accent)]" /> : <Icon className="size-3.5" />}
+                      <span className="min-w-0 flex-1 truncate text-left">{entry.name}</span>
+                      {entry.git_ignored && <span aria-hidden="true" className="shrink-0 rounded border border-[var(--panel-border)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]">ignored</span>}
+                    </button>
+                  )
+                })}
+                {treeEntries.length === 0 && <p className="px-2 py-4 text-xs text-[var(--muted)]">Empty directory</p>}
+                {!creatingFile && (
+                  <button onClick={() => { setCreatingFile(true); setNewFileName('') }} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-[var(--muted)] transition hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]">
+                    <Plus className="size-3.5" /><span>New file</span>
+                  </button>
+                )}
+                {creatingFile && (
+                  <div className="flex items-center gap-1 px-2 py-1">
+                    <input type="text" value={newFileName} onChange={(e) => setNewFileName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFile(); if (e.key === 'Escape') setCreatingFile(false) }} placeholder="filename" autoFocus className="w-full rounded border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
+                  </div>
+                )}
+              </nav>
+            )}
+          </>
+        )}
+
+        {/* Changes mode list */}
+        {mode === 'changes' && (
+          <>
+            {gitLoading && (
+              <div className="space-y-2">
+                {[1, 2, 3].map((i) => <div key={i} className="h-6 animate-pulse rounded bg-[rgba(255,255,255,0.05)]" />)}
+              </div>
+            )}
+            {gitError && <p className="text-xs text-[var(--danger)]">{gitError}</p>}
+            {!gitLoading && !gitError && gitAvailable && (
+              <div className="flex-1 space-y-2 overflow-y-auto">
+                {gitBranch && (
+                  <div className="flex items-center gap-2 px-2 py-1 text-xs text-[var(--muted)]">
+                    <GitBranch className="size-3" />
+                    <span>{gitBranch}</span>
+                    {gitAhead > 0 && <span className="text-[var(--warning)]">+{gitAhead}</span>}
+                  </div>
+                )}
+                {gitClean && <p className="px-2 py-4 text-xs text-[var(--muted)]">Working tree clean</p>}
+                {Array.from(groupedGitItems.entries()).map(([groupKey, items]) => {
+                  const committablePaths = items.filter((i) => i.commit_allowed).map((i) => i.path)
+                  const allGroupSelected = committablePaths.length > 0 && committablePaths.every((p) => selectedGitPaths.has(p))
+                  return (
+                    <div key={groupKey}>
+                      <button
+                        onClick={() => toggleGroupPaths(groupKey)}
+                        className="flex w-full items-center gap-2 px-2 py-1 text-xs font-medium text-[var(--text)] hover:bg-[rgba(255,255,255,0.03)]"
+                      >
+                        <input type="checkbox" checked={allGroupSelected} readOnly className="rounded pointer-events-none" />
+                        {groupKey === '__other__' ? 'Other' : groupKey}
+                        <span className="text-[var(--muted)]">({items.length})</span>
+                      </button>
+                      {items.map((item) => {
+                        const prefix = statusPrefixes[item.status]
+                        const fileName = item.path.split('/').pop() ?? item.path
+                        const isDiffSelected = selectedChangePath === item.path
+                        const isChecked = selectedGitPaths.has(item.path)
+                        const isBlocked = !item.commit_allowed
+                        return (
+                          <div key={item.path} className={cn('flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition', isDiffSelected ? 'bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'text-[var(--muted)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]')}>
+                            <input type="checkbox" checked={isChecked} onChange={() => toggleGitPath(item.path)} disabled={isBlocked} title={isBlocked ? 'File cannot be committed — permissions blocked' : undefined} className="rounded shrink-0 disabled:opacity-30" />
+                            <button onClick={() => openDiff(item.path)} className="flex min-w-0 flex-1 items-center gap-1">
+                              {prefix && <span className={cn('w-3 shrink-0 font-mono font-bold', prefix.color)}>{prefix.letter}</span>}
+                              <span className={cn('truncate', isBlocked && 'opacity-50')}>{fileName}</span>
+                              {isBlocked && <span className="shrink-0 text-[var(--warning)]" title="Access blocked">⚠</span>}
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )
+                })}
+                <button onClick={loadGitStatus} className="mt-2 flex w-full items-center justify-center rounded-lg px-2 py-1.5 text-xs text-[var(--muted)] transition hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]">
+                  Refresh
+                </button>
+
+                {/* Commit bar */}
+                {!gitClean && (
+                  <GitCommitBar
+                    selectedPaths={selectedGitPaths}
+                    hasUpstream={gitHasUpstream}
+                    aheadCount={gitAhead}
+                    onCommitted={loadGitStatus}
+                    onPushed={loadGitStatus}
+                  />
+                )}
+              </div>
+            )}
+            {!gitLoading && !gitAvailable && (
+              <p className="px-2 py-4 text-xs text-[var(--muted)]">
+                {gitReason === 'not_a_git_repository' ? 'Not a Git repository. Initialize Git to track changes.' : gitReason ?? 'Git not available'}
+              </p>
+            )}
+          </>
+        )}
+      </BottomSheet>
 
       {/* Right panel */}
       <div className="flex min-w-0 flex-1 flex-col rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
