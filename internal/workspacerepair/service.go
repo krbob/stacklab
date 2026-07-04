@@ -21,16 +21,29 @@ var ErrUnsupported = errors.New("workspace permission repair is not supported")
 type commandRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
 
 type Service struct {
-	helperPath string
-	useSudo    bool
-	runCommand commandRunner
+	helperPath     string
+	useSudo        bool
+	repairStrategy string
+	runCommand     commandRunner
 }
 
 func NewService(cfg config.Config) *Service {
 	return &Service{
-		helperPath: strings.TrimSpace(cfg.WorkspaceAdminHelperPath),
-		useSudo:    cfg.WorkspaceAdminUseSudo,
-		runCommand: defaultCommandRunner,
+		helperPath:     strings.TrimSpace(cfg.WorkspaceAdminHelperPath),
+		useSudo:        cfg.WorkspaceAdminUseSudo,
+		repairStrategy: normalizeRepairStrategy(cfg.WorkspaceAdminRepairStrategy),
+		runCommand:     defaultCommandRunner,
+	}
+}
+
+func normalizeRepairStrategy(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "ownership":
+		return "ownership"
+	case "acl":
+		return "acl"
+	default:
+		return "ownership"
 	}
 }
 
@@ -61,7 +74,11 @@ func (s *Service) Capability(ctx context.Context) Capability {
 	if s.useSudo {
 		probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
-		output, err := s.runHelperCommand(probeCtx, "probe")
+		args := []string{"probe"}
+		if s.repairStrategy != "ownership" {
+			args = append(args, "--strategy", s.repairStrategy)
+		}
+		output, err := s.runHelperCommand(probeCtx, args...)
 		if err != nil {
 			message := strings.TrimSpace(string(output))
 			lower := strings.ToLower(message)
@@ -103,6 +120,9 @@ func (s *Service) Repair(ctx context.Context, targetPath string, recursive bool)
 	before := fsmeta.Inspect(targetPath, infoBefore)
 
 	args := []string{"repair", "--path", targetPath}
+	if s.repairStrategy != "ownership" {
+		args = append(args, "--strategy", s.repairStrategy)
+	}
 	if recursive {
 		args = append(args, "--recursive")
 	}

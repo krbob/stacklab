@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -16,7 +17,14 @@ import (
 const (
 	defaultStacklabRoot = "/opt/stacklab"
 	envFilePath         = "/etc/stacklab/stacklab.env"
+
+	repairStrategyOwnership = "ownership"
+	repairStrategyACL       = "acl"
 )
+
+var runACLCommand = func(name string, args ...string) ([]byte, error) {
+	return exec.Command(name, args...).CombinedOutput()
+}
 
 type emittedError struct {
 	error
@@ -55,14 +63,26 @@ func main() {
 }
 
 func runProbe(args []string) error {
+	var strategy string
+
 	flags := flag.NewFlagSet("probe", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
+	flags.StringVar(&strategy, "strategy", repairStrategyOwnership, "repair strategy: ownership or acl")
 	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	strategy = normalizeRepairStrategy(strategy)
+	if strategy == "" {
+		return errors.New("strategy must be ownership or acl")
 	}
 
 	if _, err := loadStacklabRoot(); err != nil {
 		return err
+	}
+	if strategy == repairStrategyACL {
+		if _, err := exec.LookPath("setfacl"); err != nil {
+			return fmt.Errorf("setfacl is required for ACL workspace repair: %w", err)
+		}
 	}
 
 	emitResult(repairResult{ChangedItems: 0})
@@ -72,16 +92,22 @@ func runProbe(args []string) error {
 func runRepair(args []string) error {
 	var targetPath string
 	var recursive bool
+	var strategy string
 
 	flags := flag.NewFlagSet("repair", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	flags.StringVar(&targetPath, "path", "", "absolute target path within managed roots")
 	flags.BoolVar(&recursive, "recursive", false, "repair recursively when target is a directory")
+	flags.StringVar(&strategy, "strategy", repairStrategyOwnership, "repair strategy: ownership or acl")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if !filepath.IsAbs(targetPath) {
 		return errors.New("path must be absolute")
+	}
+	strategy = normalizeRepairStrategy(strategy)
+	if strategy == "" {
+		return errors.New("strategy must be ownership or acl")
 	}
 
 	stacklabRoot, err := loadStacklabRoot()
@@ -98,7 +124,15 @@ func runRepair(args []string) error {
 		return err
 	}
 
-	changed, err := repairManagedPath(resolvedTarget, uid, gid, recursive)
+	var changed int
+	switch strategy {
+	case repairStrategyOwnership:
+		changed, err = repairManagedPath(resolvedTarget, uid, gid, recursive)
+	case repairStrategyACL:
+		changed, err = repairManagedPathACL(resolvedTarget, uid, recursive)
+	default:
+		err = errors.New("strategy must be ownership or acl")
+	}
 	if err != nil {
 		emitResult(repairResult{
 			ChangedItems: changed,
@@ -109,6 +143,17 @@ func runRepair(args []string) error {
 
 	emitResult(repairResult{ChangedItems: changed})
 	return nil
+}
+
+func normalizeRepairStrategy(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", repairStrategyOwnership:
+		return repairStrategyOwnership
+	case repairStrategyACL:
+		return repairStrategyACL
+	default:
+		return ""
+	}
 }
 
 func loadStacklabRoot() (string, error) {
@@ -260,6 +305,69 @@ func repairManagedPath(targetPath string, uid, gid int, recursive bool) (int, er
 		return changedItems, err
 	}
 	return changedItems, nil
+}
+
+func repairManagedPathACL(targetPath string, uid int, recursive bool) (int, error) {
+	info, err := os.Lstat(targetPath)
+	if err != nil {
+		return 0, fmt.Errorf("lstat target path: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return 0, errors.New("symlinks are not supported in permission repair")
+	}
+
+	if !info.IsDir() || !recursive {
+		if err := grantACL(targetPath, info, uid); err != nil {
+			return 0, err
+		}
+		return 1, nil
+	}
+
+	changedItems := 0
+	err = filepath.WalkDir(targetPath, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return errors.New("symlinks are not supported in permission repair")
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if err := grantACL(path, info, uid); err != nil {
+			return err
+		}
+		changedItems++
+		return nil
+	})
+	if err != nil {
+		return changedItems, err
+	}
+	return changedItems, nil
+}
+
+func grantACL(path string, info os.FileInfo, uid int) error {
+	if !info.Mode().IsRegular() && !info.IsDir() {
+		return fmt.Errorf("unsupported file type at %s", path)
+	}
+
+	entry := fmt.Sprintf("u:%d:rwX", uid)
+	args := []string{"-m", entry, path}
+	if info.IsDir() {
+		defaultEntry := fmt.Sprintf("d:u:%d:rwX", uid)
+		args = []string{"-m", entry, "-m", defaultEntry, path}
+	}
+
+	output, err := runACLCommand("setfacl", args...)
+	if err != nil {
+		message := strings.TrimSpace(string(output))
+		if message == "" {
+			message = err.Error()
+		}
+		return fmt.Errorf("setfacl %s: %s", path, message)
+	}
+	return nil
 }
 
 func repairOne(path string, info os.FileInfo, uid, gid int) (int, error) {

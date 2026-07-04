@@ -118,6 +118,40 @@ func TestRepairReturnsBeforeAndAfterPermissions(t *testing.T) {
 	}
 }
 
+func TestRepairPassesACLStrategyToHelper(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	targetPath := filepath.Join(tempDir, "demo.conf")
+	if err := os.WriteFile(targetPath, []byte("hello\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(target) error = %v", err)
+	}
+	helperPath := filepath.Join(tempDir, "helper")
+	if err := os.WriteFile(helperPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile(helper) error = %v", err)
+	}
+
+	service := NewService(config.Config{
+		WorkspaceAdminHelperPath:     helperPath,
+		WorkspaceAdminUseSudo:        true,
+		WorkspaceAdminRepairStrategy: "acl",
+	})
+	service.runCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		if len(args) >= 5 && args[4] == "probe" {
+			return []byte(`{"changed_items":0}`), nil
+		}
+		joined := strings.Join(args, " ")
+		if !strings.Contains(joined, " --strategy acl") {
+			t.Fatalf("repair command did not include ACL strategy: %#v", args)
+		}
+		return []byte(`{"changed_items":1}`), nil
+	}
+
+	if _, err := service.Repair(context.Background(), targetPath, false); err != nil {
+		t.Fatalf("Repair() error = %v", err)
+	}
+}
+
 func TestParseRepairOutputFromLastJSONLine(t *testing.T) {
 	t.Parallel()
 

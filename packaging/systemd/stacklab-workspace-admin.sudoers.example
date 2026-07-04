@@ -1,3 +1,4 @@
 Defaults:stacklab !requiretty
+Defaults:stacklab env_keep += "STACKLAB_ROOT"
 
 stacklab ALL=(root) NOPASSWD: /usr/lib/stacklab/bin/stacklab-workspace-admin-helper
