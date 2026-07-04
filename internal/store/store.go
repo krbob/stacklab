@@ -101,7 +101,19 @@ type JobEvent struct {
 	Message   string        `json:"message,omitempty"`
 	Data      string        `json:"data,omitempty"`
 	Step      *JobEventStep `json:"step,omitempty"`
+	Progress  *JobProgress  `json:"progress,omitempty"`
 	Timestamp time.Time     `json:"timestamp"`
+}
+
+// JobProgress is the structured progress payload for pull/build-heavy steps
+// (dashboard read-model contract, Slice C). Additive: events without progress
+// keep their existing shape.
+type JobProgress struct {
+	Phase     string `json:"phase"`
+	Completed int    `json:"completed"`
+	Total     int    `json:"total"`
+	Unit      string `json:"unit"`
+	Detail    string `json:"detail,omitempty"`
 }
 
 type JobEventStep struct {
@@ -256,6 +268,17 @@ func (s *Store) migrate(ctx context.Context) error {
 	for _, statement := range statements {
 		if _, err := s.db.ExecContext(ctx, statement); err != nil {
 			return fmt.Errorf("migrate sqlite store: %w", err)
+		}
+	}
+
+	// Additive columns on existing tables: SQLite has no ADD COLUMN IF NOT
+	// EXISTS, so tolerate the duplicate-column error on re-runs.
+	additiveColumns := []string{
+		`ALTER TABLE job_events ADD COLUMN progress_json TEXT`,
+	}
+	for _, statement := range additiveColumns {
+		if _, err := s.db.ExecContext(ctx, statement); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("migrate sqlite store (additive column): %w", err)
 		}
 	}
 
@@ -594,10 +617,19 @@ func (s *Store) CreateJobEvent(ctx context.Context, event JobEvent) error {
 		stepJSON = sql.NullString{String: string(encoded), Valid: true}
 	}
 
+	progressJSON := sql.NullString{}
+	if event.Progress != nil {
+		encoded, err := json.Marshal(event.Progress)
+		if err != nil {
+			return fmt.Errorf("marshal job event progress: %w", err)
+		}
+		progressJSON = sql.NullString{String: string(encoded), Valid: true}
+	}
+
 	_, err := s.db.ExecContext(
 		ctx,
-		`INSERT INTO job_events (job_id, sequence, event, state, message, data, step_json, timestamp)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO job_events (job_id, sequence, event, state, message, data, step_json, progress_json, timestamp)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		event.JobID,
 		event.Sequence,
 		event.Event,
@@ -605,6 +637,7 @@ func (s *Store) CreateJobEvent(ctx context.Context, event JobEvent) error {
 		nullIfEmpty(event.Message),
 		nullIfEmpty(event.Data),
 		stepJSON,
+		progressJSON,
 		event.Timestamp.UTC().Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -617,7 +650,7 @@ func (s *Store) CreateJobEvent(ctx context.Context, event JobEvent) error {
 func (s *Store) ListJobEvents(ctx context.Context, jobID string) ([]JobEvent, error) {
 	rows, err := s.db.QueryContext(
 		ctx,
-		`SELECT job_id, sequence, event, state, message, data, step_json, timestamp
+		`SELECT job_id, sequence, event, state, message, data, step_json, progress_json, timestamp
 		 FROM job_events
 		 WHERE job_id = ?
 		 ORDER BY sequence ASC`,
@@ -646,7 +679,7 @@ func (s *Store) ListJobEvents(ctx context.Context, jobID string) ([]JobEvent, er
 func (s *Store) LatestJobEvent(ctx context.Context, jobID string) (JobEvent, bool, error) {
 	row := s.db.QueryRowContext(
 		ctx,
-		`SELECT job_id, sequence, event, state, message, data, step_json, timestamp
+		`SELECT job_id, sequence, event, state, message, data, step_json, progress_json, timestamp
 		 FROM job_events
 		 WHERE job_id = ?
 		 ORDER BY sequence DESC
@@ -1012,6 +1045,7 @@ func scanJobEvent(scanner interface{ Scan(dest ...any) error }) (JobEvent, error
 	var rawMessage sql.NullString
 	var rawData sql.NullString
 	var rawStepJSON sql.NullString
+	var rawProgressJSON sql.NullString
 	var rawTimestamp string
 
 	event := JobEvent{}
@@ -1023,6 +1057,7 @@ func scanJobEvent(scanner interface{ Scan(dest ...any) error }) (JobEvent, error
 		&rawMessage,
 		&rawData,
 		&rawStepJSON,
+		&rawProgressJSON,
 		&rawTimestamp,
 	)
 	if err != nil {
@@ -1041,6 +1076,13 @@ func scanJobEvent(scanner interface{ Scan(dest ...any) error }) (JobEvent, error
 			return JobEvent{}, fmt.Errorf("unmarshal job event step: %w", err)
 		}
 		event.Step = &step
+	}
+	if rawProgressJSON.Valid {
+		var progress JobProgress
+		if err := json.Unmarshal([]byte(rawProgressJSON.String), &progress); err != nil {
+			return JobEvent{}, fmt.Errorf("unmarshal job event progress: %w", err)
+		}
+		event.Progress = &progress
 	}
 
 	timestamp, err := time.Parse(time.RFC3339Nano, rawTimestamp)

@@ -20,6 +20,7 @@ type stackReader interface {
 	Get(ctx context.Context, stackID string) (stacks.StackDetailResponse, error)
 	MaintenanceNeedsBuild(ctx context.Context, stackID string) (bool, error)
 	RunMaintenanceStep(ctx context.Context, stackID, action string, options stacks.MaintenanceStepOptions) (string, error)
+	RunMaintenanceStepStreaming(ctx context.Context, stackID, action string, options stacks.MaintenanceStepOptions, onProgress func(stacks.StepProgress)) (string, error)
 }
 
 type pruneRunner interface {
@@ -119,7 +120,9 @@ func (s *Service) RunUpdate(ctx context.Context, request UpdateRequest, requeste
 	}
 
 	for index, step := range workflow {
-		output, runErr := s.runUpdateWorkflowStep(ctx, step, request.Options)
+		stepRef := workflowStepRef(workflow, index)
+		onProgress := s.progressPublisher(ctx, job, step, stepRef)
+		output, runErr := s.runUpdateWorkflowStep(ctx, step, request.Options, onProgress)
 		if trimmed := strings.TrimSpace(output); trimmed != "" {
 			_ = s.jobs.PublishEvent(ctx, job, "job_log", updateStepMessage("Output", step), trimmed, workflowStepRef(workflow, index))
 		}
@@ -236,13 +239,38 @@ func (s *Service) buildUpdateWorkflow(ctx context.Context, stackIDs []string, op
 	return steps, nil
 }
 
-func (s *Service) runUpdateWorkflowStep(ctx context.Context, step store.JobWorkflowStep, options UpdateOptions) (string, error) {
+func (s *Service) runUpdateWorkflowStep(ctx context.Context, step store.JobWorkflowStep, options UpdateOptions, onProgress func(stacks.StepProgress)) (string, error) {
 	if step.Action == "prune" {
 		return s.maintenance.RunSystemPrune(ctx, options.IncludeVolumes)
 	}
-	return s.stackReader.RunMaintenanceStep(ctx, step.TargetStackID, step.Action, stacks.MaintenanceStepOptions{
+	return s.stackReader.RunMaintenanceStepStreaming(ctx, step.TargetStackID, step.Action, stacks.MaintenanceStepOptions{
 		RemoveOrphans: options.RemoveOrphans,
-	})
+	}, onProgress)
+}
+
+var progressUnits = map[string]string{
+	"pull":  "layers",
+	"build": "steps",
+	"up":    "services",
+}
+
+// progressPublisher translates streaming compose progress into throttled
+// job_progress events carrying the structured payload (Slice C).
+func (s *Service) progressPublisher(ctx context.Context, job store.Job, step store.JobWorkflowStep, stepRef *store.JobEventStep) func(stacks.StepProgress) {
+	unit := progressUnits[step.Action]
+	if unit == "" {
+		unit = "items"
+	}
+	return func(progress stacks.StepProgress) {
+		payload := &store.JobProgress{
+			Phase:     step.Action,
+			Completed: progress.Completed,
+			Total:     progress.Total,
+			Unit:      unit,
+			Detail:    progress.Detail,
+		}
+		_ = s.jobs.PublishEventWithProgress(ctx, job, "job_progress", updateStepMessage("Progress", step), "", stepRef, payload)
+	}
 }
 
 func markWorkflowRunning(steps []store.JobWorkflowStep, index int) []store.JobWorkflowStep {

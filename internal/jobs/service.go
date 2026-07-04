@@ -156,6 +156,10 @@ func (s *Service) UpdateWorkflow(ctx context.Context, job store.Job, steps []sto
 }
 
 func (s *Service) PublishEvent(ctx context.Context, job store.Job, eventType, message, data string, step *store.JobEventStep) error {
+	return s.PublishEventWithProgress(ctx, job, eventType, message, data, step, nil)
+}
+
+func (s *Service) PublishEventWithProgress(ctx context.Context, job store.Job, eventType, message, data string, step *store.JobEventStep, progress *store.JobProgress) error {
 	sequence, err := s.store.NextJobEventSequence(ctx, job.ID)
 	if err != nil {
 		return err
@@ -169,6 +173,7 @@ func (s *Service) PublishEvent(ctx context.Context, job store.Job, eventType, me
 		Message:   message,
 		Data:      data,
 		Step:      step,
+		Progress:  progress,
 		Timestamp: time.Now().UTC(),
 	}
 	if err := s.store.CreateJobEvent(ctx, event); err != nil {
