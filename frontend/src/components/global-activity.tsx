@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { getActiveJobs, getJob } from '@/lib/api-client'
+import { useEffect, useRef, useState } from 'react'
+import { getJob } from '@/lib/api-client'
+import { useActivityStream } from '@/hooks/use-activity-stream'
 import { useJobDrawer } from '@/hooks/use-job-drawer'
-import type { ActiveJobItem, ActiveJobsResponse, JobDetail } from '@/lib/api-types'
+import type { ActiveJobItem, JobDetail } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
 
-const POLL_INTERVAL = 3_000
 const COMPLETED_LINGER_MS = 5_000
 
 function formatElapsed(startedAt: string): string {
@@ -37,64 +37,57 @@ function toActiveJobItem(job: JobDetail): ActiveJobItem {
 }
 
 export function GlobalActivity() {
-  const [response, setResponse] = useState<ActiveJobsResponse | null>(null)
+  const response = useActivityStream()
   const [open, setOpen] = useState(false)
   const [recentlyCompleted, setRecentlyCompleted] = useState<ActiveJobItem[]>([])
   const prevIdsRef = useRef<Set<string>>(new Set())
   const popoverRef = useRef<HTMLDivElement>(null)
 
-  const poll = useCallback(async () => {
-    try {
-      const data = await getActiveJobs()
-      setResponse(data)
-
-      // Detect jobs that disappeared (completed)
-      const currentIds = new Set(data.items.map((j) => j.id))
-      const vanished = Array.from(prevIdsRef.current).filter((id) => !currentIds.has(id))
-      prevIdsRef.current = currentIds
-
-      if (vanished.length > 0) {
-        const resolvedJobs = await Promise.all(
-          vanished.map(async (id) => {
-            try {
-              const { job } = await getJob(id)
-              return toActiveJobItem(job)
-            } catch {
-              return null
-            }
-          }),
-        )
-
-        const completed = resolvedJobs.filter((job): job is ActiveJobItem => job !== null)
-        if (completed.length === 0) return
-
-        setRecentlyCompleted((prev) => {
-          const merged = new Map(prev.map((job) => [job.id, job]))
-          for (const job of completed) {
-            merged.set(job.id, job)
-          }
-          return Array.from(merged.values())
-        })
-
-        const transientIds = completed
-          .filter((job) => ['succeeded', 'cancelled'].includes(job.state))
-          .map((job) => job.id)
-        if (transientIds.length > 0) {
-          setTimeout(() => {
-            setRecentlyCompleted((prev) => prev.filter((job) => !transientIds.includes(job.id)))
-          }, COMPLETED_LINGER_MS)
-        }
-      }
-    } catch {
-      // Silently ignore poll failures
-    }
-  }, [])
-
+  // Detect jobs that disappeared from the live feed (completed) and let them
+  // linger briefly so the outcome is visible.
   useEffect(() => {
-    const initial = setTimeout(poll, 0)
-    const interval = setInterval(poll, POLL_INTERVAL)
-    return () => { clearTimeout(initial); clearInterval(interval) }
-  }, [poll])
+    if (!response) return
+    const currentIds = new Set(response.items.map((j) => j.id))
+    const vanished = Array.from(prevIdsRef.current).filter((id) => !currentIds.has(id))
+    prevIdsRef.current = currentIds
+    if (vanished.length === 0) return
+
+    let cancelled = false
+    Promise.all(
+      vanished.map(async (id) => {
+        try {
+          const { job } = await getJob(id)
+          return toActiveJobItem(job)
+        } catch {
+          return null
+        }
+      }),
+    ).then((resolvedJobs) => {
+      if (cancelled) return
+      const completed = resolvedJobs.filter((job): job is ActiveJobItem => job !== null)
+      if (completed.length === 0) return
+
+      setRecentlyCompleted((prev) => {
+        const merged = new Map(prev.map((job) => [job.id, job]))
+        for (const job of completed) {
+          merged.set(job.id, job)
+        }
+        return Array.from(merged.values())
+      })
+
+      const transientIds = completed
+        .filter((job) => ['succeeded', 'cancelled'].includes(job.state))
+        .map((job) => job.id)
+      if (transientIds.length > 0) {
+        setTimeout(() => {
+          setRecentlyCompleted((prev) => prev.filter((job) => !transientIds.includes(job.id)))
+        }, COMPLETED_LINGER_MS)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [response])
 
   // Close popover on outside click
   useEffect(() => {

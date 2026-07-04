@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Activity, Container, Ellipsis, FolderCog, FolderKanban, LogOut, Monitor, Settings, Wrench, X } from 'lucide-react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/use-auth'
 import { GlobalActivity } from '@/components/global-activity'
 import { JobDetailDrawer } from '@/components/job-detail-drawer'
+import { HostStrip } from '@/components/host-strip'
 
 const links = [
   { to: '/stacks', label: 'Stacks', icon: FolderKanban },
@@ -23,7 +24,7 @@ function SidebarContent({ onNavigate, logout }: { onNavigate?: () => void; logou
       </div>
 
       <nav className="space-y-1">
-        {links.map(({ to, label, icon: Icon }) => (
+        {links.map(({ to, label, icon: Icon }, index) => (
           <NavLink
             key={to}
             to={to}
@@ -39,6 +40,7 @@ function SidebarContent({ onNavigate, logout }: { onNavigate?: () => void; logou
           >
             <Icon className="size-4" />
             <span>{label}</span>
+            <kbd className="ml-auto rounded border border-[rgba(255,255,255,0.1)] px-1 font-mono text-[9px] text-[var(--dim,#6E6757)]">{index + 1}</kbd>
           </NavLink>
         ))}
       </nav>
@@ -59,7 +61,23 @@ function SidebarContent({ onNavigate, logout }: { onNavigate?: () => void; logou
 
 export function RootLayout() {
   const { logout } = useAuth()
+  const navigate = useNavigate()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+
+  // Nav hotkeys 1-7 (Z5); skipped while typing.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
+      const index = Number.parseInt(e.key, 10) - 1
+      if (Number.isNaN(index) || index < 0 || index >= links.length) return
+      e.preventDefault()
+      navigate(links[index].to)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [navigate])
 
   useEffect(() => {
     if (!mobileNavOpen) return
@@ -116,6 +134,7 @@ export function RootLayout() {
         </aside>
 
         <main className="flex min-w-0 flex-1 flex-col gap-4">
+          <HostStrip />
           <Outlet />
         </main>
       </div>
