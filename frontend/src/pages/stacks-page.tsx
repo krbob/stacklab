@@ -4,6 +4,7 @@ import { ExternalLink } from 'lucide-react'
 
 import { checkImageUpdates, getStacks } from '@/lib/api-client'
 import type { StackListItem, StackListResponse } from '@/lib/api-types'
+import { useJobStream } from '@/hooks/use-job-stream'
 import { PageHeader } from '@/components/page-header'
 import { cn } from '@/lib/cn'
 
@@ -183,18 +184,30 @@ export function StacksPage() {
 
   const [filter, setFilter] = useState('')
   const [status, setStatus] = useState<StatusFilter>('all')
-  const [checking, setChecking] = useState(false)
+  const [checkJobId, setCheckJobId] = useState<string | null>(null)
   const filterRef = useRef<HTMLInputElement>(null)
 
+  // The check runs as a detached job — follow its stream and reload the list
+  // only once it reaches a terminal state (the response returns immediately).
+  const checkStream = useJobStream({ jobId: checkJobId })
+  const checkTerminal = ['succeeded', 'failed', 'cancelled', 'timed_out'].includes(checkStream.state ?? '')
+  const checking = checkJobId !== null && !checkTerminal
+  const checkProgress = checking
+    ? [...checkStream.events].reverse().find((event) => event.progress)?.progress ?? null
+    : null
+
+  useEffect(() => {
+    if (!checkJobId || !checkTerminal) return
+    setCheckJobId(null)
+    setReloadKey((key) => key + 1)
+  }, [checkJobId, checkTerminal])
+
   async function handleCheckUpdates() {
-    setChecking(true)
     try {
-      await checkImageUpdates()
-      setReloadKey((key) => key + 1)
+      const result = await checkImageUpdates()
+      setCheckJobId(result.job.id)
     } catch {
-      // job failures surface in audit; the button simply stops spinning
-    } finally {
-      setChecking(false)
+      // start failures surface in audit; the button simply stays idle
     }
   }
 
@@ -301,7 +314,11 @@ export function StacksPage() {
           disabled={checking}
           className="ml-auto rounded-md border border-[var(--panel-border)] px-3 py-1.5 text-xs text-[var(--muted)] transition hover:text-[var(--text)] disabled:opacity-50"
         >
-          {checking ? 'Checking…' : 'Check updates'}
+          {checking
+            ? checkProgress
+              ? `Checking… ${checkProgress.completed}/${checkProgress.total}`
+              : 'Checking…'
+            : 'Check updates'}
         </button>
       </div>
 

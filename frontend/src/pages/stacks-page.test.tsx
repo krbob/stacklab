@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import { StacksPage } from './stacks-page'
+import { WsProvider } from '@/contexts/ws-context'
 import type { StackListItem, StackListResponse } from '@/lib/api-types'
 
 const mockGetStacks = vi.fn()
@@ -48,7 +49,9 @@ function renderPage() {
   mockGetStacks.mockResolvedValue(response)
   return render(
     <MemoryRouter>
-      <StacksPage />
+      <WsProvider>
+        <StacksPage />
+      </WsProvider>
     </MemoryRouter>,
   )
 }
