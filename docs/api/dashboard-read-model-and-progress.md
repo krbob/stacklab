@@ -155,6 +155,23 @@ Near-term roadmap goal 1, needed for the redesigned create-stack screen:
 - `POST /api/stacks` gains optional `template_id` + `variables` (server-side
   substitution, plain `${VAR}` only, no remote catalogs).
 
+## Implementation status (2026-07-04)
+
+- Slices A1/A2/C/D: implemented and deployed.
+- Slice B: implemented — `POST /api/maintenance/image-updates/check` runs the
+  `check_image_updates` job (anonymous registry digest checks; images needing
+  credentials report `unknown`), `GET /api/maintenance/image-updates` lists
+  per-image status, `updates` rollup ships in `GET /api/stacks`. Follow-ups:
+  schedule integration and the `image_updates_available` notification.
+- Slice C addendum: on compose without `--progress json` (< ~2.30) the runner
+  falls back to `--progress plain` with heuristic layer/container parsing.
+- Slice E: lint warnings implemented in resolved-config responses
+  (`missing_healthcheck`, `missing_restart_policy`, `public_port_bind`);
+  `source=last_valid` diff still pending the deploy-baseline backlog item.
+- Slice F: `GET /api/templates` implemented — operator templates from
+  `<root>/templates/<id>/` (compose.yaml + template.yaml) with built-in
+  starters as fallback; creation still posts plain compose content.
+
 ## Sequencing
 
 1. **A1 + A2** — unblocks the tile grid (Etap 3 of the UI plan). Small, no schema.
