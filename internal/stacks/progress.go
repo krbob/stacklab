@@ -67,9 +67,57 @@ var jsonProgressUnsupported atomic.Bool
 
 const unsupportedJSONProgressMarker = `unsupported --progress value "json"`
 
+// RunActionStreaming mirrors RunActionWithOutput but streams structured
+// progress and live output lines for compose-driven actions. Non-compose
+// paths (validate, container fallbacks, down) run synchronously and return
+// output at the end as before.
+func (s *ServiceReader) RunActionStreaming(ctx context.Context, stackID, action string, onProgress func(StepProgress), onLine func(string)) (string, error) {
+	stack, err := s.findStack(ctx, stackID)
+	if err != nil {
+		return "", err
+	}
+
+	switch action {
+	case "validate", "up", "down", "stop", "restart", "pull", "build", "recreate":
+	default:
+		return "", ErrUnsupportedAction
+	}
+	if !containsString(stack.availableActions(), action) {
+		return "", ErrInvalidState
+	}
+
+	streamCompose := func(composeAction string, extraArgs ...string) (string, error) {
+		return s.runComposeActionStreamingLines(ctx, stack, onProgress, onLine, composeAction, extraArgs...)
+	}
+
+	switch action {
+	case "up":
+		return streamCompose("up", "-d")
+	case "stop":
+		if stack.ConfigState != ConfigStateInvalid {
+			return streamCompose("stop")
+		}
+	case "restart":
+		if stack.ConfigState != ConfigStateInvalid {
+			return streamCompose("restart")
+		}
+	case "pull":
+		return streamCompose("pull")
+	case "build":
+		return streamCompose("build")
+	case "recreate":
+		return streamCompose("up", "-d", "--force-recreate")
+	}
+	return s.RunActionWithOutput(ctx, stackID, action)
+}
+
 func (s *ServiceReader) runComposeActionStreaming(ctx context.Context, stack discoveredStack, onProgress func(StepProgress), action string, extraArgs ...string) (string, error) {
+	return s.runComposeActionStreamingLines(ctx, stack, onProgress, nil, action, extraArgs...)
+}
+
+func (s *ServiceReader) runComposeActionStreamingLines(ctx context.Context, stack discoveredStack, onProgress func(StepProgress), onLine func(string), action string, extraArgs ...string) (string, error) {
 	if !jsonProgressUnsupported.Load() {
-		combined, err := s.runComposeProgressMode(ctx, stack, "json", onProgress, action, extraArgs...)
+		combined, err := s.runComposeProgressMode(ctx, stack, "json", onProgress, onLine, action, extraArgs...)
 		if err != nil && strings.Contains(err.Error(), unsupportedJSONProgressMarker) {
 			jsonProgressUnsupported.Store(true)
 			if s.logger != nil {
@@ -79,10 +127,10 @@ func (s *ServiceReader) runComposeActionStreaming(ctx context.Context, stack dis
 			return combined, err
 		}
 	}
-	return s.runComposeProgressMode(ctx, stack, "plain", onProgress, action, extraArgs...)
+	return s.runComposeProgressMode(ctx, stack, "plain", onProgress, onLine, action, extraArgs...)
 }
 
-func (s *ServiceReader) runComposeProgressMode(ctx context.Context, stack discoveredStack, mode string, onProgress func(StepProgress), action string, extraArgs ...string) (string, error) {
+func (s *ServiceReader) runComposeProgressMode(ctx context.Context, stack discoveredStack, mode string, onProgress func(StepProgress), onLine func(string), action string, extraArgs ...string) (string, error) {
 	command, args := composeCommand(ctx, stack.RootPath, stack.ComposeFilePath, stack.EnvFilePath)
 	args = append(args, "--progress", mode, action)
 	args = append(args, extraArgs...)
@@ -107,9 +155,9 @@ func (s *ServiceReader) runComposeProgressMode(ctx context.Context, stack discov
 	go func() {
 		defer wg.Done()
 		if mode == "json" {
-			consumeComposeProgress(stderrPipe, &stderrText, onProgress)
+			consumeComposeProgress(stderrPipe, &stderrText, onProgress, onLine)
 		} else {
-			consumePlainProgress(stderrPipe, &stderrText, onProgress)
+			consumePlainProgress(stderrPipe, &stderrText, onProgress, onLine)
 		}
 	}()
 	wg.Wait()
@@ -144,7 +192,7 @@ var plainDoneStatuses = map[string]bool{
 // consumePlainProgress derives coarse progress from --progress plain output:
 // pull layers and container lifecycle lines both follow a stable
 // "<id> <status>" shape. All lines are preserved as text.
-func consumePlainProgress(r interface{ Read([]byte) (int, error) }, text *bytes.Buffer, onProgress func(StepProgress)) {
+func consumePlainProgress(r interface{ Read([]byte) (int, error) }, text *bytes.Buffer, onProgress func(StepProgress), onLine func(string)) {
 	doneByID := map[string]bool{}
 	lastEmit := time.Time{}
 	lastCompleted := -1
@@ -159,6 +207,9 @@ func consumePlainProgress(r interface{ Read([]byte) (int, error) }, text *bytes.
 		}
 		text.WriteString(strings.TrimSpace(line))
 		text.WriteString("\n")
+		if onLine != nil {
+			onLine(strings.TrimSpace(line))
+		}
 		if onProgress == nil {
 			continue
 		}
@@ -209,7 +260,7 @@ func (e *composeError) Error() string { return e.message }
 // consumeComposeProgress reads compose's stderr line by line: JSON progress
 // events update the aggregate (throttled), everything else is kept as text so
 // error output is never lost.
-func consumeComposeProgress(r interface{ Read([]byte) (int, error) }, text *bytes.Buffer, onProgress func(StepProgress)) {
+func consumeComposeProgress(r interface{ Read([]byte) (int, error) }, text *bytes.Buffer, onProgress func(StepProgress), onLine func(string)) {
 	statusByID := map[string]string{}
 	lastDetail := ""
 	lastEmit := time.Time{}
@@ -227,6 +278,9 @@ func consumeComposeProgress(r interface{ Read([]byte) (int, error) }, text *byte
 		if err := json.Unmarshal([]byte(line), &event); err != nil || event.ID == "" {
 			text.WriteString(line)
 			text.WriteString("\n")
+			if onLine != nil {
+				onLine(line)
+			}
 			continue
 		}
 

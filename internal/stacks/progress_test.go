@@ -19,7 +19,7 @@ func TestConsumeComposeProgress(t *testing.T) {
 	var updates []StepProgress
 	consumeComposeProgress(strings.NewReader(input), &text, func(p StepProgress) {
 		updates = append(updates, p)
-	})
+	}, nil)
 
 	if len(updates) == 0 {
 		t.Fatal("no progress updates emitted")
@@ -39,7 +39,7 @@ func TestConsumeComposeProgress(t *testing.T) {
 func TestConsumeComposeProgressPlainOutputOnly(t *testing.T) {
 	var text bytes.Buffer
 	called := false
-	consumeComposeProgress(strings.NewReader("some error\nanother line\n"), &text, func(StepProgress) { called = true })
+	consumeComposeProgress(strings.NewReader("some error\nanother line\n"), &text, func(StepProgress) { called = true }, nil)
 
 	if called {
 		t.Fatal("progress emitted for plain output")
@@ -63,7 +63,7 @@ func TestConsumePlainProgressPull(t *testing.T) {
 	var updates []StepProgress
 	consumePlainProgress(strings.NewReader(input), &text, func(p StepProgress) {
 		updates = append(updates, p)
-	})
+	}, nil)
 
 	if len(updates) == 0 {
 		t.Fatal("no updates")
@@ -83,7 +83,7 @@ func TestConsumePlainProgressContainers(t *testing.T) {
 	var updates []StepProgress
 	consumePlainProgress(strings.NewReader(input), &text, func(p StepProgress) {
 		updates = append(updates, p)
-	})
+	}, nil)
 	final := updates[len(updates)-1]
 	if final.Completed != 1 || final.Total != 1 {
 		t.Fatalf("final = %+v, want 1/1", final)

@@ -33,6 +33,7 @@ import (
 	"stacklab/internal/workspacerepair"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -2710,17 +2711,73 @@ func stackActionAllowed(actions []string, action string) bool {
 	return false
 }
 
+var stackActionProgressUnits = map[string]string{
+	"pull":     "layers",
+	"build":    "steps",
+	"up":       "services",
+	"recreate": "services",
+	"restart":  "services",
+	"stop":     "services",
+}
+
 func (h *Handler) runStackActionJob(job store.Job, workflow []store.JobWorkflowStep) {
 	runCtx, cancel := h.stackActionContext()
 	defer cancel()
 
 	step := workflowStepRef(workflow, 0)
-	output, actionErr := h.stackReader.RunActionWithOutput(runCtx, job.StackID, job.Action)
+
+	// Live output: batch streamed lines so a chatty build publishes at most a
+	// couple of job_log events per second instead of one per line.
+	const logFlushInterval = 700 * time.Millisecond
+	var logMu sync.Mutex
+	var pendingLines []string
+	lastFlush := time.Now()
+	streamedLines := false
+	flushLogs := func(force bool) {
+		logMu.Lock()
+		if len(pendingLines) == 0 || (!force && time.Since(lastFlush) < logFlushInterval) {
+			logMu.Unlock()
+			return
+		}
+		batch := strings.Join(pendingLines, "\n")
+		pendingLines = nil
+		lastFlush = time.Now()
+		logMu.Unlock()
+		_ = h.jobs.PublishEvent(runCtx, job, "job_log", "", batch, step)
+	}
+
+	unit := stackActionProgressUnits[job.Action]
+	if unit == "" {
+		unit = "items"
+	}
+	output, actionErr := h.stackReader.RunActionStreaming(runCtx, job.StackID, job.Action,
+		func(progress stacks.StepProgress) {
+			_ = h.jobs.PublishEventWithProgress(runCtx, job, "job_progress", "Running stack action "+job.Action+".", "", step, &store.JobProgress{
+				Phase:     job.Action,
+				Completed: progress.Completed,
+				Total:     progress.Total,
+				Unit:      unit,
+				Detail:    progress.Detail,
+			})
+		},
+		func(line string) {
+			logMu.Lock()
+			pendingLines = append(pendingLines, line)
+			logMu.Unlock()
+			streamedLines = true
+			flushLogs(false)
+		},
+	)
+	flushLogs(true)
 
 	ctx, finishCancel := h.jobFinalizationContext()
 	defer finishCancel()
-	for _, line := range splitProgressOutput(output) {
-		_ = h.jobs.PublishEvent(ctx, job, "job_log", line, "", step)
+	// Fallback for non-streaming paths (validate, down, container actions):
+	// publish the collected output once at the end, as before.
+	if !streamedLines {
+		for _, line := range splitProgressOutput(output) {
+			_ = h.jobs.PublishEvent(ctx, job, "job_log", line, "", step)
+		}
 	}
 
 	if actionErr != nil {
