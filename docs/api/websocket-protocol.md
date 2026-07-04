@@ -122,6 +122,11 @@ Server immediately sends:
 Client sends one or more commands:
 
 - `logs.subscribe`
+- `activity.subscribe` / `activity.unsubscribe` — global background-job
+  stream (Slice D): server replies with an `activity.snapshot` frame (payload
+  identical to `GET /api/jobs/active`), then pushes throttled (~2/s)
+  `activity.update` frames with the same full payload on every job event;
+  latest wins. REST polling remains the reconnect/legacy fallback.
 - `stats.subscribe`
 - `jobs.subscribe`
 - `terminal.open`
