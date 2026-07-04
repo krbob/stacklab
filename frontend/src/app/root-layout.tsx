@@ -72,7 +72,10 @@ export function RootLayout() {
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-[var(--panel-border)] bg-[var(--bg)]/95 px-4 py-3 backdrop-blur lg:hidden">
+      <header
+        className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-[var(--panel-border)] bg-[var(--bg)] px-4 py-3 lg:hidden"
+        style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
+      >
         <button
           type="button"
           onClick={() => setMobileNavOpen(true)}
