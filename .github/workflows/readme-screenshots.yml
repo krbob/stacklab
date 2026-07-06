@@ -3,19 +3,17 @@ name: README screenshots
 # Regenerate the README gallery from a real, Docker-backed Stacklab instance
 # booted inside the runner — the same harness Browser E2E uses. This never
 # touches the LAN test VM (unreachable from GitHub-hosted runners); it stands
-# the app up from the e2e fixtures so the result is deterministic.
+# the app up from the e2e fixtures so the captures are as reproducible as the
+# app allows.
 #
-# Runs only when the frontend changes, and proposes the refreshed PNGs as a PR
-# (create-pull-request opens nothing when the images are byte-identical, so
-# there is no empty-diff noise). Merging that PR only touches docs/**, so it
-# does not re-trigger this workflow.
+# MANUAL ONLY (workflow_dispatch). The dashboard shows inherently live data —
+# host uptime/CPU/memory/disk, the streaming log tail, per-stack cpu/mem — so
+# no two captures are byte-identical. An automatic (push/cron) trigger would
+# therefore open a fresh PR on every run whose diff is dominated by that noise.
+# Instead you refresh deliberately, when the UI *design* changes: run this
+# workflow, review the visual diff in the PR (or the uploaded artifact), merge.
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'frontend/**'
   workflow_dispatch:
 
 permissions:
@@ -97,7 +95,20 @@ jobs:
             wait "${pid}" 2>/dev/null || true
           fi
 
+      # Always retrievable, even if the PR step is skipped (e.g. the repo does
+      # not allow Actions to open PRs): download and commit the PNGs by hand.
+      - name: Upload screenshots artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: readme-screenshots
+          path: docs/images/readme/*.png
+          if-no-files-found: warn
+
+      # Requires Settings → Actions → General → "Allow GitHub Actions to create
+      # and approve pull requests". Non-fatal if disabled — use the artifact.
       - name: Open PR with refreshed screenshots
+        continue-on-error: true
         uses: peter-evans/create-pull-request@v7
         with:
           add-paths: docs/images/readme/*.png
