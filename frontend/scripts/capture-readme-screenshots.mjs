@@ -39,6 +39,8 @@ async function run() {
   const browser = await chromium.launch({ headless: true })
   const context = await browser.newContext({
     viewport: VIEWPORT,
+    // Capture at 2x so text stays crisp when the PNGs are scaled in the README.
+    deviceScaleFactor: 2,
     colorScheme: 'dark',
     reducedMotion: 'reduce',
   })
