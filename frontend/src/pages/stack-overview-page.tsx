@@ -57,16 +57,16 @@ export function StackOverviewPage() {
           return (
             <div
               key={svc.name}
-              className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4"
+              className="min-w-0 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4"
             >
               <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-center gap-2">
                     <span className={cn(
-                      'inline-block size-2 rounded-full',
+                      'inline-block size-2 shrink-0 rounded-full',
                       containerStatusColor[container?.status ?? 'created'] ?? 'bg-stone-600',
                     )} />
-                    <span className="text-base font-medium text-[var(--text)]">{svc.name}</span>
+                    <span className="min-w-0 break-words text-base font-medium text-[var(--text)]">{svc.name}</span>
                     {container?.health_status && (
                       <span className={cn(
                         'text-xs',
@@ -77,7 +77,7 @@ export function StackOverviewPage() {
                     )}
                   </div>
 
-                  <div className="mt-2 grid gap-1 text-sm text-[var(--muted)]">
+                  <div className="mt-2 grid gap-1 [overflow-wrap:anywhere] text-sm text-[var(--muted)]">
                     <div>
                       {svc.image_ref && <span>Image: {svc.image_ref}</span>}
                       {svc.build_context && <span>Build: {svc.build_context}</span>}

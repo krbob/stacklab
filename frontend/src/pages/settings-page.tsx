@@ -291,7 +291,7 @@ function NotificationsSection() {
                   value={telegramBotToken}
                   onChange={(e) => setTelegramBotToken(e.target.value)}
                   placeholder={botTokenConfigured ? '(leave empty to keep current)' : '123456:ABC-DEF1234'}
-                  className="flex-1 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
+                  className="min-w-0 flex-1 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
                 />
                 <button onClick={() => setShowBotToken(!showBotToken)} className="rounded-md border border-[var(--panel-border)] px-2 py-1 text-[10px] text-[var(--muted)] hover:text-[var(--text)]">
                   {showBotToken ? 'Hide' : 'Show'}
@@ -618,7 +618,7 @@ function SchedulesSection() {
             Scheduled stack update
           </label>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <FrequencyToggle value={updateFreq} onChange={setUpdateFreq} />
             <input type="time" value={updateTime} onChange={(e) => setUpdateTime(e.target.value)} className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none" />
           </div>
@@ -732,7 +732,7 @@ function SchedulesSection() {
             Scheduled cleanup
           </label>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <FrequencyToggle value={pruneFreq} onChange={setPruneFreq} />
             <input type="time" value={pruneTime} onChange={(e) => setPruneTime(e.target.value)} className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none" />
           </div>
@@ -775,7 +775,7 @@ function FrequencyToggle({ value, onChange }: { value: ScheduleFrequency; onChan
 
 function WeekdayPicker({ value, onChange }: { value: ScheduleWeekday[]; onChange: (v: ScheduleWeekday[]) => void }) {
   return (
-    <div className="flex gap-1">
+    <div className="flex flex-wrap gap-1">
       {ALL_WEEKDAYS.map((d) => (
         <button
           key={d}

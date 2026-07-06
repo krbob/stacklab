@@ -250,7 +250,7 @@ export function StackEditorPage() {
           </button>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={handlePreview}
             className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]"
@@ -332,7 +332,7 @@ export function StackEditorPage() {
             {resolvedSource === 'last_valid' ? 'Last deployed config' : resolvedSource === 'draft' ? 'Draft resolved config' : 'Resolved config'}
           </div>
           {resolvedContent ? (
-            <pre className="whitespace-pre-wrap text-[var(--text)]">{resolvedContent}</pre>
+            <pre className="whitespace-pre-wrap break-words text-[var(--text)]">{resolvedContent}</pre>
           ) : resolvedError ? (
             <pre className="text-[var(--danger)]">{resolvedError}</pre>
           ) : (

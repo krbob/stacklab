@@ -109,21 +109,21 @@ function StackTile({ stack }: { stack: StackListItem }) {
       {(stack.last_action || links.length > 0) && (
         <div className="mt-2 flex items-center gap-2 font-mono text-[11px] text-[var(--muted)]">
           {stack.last_action && (
-            <span className={cn('truncate', stack.last_action.result === 'failed' && 'text-[var(--danger)]')}>
+            <span className={cn('min-w-0 truncate', stack.last_action.result === 'failed' && 'text-[var(--danger)]')}>
               last: {stack.last_action.action} ({stack.last_action.result})
             </span>
           )}
-          <span className="relative z-10 ml-auto flex shrink-0 gap-2">
+          <span className="relative z-10 ml-auto flex min-w-0 gap-2">
             {links.map((link) => (
               <a
                 key={link.url}
                 href={link.url}
                 target="_blank"
                 rel="noreferrer"
-                className="flex items-center gap-1 text-[var(--accent)] hover:underline"
+                className="flex min-w-0 items-center gap-1 text-[var(--accent)] hover:underline"
               >
-                <ExternalLink className="size-3" />
-                {link.label}
+                <ExternalLink className="size-3 shrink-0" />
+                <span className="truncate">{link.label}</span>
               </a>
             ))}
           </span>
