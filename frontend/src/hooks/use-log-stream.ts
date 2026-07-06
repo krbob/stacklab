@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useWs } from '@/hooks/use-ws'
-import { stripAnsi } from '@/lib/ansi'
+import { parseAnsi } from '@/lib/ansi'
 import type { LogEntry, WsServerFrame } from '@/lib/ws-types'
 
 interface UseLogStreamOptions {
@@ -68,10 +68,12 @@ export function useLogStream({ stackId, serviceNames = [], tail = 200, enabled =
 
     return subscribe(streamId, (frame: WsServerFrame) => {
       if (frame.type === 'logs.event' && frame.payload?.entries) {
-        const newEntries = (frame.payload.entries as LogEntry[]).map((entry) => ({
-          ...entry,
-          line: stripAnsi(entry.line),
-        }))
+        const newEntries = (frame.payload.entries as LogEntry[]).map((entry) => {
+          // Parse ANSI once, at ingestion: `line` becomes the plain text (for
+          // filtering) and `spans` carry the colour for rendering.
+          const spans = parseAnsi(entry.line)
+          return { ...entry, line: spans.map((s) => s.text).join(''), spans }
+        })
         if (paused) {
           bufferRef.current.push(...newEntries)
         } else {

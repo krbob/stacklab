@@ -39,6 +39,8 @@ export interface LogEntry {
   container_id: string
   stream: 'stdout' | 'stderr'
   line: string
+  // Populated client-side (use-log-stream) by parsing ANSI colour from `line`.
+  spans?: import('./ansi').AnsiSpan[]
 }
 
 // --- Stats frames ---

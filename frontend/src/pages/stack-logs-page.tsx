@@ -169,7 +169,20 @@ export function StackLogsPage() {
                 {entry.service_name}
               </span>
             </div>
-            <span className="min-w-0 break-all text-[var(--text)] sm:flex-1">{entry.line}</span>
+            <span className="min-w-0 break-all text-[var(--text)] sm:flex-1">
+              {(entry.spans ?? [{ text: entry.line }]).map((s, j) => (
+                <span
+                  key={j}
+                  style={{
+                    color: s.color,
+                    fontWeight: s.bold ? 600 : undefined,
+                    opacity: s.dim ? 0.6 : undefined,
+                  }}
+                >
+                  {s.text}
+                </span>
+              ))}
+            </span>
           </div>
         ))}
       </div>
