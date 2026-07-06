@@ -275,6 +275,12 @@ func TestHandlerHostOverviewAndLogs(t *testing.T) {
 					AvailableBytes: 3072,
 					UsagePercent:   25,
 				},
+				Temperatures: hostinfo.TemperatureUsage{
+					CPUCelsius: pointerTo(42.5),
+					Sensors: []hostinfo.TemperatureSensor{
+						{Name: "coretemp", Label: "Package id 0", TemperatureCelsius: 42.5},
+					},
+				},
 				Filesystems: []hostinfo.FilesystemUsage{
 					{
 						MountPoint:     "/srv/stacklab",

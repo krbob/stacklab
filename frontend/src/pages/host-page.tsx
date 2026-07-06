@@ -368,6 +368,7 @@ function HostMetricsDashboard({
   const topInterface = current.network.interfaces[0]
   const sampledAt = new Date(current.sampled_at).toLocaleTimeString()
   const cpuTone = utilizationTone(current.cpu.usage_percent)
+  const cpuTemperature = current.temperatures.cpu_celsius
   const memoryTone = utilizationTone(current.memory.usage_percent, 'bg-[#E8C07A]', '#E8C07A')
   const storageTone = utilizationTone(storage.usage_percent, 'bg-[var(--warning)]', '#D66F3F')
 
@@ -388,7 +389,7 @@ function HostMetricsDashboard({
         <MetricCard
           title="CPU"
           value={`${current.cpu.usage_percent.toFixed(1)}%`}
-          detail={`${current.cpu.core_count} cores · load ${formatLoadAverage(current.cpu.load_average)}`}
+          detail={`${current.cpu.core_count} cores · load ${formatLoadAverage(current.cpu.load_average)}${cpuTemperature !== null ? ` · ${formatTemperature(cpuTemperature)}` : ''}`}
           color={cpuTone.line}
           values={history.map((sample) => sample.cpu.usage_percent)}
           sparklineMax={100}
@@ -396,6 +397,7 @@ function HostMetricsDashboard({
           valueClassName={cpuTone.text}
         >
           <PercentBar value={current.cpu.usage_percent} color={cpuTone.bar} />
+          <TemperatureRow temperatures={current.temperatures} />
         </MetricCard>
 
         <MetricCard
@@ -606,6 +608,36 @@ function SwapRow({ swap }: { swap: HostMetricSample['swap'] }) {
   )
 }
 
+function TemperatureRow({ temperatures }: { temperatures: HostMetricSample['temperatures'] }) {
+  const cpuTemperature = temperatures.cpu_celsius
+  const topSensor = temperatures.sensors[0]
+  const visibleTemperature = cpuTemperature ?? topSensor?.temperature_celsius ?? null
+  const label = cpuTemperature !== null ? 'CPU temp' : 'Sensor temp'
+
+  if (visibleTemperature === null) {
+    return (
+      <div className="mt-2 flex items-center justify-between gap-2 text-xs">
+        <span className="text-[var(--muted)]">CPU temp</span>
+        <span className="text-[var(--muted)]">unavailable</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-2 space-y-1 text-xs">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[var(--muted)]">{label}</span>
+        <span className={temperatureTextClass(visibleTemperature)}>{formatTemperature(visibleTemperature)}</span>
+      </div>
+      {topSensor && (
+        <div className="truncate text-[var(--muted)]">
+          {temperatureSensorLabel(topSensor)}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function DiskIORow({ diskIO }: { diskIO: HostMetricSample['disk_io'] }) {
   const topDevice = diskIO.devices[0]
   return (
@@ -623,8 +655,25 @@ function DiskIORow({ diskIO }: { diskIO: HostMetricSample['disk_io'] }) {
   )
 }
 
+function temperatureTextClass(value: number): string {
+  if (value >= 85) return 'text-[var(--danger)]'
+  if (value >= 75) return 'text-[var(--warning)]'
+  return 'text-[var(--text)]'
+}
+
+function temperatureSensorLabel(sensor: HostMetricSample['temperatures']['sensors'][number]): string {
+  if (sensor.label) {
+    return `${sensor.name} · ${sensor.label}`
+  }
+  return sensor.name
+}
+
 function formatLoadAverage(values: number[]): string {
   return values.map((value) => value.toFixed(2)).join(' / ')
+}
+
+function formatTemperature(value: number): string {
+  return `${value.toFixed(1)} °C`
 }
 
 function formatRate(bytesPerSecond: number): string {

@@ -13,7 +13,8 @@ It is intentionally narrower than a full host monitoring API.
 
 - help the operator distinguish host problems from stack problems
 - expose Stacklab's own version and runtime context clearly
-- provide an operator dashboard for CPU, memory, filesystems, and network throughput
+- provide an operator dashboard for CPU, CPU temperature, memory, filesystems,
+  disk I/O, and network throughput
 - make Stacklab service logs available in the browser without exposing arbitrary host logs
 
 ## Platform Caveat
@@ -43,6 +44,7 @@ This is expected behavior, not a product bug by itself.
 - long-term metrics storage
 - speedtest / public IP discovery
 - GPU metrics
+- userland sensor daemon or `lm-sensors` runtime dependency
 - generic system log browser
 - process manager UI
 
@@ -144,6 +146,16 @@ Response:
       "available_bytes": 1610612736,
       "usage_percent": 25.0
     },
+    "temperatures": {
+      "cpu_celsius": 42.5,
+      "sensors": [
+        {
+          "name": "coretemp",
+          "label": "Package id 0",
+          "temperature_celsius": 42.5
+        }
+      ]
+    },
     "filesystems": [
       {
         "mount_point": "/srv/stacklab",
@@ -200,6 +212,13 @@ Notes:
 - filesystem metrics come from Linux mount information plus `statfs`
 - swap metrics come from `SwapTotal` and `SwapFree` in `/proc/meminfo`; hosts
   without swap report zero totals
+- temperature metrics are read directly from Linux sysfs:
+  `/sys/class/hwmon` first, with `/sys/class/thermal` as a fallback
+- CPU temperature is selected from CPU-like sensors such as `coretemp`,
+  `k10temp`, `Tctl`, `Tdie`, package/core labels, or CPU thermal zones; if no
+  CPU-like sensor is exposed, `cpu_celsius` is `null`
+- sensor collection has no `lm-sensors` or `sensors` command dependency; those
+  tools remain optional host diagnostics only
 - disk I/O throughput is derived from `/proc/diskstats` sector deltas and uses
   `512` bytes per sector
 - loop/ram devices and likely partitions are filtered out to avoid double-counting
@@ -208,7 +227,7 @@ Notes:
 - network filesystems such as NFS/CIFS are skipped in v1 so a stalled remote mount cannot block dashboard sampling
 - network throughput is derived from `/proc/net/dev` byte deltas; v1 does not run speedtest checks or public IP discovery
 - Docker bridge/veth-style virtual interfaces are filtered out of the dashboard totals
-- GPU, CPU temperature, and sensor-level metrics are backlog candidates, not part of this contract
+- GPU metrics remain a backlog candidate, not part of this contract
 
 ## `GET /api/host/stacklab-logs`
 

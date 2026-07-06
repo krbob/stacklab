@@ -48,13 +48,14 @@ type MetricsQuery struct {
 }
 
 type HostMetricSample struct {
-	SampledAt   time.Time         `json:"sampled_at"`
-	CPU         CPUUsage          `json:"cpu"`
-	Memory      MemoryUsage       `json:"memory"`
-	Swap        SwapUsage         `json:"swap"`
-	Filesystems []FilesystemUsage `json:"filesystems"`
-	DiskIO      DiskIOUsage       `json:"disk_io"`
-	Network     NetworkUsage      `json:"network"`
+	SampledAt    time.Time         `json:"sampled_at"`
+	CPU          CPUUsage          `json:"cpu"`
+	Memory       MemoryUsage       `json:"memory"`
+	Swap         SwapUsage         `json:"swap"`
+	Temperatures TemperatureUsage  `json:"temperatures"`
+	Filesystems  []FilesystemUsage `json:"filesystems"`
+	DiskIO       DiskIOUsage       `json:"disk_io"`
+	Network      NetworkUsage      `json:"network"`
 }
 
 type CPUUsage struct {
@@ -75,6 +76,17 @@ type SwapUsage struct {
 	UsedBytes      uint64  `json:"used_bytes"`
 	AvailableBytes uint64  `json:"available_bytes"`
 	UsagePercent   float64 `json:"usage_percent"`
+}
+
+type TemperatureUsage struct {
+	CPUCelsius *float64            `json:"cpu_celsius"`
+	Sensors    []TemperatureSensor `json:"sensors"`
+}
+
+type TemperatureSensor struct {
+	Name               string  `json:"name"`
+	Label              string  `json:"label"`
+	TemperatureCelsius float64 `json:"temperature_celsius"`
 }
 
 type DiskUsage struct {

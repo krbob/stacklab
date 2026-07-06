@@ -25,6 +25,7 @@ const (
 
 type MetricsCollector struct {
 	procRoot           string
+	sysRoot            string
 	rootDir            string
 	activeInterval     time.Duration
 	backgroundInterval time.Duration
@@ -66,6 +67,7 @@ type mountInfo struct {
 func newMetricsCollector(rootDir, procRoot string) *MetricsCollector {
 	return &MetricsCollector{
 		procRoot:           procRoot,
+		sysRoot:            "/sys",
 		rootDir:            rootDir,
 		activeInterval:     metricsActiveSampleInterval,
 		backgroundInterval: metricsBackgroundSampleInterval,
@@ -210,13 +212,14 @@ func (c *MetricsCollector) readSample() HostMetricSample {
 	now := c.now().UTC()
 	memInfo := readProcMemInfoValues(c.procRoot)
 	return HostMetricSample{
-		SampledAt:   now,
-		CPU:         c.readCPUUsage(),
-		Memory:      memoryUsageFromMemInfo(memInfo),
-		Swap:        swapUsageFromMemInfo(memInfo),
-		Filesystems: c.readFilesystems(),
-		DiskIO:      c.readDiskIOUsage(now),
-		Network:     c.readNetworkUsage(now),
+		SampledAt:    now,
+		CPU:          c.readCPUUsage(),
+		Memory:       memoryUsageFromMemInfo(memInfo),
+		Swap:         swapUsageFromMemInfo(memInfo),
+		Temperatures: c.readTemperatureUsage(),
+		Filesystems:  c.readFilesystems(),
+		DiskIO:       c.readDiskIOUsage(now),
+		Network:      c.readNetworkUsage(now),
 	}
 }
 
@@ -253,6 +256,187 @@ func (c *MetricsCollector) readCPUPercent() float64 {
 	}
 
 	return roundFloat((float64(totalDelta-idleDelta) / float64(totalDelta)) * 100)
+}
+
+func (c *MetricsCollector) readTemperatureUsage() TemperatureUsage {
+	sensors := c.readHwmonTemperatureSensors()
+	sensors = append(sensors, c.readThermalZoneTemperatureSensors()...)
+	sensors = sortAndLimitTemperatureSensors(dedupeTemperatureSensors(sensors))
+	if sensors == nil {
+		sensors = []TemperatureSensor{}
+	}
+
+	usage := TemperatureUsage{
+		Sensors: sensors,
+	}
+	usage.CPUCelsius = selectCPUTemperature(sensors)
+	return usage
+}
+
+func (c *MetricsCollector) readHwmonTemperatureSensors() []TemperatureSensor {
+	baseDir := filepath.Join(c.sysRoot, "class", "hwmon")
+	entries, err := os.ReadDir(baseDir)
+	if err != nil {
+		return nil
+	}
+
+	sensors := []TemperatureSensor{}
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), "hwmon") {
+			continue
+		}
+		dir := filepath.Join(baseDir, entry.Name())
+		deviceName := readTrimmedFile(filepath.Join(dir, "name"))
+		if deviceName == "" {
+			deviceName = entry.Name()
+		}
+
+		tempEntries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, tempEntry := range tempEntries {
+			filename := tempEntry.Name()
+			if !strings.HasPrefix(filename, "temp") || !strings.HasSuffix(filename, "_input") {
+				continue
+			}
+			index := strings.TrimSuffix(strings.TrimPrefix(filename, "temp"), "_input")
+			temperature, ok := parseTemperatureCelsius(readTrimmedFile(filepath.Join(dir, filename)))
+			if !ok {
+				continue
+			}
+
+			sensors = append(sensors, TemperatureSensor{
+				Name:               deviceName,
+				Label:              readTrimmedFile(filepath.Join(dir, "temp"+index+"_label")),
+				TemperatureCelsius: temperature,
+			})
+		}
+	}
+
+	return sensors
+}
+
+func (c *MetricsCollector) readThermalZoneTemperatureSensors() []TemperatureSensor {
+	baseDir := filepath.Join(c.sysRoot, "class", "thermal")
+	entries, err := os.ReadDir(baseDir)
+	if err != nil {
+		return nil
+	}
+
+	sensors := []TemperatureSensor{}
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), "thermal_zone") {
+			continue
+		}
+		dir := filepath.Join(baseDir, entry.Name())
+		temperature, ok := parseTemperatureCelsius(readTrimmedFile(filepath.Join(dir, "temp")))
+		if !ok {
+			continue
+		}
+		zoneType := readTrimmedFile(filepath.Join(dir, "type"))
+		if zoneType == "" {
+			zoneType = entry.Name()
+		}
+		sensors = append(sensors, TemperatureSensor{
+			Name:               zoneType,
+			Label:              entry.Name(),
+			TemperatureCelsius: temperature,
+		})
+	}
+
+	return sensors
+}
+
+func readTrimmedFile(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+func parseTemperatureCelsius(raw string) (float64, bool) {
+	if raw == "" {
+		return 0, false
+	}
+	value, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	if err != nil {
+		return 0, false
+	}
+	if value > 1000 || value < -1000 {
+		value = value / 1000
+	}
+	if value < -50 || value > 150 {
+		return 0, false
+	}
+	return roundFloat(value), true
+}
+
+func dedupeTemperatureSensors(sensors []TemperatureSensor) []TemperatureSensor {
+	deduped := make([]TemperatureSensor, 0, len(sensors))
+	seen := map[string]bool{}
+	for _, sensor := range sensors {
+		key := strings.ToLower(sensor.Name + "\x00" + sensor.Label + "\x00" + strconv.FormatFloat(sensor.TemperatureCelsius, 'f', 1, 64))
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		deduped = append(deduped, sensor)
+	}
+	return deduped
+}
+
+func sortAndLimitTemperatureSensors(sensors []TemperatureSensor) []TemperatureSensor {
+	sort.SliceStable(sensors, func(i, j int) bool {
+		leftCPULike := isCPUTemperatureSensor(sensors[i])
+		rightCPULike := isCPUTemperatureSensor(sensors[j])
+		if leftCPULike != rightCPULike {
+			return leftCPULike
+		}
+		if sensors[i].TemperatureCelsius != sensors[j].TemperatureCelsius {
+			return sensors[i].TemperatureCelsius > sensors[j].TemperatureCelsius
+		}
+		if sensors[i].Name != sensors[j].Name {
+			return sensors[i].Name < sensors[j].Name
+		}
+		return sensors[i].Label < sensors[j].Label
+	})
+
+	const maxTemperatureSensors = 16
+	if len(sensors) > maxTemperatureSensors {
+		return append([]TemperatureSensor(nil), sensors[:maxTemperatureSensors]...)
+	}
+	return sensors
+}
+
+func selectCPUTemperature(sensors []TemperatureSensor) *float64 {
+	var value float64
+	found := false
+	for _, sensor := range sensors {
+		if !isCPUTemperatureSensor(sensor) {
+			continue
+		}
+		if !found || sensor.TemperatureCelsius > value {
+			value = sensor.TemperatureCelsius
+			found = true
+		}
+	}
+	if !found {
+		return nil
+	}
+	value = roundFloat(value)
+	return &value
+}
+
+func isCPUTemperatureSensor(sensor TemperatureSensor) bool {
+	haystack := strings.ToLower(sensor.Name + " " + sensor.Label)
+	for _, hint := range []string{"cpu", "package", "core", "tctl", "tdie", "k10temp", "coretemp", "x86_pkg_temp", "soc"} {
+		if strings.Contains(haystack, hint) {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *MetricsCollector) readFilesystems() []FilesystemUsage {

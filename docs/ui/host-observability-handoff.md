@@ -63,6 +63,7 @@ Confirmed placement:
 Confirmed metrics:
 
 - CPU percent, core count, load average, and short history
+- CPU temperature from Linux sysfs sensors when available, shown in the CPU card
 - memory usage and short history
 - swap usage in the Memory card, including an explicit disabled state when no
   swap is configured
@@ -92,13 +93,14 @@ Dashdot parity decisions:
 - skip network filesystems in v1 to avoid blocking dashboard sampling on an unavailable NAS/share
 - show network interface throughput from byte counters
 - filter Docker bridge/veth-style virtual interfaces from the primary dashboard view
+- show CPU temperature/sensors directly from `/sys/class/hwmon` and
+  `/sys/class/thermal` without requiring `lm-sensors`
 - do not implement speedtest / Ookla EULA flow in v1
-- do not implement public IP, GPU, CPU temperature, or sensor-level metrics in v1
+- do not implement public IP or GPU metrics in v1
 
 Backlog candidates:
 
 - GPU usage
-- CPU temperature / sensors
 - public IP display
 - optional speedtest integration
 - configurable filesystem include/exclude list if real deployments need it

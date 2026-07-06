@@ -87,6 +87,16 @@ const metrics: HostMetricsResponse = {
       available_bytes: 1536 * 1024 * 1024,
       usage_percent: 25,
     },
+    temperatures: {
+      cpu_celsius: 42.5,
+      sensors: [
+        {
+          name: 'coretemp',
+          label: 'Package id 0',
+          temperature_celsius: 42.5,
+        },
+      ],
+    },
     filesystems: [
       {
         mount_point: '/srv/stacklab',
@@ -136,6 +146,16 @@ const metrics: HostMetricsResponse = {
         used_bytes: 256 * 1024 * 1024,
         available_bytes: 1792 * 1024 * 1024,
         usage_percent: 12.5,
+      },
+      temperatures: {
+        cpu_celsius: 41.8,
+        sensors: [
+          {
+            name: 'coretemp',
+            label: 'Package id 0',
+            temperature_celsius: 41.8,
+          },
+        ],
       },
       filesystems: [
         {
@@ -202,6 +222,9 @@ describe('HostPage', () => {
     expect(screen.getByText('Host metrics')).toBeInTheDocument()
     expect(screen.getAllByText('Swap').length).toBeGreaterThan(0)
     expect(screen.getAllByText('512.0 MiB / 2.0 GiB').length).toBeGreaterThan(0)
+    expect(screen.getByText('CPU temp')).toBeInTheDocument()
+    expect(screen.getAllByText('42.5 °C').length).toBeGreaterThan(0)
+    expect(screen.getByText('coretemp · Package id 0')).toBeInTheDocument()
     expect(screen.getAllByText(/4\.0 KiB\/s read/).length).toBeGreaterThan(0)
     expect(screen.getByText(/nvme0n1:/)).toBeInTheDocument()
     expect(screen.getByText('/srv/stacklab')).toBeInTheDocument()

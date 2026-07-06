@@ -152,6 +152,23 @@ func TestMetricsCollectorSamplesFilesystemsAndNetworkRates(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(procDir, "net"), 0o755); err != nil {
 		t.Fatalf("MkdirAll(proc/net) error = %v", err)
 	}
+	sysDir := filepath.Join(tempDir, "sys")
+	hwmonDir := filepath.Join(sysDir, "class", "hwmon", "hwmon0")
+	if err := os.MkdirAll(hwmonDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(hwmon) error = %v", err)
+	}
+	temperatureFiles := map[string]string{
+		"name":        "coretemp\n",
+		"temp1_label": "Package id 0\n",
+		"temp1_input": "42000\n",
+		"temp2_label": "Core 0\n",
+		"temp2_input": "41000\n",
+	}
+	for name, content := range temperatureFiles {
+		if err := os.WriteFile(filepath.Join(hwmonDir, name), []byte(content), 0o644); err != nil {
+			t.Fatalf("WriteFile(%s) error = %v", name, err)
+		}
+	}
 
 	mountPoint := filepath.Join(tempDir, "stacklab")
 	rootDir := filepath.Join(mountPoint, "data")
@@ -171,6 +188,7 @@ func TestMetricsCollectorSamplesFilesystemsAndNetworkRates(t *testing.T) {
 
 	now := time.Unix(1_712_598_000, 0).UTC()
 	collector := newMetricsCollector(rootDir, procDir)
+	collector.sysRoot = sysDir
 	collector.now = func() time.Time {
 		return now
 	}
@@ -196,6 +214,12 @@ func TestMetricsCollectorSamplesFilesystemsAndNetworkRates(t *testing.T) {
 	if response.Current.Swap.TotalBytes != 2048000*1024 || response.Current.Swap.UsedBytes != 512000*1024 || response.Current.Swap.UsagePercent != 25 {
 		t.Fatalf("unexpected swap usage: %#v", response.Current.Swap)
 	}
+	if response.Current.Temperatures.CPUCelsius == nil || *response.Current.Temperatures.CPUCelsius != 42 {
+		t.Fatalf("unexpected CPU temperature: %#v", response.Current.Temperatures)
+	}
+	if len(response.Current.Temperatures.Sensors) != 2 || response.Current.Temperatures.Sensors[0].Name != "coretemp" {
+		t.Fatalf("unexpected temperature sensors: %#v", response.Current.Temperatures.Sensors)
+	}
 	if len(response.Current.Filesystems) != 1 {
 		t.Fatalf("len(filesystems) = %d, want 1: %#v", len(response.Current.Filesystems), response.Current.Filesystems)
 	}
@@ -216,10 +240,69 @@ func TestMetricsCollectorSamplesFilesystemsAndNetworkRates(t *testing.T) {
 	}
 }
 
+func TestMetricsCollectorReadsThermalZoneTemperatureSensors(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	thermalZoneDir := filepath.Join(tempDir, "sys", "class", "thermal", "thermal_zone0")
+	if err := os.MkdirAll(thermalZoneDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(thermal_zone0) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(thermalZoneDir, "type"), []byte("cpu-thermal\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(type) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(thermalZoneDir, "temp"), []byte("56500\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(temp) error = %v", err)
+	}
+
+	collector := newMetricsCollector(t.TempDir(), t.TempDir())
+	collector.sysRoot = filepath.Join(tempDir, "sys")
+
+	usage := collector.readTemperatureUsage()
+	if usage.CPUCelsius == nil || *usage.CPUCelsius != 56.5 {
+		t.Fatalf("unexpected CPU temperature: %#v", usage)
+	}
+	if len(usage.Sensors) != 1 || usage.Sensors[0].Name != "cpu-thermal" || usage.Sensors[0].Label != "thermal_zone0" {
+		t.Fatalf("unexpected sensors: %#v", usage.Sensors)
+	}
+}
+
+func TestMetricsCollectorDoesNotSelectNonCPUSensorAsCPUTemperature(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	hwmonDir := filepath.Join(tempDir, "sys", "class", "hwmon", "hwmon0")
+	if err := os.MkdirAll(hwmonDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(hwmon0) error = %v", err)
+	}
+	files := map[string]string{
+		"name":        "nvme\n",
+		"temp1_label": "Composite\n",
+		"temp1_input": "48000\n",
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(hwmonDir, name), []byte(content), 0o644); err != nil {
+			t.Fatalf("WriteFile(%s) error = %v", name, err)
+		}
+	}
+
+	collector := newMetricsCollector(t.TempDir(), t.TempDir())
+	collector.sysRoot = filepath.Join(tempDir, "sys")
+
+	usage := collector.readTemperatureUsage()
+	if usage.CPUCelsius != nil {
+		t.Fatalf("CPUCelsius = %v, want nil for non-CPU sensor", *usage.CPUCelsius)
+	}
+	if len(usage.Sensors) != 1 || usage.Sensors[0].Name != "nvme" {
+		t.Fatalf("unexpected sensors: %#v", usage.Sensors)
+	}
+}
+
 func TestMetricsCollectorPrunesHistoryByTime(t *testing.T) {
 	t.Parallel()
 
 	collector := newMetricsCollector(t.TempDir(), t.TempDir())
+	collector.sysRoot = t.TempDir()
 	collector.historyWindow = time.Minute
 	collector.maxSamples = 100
 
@@ -247,6 +330,7 @@ func TestMetricsCollectorSnapshotFiltersHistorySince(t *testing.T) {
 	t.Parallel()
 
 	collector := newMetricsCollector(t.TempDir(), t.TempDir())
+	collector.sysRoot = t.TempDir()
 	base := time.Unix(1_712_598_000, 0).UTC()
 	collector.samples = []HostMetricSample{
 		{SampledAt: base.Add(-2 * time.Second)},
@@ -271,6 +355,7 @@ func TestMetricsCollectorSwitchesToActiveIntervalAfterSnapshot(t *testing.T) {
 	t.Parallel()
 
 	collector := newMetricsCollector(t.TempDir(), t.TempDir())
+	collector.sysRoot = t.TempDir()
 	now := time.Unix(1_712_598_000, 0).UTC()
 	collector.now = func() time.Time {
 		return now

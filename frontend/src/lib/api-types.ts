@@ -555,6 +555,7 @@ export interface HostMetricSample {
   cpu: HostOverviewResponse['resources']['cpu']
   memory: HostOverviewResponse['resources']['memory']
   swap: HostSwapUsage
+  temperatures: HostTemperatureUsage
   filesystems: HostFilesystemUsage[]
   disk_io: HostDiskIOUsage
   network: HostNetworkUsage
@@ -565,6 +566,17 @@ export interface HostSwapUsage {
   used_bytes: number
   available_bytes: number
   usage_percent: number
+}
+
+export interface HostTemperatureUsage {
+  cpu_celsius: number | null
+  sensors: HostTemperatureSensor[]
+}
+
+export interface HostTemperatureSensor {
+  name: string
+  label: string
+  temperature_celsius: number
 }
 
 export interface HostFilesystemUsage {

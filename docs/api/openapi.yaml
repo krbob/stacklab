@@ -1644,6 +1644,8 @@ components:
           $ref: '#/components/schemas/HostMemory'
         swap:
           $ref: '#/components/schemas/HostSwap'
+        temperatures:
+          $ref: '#/components/schemas/HostTemperatures'
         filesystems:
           type: array
           items:
@@ -1652,7 +1654,7 @@ components:
           $ref: '#/components/schemas/HostDiskIO'
         network:
           $ref: '#/components/schemas/HostNetwork'
-      required: [sampled_at, cpu, memory, swap, filesystems, disk_io, network]
+      required: [sampled_at, cpu, memory, swap, temperatures, filesystems, disk_io, network]
     HostSwap:
       type: object
       properties:
@@ -1669,6 +1671,29 @@ components:
           type: number
           format: double
       required: [total_bytes, used_bytes, available_bytes, usage_percent]
+    HostTemperatures:
+      type: object
+      properties:
+        cpu_celsius:
+          type: number
+          format: double
+          nullable: true
+        sensors:
+          type: array
+          items:
+            $ref: '#/components/schemas/HostTemperatureSensor'
+      required: [cpu_celsius, sensors]
+    HostTemperatureSensor:
+      type: object
+      properties:
+        name:
+          type: string
+        label:
+          type: string
+        temperature_celsius:
+          type: number
+          format: double
+      required: [name, label, temperature_celsius]
     HostFilesystem:
       type: object
       properties:
