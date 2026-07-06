@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getHostOverview, getStacklabLogs } from '@/lib/api-client'
-import type { HostOverviewResponse, StacklabLogEntry } from '@/lib/api-types'
+import type { ReactNode } from 'react'
+import { getHostMetrics, getHostOverview, getStacklabLogs } from '@/lib/api-client'
+import type { HostMetricSample, HostMetricsResponse, HostOverviewResponse, StacklabLogEntry } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
 import { PageHeader } from '@/components/page-header'
 import { formatBytes, formatUptime } from '@/pages/host-page-utils'
 
 const OVERVIEW_POLL_INTERVAL_MS = 5_000
+const METRICS_POLL_INTERVAL_MS = 1_000
 
 function PercentBar({ value, color }: { value: number; color: string }) {
   return (
@@ -20,11 +22,16 @@ export function HostPage() {
   const [overviewError, setOverviewError] = useState<Error | null>(null)
   const [overviewLoading, setOverviewLoading] = useState(true)
   const [overviewUpdatedAt, setOverviewUpdatedAt] = useState<number | null>(null)
+  const [metrics, setMetrics] = useState<HostMetricsResponse | null>(null)
+  const [metricsError, setMetricsError] = useState<Error | null>(null)
+  const [metricsLoading, setMetricsLoading] = useState(true)
   const [nowMs, setNowMs] = useState(() => Date.now())
-  const initialLoadRef = useRef(true)
+  const [pageVisible, setPageVisible] = useState(() => !document.hidden)
+  const initialOverviewLoadRef = useRef(true)
+  const initialMetricsLoadRef = useRef(true)
 
   const loadOverview = useCallback(async () => {
-    if (initialLoadRef.current) {
+    if (initialOverviewLoadRef.current) {
       setOverviewLoading(true)
     }
 
@@ -36,16 +43,34 @@ export function HostPage() {
     } catch (error) {
       setOverviewError(error instanceof Error ? error : new Error('Failed to load host overview'))
     } finally {
-      initialLoadRef.current = false
+      initialOverviewLoadRef.current = false
       setOverviewLoading(false)
+    }
+  }, [])
+
+  const loadMetrics = useCallback(async () => {
+    if (initialMetricsLoadRef.current) {
+      setMetricsLoading(true)
+    }
+
+    try {
+      const nextMetrics = await getHostMetrics()
+      setMetrics(nextMetrics)
+      setMetricsError(null)
+    } catch (error) {
+      setMetricsError(error instanceof Error ? error : new Error('Failed to load host metrics'))
+    } finally {
+      initialMetricsLoadRef.current = false
+      setMetricsLoading(false)
     }
   }, [])
 
   useEffect(() => {
     void loadOverview()
-  }, [loadOverview])
+    void loadMetrics()
+  }, [loadMetrics, loadOverview])
 
-  // Auto-refresh overview every 15s
+  // Auto-refresh overview metadata.
   useEffect(() => {
     const interval = setInterval(() => {
       void loadOverview()
@@ -53,14 +78,27 @@ export function HostPage() {
     return () => clearInterval(interval)
   }, [loadOverview])
 
+  // Keep host metrics in dash-like active mode while this page is open.
+  useEffect(() => {
+    if (!pageVisible) return
+    const interval = setInterval(() => {
+      void loadMetrics()
+    }, METRICS_POLL_INTERVAL_MS)
+    return () => clearInterval(interval)
+  }, [loadMetrics, pageVisible])
+
   useEffect(() => {
     function handleWindowFocus() {
       void loadOverview()
+      void loadMetrics()
     }
 
     function handleVisibilityChange() {
-      if (!document.hidden) {
+      const visible = !document.hidden
+      setPageVisible(visible)
+      if (visible) {
         void loadOverview()
+        void loadMetrics()
       }
     }
 
@@ -70,7 +108,7 @@ export function HostPage() {
       window.removeEventListener('focus', handleWindowFocus)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [loadOverview])
+  }, [loadMetrics, loadOverview])
 
   useEffect(() => {
     if (!overview) return
@@ -98,7 +136,17 @@ export function HostPage() {
           </div>
         )}
 
-        {overview && <OverviewCards overview={overview} nowMs={nowMs} fetchedAtMs={overviewUpdatedAt} />}
+        {overview && (
+          <>
+            <OverviewCards overview={overview} metrics={metrics} nowMs={nowMs} fetchedAtMs={overviewUpdatedAt} />
+            <HostMetricsDashboard
+              metrics={metrics}
+              overview={overview}
+              loading={metricsLoading}
+              error={metricsError}
+            />
+          </>
+        )}
       </section>
 
       {/* Stacklab logs */}
@@ -111,14 +159,25 @@ export function HostPage() {
 
 function OverviewCards({
   overview,
+  metrics,
   nowMs,
   fetchedAtMs,
 }: {
   overview: HostOverviewResponse
+  metrics: HostMetricsResponse | null
   nowMs: number
   fetchedAtMs: number | null
 }) {
   const { host, stacklab, docker, resources } = overview
+  const currentResources = metrics?.current ?? null
+  const cpu = currentResources?.cpu ?? resources.cpu
+  const memory = currentResources?.memory ?? resources.memory
+  const primaryFilesystem = currentResources?.filesystems.find((filesystem) => filesystem.primary) ?? currentResources?.filesystems[0]
+  const disk = primaryFilesystem ?? {
+    used_bytes: resources.disk.used_bytes,
+    total_bytes: resources.disk.total_bytes,
+    usage_percent: resources.disk.usage_percent,
+  }
   const liveUptimeSeconds = fetchedAtMs == null
     ? host.uptime_seconds
     : host.uptime_seconds + Math.max(0, Math.floor((nowMs - fetchedAtMs) / 1000))
@@ -160,29 +219,275 @@ function OverviewCards({
         <div className="mt-3 space-y-2">
           <div>
             <div className="flex justify-between text-xs">
-              <span className="text-[var(--muted)]">CPU ({resources.cpu.core_count} cores)</span>
-              <span className="text-[var(--text)]">{resources.cpu.usage_percent.toFixed(1)}%</span>
+              <span className="text-[var(--muted)]">CPU ({cpu.core_count} cores)</span>
+              <span className="text-[var(--text)]">{cpu.usage_percent.toFixed(1)}%</span>
             </div>
-            <PercentBar value={resources.cpu.usage_percent} color="bg-[var(--accent)]" />
+            <PercentBar value={cpu.usage_percent} color="bg-[var(--accent)]" />
           </div>
           <div>
             <div className="flex justify-between text-xs">
               <span className="text-[var(--muted)]">Memory</span>
-              <span className="text-[var(--text)]">{formatBytes(resources.memory.used_bytes)} / {formatBytes(resources.memory.total_bytes)}</span>
+              <span className="text-[var(--text)]">{formatBytes(memory.used_bytes)} / {formatBytes(memory.total_bytes)}</span>
             </div>
-            <PercentBar value={resources.memory.usage_percent} color="bg-[#E8C07A]" />
+            <PercentBar value={memory.usage_percent} color="bg-[#E8C07A]" />
           </div>
           <div>
             <div className="flex justify-between text-xs">
               <span className="text-[var(--muted)]">Disk</span>
-              <span className="text-[var(--text)]">{formatBytes(resources.disk.used_bytes)} / {formatBytes(resources.disk.total_bytes)}</span>
+              <span className="text-[var(--text)]">{formatBytes(disk.used_bytes)} / {formatBytes(disk.total_bytes)}</span>
             </div>
-            <PercentBar value={resources.disk.usage_percent} color="bg-[var(--warning)]" />
+            <PercentBar value={disk.usage_percent} color="bg-[var(--warning)]" />
           </div>
         </div>
       </div>
     </div>
   )
+}
+
+function HostMetricsDashboard({
+  metrics,
+  overview,
+  loading,
+  error,
+}: {
+  metrics: HostMetricsResponse | null
+  overview: HostOverviewResponse
+  loading: boolean
+  error: Error | null
+}) {
+  const current = metrics?.current ?? null
+  const history = (metrics?.history ?? []).slice(-180)
+
+  if (loading && !current) {
+    return (
+      <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="h-36 animate-pulse rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)]" />
+        ))}
+      </div>
+    )
+  }
+
+  if (!current) {
+    return (
+      <div className="mt-5 rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-4 py-3 text-sm text-[var(--muted)]">
+        Waiting for host metrics...
+      </div>
+    )
+  }
+
+  const primaryFilesystem = current.filesystems.find((filesystem) => filesystem.primary) ?? current.filesystems[0]
+  const fallbackDisk = {
+    mount_point: overview.resources.disk.path,
+    device: '',
+    fs_type: '',
+    total_bytes: overview.resources.disk.total_bytes,
+    used_bytes: overview.resources.disk.used_bytes,
+    available_bytes: overview.resources.disk.available_bytes,
+    usage_percent: overview.resources.disk.usage_percent,
+    primary: true,
+  }
+  const storage = primaryFilesystem ?? fallbackDisk
+  const networkRate = current.network.total_rx_bytes_per_sec + current.network.total_tx_bytes_per_sec
+  const topInterface = current.network.interfaces[0]
+  const sampledAt = new Date(current.sampled_at).toLocaleTimeString()
+
+  return (
+    <div className="mt-5 flex flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-lg font-medium text-[var(--text)]">Host metrics</h3>
+        <div className="text-xs text-[var(--muted)]">Sampled {sampledAt}</div>
+      </div>
+
+      {error && (
+        <div className="rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">
+          Failed to load host metrics: {error.message}
+        </div>
+      )}
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard
+          title="CPU"
+          value={`${current.cpu.usage_percent.toFixed(1)}%`}
+          detail={`${current.cpu.core_count} cores · load ${current.cpu.load_average.join(' / ')}`}
+          color="#F5A524"
+          values={history.map((sample) => sample.cpu.usage_percent)}
+        >
+          <PercentBar value={current.cpu.usage_percent} color="bg-[var(--accent)]" />
+        </MetricCard>
+
+        <MetricCard
+          title="Memory"
+          value={`${current.memory.usage_percent.toFixed(1)}%`}
+          detail={`${formatBytes(current.memory.used_bytes)} / ${formatBytes(current.memory.total_bytes)}`}
+          color="#E8C07A"
+          values={history.map((sample) => sample.memory.usage_percent)}
+        >
+          <PercentBar value={current.memory.usage_percent} color="bg-[#E8C07A]" />
+        </MetricCard>
+
+        <MetricCard
+          title="Network"
+          value={`${formatRate(current.network.total_rx_bytes_per_sec)} ↓`}
+          detail={`${formatRate(current.network.total_tx_bytes_per_sec)} ↑${topInterface ? ` · ${topInterface.name}` : ''}`}
+          color="#5EC2B7"
+          values={history.map((sample) => sample.network.total_rx_bytes_per_sec + sample.network.total_tx_bytes_per_sec)}
+        >
+          <div className="space-y-1 text-xs text-[var(--muted)]">
+            <div className="flex min-w-0 justify-between gap-2">
+              <span>Combined</span>
+              <span className="text-[var(--text)]">{formatRate(networkRate)}</span>
+            </div>
+          </div>
+        </MetricCard>
+
+        <MetricCard
+          title="Storage"
+          value={`${storage.usage_percent.toFixed(1)}%`}
+          detail={`${formatBytes(storage.used_bytes)} / ${formatBytes(storage.total_bytes)}`}
+          color="#D66F3F"
+          values={history.map((sample) => {
+            const filesystem = sample.filesystems.find((item) => item.primary) ?? sample.filesystems[0]
+            return filesystem?.usage_percent ?? storage.usage_percent
+          })}
+        >
+          <PercentBar value={storage.usage_percent} color="bg-[var(--warning)]" />
+        </MetricCard>
+      </div>
+
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
+        <div className="min-w-0 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4">
+          <div className="mb-3 font-brand text-xs uppercase tracking-wider text-[var(--accent)]">Filesystems</div>
+          <div className="space-y-3">
+            {current.filesystems.length === 0 && (
+              <div className="text-sm text-[var(--muted)]">No filesystem metrics available.</div>
+            )}
+            {current.filesystems.map((filesystem) => (
+              <FilesystemRow key={`${filesystem.mount_point}:${filesystem.device}`} filesystem={filesystem} />
+            ))}
+          </div>
+        </div>
+
+        <div className="min-w-0 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4">
+          <div className="mb-3 font-brand text-xs uppercase tracking-wider text-[var(--accent)]">Interfaces</div>
+          <div className="space-y-2">
+            {current.network.interfaces.length === 0 && (
+              <div className="text-sm text-[var(--muted)]">No network metrics available.</div>
+            )}
+            {current.network.interfaces.slice(0, 6).map((networkInterface) => (
+              <div key={networkInterface.name} className="min-w-0 rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.12)] px-3 py-2">
+                <div className="flex min-w-0 items-center justify-between gap-3">
+                  <div className="min-w-0 truncate text-sm font-medium text-[var(--text)]">{networkInterface.name}</div>
+                  <div className="shrink-0 text-xs text-[var(--muted)]">
+                    {formatRate(networkInterface.rx_bytes_per_sec)} ↓ · {formatRate(networkInterface.tx_bytes_per_sec)} ↑
+                  </div>
+                </div>
+                <div className="mt-1 truncate text-xs text-[var(--muted)]">
+                  RX {formatBytes(networkInterface.rx_bytes)} · TX {formatBytes(networkInterface.tx_bytes)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function MetricCard({
+  title,
+  value,
+  detail,
+  color,
+  values,
+  children,
+}: {
+  title: string
+  value: string
+  detail: string
+  color: string
+  values: number[]
+  children: ReactNode
+}) {
+  return (
+    <div className="min-w-0 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4">
+      <div className="font-brand text-xs uppercase tracking-wider text-[var(--accent)]">{title}</div>
+      <div className="mt-2 truncate text-2xl font-medium text-[var(--text)]">{value}</div>
+      <div className="mt-1 truncate text-xs text-[var(--muted)]">{detail}</div>
+      <div className="mt-3">
+        <Sparkline values={values} color={color} />
+      </div>
+      <div className="mt-3">{children}</div>
+    </div>
+  )
+}
+
+function Sparkline({ values, color }: { values: number[]; color: string }) {
+  const points = sparklinePoints(values)
+  return (
+    <svg viewBox="0 0 120 36" role="img" aria-label="Metric history" className="h-9 w-full overflow-visible">
+      <polyline
+        points={points}
+        fill="none"
+        stroke={color}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
+  )
+}
+
+function sparklinePoints(values: number[]): string {
+  if (values.length === 0) {
+    return '0,34 120,34'
+  }
+  if (values.length === 1) {
+    const y = sparklineY(values[0], Math.max(values[0], 1))
+    return `0,${y} 120,${y}`
+  }
+
+  const max = Math.max(...values, 1)
+  return values.map((value, index) => {
+    const x = (index / (values.length - 1)) * 120
+    const y = sparklineY(value, max)
+    return `${roundSVGCoord(x)},${y}`
+  }).join(' ')
+}
+
+function sparklineY(value: number, max: number): number {
+  return roundSVGCoord(34 - (Math.max(0, value) / max) * 30)
+}
+
+function roundSVGCoord(value: number): number {
+  return Math.round(value * 10) / 10
+}
+
+function FilesystemRow({ filesystem }: { filesystem: HostMetricSample['filesystems'][number] }) {
+  const label = filesystem.device || filesystem.fs_type || 'filesystem'
+  return (
+    <div className="min-w-0">
+      <div className="mb-1 flex min-w-0 items-start justify-between gap-3 text-xs">
+        <div className="min-w-0">
+          <div className="break-all font-medium text-[var(--text)]">
+            {filesystem.mount_point}
+            {filesystem.primary && <span className="ml-2 text-[var(--accent)]">primary</span>}
+          </div>
+          <div className="truncate text-[var(--muted)]">{label}</div>
+        </div>
+        <div className="shrink-0 text-right text-[var(--muted)]">
+          <div className="text-[var(--text)]">{filesystem.usage_percent.toFixed(1)}%</div>
+          <div>{formatBytes(filesystem.used_bytes)} / {formatBytes(filesystem.total_bytes)}</div>
+        </div>
+      </div>
+      <PercentBar value={filesystem.usage_percent} color={filesystem.primary ? 'bg-[var(--accent)]' : 'bg-[var(--warning)]'} />
+    </div>
+  )
+}
+
+function formatRate(bytesPerSecond: number): string {
+  return `${formatBytes(Math.max(0, Math.round(bytesPerSecond)))}/s`
 }
 
 const LOG_LEVELS = ['debug', 'info', 'warn', 'error'] as const

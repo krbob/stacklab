@@ -1,19 +1,17 @@
 # Host Observability Handoff
 
-This handoff is a historical UI planning snapshot for the host observability slice.
+This handoff documents the current `/host` UI shape for the host observability slice.
 
-The route and feature are already implemented; use `docs/api/host-observability.md`
-and the running product as the current source of truth.
+Backend contract:
 
-Original scope:
+- `docs/api/host-observability.md`
+
+Current scope:
 
 - Stacklab version display
 - host overview
+- native host dashboard
 - Stacklab service log viewer
-
-Backend contract draft:
-
-- `docs/api/host-observability.md`
 
 ## Confirmed Information Architecture
 
@@ -55,9 +53,46 @@ Confirmed sections:
    - memory
    - disk
 
-Optional later:
+## Host Metrics Dashboard
 
-- compact status cards on the dashboard
+Confirmed placement:
+
+- inside the first `/host` section, below the overview cards
+- logs stay below the host section
+
+Confirmed metrics:
+
+- CPU percent, core count, load average, and short history
+- memory usage and short history
+- aggregate network RX/TX throughput and per-interface RX/TX
+- mounted filesystems with percent, used/total bytes, mount point, device, and filesystem type
+- the Stacklab root filesystem is marked as primary
+
+Sampling behavior:
+
+- the backend collector runs independently from browser sessions
+- idle/background sampling interval: `30s`
+- dashboard-active sampling interval: `1s`
+- polling `GET /api/host/metrics` marks the collector active
+- leaving `/host` or hiding the browser tab stops the frontend polling; after the active TTL expires, the backend returns to the background interval
+- history is an in-memory `30m` ring buffer
+- there is no SQLite persistence in v1
+
+Dashdot parity decisions:
+
+- always show percentages where a percent is available
+- show host filesystems natively from `mountinfo`/`statfs`; no dashdot-style container virtual mount mapping is needed for normal Stacklab installs
+- show network interface throughput from byte counters
+- do not implement speedtest / Ookla EULA flow in v1
+- do not implement public IP, GPU, CPU temperature, or sensor-level metrics in v1
+
+Backlog candidates:
+
+- GPU usage
+- CPU temperature / sensors
+- public IP display
+- optional speedtest integration
+- configurable filesystem include/exclude list if real deployments need it
 
 ## Stacklab Logs Panel
 
@@ -83,8 +118,10 @@ Nice to have later:
 Need to define:
 
 - loading state for host overview
+- loading state for host metrics
 - loading state for logs
 - empty logs state
+- empty filesystem/network metric states
 - permission/unavailable state when `journald` is not readable
 - degraded state if host metrics load but logs do not
 
@@ -104,12 +141,14 @@ This page should be judged primarily on Linux staging and production-like hosts,
 
 1. `/host` is a dedicated page in the main sidebar
 2. Stacklab logs are stacked under the overview on the same page
-3. host resource presentation uses compact dashboard-style cards, not a dense operator table
+3. host resource presentation uses compact dashboard-style cards plus focused filesystem/interface lists, not a dense operator table
+4. `/api/host/metrics` is polled only while the `/host` page is mounted
+5. metrics use server-side adaptive sampling: `30s` idle, `1s` active
 
 ## Expected Backend/UI Sequence
 
-1. architecture confirms route placement
-2. backend implements `GET /api/host/overview`
-3. backend implements polling-based `GET /api/host/stacklab-logs`
-4. UI implements host page and log viewer
-5. if polling proves insufficient, revisit streaming later
+1. backend implements `GET /api/host/overview`
+2. backend implements polling-based `GET /api/host/stacklab-logs`
+3. backend implements `GET /api/host/metrics`
+4. UI renders overview cards, native metrics dashboard, and log viewer on `/host`
+5. if log polling proves insufficient, revisit streaming later

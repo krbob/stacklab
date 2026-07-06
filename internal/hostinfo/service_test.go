@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -137,5 +138,119 @@ func TestOverviewReadsProcAndDiskData(t *testing.T) {
 	}
 	if response.Resources.Disk.Path != rootDir {
 		t.Fatalf("response.Resources.Disk.Path = %q, want %q", response.Resources.Disk.Path, rootDir)
+	}
+}
+
+func TestMetricsCollectorSamplesFilesystemsAndNetworkRates(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	procDir := filepath.Join(tempDir, "proc")
+	if err := os.MkdirAll(filepath.Join(procDir, "self"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(proc/self) error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(procDir, "net"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(proc/net) error = %v", err)
+	}
+
+	mountPoint := filepath.Join(tempDir, "stacklab")
+	rootDir := filepath.Join(mountPoint, "data")
+	if err := os.MkdirAll(rootDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(root) error = %v", err)
+	}
+
+	writeMetricsProcFixture(t, procDir, "cpu  100 0 0 100 0 0 0 0 0 0\n", 1000, 2000)
+	mountInfo := strings.Join([]string{
+		"26 23 8:2 / " + mountPoint + " rw,relatime - ext4 /dev/nvme0n1p2 rw",
+		"27 23 0:23 / /run rw,nosuid,nodev - tmpfs tmpfs rw",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(procDir, "self", "mountinfo"), []byte(mountInfo+"\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(mountinfo) error = %v", err)
+	}
+
+	now := time.Unix(1_712_598_000, 0).UTC()
+	collector := newMetricsCollector(rootDir, procDir)
+	collector.now = func() time.Time {
+		return now
+	}
+
+	collector.sampleAndStore()
+	now = now.Add(10 * time.Second)
+	writeMetricsProcFixture(t, procDir, "cpu  150 0 0 150 0 0 0 0 0 0\n", 2500, 2600)
+	collector.sampleAndStore()
+
+	response := collector.Snapshot()
+	if response.Current == nil {
+		t.Fatalf("response.Current is nil")
+	}
+	if len(response.History) != 2 {
+		t.Fatalf("len(response.History) = %d, want 2", len(response.History))
+	}
+	if response.Current.CPU.UsagePercent != 50 {
+		t.Fatalf("response.Current.CPU.UsagePercent = %v, want 50", response.Current.CPU.UsagePercent)
+	}
+	if response.Current.Memory.TotalBytes != 1024000*1024 || response.Current.Memory.UsagePercent != 50 {
+		t.Fatalf("unexpected memory usage: %#v", response.Current.Memory)
+	}
+	if len(response.Current.Filesystems) != 1 {
+		t.Fatalf("len(filesystems) = %d, want 1: %#v", len(response.Current.Filesystems), response.Current.Filesystems)
+	}
+	if filesystem := response.Current.Filesystems[0]; filesystem.MountPoint != mountPoint || filesystem.Device != "/dev/nvme0n1p2" || filesystem.FSType != "ext4" || !filesystem.Primary {
+		t.Fatalf("unexpected filesystem: %#v", filesystem)
+	}
+	if response.Current.Network.TotalRXBytesPerSec != 150 || response.Current.Network.TotalTXBytesPerSec != 60 {
+		t.Fatalf("unexpected network totals: %#v", response.Current.Network)
+	}
+	if len(response.Current.Network.Interfaces) != 1 || response.Current.Network.Interfaces[0].Name != "eth0" {
+		t.Fatalf("unexpected interfaces: %#v", response.Current.Network.Interfaces)
+	}
+}
+
+func TestMetricsCollectorSwitchesToActiveIntervalAfterSnapshot(t *testing.T) {
+	t.Parallel()
+
+	collector := newMetricsCollector(t.TempDir(), t.TempDir())
+	now := time.Unix(1_712_598_000, 0).UTC()
+	collector.now = func() time.Time {
+		return now
+	}
+
+	if got := collector.currentInterval(); got != metricsBackgroundSampleInterval {
+		t.Fatalf("currentInterval() = %v, want %v", got, metricsBackgroundSampleInterval)
+	}
+
+	response := collector.Snapshot()
+	if response.SampleIntervalSeconds != int(metricsActiveSampleInterval.Seconds()) {
+		t.Fatalf("response.SampleIntervalSeconds = %d, want %d", response.SampleIntervalSeconds, int(metricsActiveSampleInterval.Seconds()))
+	}
+	if got := collector.currentInterval(); got != metricsActiveSampleInterval {
+		t.Fatalf("currentInterval(active) = %v, want %v", got, metricsActiveSampleInterval)
+	}
+
+	now = now.Add(metricsActiveTTL + time.Second)
+	if got := collector.currentInterval(); got != metricsBackgroundSampleInterval {
+		t.Fatalf("currentInterval(expired) = %v, want %v", got, metricsBackgroundSampleInterval)
+	}
+}
+
+func writeMetricsProcFixture(t *testing.T, procDir, statLine string, eth0RXBytes, eth0TXBytes uint64) {
+	t.Helper()
+
+	files := map[string]string{
+		"loadavg": "0.31 0.22 0.18 1/100 123\n",
+		"meminfo": "MemTotal:        1024000 kB\nMemAvailable:     512000 kB\n",
+		"stat":    statLine,
+		filepath.Join("net", "dev"): strings.Join([]string{
+			"Inter-|   Receive                                                |  Transmit",
+			" face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed",
+			"  lo: 1 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0",
+			"eth0: " + strconv.FormatUint(eth0RXBytes, 10) + " 0 0 0 0 0 0 0 " + strconv.FormatUint(eth0TXBytes, 10) + " 0 0 0 0 0 0 0",
+		}, "\n") + "\n",
+	}
+
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(procDir, name), []byte(content), 0o644); err != nil {
+			t.Fatalf("WriteFile(%s) error = %v", name, err)
+		}
 	}
 }

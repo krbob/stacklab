@@ -4,6 +4,7 @@ This document defines the current host observability contract:
 
 - Stacklab version visibility
 - host overview
+- short-window host metrics for the native dashboard
 - Stacklab service logs backed by `journald`
 
 It is intentionally narrower than a full host monitoring API.
@@ -12,6 +13,7 @@ It is intentionally narrower than a full host monitoring API.
 
 - help the operator distinguish host problems from stack problems
 - expose Stacklab's own version and runtime context clearly
+- provide an operator dashboard for CPU, memory, filesystems, and network throughput
 - make Stacklab service logs available in the browser without exposing arbitrary host logs
 
 ## Platform Caveat
@@ -39,6 +41,8 @@ This is expected behavior, not a product bug by itself.
 
 - full host monitoring platform
 - long-term metrics storage
+- speedtest / public IP discovery
+- GPU metrics
 - generic system log browser
 - process manager UI
 
@@ -101,6 +105,76 @@ Notes:
 - on package-managed installs this is typically `/srv/stacklab`; on tarball installs it is typically `/opt/stacklab`
 - `stacklab.started_at` is process-start metadata, not install time
 - on non-Linux development hosts the response may be partial or degraded compared to production Linux hosts
+
+## `GET /api/host/metrics`
+
+Purpose:
+
+- return live host resource metrics and a short in-memory history for the native Host dashboard
+
+Response:
+
+```json
+{
+  "sample_interval_seconds": 1,
+  "background_sample_interval_seconds": 30,
+  "active_sample_interval_seconds": 1,
+  "history_window_seconds": 1800,
+  "current": {
+    "sampled_at": "2026-04-04T14:13:22Z",
+    "cpu": {
+      "core_count": 4,
+      "load_average": [0.31, 0.22, 0.18],
+      "usage_percent": 12.4
+    },
+    "memory": {
+      "total_bytes": 8589934592,
+      "used_bytes": 3145728000,
+      "available_bytes": 5444206592,
+      "usage_percent": 36.6
+    },
+    "filesystems": [
+      {
+        "mount_point": "/srv/stacklab",
+        "device": "/dev/nvme0n1p2",
+        "fs_type": "ext4",
+        "total_bytes": 274877906944,
+        "used_bytes": 83437182976,
+        "available_bytes": 191440723968,
+        "usage_percent": 30.4,
+        "primary": true
+      }
+    ],
+    "network": {
+      "total_rx_bytes_per_sec": 2048,
+      "total_tx_bytes_per_sec": 1024,
+      "interfaces": [
+        {
+          "name": "eth0",
+          "rx_bytes": 123456789,
+          "tx_bytes": 98765432,
+          "rx_bytes_per_sec": 2048,
+          "tx_bytes_per_sec": 1024
+        }
+      ]
+    }
+  },
+  "history": []
+}
+```
+
+Notes:
+
+- metrics are sampled server-side and kept only in memory
+- the history target is `30m`; no SQLite persistence is part of v1
+- idle/background sampling runs every `30s`
+- calling this endpoint marks the dashboard as active; active sampling runs every `1s`
+- the frontend polls this endpoint only while the `/host` page is visible
+- after the dashboard stops polling, active mode expires and sampling returns to the background interval
+- filesystem metrics come from Linux mount information plus `statfs`
+- virtual filesystems and Docker/container runtime internals are filtered out
+- network throughput is derived from `/proc/net/dev` byte deltas; v1 does not run speedtest checks or public IP discovery
+- GPU, CPU temperature, and sensor-level metrics are backlog candidates, not part of this contract
 
 ## `GET /api/host/stacklab-logs`
 
@@ -180,6 +254,8 @@ Not required initially:
 - `/proc/uptime`
 - `/proc/loadavg`
 - `/proc/meminfo`
+- `/proc/self/mountinfo`
+- `/proc/net/dev`
 - `statfs` for disk usage
 - `os.Hostname`
 - OS-release parsing under `/etc/os-release`

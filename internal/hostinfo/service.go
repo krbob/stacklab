@@ -32,6 +32,7 @@ type Service struct {
 	osReleasePath    string
 	stacklabUnitName string
 	runCommand       commandRunner
+	metrics          *MetricsCollector
 	mu               sync.Mutex
 	lastCPUSample    cpuSample
 	hasCPUSample     bool
@@ -50,6 +51,7 @@ func NewService(cfg config.Config, startedAt time.Time) *Service {
 		osReleasePath:    "/etc/os-release",
 		stacklabUnitName: cfg.SystemdUnitName,
 		runCommand:       defaultCommandRunner,
+		metrics:          newMetricsCollector(cfg.RootDir, "/proc"),
 	}
 }
 
@@ -89,6 +91,14 @@ func (s *Service) Overview(ctx context.Context) (OverviewResponse, error) {
 			Disk:   diskUsage,
 		},
 	}, nil
+}
+
+func (s *Service) StartMetrics(ctx context.Context) {
+	go s.metrics.Start(ctx)
+}
+
+func (s *Service) Metrics(ctx context.Context) (MetricsResponse, error) {
+	return s.metrics.Snapshot(), nil
 }
 
 func (s *Service) StacklabLogs(ctx context.Context, query LogsQuery) (StacklabLogsResponse, error) {

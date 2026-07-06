@@ -2,13 +2,15 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HostPage } from './host-page'
 import { formatUptime } from './host-page-utils'
-import type { HostOverviewResponse, StacklabLogsResponse } from '@/lib/api-types'
+import type { HostMetricsResponse, HostOverviewResponse, StacklabLogsResponse } from '@/lib/api-types'
 
 const mockGetHostOverview = vi.fn()
+const mockGetHostMetrics = vi.fn()
 const mockGetStacklabLogs = vi.fn()
 
 vi.mock('@/lib/api-client', () => ({
   getHostOverview: (...args: unknown[]) => mockGetHostOverview(...args),
+  getHostMetrics: (...args: unknown[]) => mockGetHostMetrics(...args),
   getStacklabLogs: (...args: unknown[]) => mockGetStacklabLogs(...args),
 }))
 
@@ -70,12 +72,83 @@ const logsResponse: StacklabLogsResponse = {
   has_more: false,
 }
 
+const metrics: HostMetricsResponse = {
+  sample_interval_seconds: 1,
+  background_sample_interval_seconds: 30,
+  active_sample_interval_seconds: 1,
+  history_window_seconds: 1800,
+  current: {
+    sampled_at: '2026-04-04T12:00:10Z',
+    cpu: overview.resources.cpu,
+    memory: overview.resources.memory,
+    filesystems: [
+      {
+        mount_point: '/srv/stacklab',
+        device: '/dev/nvme0n1p2',
+        fs_type: 'ext4',
+        total_bytes: 200 * 1024 * 1024 * 1024,
+        used_bytes: 50 * 1024 * 1024 * 1024,
+        available_bytes: 150 * 1024 * 1024 * 1024,
+        usage_percent: 25,
+        primary: true,
+      },
+    ],
+    network: {
+      total_rx_bytes_per_sec: 2048,
+      total_tx_bytes_per_sec: 1024,
+      interfaces: [
+        {
+          name: 'eth0',
+          rx_bytes: 200 * 1024,
+          tx_bytes: 100 * 1024,
+          rx_bytes_per_sec: 2048,
+          tx_bytes_per_sec: 1024,
+        },
+      ],
+    },
+  },
+  history: [
+    {
+      sampled_at: '2026-04-04T12:00:09Z',
+      cpu: { ...overview.resources.cpu, usage_percent: 12.5 },
+      memory: { ...overview.resources.memory, usage_percent: 35 },
+      filesystems: [
+        {
+          mount_point: '/srv/stacklab',
+          device: '/dev/nvme0n1p2',
+          fs_type: 'ext4',
+          total_bytes: 200 * 1024 * 1024 * 1024,
+          used_bytes: 49 * 1024 * 1024 * 1024,
+          available_bytes: 151 * 1024 * 1024 * 1024,
+          usage_percent: 24.5,
+          primary: true,
+        },
+      ],
+      network: {
+        total_rx_bytes_per_sec: 1024,
+        total_tx_bytes_per_sec: 512,
+        interfaces: [
+          {
+            name: 'eth0',
+            rx_bytes: 198 * 1024,
+            tx_bytes: 99 * 1024,
+            rx_bytes_per_sec: 1024,
+            tx_bytes_per_sec: 512,
+          },
+        ],
+      },
+    },
+  ],
+}
+
 describe('HostPage', () => {
   beforeEach(() => {
     vi.useRealTimers()
     mockGetHostOverview.mockReset()
+    mockGetHostMetrics.mockReset()
     mockGetStacklabLogs.mockReset()
     mockGetHostOverview.mockResolvedValue(overview)
+    mockGetHostMetrics.mockResolvedValue(metrics)
     mockGetStacklabLogs.mockResolvedValue(logsResponse)
   })
 
@@ -88,10 +161,15 @@ describe('HostPage', () => {
     expect(screen.getByText('amd64')).toBeInTheDocument()
     expect(screen.getByText(/Engine 28\.5\.1/)).toBeInTheDocument()
     expect(screen.getByText(/Compose 2\.40\.0/)).toBeInTheDocument()
+    expect(screen.getByText('Host metrics')).toBeInTheDocument()
+    expect(screen.getByText('/srv/stacklab')).toBeInTheDocument()
+    expect(screen.getAllByText('eth0').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/2\.0 KB\/s/).length).toBeGreaterThan(0)
     expect(await screen.findByText('Started HTTP server')).toBeInTheDocument()
     expect(screen.getByText('Failed to bind port')).toBeInTheDocument()
 
     expect(mockGetHostOverview).toHaveBeenCalledTimes(1)
+    expect(mockGetHostMetrics).toHaveBeenCalledTimes(1)
     expect(mockGetStacklabLogs).toHaveBeenCalledWith({ limit: 200, cursor: undefined, level: undefined })
   })
 
@@ -141,24 +219,36 @@ describe('HostPage', () => {
     expect(await screen.findByText('amd64')).toBeInTheDocument()
   })
 
-  it('polls host overview and updates resource values without remounting', async () => {
-    mockGetHostOverview
-      .mockResolvedValueOnce(overview)
+  it('polls host metrics and updates resource values without remounting', async () => {
+    mockGetHostMetrics
+      .mockResolvedValueOnce(metrics)
       .mockResolvedValueOnce({
-        ...overview,
-        resources: {
-          ...overview.resources,
+        ...metrics,
+        current: metrics.current && {
+          ...metrics.current,
           cpu: {
-            ...overview.resources.cpu,
+            ...metrics.current.cpu,
             usage_percent: 3.2,
           },
         },
+        history: [
+          ...metrics.history,
+          ...(metrics.current
+            ? [{
+                ...metrics.current,
+                cpu: {
+                  ...metrics.current.cpu,
+                  usage_percent: 3.2,
+                },
+              }]
+            : []),
+        ],
       })
-    let overviewPoll: (() => void) | null = null
+    let metricsPoll: (() => void) | null = null
     const setIntervalSpy = vi.spyOn(globalThis, 'setInterval')
     setIntervalSpy.mockImplementation((handler: TimerHandler, timeout?: number) => {
-      if (timeout === 5_000) {
-        overviewPoll = () => {
+      if (timeout === 1_000 && metricsPoll === null) {
+        metricsPoll = () => {
           if (typeof handler === 'function') {
             handler()
           }
@@ -171,18 +261,18 @@ describe('HostPage', () => {
 
     render(<HostPage />)
 
-    expect(await screen.findByText('17.5%')).toBeInTheDocument()
-    expect(overviewPoll).not.toBeNull()
+    expect((await screen.findAllByText('17.5%')).length).toBeGreaterThan(0)
+    expect(metricsPoll).not.toBeNull()
 
     await act(async () => {
-      overviewPoll?.()
+      metricsPoll?.()
       await Promise.resolve()
     })
 
     await waitFor(() => {
-      expect(mockGetHostOverview).toHaveBeenCalledTimes(2)
+      expect(mockGetHostMetrics).toHaveBeenCalledTimes(2)
     })
-    expect(await screen.findByText('3.2%')).toBeInTheDocument()
+    expect((await screen.findAllByText('3.2%')).length).toBeGreaterThan(0)
 
     setIntervalSpy.mockRestore()
     clearIntervalSpy.mockRestore()

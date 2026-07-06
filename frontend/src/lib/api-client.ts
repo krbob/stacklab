@@ -26,6 +26,7 @@ import type {
   GitPushResponse,
   GitWorkspaceStatusResponse,
   HealthResponse,
+  HostMetricsResponse,
   HostOverviewResponse,
   JobDetail,
   JobEventsResponse,
@@ -159,6 +160,10 @@ export function updateMaintenanceSchedules(requestBody: MaintenanceSchedulesUpda
 
 export function getHostOverview(): Promise<HostOverviewResponse> {
   return request('/api/host/overview')
+}
+
+export function getHostMetrics(): Promise<HostMetricsResponse> {
+  return request('/api/host/metrics')
 }
 
 export function getStacklabLogs(params?: { limit?: number; cursor?: string; level?: string; q?: string }): Promise<StacklabLogsResponse> {

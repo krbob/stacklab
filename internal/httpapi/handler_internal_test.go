@@ -41,6 +41,8 @@ import (
 type fakeHostInfo struct {
 	overviewResponse hostinfo.OverviewResponse
 	overviewError    error
+	metricsResponse  hostinfo.MetricsResponse
+	metricsError     error
 	logsResponse     hostinfo.StacklabLogsResponse
 	logsError        error
 	lastLogsQuery    hostinfo.LogsQuery
@@ -89,6 +91,10 @@ type fakeSelfUpdate struct {
 
 func (f *fakeHostInfo) Overview(ctx context.Context) (hostinfo.OverviewResponse, error) {
 	return f.overviewResponse, f.overviewError
+}
+
+func (f *fakeHostInfo) Metrics(ctx context.Context) (hostinfo.MetricsResponse, error) {
+	return f.metricsResponse, f.metricsError
 }
 
 func (f *fakeHostInfo) StacklabLogs(ctx context.Context, query hostinfo.LogsQuery) (hostinfo.StacklabLogsResponse, error) {
@@ -243,6 +249,45 @@ func TestHandlerHostOverviewAndLogs(t *testing.T) {
 				ComposeVersion: "2.39.2",
 			},
 		},
+		metricsResponse: hostinfo.MetricsResponse{
+			SampleIntervalSeconds:           1,
+			BackgroundSampleIntervalSeconds: 30,
+			ActiveSampleIntervalSeconds:     1,
+			HistoryWindowSeconds:            1800,
+			Current: &hostinfo.HostMetricSample{
+				SampledAt: time.Unix(1_712_598_700, 0).UTC(),
+				CPU: hostinfo.CPUUsage{
+					CoreCount:    4,
+					LoadAverage:  []float64{0.3, 0.2, 0.1},
+					UsagePercent: 12.4,
+				},
+				Memory: hostinfo.MemoryUsage{
+					TotalBytes:     1024,
+					UsedBytes:      512,
+					AvailableBytes: 512,
+					UsagePercent:   50,
+				},
+				Filesystems: []hostinfo.FilesystemUsage{
+					{
+						MountPoint:     "/srv/stacklab",
+						Device:         "/dev/sda1",
+						FSType:         "ext4",
+						TotalBytes:     2048,
+						UsedBytes:      1024,
+						AvailableBytes: 1024,
+						UsagePercent:   50,
+						Primary:        true,
+					},
+				},
+				Network: hostinfo.NetworkUsage{
+					TotalRXBytesPerSec: 128,
+					TotalTXBytesPerSec: 64,
+					Interfaces: []hostinfo.NetworkInterfaceUsage{
+						{Name: "eth0", RXBytes: 1024, TXBytes: 2048, RXBytesPerSec: 128, TXBytesPerSec: 64},
+					},
+				},
+			},
+		},
 		logsResponse: hostinfo.StacklabLogsResponse{
 			Items: []hostinfo.StacklabLogEntry{
 				{
@@ -267,6 +312,16 @@ func TestHandlerHostOverviewAndLogs(t *testing.T) {
 	decodeInternalResponse(t, overviewResponse, &overviewPayload)
 	if overviewPayload.Host.Hostname != "fixture-host" || overviewPayload.Stacklab.Version != "2026.04.0" {
 		t.Fatalf("unexpected overview payload: %#v", overviewPayload)
+	}
+
+	metricsResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/host/metrics", nil, cookies)
+	if metricsResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/host/metrics status = %d, want %d; body=%s", metricsResponse.Code, http.StatusOK, metricsResponse.Body.String())
+	}
+	var metricsPayload hostinfo.MetricsResponse
+	decodeInternalResponse(t, metricsResponse, &metricsPayload)
+	if metricsPayload.SampleIntervalSeconds != 1 || metricsPayload.Current == nil || metricsPayload.Current.Network.TotalRXBytesPerSec != 128 {
+		t.Fatalf("unexpected metrics payload: %#v", metricsPayload)
 	}
 
 	logsResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/host/stacklab-logs?limit=25&level=error&q=bind&cursor=s%3Dprev", nil, cookies)

@@ -541,6 +541,48 @@ export interface HostOverviewResponse {
   }
 }
 
+export interface HostMetricsResponse {
+  sample_interval_seconds: number
+  background_sample_interval_seconds: number
+  active_sample_interval_seconds: number
+  history_window_seconds: number
+  current: HostMetricSample | null
+  history: HostMetricSample[]
+}
+
+export interface HostMetricSample {
+  sampled_at: string
+  cpu: HostOverviewResponse['resources']['cpu']
+  memory: HostOverviewResponse['resources']['memory']
+  filesystems: HostFilesystemUsage[]
+  network: HostNetworkUsage
+}
+
+export interface HostFilesystemUsage {
+  mount_point: string
+  device: string
+  fs_type: string
+  total_bytes: number
+  used_bytes: number
+  available_bytes: number
+  usage_percent: number
+  primary: boolean
+}
+
+export interface HostNetworkUsage {
+  total_rx_bytes_per_sec: number
+  total_tx_bytes_per_sec: number
+  interfaces: HostNetworkInterfaceUsage[]
+}
+
+export interface HostNetworkInterfaceUsage {
+  name: string
+  rx_bytes: number
+  tx_bytes: number
+  rx_bytes_per_sec: number
+  tx_bytes_per_sec: number
+}
+
 export interface StacklabLogEntry {
   timestamp: string
   level: string

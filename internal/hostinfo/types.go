@@ -34,6 +34,23 @@ type ResourceUsage struct {
 	Disk   DiskUsage   `json:"disk"`
 }
 
+type MetricsResponse struct {
+	SampleIntervalSeconds           int                `json:"sample_interval_seconds"`
+	BackgroundSampleIntervalSeconds int                `json:"background_sample_interval_seconds"`
+	ActiveSampleIntervalSeconds     int                `json:"active_sample_interval_seconds"`
+	HistoryWindowSeconds            int                `json:"history_window_seconds"`
+	Current                         *HostMetricSample  `json:"current"`
+	History                         []HostMetricSample `json:"history"`
+}
+
+type HostMetricSample struct {
+	SampledAt   time.Time         `json:"sampled_at"`
+	CPU         CPUUsage          `json:"cpu"`
+	Memory      MemoryUsage       `json:"memory"`
+	Filesystems []FilesystemUsage `json:"filesystems"`
+	Network     NetworkUsage      `json:"network"`
+}
+
 type CPUUsage struct {
 	CoreCount    int       `json:"core_count"`
 	LoadAverage  []float64 `json:"load_average"`
@@ -53,6 +70,31 @@ type DiskUsage struct {
 	UsedBytes      uint64  `json:"used_bytes"`
 	AvailableBytes uint64  `json:"available_bytes"`
 	UsagePercent   float64 `json:"usage_percent"`
+}
+
+type FilesystemUsage struct {
+	MountPoint     string  `json:"mount_point"`
+	Device         string  `json:"device"`
+	FSType         string  `json:"fs_type"`
+	TotalBytes     uint64  `json:"total_bytes"`
+	UsedBytes      uint64  `json:"used_bytes"`
+	AvailableBytes uint64  `json:"available_bytes"`
+	UsagePercent   float64 `json:"usage_percent"`
+	Primary        bool    `json:"primary"`
+}
+
+type NetworkUsage struct {
+	TotalRXBytesPerSec float64                 `json:"total_rx_bytes_per_sec"`
+	TotalTXBytesPerSec float64                 `json:"total_tx_bytes_per_sec"`
+	Interfaces         []NetworkInterfaceUsage `json:"interfaces"`
+}
+
+type NetworkInterfaceUsage struct {
+	Name          string  `json:"name"`
+	RXBytes       uint64  `json:"rx_bytes"`
+	TXBytes       uint64  `json:"tx_bytes"`
+	RXBytesPerSec float64 `json:"rx_bytes_per_sec"`
+	TXBytesPerSec float64 `json:"tx_bytes_per_sec"`
 }
 
 type LogsQuery struct {

@@ -63,6 +63,7 @@ type Handler struct {
 
 type hostInfoReader interface {
 	Overview(ctx context.Context) (hostinfo.OverviewResponse, error)
+	Metrics(ctx context.Context) (hostinfo.MetricsResponse, error)
 	StacklabLogs(ctx context.Context, query hostinfo.LogsQuery) (hostinfo.StacklabLogsResponse, error)
 }
 
@@ -155,6 +156,8 @@ func NewHandlerWithContext(appCtx context.Context, cfg config.Config, logger *sl
 	})
 	stackReader.AttachUpdateStatusCacheUpdater(imageUpdateService.CacheStatuses)
 	maintenanceService := maintenance.NewService()
+	hostInfoService := hostinfo.NewService(cfg, time.Now().UTC())
+	hostInfoService.StartMetrics(appCtx)
 	handler := &Handler{
 		appCtx:        appCtx,
 		cfg:           cfg,
@@ -181,7 +184,7 @@ func NewHandlerWithContext(appCtx context.Context, cfg config.Config, logger *sl
 		}),
 		stackReader:     stackReader,
 		imageUpdates:    imageUpdateService,
-		hostInfo:        hostinfo.NewService(cfg, time.Now().UTC()),
+		hostInfo:        hostInfoService,
 		dockerAdmin:     dockeradmin.NewService(cfg),
 		dockerRegistry:  dockerregistryauth.NewService(cfg),
 		configFiles:     configworkspace.NewService(cfg),
@@ -206,6 +209,7 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("POST /api/auth/logout", h.withAuth(h.handleLogout))
 	h.mux.HandleFunc("GET /api/meta", h.withAuth(h.handleMeta))
 	h.mux.HandleFunc("GET /api/host/overview", h.withAuth(h.handleHostOverview))
+	h.mux.HandleFunc("GET /api/host/metrics", h.withAuth(h.handleHostMetrics))
 	h.mux.HandleFunc("GET /api/host/stacklab-logs", h.withAuth(h.handleStacklabLogs))
 	h.mux.HandleFunc("GET /api/docker/admin/overview", h.withAuth(h.handleDockerAdminOverview))
 	h.mux.HandleFunc("GET /api/docker/admin/daemon-config", h.withAuth(h.handleDockerAdminDaemonConfig))
@@ -362,6 +366,17 @@ func (h *Handler) handleHostOverview(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.logger.Error("host overview failed", slog.String("err", err.Error()))
 		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load host overview.", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleHostMetrics(w http.ResponseWriter, r *http.Request) {
+	response, err := h.hostInfo.Metrics(r.Context())
+	if err != nil {
+		h.logger.Error("host metrics failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load host metrics.", nil)
 		return
 	}
 
