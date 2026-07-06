@@ -52,61 +52,205 @@ type templateManifest struct {
 var builtInTemplates = []StackTemplate{
 	{
 		ID:          "web-service",
-		Name:        "Web service",
-		Description: "Single container behind the reverse proxy, with healthcheck and restart policy.",
+		Name:        "Generic web service",
+		Description: "Single HTTP container with a published port, restart policy, and Stacklab link metadata.",
 		Icon:        "globe",
 		BuiltIn:     true,
+		Variables: []TemplateVariable{
+			{Name: "IMAGE", Label: "Image", Description: "Container image to run.", Default: "nginx:stable-alpine", Required: true},
+			{Name: "HOST_PORT", Label: "Host port", Description: "Port exposed on the Docker host.", Default: "8080", Required: true},
+			{Name: "CONTAINER_PORT", Label: "Container port", Description: "Port exposed by the container.", Default: "80", Required: true},
+			{Name: "WEB_URL", Label: "Web URL", Description: "Link shown on the stack card.", Default: "http://localhost:8080", Required: false},
+		},
 		ComposeYAML: `services:
   app:
-    image: nginx:stable
+    image: ${IMAGE}
     restart: unless-stopped
     ports:
-      - "8080:80"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
+      - "${HOST_PORT}:${CONTAINER_PORT}"
 
 x-stacklab:
+  icon: globe
   links:
     - label: Web UI
-      url: http://localhost:8080
+      url: ${WEB_URL}
 `,
 	},
 	{
-		ID:          "app-with-db",
-		Name:        "App + PostgreSQL",
-		Description: "Application container with a PostgreSQL sidecar and named volume.",
+		ID:          "static-site",
+		Name:        "Static site",
+		Description: "Nginx serving files from a stack-local ./site directory.",
+		Icon:        "file-code",
+		BuiltIn:     true,
+		Variables: []TemplateVariable{
+			{Name: "HOST_PORT", Label: "Host port", Description: "Port exposed on the Docker host.", Default: "8080", Required: true},
+			{Name: "WEB_URL", Label: "Web URL", Description: "Link shown on the stack card.", Default: "http://localhost:8080", Required: false},
+		},
+		ComposeYAML: `services:
+  web:
+    image: nginx:stable-alpine
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT}:80"
+    volumes:
+      - ./site:/usr/share/nginx/html:ro
+
+x-stacklab:
+  icon: file-code
+  links:
+    - label: Web UI
+      url: ${WEB_URL}
+`,
+	},
+	{
+		ID:          "postgres-service",
+		Name:        "PostgreSQL",
+		Description: "Standalone PostgreSQL service with a named data volume and healthcheck.",
 		Icon:        "database",
 		BuiltIn:     true,
+		Variables: []TemplateVariable{
+			{Name: "POSTGRES_USER", Label: "Database user", Default: "app", Required: true},
+			{Name: "POSTGRES_PASSWORD", Label: "Database password", Default: "change-me", Required: true},
+			{Name: "POSTGRES_DB", Label: "Database name", Default: "app", Required: true},
+		},
 		ComposeYAML: `services:
-  app:
-    image: ghcr.io/example/app:latest
-    restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      - DATABASE_URL=postgres://app:app@db:5432/app
-
   db:
-    image: postgres:17
+    image: postgres:17-alpine
     restart: unless-stopped
     environment:
-      - POSTGRES_USER=app
-      - POSTGRES_PASSWORD=app
-      - POSTGRES_DB=app
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - db-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
 volumes:
   db-data:
+
+x-stacklab:
+  icon: database
+`,
+	},
+	{
+		ID:          "app-with-db",
+		Name:        "Adminer + PostgreSQL",
+		Description: "Adminer web UI connected to a PostgreSQL sidecar with a named volume.",
+		Icon:        "database",
+		BuiltIn:     true,
+		Variables: []TemplateVariable{
+			{Name: "HOST_PORT", Label: "Host port", Description: "Port exposed on the Docker host.", Default: "8080", Required: true},
+			{Name: "POSTGRES_USER", Label: "Database user", Default: "app", Required: true},
+			{Name: "POSTGRES_PASSWORD", Label: "Database password", Default: "change-me", Required: true},
+			{Name: "POSTGRES_DB", Label: "Database name", Default: "app", Required: true},
+			{Name: "WEB_URL", Label: "Web URL", Description: "Link shown on the stack card.", Default: "http://localhost:8080", Required: false},
+		},
+		ComposeYAML: `services:
+  web:
+    image: adminer:latest
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  db-data:
+
+x-stacklab:
+  icon: database
+  links:
+    - label: Web UI
+      url: ${WEB_URL}
+`,
+	},
+	{
+		ID:          "worker-with-redis",
+		Name:        "Worker + Redis",
+		Description: "Background worker pattern with a Redis sidecar and healthcheck.",
+		Icon:        "activity",
+		BuiltIn:     true,
+		Variables: []TemplateVariable{
+			{Name: "WORKER_INTERVAL", Label: "Worker interval", Description: "Seconds between worker checks.", Default: "30", Required: true},
+		},
+		ComposeYAML: `services:
+  worker:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["sh", "-c", "while true; do redis-cli -h redis ping; sleep ${WORKER_INTERVAL}; done"]
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  redis-data:
+
+x-stacklab:
+  icon: activity
+`,
+	},
+	{
+		ID:          "volume-backed-service",
+		Name:        "File browser",
+		Description: "File Browser with a named data volume for simple persistent storage.",
+		Icon:        "folder",
+		BuiltIn:     true,
+		Variables: []TemplateVariable{
+			{Name: "HOST_PORT", Label: "Host port", Description: "Port exposed on the Docker host.", Default: "8080", Required: true},
+			{Name: "WEB_URL", Label: "Web URL", Description: "Link shown on the stack card.", Default: "http://localhost:8080", Required: false},
+		},
+		ComposeYAML: `services:
+  files:
+    image: filebrowser/filebrowser:v2
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT}:80"
+    volumes:
+      - files-data:/srv
+      - filebrowser-db:/database
+
+volumes:
+  files-data:
+  filebrowser-db:
+
+x-stacklab:
+  icon: folder
+  links:
+    - label: Web UI
+      url: ${WEB_URL}
 `,
 	},
 }

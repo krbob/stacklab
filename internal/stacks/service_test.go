@@ -602,6 +602,44 @@ variables:
 	}
 }
 
+func TestBuiltInTemplatesRenderWithDefaults(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	reader := newTestServiceReader(t)
+	response, err := reader.Templates(ctx)
+	if err != nil {
+		t.Fatalf("Templates() error = %v", err)
+	}
+	if len(response.Items) != 6 {
+		t.Fatalf("built-in template count = %d, want 6", len(response.Items))
+	}
+
+	seen := map[string]bool{}
+	for _, template := range response.Items {
+		seen[template.ID] = true
+		if template.Name == "" || template.ComposeYAML == "" {
+			t.Fatalf("template %q is missing name or compose yaml", template.ID)
+		}
+		rendered, err := reader.RenderTemplate(ctx, template.ID, nil)
+		if err != nil {
+			t.Fatalf("RenderTemplate(%q) error = %v", template.ID, err)
+		}
+		if strings.Contains(rendered, "${") {
+			t.Fatalf("RenderTemplate(%q) left an unresolved variable: %q", template.ID, rendered)
+		}
+		if !strings.Contains(rendered, "x-stacklab:") {
+			t.Fatalf("RenderTemplate(%q) missing x-stacklab metadata", template.ID)
+		}
+	}
+
+	for _, id := range []string{"web-service", "static-site", "postgres-service", "app-with-db", "worker-with-redis", "volume-backed-service"} {
+		if !seen[id] {
+			t.Fatalf("missing built-in template %q", id)
+		}
+	}
+}
+
 func uniqueTestStackID() string {
 	return fmt.Sprintf("test-%d", time.Now().UTC().UnixNano())
 }

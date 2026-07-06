@@ -1202,8 +1202,11 @@ Purpose:
 - list curated stack templates for the create flow (Slice F)
 - operator templates from `<root>/templates/<id>/` (`compose.yaml` +
   optional `template.yaml` with `name`/`description`/`icon`/`variables`);
-  built-in starters
-  when none exist
+- built-in starters when no operator templates exist:
+  `web-service`, `static-site`, `postgres-service`, `app-with-db`,
+  `worker-with-redis`, and `volume-backed-service`
+- template variables use plain `${VAR}` placeholders and are rendered
+  server-side by `POST /api/stacks` when `template_id` is supplied
 
 Response:
 
@@ -1212,12 +1215,18 @@ Response:
   "items": [
     {
       "id": "web-service",
-      "name": "Web service",
-      "description": "Single container behind the reverse proxy...",
+      "name": "Generic web service",
+      "description": "Single HTTP container with a published port...",
       "icon": "globe",
-      "compose_yaml": "services:\n  app:\n    image: nginx:stable\n...",
+      "compose_yaml": "services:\n  app:\n    image: ${IMAGE}\n...",
       "built_in": true,
       "variables": [
+        {
+          "name": "IMAGE",
+          "label": "Image",
+          "default": "nginx:stable-alpine",
+          "required": true
+        },
         {
           "name": "HOST_PORT",
           "label": "Host port",

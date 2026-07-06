@@ -169,7 +169,7 @@ Near-term roadmap goal 1, needed for the redesigned create-stack screen:
   (`missing_healthcheck`, `missing_restart_policy`, `public_port_bind`);
   `source=last_valid` implemented from the persisted deploy baseline.
 - Slice F: `GET /api/templates` implemented — operator templates from
-  `<root>/templates/<id>/` (compose.yaml + template.yaml) with built-in
+  `<root>/templates/<id>/` (compose.yaml + template.yaml) with six built-in
   starters as fallback; create-stack supports template variables and server-side
   rendering via `template_id` + `variables`.
 

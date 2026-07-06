@@ -29,6 +29,7 @@ Implemented and already exercised on Linux staging hosts:
 - Docker registry auth for private images with login/logout in `/docker`
 - webhook and Telegram notifications for job, maintenance, runtime, and Stacklab self-health events
 - stack-local auxiliary file browsing/editing for files such as `Dockerfile`
+- expanded built-in stack template starter catalog with server-rendered variables
 - browser E2E, Docker-backed integration tests, and staging validation on Linux `amd64` and `arm64`
 - Debian package publication through signed APT `stable` and `nightly` channels
 - APT-backed Stacklab self-update on package-managed installs
@@ -40,7 +41,7 @@ Implemented and already exercised on Linux staging hosts:
 
 ### 1. Template Library And Starter Catalog
 
-- expand the curated local template catalog now that create-from-template works
+- collect real operator feedback on the built-in starter catalog
 - keep templates Compose-first and transparent, with simple `${VAR}` variables
 - avoid remote template catalogs until the local workflow is stable
 

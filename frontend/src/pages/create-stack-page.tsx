@@ -57,6 +57,8 @@ export function CreateStackPage() {
   const [error, setError] = useState<string | null>(null)
 
   const idValid = stackId.length > 0 && STACK_ID_REGEX.test(stackId)
+  const selectedTemplateObject = templates.find((template) => template.id === selectedTemplate) ?? null
+  const usingTemplate = selectedTemplateObject !== null
 
   const handleSubmit = useCallback(async (e: FormEvent) => {
     e.preventDefault()
@@ -72,13 +74,17 @@ export function CreateStackPage() {
         create_config_dir: true,
         create_data_dir: true,
         deploy_after_create: deployAfter,
+        ...(selectedTemplateObject ? {
+          template_id: selectedTemplateObject.id,
+          variables: templateVariables,
+        } : {}),
       })
       setJobId(result.job.id)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Create failed')
       setCreating(false)
     }
-  }, [stackId, composeYaml, deployAfter, idValid])
+  }, [stackId, composeYaml, deployAfter, idValid, selectedTemplateObject, templateVariables])
 
   const handleJobDone = useCallback((state: string) => {
     setCreating(false)
@@ -116,47 +122,58 @@ export function CreateStackPage() {
         {templates.length > 0 && (
           <div>
             <span className="mb-2 block text-sm text-[var(--muted)]">Start from</span>
-            <div className="flex flex-wrap gap-2">
+            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
               <button
                 type="button"
                 onClick={() => applyTemplate(null)}
                 className={cn(
-                  'rounded-md border px-3 py-1.5 text-xs transition',
+                  'min-h-20 rounded-md border px-3 py-3 text-left transition',
                   selectedTemplate === null
                     ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
                     : 'border-[var(--panel-border)] text-[var(--muted)] hover:text-[var(--text)]',
                 )}
               >
-                Blank
+                <span className="block text-sm font-medium">Blank compose</span>
+                <span className="mt-1 block text-xs text-[var(--muted)]">Start with a minimal editable compose.yaml.</span>
               </button>
               {templates.map((template) => (
                 <button
                   key={template.id}
+                  data-testid={`template-option-${template.id}`}
                   type="button"
                   onClick={() => applyTemplate(template)}
                   title={template.description}
                   className={cn(
-                    'rounded-md border px-3 py-1.5 text-xs transition',
+                    'min-h-20 rounded-md border px-3 py-3 text-left transition',
                     selectedTemplate === template.id
                       ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
                       : 'border-[var(--panel-border)] text-[var(--muted)] hover:text-[var(--text)]',
                   )}
                 >
-                  {template.name}
+                  <span className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-medium">{template.name}</span>
+                    {template.variables && template.variables.length > 0 && (
+                      <span className="shrink-0 rounded border border-[var(--panel-border)] px-1.5 py-0.5 text-[10px] uppercase tracking-normal text-[var(--muted)]">
+                        {template.variables.length} vars
+                      </span>
+                    )}
+                  </span>
+                  {template.description && <span className="mt-1 block text-xs text-[var(--muted)]">{template.description}</span>}
                 </button>
               ))}
             </div>
-            {selectedTemplate && (
+            {selectedTemplateObject && (
               <p className="mt-1 text-xs text-[var(--muted)]">
-                {templates.find((template) => template.id === selectedTemplate)?.description}
+                {selectedTemplateObject.description}
               </p>
             )}
-            {selectedTemplate && (templates.find((template) => template.id === selectedTemplate)?.variables?.length ?? 0) > 0 && (
+            {selectedTemplateObject && (selectedTemplateObject.variables?.length ?? 0) > 0 && (
               <div className="mt-3 grid gap-3 md:grid-cols-2">
-                {templates.find((template) => template.id === selectedTemplate)!.variables!.map((variable) => (
+                {selectedTemplateObject.variables!.map((variable) => (
                   <label key={variable.name} className="block">
                     <span className="mb-1 block text-xs text-[var(--muted)]">{variable.label || variable.name}</span>
                     <input
+                      data-testid={`template-variable-${variable.name}`}
                       type="text"
                       value={templateVariables[variable.name] ?? ''}
                       onChange={(e) => updateTemplateVariable(variable.name, e.target.value)}
@@ -172,9 +189,11 @@ export function CreateStackPage() {
         )}
 
         <div>
-          <span className="mb-2 block text-sm text-[var(--muted)]">Initial compose.yaml</span>
+          <span className="mb-2 block text-sm text-[var(--muted)]">
+            {usingTemplate ? 'Rendered compose preview' : 'Initial compose.yaml'}
+          </span>
           <div style={{ height: '300px' }}>
-            <YamlEditor value={composeYaml} onChange={setComposeYaml} readOnly={creating} />
+            <YamlEditor value={composeYaml} onChange={setComposeYaml} readOnly={creating || usingTemplate} />
           </div>
         </div>
 
