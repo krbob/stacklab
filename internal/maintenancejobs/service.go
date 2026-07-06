@@ -246,18 +246,9 @@ func (s *Service) RunUpdate(ctx context.Context, request UpdateRequest, requeste
 		}
 		if step.Action == "up" && step.TargetStackID != "" && step.TargetServiceNames == nil {
 			if baselineErr := s.stackReader.RecordDeployBaseline(ctx, step.TargetStackID, job.ID, time.Now().UTC()); baselineErr != nil {
-				workflow = markWorkflowFailed(workflow, index)
-				if updatedJob, updateErr := s.jobs.UpdateWorkflow(ctx, job, workflow); updateErr == nil {
-					job = updatedJob
+				if s.logger != nil {
+					s.logger.Warn("record deploy baseline failed", slog.String("stack_id", step.TargetStackID), slog.String("job_id", job.ID), slog.String("err", baselineErr.Error()))
 				}
-				failingJob := job
-				failingJob.State = "failed"
-				_ = s.jobs.PublishEvent(ctx, failingJob, "job_step_finished", updateStepMessage("Failed", step), "", workflowStepRef(workflow, index))
-				job, _ = s.jobs.FinishFailed(ctx, job, "update_stacks_failed", baselineErr.Error())
-				if err := s.audit.RecordJob(ctx, job, updateAuditDetails(request, targetStackIDs)); err != nil && s.logger != nil {
-					s.logger.Warn("record maintenance audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
-				}
-				return job, nil
 			}
 		}
 
@@ -484,7 +475,7 @@ func maintenanceActionLabel(action string) string {
 }
 
 func updateStepInvalidatesImageUpdates(action string) bool {
-	return action == "pull" || action == "up"
+	return action == "pull" || action == "build"
 }
 
 func buildPruneWorkflow(scope maintenance.PruneScope) []store.JobWorkflowStep {

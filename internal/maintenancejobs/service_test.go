@@ -18,6 +18,7 @@ type fakeMaintenanceStackReader struct {
 	details          map[string]stacks.StackDetailResponse
 	stepCalls        []maintenanceStepCall
 	baselineCalls    int
+	baselineErr      error
 	invalidateCalls  int
 	invalidatedImage []invalidatedImageCall
 }
@@ -77,7 +78,7 @@ func (f *fakeMaintenanceStackReader) RunMaintenanceStepStreaming(ctx context.Con
 
 func (f *fakeMaintenanceStackReader) RecordDeployBaseline(ctx context.Context, stackID, jobID string, deployedAt time.Time) error {
 	f.baselineCalls++
-	return nil
+	return f.baselineErr
 }
 
 func (f *fakeMaintenanceStackReader) InvalidateImageUpdateStatus(ctx context.Context, stackID string, serviceNames []string) error {
@@ -202,8 +203,8 @@ func TestRunUpdateRecordsDeployBaselineOnlyForFullStackUp(t *testing.T) {
 	if fullReader.baselineCalls != 1 {
 		t.Fatalf("full baselineCalls = %d, want 1", fullReader.baselineCalls)
 	}
-	if fullReader.invalidateCalls != 1 || len(fullReader.invalidatedImage[0].ServiceNames) != 0 {
-		t.Fatalf("full image invalidations = %#v, want one full-stack invalidation", fullReader.invalidatedImage)
+	if fullReader.invalidateCalls != 0 {
+		t.Fatalf("full image invalidations = %#v, want none for up-only update", fullReader.invalidatedImage)
 	}
 
 	partialReader := fakeMaintenanceReader()
@@ -225,11 +226,59 @@ func TestRunUpdateRecordsDeployBaselineOnlyForFullStackUp(t *testing.T) {
 	if partialReader.baselineCalls != 0 {
 		t.Fatalf("partial baselineCalls = %d, want 0", partialReader.baselineCalls)
 	}
-	if partialReader.invalidateCalls != 1 || !reflect.DeepEqual(partialReader.invalidatedImage[0].ServiceNames, []string{"app"}) {
-		t.Fatalf("partial image invalidations = %#v, want one app-targeted invalidation", partialReader.invalidatedImage)
+	if partialReader.invalidateCalls != 0 {
+		t.Fatalf("partial image invalidations = %#v, want none for up-only update", partialReader.invalidatedImage)
 	}
 	if len(partialReader.stepCalls) != 1 || !reflect.DeepEqual(partialReader.stepCalls[0].ServiceNames, []string{"app"}) {
 		t.Fatalf("partial step calls = %#v, want one app-targeted up", partialReader.stepCalls)
+	}
+}
+
+func TestRunUpdateTreatsDeployBaselineFailureAsWarning(t *testing.T) {
+	t.Parallel()
+
+	reader := fakeMaintenanceReader()
+	reader.baselineErr = errors.New("baseline unavailable")
+	service := newMaintenanceTestService(t, reader)
+
+	job, err := service.RunUpdate(context.Background(), UpdateRequest{
+		Target:  UpdateTarget{Mode: "selected", StackIDs: []string{"demo"}},
+		Options: UpdateOptions{PullImages: false, BuildImages: false},
+	}, "test")
+	if err != nil {
+		t.Fatalf("RunUpdate() error = %v", err)
+	}
+	if job.State != "succeeded" {
+		t.Fatalf("RunUpdate() state = %q, want succeeded", job.State)
+	}
+	if reader.baselineCalls != 1 {
+		t.Fatalf("baselineCalls = %d, want 1", reader.baselineCalls)
+	}
+}
+
+func TestRunUpdateInvalidatesImageStatusAfterPullOrBuild(t *testing.T) {
+	t.Parallel()
+
+	reader := fakeMaintenanceReader()
+	service := newMaintenanceTestService(t, reader)
+
+	job, err := service.RunUpdate(context.Background(), UpdateRequest{
+		Target:  UpdateTarget{Mode: "selected", StackIDs: []string{"demo"}},
+		Options: UpdateOptions{PullImages: true, BuildImages: true},
+	}, "test")
+	if err != nil {
+		t.Fatalf("RunUpdate() error = %v", err)
+	}
+	if job.State != "succeeded" {
+		t.Fatalf("RunUpdate() state = %q, want succeeded", job.State)
+	}
+	if reader.invalidateCalls != 2 {
+		t.Fatalf("invalidateCalls = %d, want 2 for pull+build", reader.invalidateCalls)
+	}
+	for _, call := range reader.invalidatedImage {
+		if call.StackID != "demo" || len(call.ServiceNames) != 0 {
+			t.Fatalf("unexpected image invalidation call: %#v", call)
+		}
 	}
 }
 

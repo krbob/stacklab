@@ -881,10 +881,10 @@ func (s *ServiceReader) readStacks(ctx context.Context) ([]discoveredStack, erro
 			stack.Services = definition.Services
 			stack.Metadata = definition.Metadata
 			stack.ConfigState = definition.ConfigState
-			if stack.ConfigState != ConfigStateInvalid {
-				if baseline, ok := baselines[id]; ok {
-					deployedAt := baseline.LastDeployedAt
-					stack.LastDeployedAt = &deployedAt
+			if baseline, ok := baselines[id]; ok {
+				deployedAt := baseline.LastDeployedAt
+				stack.LastDeployedAt = &deployedAt
+				if stack.ConfigState != ConfigStateInvalid {
 					if baseline.ComposeSHA256 == definition.ComposeSHA256 && baseline.EnvSHA256 == definition.EnvSHA256 {
 						stack.ConfigState = ConfigStateInSync
 					} else {

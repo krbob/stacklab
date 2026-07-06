@@ -1192,6 +1192,8 @@ Rules:
 - v1 is fail-fast: the first failed stack step stops the remaining workflow
 - `prune_after.include_volumes = true` requires `prune_after.enabled = true`
 - `remove_orphans = true` is rejected when `target.excluded_services` is present
+- when `remove_orphans` is omitted and service exclusions are present, the
+  manual endpoint defaults it to `false`
 - partial service updates do not refresh the full-stack deploy baseline
 - returns `409 stack_locked` if another mutating job already owns one of the selected stacks
 
@@ -1205,8 +1207,9 @@ Purpose:
 - built-in starters when no operator templates exist:
   `web-service`, `static-site`, `postgres-service`, `app-with-db`,
   `worker-with-redis`, and `volume-backed-service`
-- template variables use plain `${VAR}` placeholders and are rendered
-  server-side by `POST /api/stacks` when `template_id` is supplied
+- declared template variables use plain `${VAR}` placeholders and are rendered
+  server-side by `POST /api/stacks` when `template_id` is supplied; undeclared
+  `${VAR}` placeholders are preserved for Docker Compose interpolation
 
 Response:
 
@@ -2055,6 +2058,8 @@ Rules:
 - existing stack ID returns `409 conflict`
 - `template_id` is optional; when present, the server renders the template
   with `variables` and uses that content as `compose_yaml`
+- `variables` may only contain names declared by the selected template; values
+  are single-line strings and the rendered result must parse as Compose YAML
 - when `deploy_after_create = true`, backend still returns a single job with top-level `action = create_stack`
 - that job becomes a workflow job whose steps are `create_stack` followed by `up`
 - the UI should present this as one progress flow, not as two unrelated jobs

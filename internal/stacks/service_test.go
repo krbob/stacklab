@@ -442,6 +442,23 @@ func TestDeployBaselineDrivesConfigState(t *testing.T) {
 	if drifted.Stack.ConfigState != ConfigStateDrifted {
 		t.Fatalf("ConfigState after edit = %q, want %q", drifted.Stack.ConfigState, ConfigStateDrifted)
 	}
+
+	if _, err := reader.SaveDefinition(ctx, stackID, UpdateDefinitionRequest{
+		ComposeYAML:       "services:\n  app:\n    image: [\n",
+		ValidateAfterSave: false,
+	}); err != nil {
+		t.Fatalf("SaveDefinition(invalid) error = %v", err)
+	}
+	invalid, err := reader.Get(ctx, stackID)
+	if err != nil {
+		t.Fatalf("Get(after invalid edit) error = %v", err)
+	}
+	if invalid.Stack.ConfigState != ConfigStateInvalid {
+		t.Fatalf("ConfigState after invalid edit = %q, want %q", invalid.Stack.ConfigState, ConfigStateInvalid)
+	}
+	if invalid.Stack.LastDeployedAt == nil || !invalid.Stack.LastDeployedAt.Equal(deployedAt) {
+		t.Fatalf("LastDeployedAt after invalid edit = %#v, want %v", invalid.Stack.LastDeployedAt, deployedAt)
+	}
 }
 
 func TestInvalidateImageUpdateStatusMarksTargetedImagesUnknown(t *testing.T) {
@@ -565,6 +582,8 @@ variables:
     image: ${IMAGE}
     ports:
       - "${HOST_PORT}:80"
+    environment:
+      TZ: ${TZ}
 `), 0o644); err != nil {
 		t.Fatalf("WriteFile(compose.yaml) error = %v", err)
 	}
@@ -573,12 +592,24 @@ variables:
 	if err != nil {
 		t.Fatalf("RenderTemplate() error = %v", err)
 	}
-	if !strings.Contains(rendered, "image: caddy:2") || !strings.Contains(rendered, `"8080:80"`) {
+	if !strings.Contains(rendered, "image: caddy:2") || !strings.Contains(rendered, `"8080:80"`) || !strings.Contains(rendered, "TZ: ${TZ}") {
 		t.Fatalf("RenderTemplate() = %q", rendered)
 	}
 
 	if _, err := reader.RenderTemplate(ctx, "demo", map[string]string{"IMAGE": " "}); !errors.Is(err, ErrInvalidState) {
 		t.Fatalf("RenderTemplate(required empty) error = %v, want ErrInvalidState", err)
+	}
+	if _, err := reader.RenderTemplate(ctx, "demo", map[string]string{" IMAGE ": ""}); !errors.Is(err, ErrInvalidState) {
+		t.Fatalf("RenderTemplate(spaced key) error = %v, want ErrInvalidState", err)
+	}
+	if _, err := reader.RenderTemplate(ctx, "demo", map[string]string{"IMAGE": "caddy:2", "PUID": "1000"}); !errors.Is(err, ErrInvalidState) {
+		t.Fatalf("RenderTemplate(unknown key) error = %v, want ErrInvalidState", err)
+	}
+	if _, err := reader.RenderTemplate(ctx, "demo", map[string]string{"IMAGE": "caddy:2\ninjected: true"}); !errors.Is(err, ErrInvalidState) {
+		t.Fatalf("RenderTemplate(control char) error = %v, want ErrInvalidState", err)
+	}
+	if _, err := reader.RenderTemplate(ctx, "demo", map[string]string{"IMAGE": "caddy:2", "HOST_PORT": `8081"`}); !errors.Is(err, ErrInvalidState) {
+		t.Fatalf("RenderTemplate(broken yaml) error = %v, want ErrInvalidState", err)
 	}
 
 	stackID := uniqueTestStackID()

@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1511,6 +1512,86 @@ func TestHandlerMaintenanceUpdateStacksWorkflow(t *testing.T) {
 		if !strings.Contains(recordedText, expected) {
 			t.Fatalf("expected docker log to contain %q, got %q", expected, recordedText)
 		}
+	}
+}
+
+func TestHandlerMaintenanceUpdateWithServiceExclusionsDefaultsRemoveOrphansOff(t *testing.T) {
+	stacks.ResetComposeCLICacheForTests()
+	t.Cleanup(stacks.ResetComposeCLICacheForTests)
+
+	shimDir := t.TempDir()
+	logPath := filepath.Join(shimDir, "docker.log")
+	writeInternalDockerShim(t, filepath.Join(shimDir, "docker"))
+	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("STACKLAB_MAINTENANCE_LOG", logPath)
+
+	_, served, cfg := newInternalTestHandler(t)
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	stackRoot := filepath.Join(cfg.RootDir, "stacks", "demo")
+	if err := os.MkdirAll(stackRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(stacks demo) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stackRoot, "compose.yaml"), []byte(strings.Join([]string{
+		"services:",
+		"  app:",
+		"    image: demo-app:latest",
+		"  db:",
+		"    image: postgres:17-alpine",
+		"",
+	}, "\n")), 0o644); err != nil {
+		t.Fatalf("WriteFile(compose.yaml) error = %v", err)
+	}
+
+	response := performInternalJSONRequest(t, served, http.MethodPost, "/api/maintenance/update-stacks", map[string]any{
+		"target": map[string]any{
+			"mode":              "selected",
+			"stack_ids":         []string{"demo"},
+			"excluded_services": map[string][]string{"demo": {"db"}},
+		},
+		"options": map[string]any{
+			"pull_images":  false,
+			"build_images": false,
+		},
+	}, cookies)
+	if response.Code != http.StatusOK {
+		t.Fatalf("POST /api/maintenance/update-stacks status = %d, want %d; body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+
+	var payload struct {
+		Job struct {
+			State    string `json:"state"`
+			Workflow *struct {
+				Steps []struct {
+					Action             string   `json:"action"`
+					TargetStackID      string   `json:"target_stack_id"`
+					TargetServiceNames []string `json:"target_service_names"`
+				} `json:"steps"`
+			} `json:"workflow"`
+		} `json:"job"`
+	}
+	decodeInternalResponse(t, response, &payload)
+	if payload.Job.State != "succeeded" {
+		t.Fatalf("unexpected maintenance job payload: %#v", payload.Job)
+	}
+	if payload.Job.Workflow == nil || len(payload.Job.Workflow.Steps) != 1 {
+		t.Fatalf("unexpected maintenance workflow: %#v", payload.Job.Workflow)
+	}
+	step := payload.Job.Workflow.Steps[0]
+	if step.Action != "up" || step.TargetStackID != "demo" || !reflect.DeepEqual(step.TargetServiceNames, []string{"app"}) {
+		t.Fatalf("unexpected maintenance step: %#v", step)
+	}
+
+	recorded, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("ReadFile(docker log) error = %v", err)
+	}
+	recordedText := string(recorded)
+	if !strings.Contains(recordedText, "compose up -d app") {
+		t.Fatalf("expected docker log to contain targeted up, got %q", recordedText)
+	}
+	if strings.Contains(recordedText, "--remove-orphans") {
+		t.Fatalf("expected docker log not to contain --remove-orphans, got %q", recordedText)
 	}
 }
 

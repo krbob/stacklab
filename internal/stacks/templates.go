@@ -12,7 +12,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var templateVariableNameRegexp = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+var (
+	templateVariableNameRegexp = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+	templatePlaceholderRegexp  = regexp.MustCompile(`\$\{([A-Z][A-Z0-9_]*)\}`)
+)
 
 // Stack templates (dashboard read-model contract, Slice F): curated local
 // starters under <root>/templates/<id>/ (template.yaml + compose.yaml).
@@ -317,6 +320,20 @@ func (s *ServiceReader) RenderTemplate(ctx context.Context, templateID string, v
 		if template.ID != templateID {
 			continue
 		}
+		declared := map[string]TemplateVariable{}
+		for _, variable := range template.Variables {
+			declared[variable.Name] = variable
+		}
+		for rawKey := range variables {
+			key := strings.TrimSpace(rawKey)
+			if key != rawKey || !templateVariableNameRegexp.MatchString(key) {
+				return "", fmt.Errorf("%w: template variable %q is invalid", ErrInvalidState, rawKey)
+			}
+			if _, ok := declared[key]; !ok {
+				return "", fmt.Errorf("%w: template variable %q is not defined by template %q", ErrInvalidState, key, template.ID)
+			}
+		}
+
 		values := map[string]string{}
 		for _, variable := range template.Variables {
 			value, ok := variables[variable.Name]
@@ -327,36 +344,45 @@ func (s *ServiceReader) RenderTemplate(ctx context.Context, templateID string, v
 			if variable.Required && value == "" {
 				return "", fmt.Errorf("%w: template variable %s is required", ErrInvalidState, variable.Name)
 			}
+			if err := validateTemplateVariableValue(variable.Name, value); err != nil {
+				return "", err
+			}
 			values[variable.Name] = value
 		}
-		for key, value := range variables {
-			key = strings.TrimSpace(key)
-			if key == "" {
-				continue
-			}
-			values[key] = strings.TrimSpace(value)
+		rendered := renderTemplateContent(template.ComposeYAML, values)
+		if err := validateRenderedTemplateYAML(rendered); err != nil {
+			return "", err
 		}
-		return renderTemplateContent(template.ComposeYAML, values)
+		return rendered, nil
 	}
 	return "", ErrNotFound
 }
 
-func renderTemplateContent(content string, values map[string]string) (string, error) {
-	var missing []string
-	rendered := regexp.MustCompile(`\$\{([A-Z][A-Z0-9_]*)\}`).ReplaceAllStringFunc(content, func(match string) string {
+func renderTemplateContent(content string, values map[string]string) string {
+	return templatePlaceholderRegexp.ReplaceAllStringFunc(content, func(match string) string {
 		name := strings.TrimSuffix(strings.TrimPrefix(match, "${"), "}")
 		value, ok := values[name]
 		if !ok {
-			missing = append(missing, name)
 			return match
 		}
 		return value
 	})
-	if len(missing) > 0 {
-		sort.Strings(missing)
-		return "", fmt.Errorf("%w: missing template variables: %s", ErrInvalidState, strings.Join(missing, ", "))
+}
+
+func validateTemplateVariableValue(name, value string) error {
+	for _, r := range value {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("%w: template variable %s contains control characters", ErrInvalidState, name)
+		}
 	}
-	return rendered, nil
+	return nil
+}
+
+func validateRenderedTemplateYAML(content string) error {
+	if _, _, err := parseComposeServices("", []byte(content)); err != nil {
+		return fmt.Errorf("%w: rendered template is not valid Compose YAML: %v", ErrInvalidState, err)
+	}
+	return nil
 }
 
 func normalizeTemplateVariables(variables []TemplateVariable) []TemplateVariable {

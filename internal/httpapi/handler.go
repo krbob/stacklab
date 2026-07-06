@@ -1047,7 +1047,7 @@ func (h *Handler) handleUpdateStacksMaintenance(w http.ResponseWriter, r *http.R
 	options := resolvedMaintenanceOptions{
 		PullImages:     boolOrDefault(request.Options.PullImages, true),
 		BuildImages:    boolOrDefault(request.Options.BuildImages, true),
-		RemoveOrphans:  boolOrDefault(request.Options.RemoveOrphans, true),
+		RemoveOrphans:  boolOrDefault(request.Options.RemoveOrphans, !hasMaintenanceServiceExclusions(request.Target.ExcludedServices)),
 		PruneAfter:     boolOrDefault(request.Options.PruneAfter.Enabled, false),
 		IncludeVolumes: boolOrDefault(request.Options.PruneAfter.IncludeVolumes, false),
 	}
@@ -1794,15 +1794,7 @@ func (h *Handler) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := h.stackReader.RecordDeployBaseline(r.Context(), request.StackID, job.ID, time.Now().UTC()); err != nil {
-			workflow = markWorkflowFailed(workflow, 1)
-			job, _ = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
-			job, _ = h.jobs.FinishFailed(r.Context(), job, "create_stack_failed", err.Error())
-			_ = h.audit.RecordStackJob(r.Context(), job)
-			writeJSON(w, http.StatusOK, map[string]any{"job": job})
-			return
-		}
-		if err := h.stackReader.InvalidateImageUpdateStatus(r.Context(), request.StackID, nil); err != nil {
-			h.logger.Warn("invalidate image update status failed", slog.String("stack_id", request.StackID), slog.String("job_id", job.ID), slog.String("err", err.Error()))
+			h.logger.Warn("record deploy baseline failed", slog.String("stack_id", request.StackID), slog.String("job_id", job.ID), slog.String("err", err.Error()))
 		}
 		workflow = markWorkflowSucceeded(workflow, 1)
 		job, _ = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
@@ -2873,7 +2865,16 @@ func stackActionUpdatesDeployBaseline(action string) bool {
 }
 
 func stackActionInvalidatesImageUpdates(action string) bool {
-	return action == "pull" || action == "up" || action == "recreate"
+	return action == "pull" || action == "build"
+}
+
+func hasMaintenanceServiceExclusions(excluded map[string][]string) bool {
+	for _, serviceNames := range excluded {
+		if len(serviceNames) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func validateDockerRegistryLoginRequest(request dockerregistryauth.LoginRequest) error {

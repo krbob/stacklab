@@ -205,7 +205,8 @@ Field rules:
 - `options.build_images`:
   - default `true`
 - `options.remove_orphans`:
-  - default `true`
+  - default `true`, except manual requests that include service exclusions
+    default it to `false`
 - `options.prune_after.enabled`:
   - default `false`
 - `options.prune_after.include_volumes`:
