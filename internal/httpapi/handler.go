@@ -1764,6 +1764,10 @@ func (h *Handler) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, stacks.ErrConflict):
 			writeError(w, http.StatusConflict, "conflict", "Stack ID already exists.", nil)
+		case errors.Is(err, stacks.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Stack template was not found.", nil)
+		case errors.Is(err, stacks.ErrInvalidState):
+			writeError(w, http.StatusConflict, "invalid_state", err.Error(), nil)
 		default:
 			h.logger.Error("create stack failed", slog.String("stack_id", request.StackID), slog.String("err", err.Error()))
 			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create stack.", nil)

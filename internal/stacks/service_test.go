@@ -476,6 +476,71 @@ func TestSaveDefinitionEmptyEnvDoesNotCreateFileWhenMissing(t *testing.T) {
 	assertMissing(t, envPath)
 }
 
+func TestRenderTemplateAppliesVariables(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	reader := newTestServiceReader(t)
+	templateDir := filepath.Join(reader.cfg.RootDir, "templates", "demo")
+	if err := os.MkdirAll(templateDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(templateDir) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(templateDir, "template.yaml"), []byte(`name: Demo app
+icon: globe
+variables:
+  - name: IMAGE
+    label: Image
+    default: nginx:alpine
+    required: true
+  - name: HOST_PORT
+    label: Port
+    default: "8080"
+    required: true
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(template.yaml) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(templateDir, "compose.yaml"), []byte(`services:
+  app:
+    image: ${IMAGE}
+    ports:
+      - "${HOST_PORT}:80"
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(compose.yaml) error = %v", err)
+	}
+
+	rendered, err := reader.RenderTemplate(ctx, "demo", map[string]string{"IMAGE": "caddy:2"})
+	if err != nil {
+		t.Fatalf("RenderTemplate() error = %v", err)
+	}
+	if !strings.Contains(rendered, "image: caddy:2") || !strings.Contains(rendered, `"8080:80"`) {
+		t.Fatalf("RenderTemplate() = %q", rendered)
+	}
+
+	if _, err := reader.RenderTemplate(ctx, "demo", map[string]string{"IMAGE": " "}); !errors.Is(err, ErrInvalidState) {
+		t.Fatalf("RenderTemplate(required empty) error = %v, want ErrInvalidState", err)
+	}
+
+	stackID := uniqueTestStackID()
+	if err := reader.CreateStack(ctx, CreateStackRequest{
+		StackID:           stackID,
+		TemplateID:        "demo",
+		Variables:         map[string]string{"IMAGE": "caddy:2", "HOST_PORT": "8081"},
+		Env:               "",
+		CreateConfigDir:   false,
+		CreateDataDir:     false,
+		DeployAfterCreate: false,
+	}); err != nil {
+		t.Fatalf("CreateStack(template) error = %v", err)
+	}
+	composeBytes, err := os.ReadFile(filepath.Join(reader.cfg.RootDir, "stacks", stackID, "compose.yaml"))
+	if err != nil {
+		t.Fatalf("ReadFile(template compose) error = %v", err)
+	}
+	if !strings.Contains(string(composeBytes), "image: caddy:2") || !strings.Contains(string(composeBytes), `"8081:80"`) {
+		t.Fatalf("template create compose = %q", string(composeBytes))
+	}
+}
+
 func uniqueTestStackID() string {
 	return fmt.Sprintf("test-%d", time.Now().UTC().UnixNano())
 }

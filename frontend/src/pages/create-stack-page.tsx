@@ -13,12 +13,19 @@ const DEFAULT_COMPOSE = `services:
     image:
 `
 
+function renderTemplate(template: StackTemplate, variables: Record<string, string>): string {
+  return template.compose_yaml.replace(/\$\{([A-Z][A-Z0-9_]*)\}/g, (match, name: string) => (
+    variables[name] ?? template.variables?.find((variable) => variable.name === name)?.default ?? match
+  ))
+}
+
 export function CreateStackPage() {
   const navigate = useNavigate()
   const [stackId, setStackId] = useState('')
   const [composeYaml, setComposeYaml] = useState(DEFAULT_COMPOSE)
   const [templates, setTemplates] = useState<StackTemplate[]>([])
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null)
+  const [templateVariables, setTemplateVariables] = useState<Record<string, string>>({})
 
   useEffect(() => {
     getTemplates()
@@ -28,7 +35,21 @@ export function CreateStackPage() {
 
   function applyTemplate(template: StackTemplate | null) {
     setSelectedTemplate(template?.id ?? null)
-    setComposeYaml(template?.compose_yaml ?? DEFAULT_COMPOSE)
+    const values: Record<string, string> = {}
+    for (const variable of template?.variables ?? []) {
+      values[variable.name] = variable.default ?? ''
+    }
+    setTemplateVariables(values)
+    setComposeYaml(template ? renderTemplate(template, values) : DEFAULT_COMPOSE)
+  }
+
+  function updateTemplateVariable(name: string, value: string) {
+    const next = { ...templateVariables, [name]: value }
+    setTemplateVariables(next)
+    const template = templates.find((item) => item.id === selectedTemplate)
+    if (template) {
+      setComposeYaml(renderTemplate(template, next))
+    }
   }
   const [deployAfter, setDeployAfter] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -129,6 +150,23 @@ export function CreateStackPage() {
               <p className="mt-1 text-xs text-[var(--muted)]">
                 {templates.find((template) => template.id === selectedTemplate)?.description}
               </p>
+            )}
+            {selectedTemplate && (templates.find((template) => template.id === selectedTemplate)?.variables?.length ?? 0) > 0 && (
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                {templates.find((template) => template.id === selectedTemplate)!.variables!.map((variable) => (
+                  <label key={variable.name} className="block">
+                    <span className="mb-1 block text-xs text-[var(--muted)]">{variable.label || variable.name}</span>
+                    <input
+                      type="text"
+                      value={templateVariables[variable.name] ?? ''}
+                      onChange={(e) => updateTemplateVariable(variable.name, e.target.value)}
+                      disabled={creating}
+                      className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
+                    />
+                    {variable.description && <span className="mt-1 block text-[10px] text-[var(--muted)]">{variable.description}</span>}
+                  </label>
+                ))}
+              </div>
             )}
           </div>
         )}

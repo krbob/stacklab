@@ -391,6 +391,8 @@ export function createStack(payload: {
   create_config_dir: boolean
   create_data_dir: boolean
   deploy_after_create: boolean
+  template_id?: string
+  variables?: Record<string, string>
 }): Promise<{ job: JobRef }> {
   return request('/api/stacks', {
     method: 'POST',

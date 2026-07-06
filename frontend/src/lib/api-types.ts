@@ -277,8 +277,18 @@ export interface StackTemplate {
   id: string
   name: string
   description?: string
+  icon?: string
   compose_yaml: string
   built_in: boolean
+  variables?: StackTemplateVariable[]
+}
+
+export interface StackTemplateVariable {
+  name: string
+  label?: string
+  description?: string
+  default?: string
+  required: boolean
 }
 
 export interface StackUpdates {

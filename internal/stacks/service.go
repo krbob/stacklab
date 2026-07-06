@@ -487,6 +487,13 @@ func (s *ServiceReader) CreateStack(ctx context.Context, request CreateStackRequ
 	if err := s.EnsureCreateStackAvailable(ctx, request.StackID); err != nil {
 		return err
 	}
+	if strings.TrimSpace(request.TemplateID) != "" {
+		rendered, err := s.RenderTemplate(ctx, request.TemplateID, request.Variables)
+		if err != nil {
+			return err
+		}
+		request.ComposeYAML = rendered
+	}
 
 	paths := stackPaths(s.cfg.RootDir, request.StackID)
 

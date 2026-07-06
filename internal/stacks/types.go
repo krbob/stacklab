@@ -254,12 +254,14 @@ type ResolvedConfigRequest struct {
 }
 
 type CreateStackRequest struct {
-	StackID           string `json:"stack_id"`
-	ComposeYAML       string `json:"compose_yaml"`
-	Env               string `json:"env"`
-	CreateConfigDir   bool   `json:"create_config_dir"`
-	CreateDataDir     bool   `json:"create_data_dir"`
-	DeployAfterCreate bool   `json:"deploy_after_create"`
+	StackID           string            `json:"stack_id"`
+	ComposeYAML       string            `json:"compose_yaml"`
+	Env               string            `json:"env"`
+	CreateConfigDir   bool              `json:"create_config_dir"`
+	CreateDataDir     bool              `json:"create_data_dir"`
+	DeployAfterCreate bool              `json:"deploy_after_create"`
+	TemplateID        string            `json:"template_id,omitempty"`
+	Variables         map[string]string `json:"variables,omitempty"`
 }
 
 type UpdateDefinitionRequest struct {
