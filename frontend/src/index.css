@@ -46,11 +46,11 @@ body {
   font-size: 13px;
   color: var(--text);
   background: var(--bg);
-  /* Top inset is handled by the sticky mobile header (root-layout), not here —
-     body padding scrolls with content and lets it show inside the notch area. */
+  /* Vertical safe-area insets are owned by the app-shell bars (root-layout):
+     the header pads the top, the bottom nav pads the bottom. Adding them here
+     too would double the inset and push the 100dvh shell into a micro-scroll. */
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
-  padding-bottom: env(safe-area-inset-bottom);
 }
 
 /* Native form controls follow the accent, not the UA default blue */

@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Activity, Container, Ellipsis, FolderCog, FolderKanban, LogOut, Monitor, Settings, Wrench, X } from 'lucide-react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/use-auth'
 import { GlobalActivity } from '@/components/global-activity'
 import { JobDetailDrawer } from '@/components/job-detail-drawer'
@@ -64,6 +64,8 @@ function SidebarContent({ onNavigate, logout }: { onNavigate?: () => void; logou
 export function RootLayout() {
   const { logout } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+  const scrollRef = useRef<HTMLDivElement>(null)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
   // Nav hotkeys 1-7 (Z5); skipped while typing.
@@ -90,19 +92,24 @@ export function RootLayout() {
     }
   }, [mobileNavOpen])
 
+  // Reset scroll on navigation. On mobile the app-shell scrolls inside
+  // scrollRef; on desktop the document scrolls. Reset both so opening a stack
+  // never lands mid-page (the list's scroll position must not carry over).
+  useEffect(() => {
+    scrollRef.current?.scrollTo(0, 0)
+    window.scrollTo(0, 0)
+  }, [location.pathname])
+
   return (
     <ActivityProvider>
-    <div className="min-h-screen">
-      {/* iOS Safari: sticky headers can sit below the status-bar overlay, so
-          scrolled content shows through it. This fixed mask always covers the
-          safe-area strip. */}
-      <div
-        aria-hidden
-        className="fixed inset-x-0 top-0 z-40 bg-[var(--bg)] lg:hidden"
-        style={{ height: 'env(safe-area-inset-top)' }}
-      />
+    {/* App-shell: on mobile a fixed-height flex column (header · scroll · nav)
+        so the bars never overlap content and no content escapes above/below
+        them. 100dvh tracks Safari's dynamic toolbars, so the shell always fits
+        the visible viewport. On desktop it collapses back to normal document
+        flow (the mobile bars are hidden anyway). */}
+    <div className="flex h-[100dvh] flex-col overflow-hidden lg:block lg:h-auto lg:min-h-screen lg:overflow-visible">
       <header
-        className="sticky top-0 z-30 flex items-center justify-center border-b border-[var(--panel-border)] bg-[var(--bg)] px-4 py-3 lg:hidden"
+        className="flex shrink-0 items-center justify-center border-b border-[var(--panel-border)] bg-[var(--bg)] px-4 py-3 lg:hidden"
         style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
       >
         <div className="font-brand text-xs uppercase tracking-[0.32em] text-[var(--accent)]">Stacklab</div>
@@ -139,22 +146,32 @@ export function RootLayout() {
         </>
       )}
 
-      <div className="mx-auto flex min-h-screen max-w-[1600px] gap-4 px-4 py-4 pb-24 md:px-6 lg:pb-4">
-        <aside className="hidden w-56 shrink-0 rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-[var(--shadow)] lg:flex lg:flex-col">
-          <SidebarContent logout={logout} />
-        </aside>
+      {/* Scroll region: the only scrollable element on mobile (flex-1 + min-h-0
+          so it can shrink and scroll between the fixed bars). On desktop it
+          reverts to a normal block and the document scrolls as before. */}
+      <div
+        ref={scrollRef}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain lg:flex-none lg:overflow-visible"
+      >
+        <div className="mx-auto flex max-w-[1600px] gap-4 px-4 py-4 md:px-6 lg:min-h-screen">
+          <aside className="hidden w-56 shrink-0 rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-[var(--shadow)] lg:flex lg:flex-col">
+            <SidebarContent logout={logout} />
+          </aside>
 
-        <main className="flex min-w-0 flex-1 flex-col gap-4">
-          <HostStrip />
-          <Outlet />
-        </main>
+          <main className="flex min-w-0 flex-1 flex-col gap-4">
+            <HostStrip />
+            <Outlet />
+          </main>
+        </div>
       </div>
 
       {/* Mobile bottom navigation: primary sections one thumb away; the rest
-          (Config, Docker, Settings) lives behind "More" in the drawer. */}
+          (Config, Docker, Settings) lives behind "More" in the drawer. Last
+          flex child of the shell — never overlaps content, so no clearance
+          padding is needed on the scroll region. */}
       <nav
         aria-label="Primary"
-        className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-[var(--panel-border)] bg-[var(--bg)] lg:hidden"
+        className="grid shrink-0 grid-cols-5 border-t border-[var(--panel-border)] bg-[var(--bg)] lg:hidden"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         {bottomLinks.map(({ to, label, icon: Icon }) => (
