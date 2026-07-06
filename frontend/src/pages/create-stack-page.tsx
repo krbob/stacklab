@@ -51,6 +51,15 @@ export function CreateStackPage() {
       setComposeYaml(renderTemplate(template, next))
     }
   }
+
+  function handleComposeChange(value: string) {
+    if (selectedTemplate !== null) {
+      setSelectedTemplate(null)
+      setTemplateVariables({})
+    }
+    setComposeYaml(value)
+  }
+
   const [deployAfter, setDeployAfter] = useState(false)
   const [creating, setCreating] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
@@ -201,7 +210,7 @@ export function CreateStackPage() {
             {usingTemplate ? 'Rendered compose preview' : 'Initial compose.yaml'}
           </span>
           <div style={{ height: '300px' }}>
-            <YamlEditor value={composeYaml} onChange={setComposeYaml} readOnly={creating || usingTemplate} />
+            <YamlEditor value={composeYaml} onChange={handleComposeChange} readOnly={creating} />
           </div>
         </div>
 

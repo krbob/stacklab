@@ -105,4 +105,36 @@ describe('CreateStackPage', () => {
     fireEvent.click(screen.getByTestId('create-stack-submit'))
     expect(mockCreateStack).not.toHaveBeenCalled()
   })
+
+  it('detaches from template mode when the rendered compose is edited', async () => {
+    render(
+      <MemoryRouter>
+        <CreateStackPage />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(await screen.findByTestId('template-option-web-service'))
+    const editor = screen.getByLabelText('yaml-editor') as HTMLTextAreaElement
+    fireEvent.change(editor, {
+      target: {
+        value: `services:
+  app:
+    image: caddy:2
+`,
+      },
+    })
+    fireEvent.change(screen.getByTestId('create-stack-name'), { target: { value: 'demo-web' } })
+    fireEvent.click(screen.getByTestId('create-stack-submit'))
+
+    await waitFor(() => {
+      expect(mockCreateStack).toHaveBeenCalledWith(expect.objectContaining({
+        stack_id: 'demo-web',
+        compose_yaml: expect.stringContaining('image: caddy:2'),
+      }))
+    })
+    expect(mockCreateStack).toHaveBeenCalledWith(expect.not.objectContaining({
+      template_id: expect.any(String),
+      variables: expect.any(Object),
+    }))
+  })
 })

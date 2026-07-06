@@ -407,6 +407,8 @@ function SchedulesSection() {
   const [data, setData] = useState<MaintenanceSchedulesResponse | null>(null)
   const [stackOptions, setStackOptions] = useState<StackListItem[]>([])
   const [serviceOptions, setServiceOptions] = useState<Record<string, string[]>>({})
+  const [serviceLoading, setServiceLoading] = useState<Record<string, boolean>>({})
+  const [expandedServiceStacks, setExpandedServiceStacks] = useState<Set<string>>(new Set())
   const [savingSchedules, setSavingSchedules] = useState(false)
   const [saveResult, setSaveResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
@@ -463,15 +465,6 @@ function SchedulesSection() {
         }
         if (stacksResult.status === 'fulfilled') {
           setStackOptions(stacksResult.value.items)
-          Promise.allSettled(stacksResult.value.items.map((stack) => getStack(stack.id)))
-            .then((results) => {
-              const next: Record<string, string[]> = {}
-              for (const result of results) {
-                if (result.status !== 'fulfilled') continue
-                next[result.value.stack.id] = result.value.stack.services.map((service) => service.name).sort()
-              }
-              setServiceOptions(next)
-            })
         }
       })
       .catch(() => {})
@@ -486,6 +479,54 @@ function SchedulesSection() {
   const hasVisibleExcludedServices = useMemo(() => (
     hasExcludedServices(filteredExcludedServices(updateExcludedServices, visibleUpdateStackIds) ?? {})
   ), [updateExcludedServices, visibleUpdateStackIds])
+
+  const ensureServicesLoaded = useCallback((stackId: string) => {
+    if (serviceOptions[stackId] || serviceLoading[stackId]) return
+    setServiceLoading((current) => ({ ...current, [stackId]: true }))
+    getStack(stackId)
+      .then((detail) => {
+        setServiceOptions((current) => ({
+          ...current,
+          [detail.stack.id]: detail.stack.services.map((service) => service.name).sort(),
+        }))
+      })
+      .catch(() => {
+        setServiceOptions((current) => ({ ...current, [stackId]: [] }))
+      })
+      .finally(() => {
+        setServiceLoading((current) => {
+          const next = { ...current }
+          delete next[stackId]
+          return next
+        })
+      })
+  }, [serviceLoading, serviceOptions])
+
+  useEffect(() => {
+    const visible = new Set(visibleUpdateStackIds)
+    const stackIds = Object.keys(updateExcludedServices).filter((stackId) => visible.has(stackId))
+    if (stackIds.length === 0) return
+    setExpandedServiceStacks((current) => new Set([...current, ...stackIds]))
+    for (const stackId of stackIds) {
+      ensureServicesLoaded(stackId)
+    }
+  }, [ensureServicesLoaded, updateExcludedServices, visibleUpdateStackIds])
+
+  const toggleServiceStack = useCallback((stackId: string) => {
+    const willExpand = !expandedServiceStacks.has(stackId)
+    setExpandedServiceStacks((current) => {
+      const next = new Set(current)
+      if (next.has(stackId)) {
+        next.delete(stackId)
+      } else {
+        next.add(stackId)
+      }
+      return next
+    })
+    if (willExpand) {
+      ensureServicesLoaded(stackId)
+    }
+  }, [ensureServicesLoaded, expandedServiceStacks])
 
   const toggleExcludedService = useCallback((stackId: string, serviceName: string, excluded: boolean) => {
     setUpdateExcludedServices((current) => {
@@ -632,24 +673,40 @@ function SchedulesSection() {
               <div className="text-xs font-medium text-[var(--text)]">Skip services</div>
               <div className="space-y-2">
                 {visibleUpdateStackIds.map((stackId) => {
+                  const expanded = expandedServiceStacks.has(stackId)
                   const services = serviceOptions[stackId] ?? []
-                  if (services.length === 0) return null
                   return (
                     <div key={stackId} className="space-y-1">
-                      <div className="font-mono text-[10px] uppercase tracking-wide text-[var(--muted)]">{stackId}</div>
-                      <div className="flex flex-wrap gap-2">
-                        {services.map((serviceName) => (
-                          <label key={serviceName} className="flex items-center gap-1.5 rounded border border-[var(--panel-border)] px-2 py-1 text-[10px] text-[var(--text)]">
-                            <input
-                              type="checkbox"
-                              checked={(updateExcludedServices[stackId] ?? []).includes(serviceName)}
-                              onChange={(e) => toggleExcludedService(stackId, serviceName, e.target.checked)}
-                              className="rounded accent-[var(--accent)]"
-                            />
-                            <span className="font-mono">{serviceName}</span>
-                          </label>
-                        ))}
-                      </div>
+                      <button
+                        type="button"
+                        aria-label={`${expanded ? 'Hide' : 'Show'} services for ${stackId}`}
+                        onClick={() => toggleServiceStack(stackId)}
+                        className="flex w-full items-center justify-between gap-2 rounded border border-[var(--panel-border)] px-2 py-1.5 text-left text-xs text-[var(--text)]"
+                      >
+                        <span className="font-mono text-[10px] uppercase tracking-wide text-[var(--muted)]">{stackId}</span>
+                        <span className="text-[10px] text-[var(--muted)]">{expanded ? 'Hide' : 'Show'}</span>
+                      </button>
+                      {expanded && (
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          {serviceLoading[stackId] ? (
+                            <span className="text-[10px] text-[var(--muted)]">Loading...</span>
+                          ) : services.length > 0 ? (
+                            services.map((serviceName) => (
+                              <label key={serviceName} className="flex items-center gap-1.5 rounded border border-[var(--panel-border)] px-2 py-1 text-[10px] text-[var(--text)]">
+                                <input
+                                  type="checkbox"
+                                  checked={(updateExcludedServices[stackId] ?? []).includes(serviceName)}
+                                  onChange={(e) => toggleExcludedService(stackId, serviceName, e.target.checked)}
+                                  className="rounded accent-[var(--accent)]"
+                                />
+                                <span className="font-mono">{serviceName}</span>
+                              </label>
+                            ))
+                          ) : (
+                            <span className="text-[10px] text-[var(--muted)]">No services.</span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )
                 })}

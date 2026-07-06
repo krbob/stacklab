@@ -276,6 +276,23 @@ describe("SettingsPage", () => {
     });
   });
 
+  it("lazy-loads stack services only after expanding skip services", async () => {
+    render(<SettingsPage />);
+    await screen.findByText("Maintenance schedules");
+
+    await waitFor(() => {
+      expect(mockGetStacks).toHaveBeenCalled();
+    });
+    expect(mockGetStack).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByLabelText("Show services for demo"));
+
+    await waitFor(() => {
+      expect(mockGetStack).toHaveBeenCalledWith("demo");
+    });
+    expect(await screen.findByText("app")).toBeInTheDocument();
+  });
+
   it("shows validation error when selected stacks is empty", async () => {
     render(<SettingsPage />);
     await screen.findByText("Maintenance schedules");
