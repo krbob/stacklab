@@ -917,8 +917,9 @@ func (h *Handler) handleGitWorkspacePush(w http.ResponseWriter, r *http.Request)
 
 type maintenanceUpdateStacksRequest struct {
 	Target struct {
-		Mode     string   `json:"mode"`
-		StackIDs []string `json:"stack_ids"`
+		Mode             string              `json:"mode"`
+		StackIDs         []string            `json:"stack_ids"`
+		ExcludedServices map[string][]string `json:"excluded_services"`
 	} `json:"target"`
 	Options struct {
 		PullImages    *bool `json:"pull_images"`
@@ -1057,8 +1058,9 @@ func (h *Handler) handleUpdateStacksMaintenance(w http.ResponseWriter, r *http.R
 
 	job, err := h.maintenanceJobs.RunUpdate(r.Context(), maintenancejobs.UpdateRequest{
 		Target: maintenancejobs.UpdateTarget{
-			Mode:     request.Target.Mode,
-			StackIDs: request.Target.StackIDs,
+			Mode:             request.Target.Mode,
+			StackIDs:         request.Target.StackIDs,
+			ExcludedServices: request.Target.ExcludedServices,
 		},
 		Options: maintenancejobs.UpdateOptions{
 			PullImages:     options.PullImages,

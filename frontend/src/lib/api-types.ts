@@ -162,6 +162,7 @@ export interface MaintenanceUpdateScheduleConfig {
   target: {
     mode: 'selected' | 'all'
     stack_ids?: string[]
+    excluded_services?: Record<string, string[]>
   }
   options: {
     pull_images: boolean

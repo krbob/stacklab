@@ -88,9 +88,10 @@ type JobWorkflow struct {
 }
 
 type JobWorkflowStep struct {
-	Action        string `json:"action"`
-	State         string `json:"state"`
-	TargetStackID string `json:"target_stack_id,omitempty"`
+	Action             string   `json:"action"`
+	State              string   `json:"state"`
+	TargetStackID      string   `json:"target_stack_id,omitempty"`
+	TargetServiceNames []string `json:"target_service_names,omitempty"`
 }
 
 type JobEvent struct {
@@ -117,10 +118,11 @@ type JobProgress struct {
 }
 
 type JobEventStep struct {
-	Index         int    `json:"index"`
-	Total         int    `json:"total"`
-	Action        string `json:"action"`
-	TargetStackID string `json:"target_stack_id,omitempty"`
+	Index              int      `json:"index"`
+	Total              int      `json:"total"`
+	Action             string   `json:"action"`
+	TargetStackID      string   `json:"target_stack_id,omitempty"`
+	TargetServiceNames []string `json:"target_service_names,omitempty"`
 }
 
 type AuditEntry struct {

@@ -3,8 +3,9 @@ package maintenancejobs
 import "stacklab/internal/maintenance"
 
 type UpdateTarget struct {
-	Mode     string   `json:"mode"`
-	StackIDs []string `json:"stack_ids,omitempty"`
+	Mode             string              `json:"mode"`
+	StackIDs         []string            `json:"stack_ids,omitempty"`
+	ExcludedServices map[string][]string `json:"excluded_services,omitempty"`
 }
 
 type UpdateOptions struct {

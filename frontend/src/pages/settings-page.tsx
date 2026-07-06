@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { getMeta, changePassword, getNotificationSettings, updateNotificationSettings, sendNotificationTest, getMaintenanceSchedules, updateMaintenanceSchedules, getStacks, getStacklabUpdateOverview, applyStacklabUpdate } from '@/lib/api-client'
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { getMeta, changePassword, getNotificationSettings, updateNotificationSettings, sendNotificationTest, getMaintenanceSchedules, updateMaintenanceSchedules, getStacks, getStack, getStacklabUpdateOverview, applyStacklabUpdate } from '@/lib/api-client'
 import { useJobDrawer } from '@/hooks/use-job-drawer'
 import type { MetaResponse, MaintenanceSchedulesResponse, ScheduleFrequency, ScheduleWeekday, StackListItem, StacklabUpdateOverviewResponse } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
@@ -375,11 +375,38 @@ function NotificationsSection() {
 const ALL_WEEKDAYS: ScheduleWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
 const WEEKDAY_LABELS: Record<ScheduleWeekday, string> = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' }
 
+function cleanedExcludedServices(excluded: Record<string, string[]>): Record<string, string[]> | undefined {
+  const result: Record<string, string[]> = {}
+  for (const [stackId, services] of Object.entries(excluded)) {
+    const unique = Array.from(new Set(services.filter(Boolean))).sort()
+    if (unique.length > 0) {
+      result[stackId] = unique
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined
+}
+
+function filteredExcludedServices(excluded: Record<string, string[]>, stackIds: string[]): Record<string, string[]> | undefined {
+  const allowed = new Set(stackIds)
+  const filtered: Record<string, string[]> = {}
+  for (const [stackId, services] of Object.entries(excluded)) {
+    if (allowed.has(stackId)) {
+      filtered[stackId] = services
+    }
+  }
+  return cleanedExcludedServices(filtered)
+}
+
+function hasExcludedServices(excluded: Record<string, string[]>): boolean {
+  return Object.values(excluded).some((services) => services.length > 0)
+}
+
 function SchedulesSection() {
   const { openJob } = useJobDrawer()
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<MaintenanceSchedulesResponse | null>(null)
   const [stackOptions, setStackOptions] = useState<StackListItem[]>([])
+  const [serviceOptions, setServiceOptions] = useState<Record<string, string[]>>({})
   const [savingSchedules, setSavingSchedules] = useState(false)
   const [saveResult, setSaveResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
@@ -390,6 +417,7 @@ function SchedulesSection() {
   const [updateWeekdays, setUpdateWeekdays] = useState<ScheduleWeekday[]>(['sat'])
   const [updateTargetMode, setUpdateTargetMode] = useState<'all' | 'selected'>('all')
   const [updateTargetStacks, setUpdateTargetStacks] = useState<string[]>([])
+  const [updateExcludedServices, setUpdateExcludedServices] = useState<Record<string, string[]>>({})
   const [updatePull, setUpdatePull] = useState(true)
   const [updateBuild, setUpdateBuild] = useState(true)
   const [updateOrphans, setUpdateOrphans] = useState(true)
@@ -418,6 +446,7 @@ function SchedulesSection() {
           setUpdateWeekdays(s.update.weekdays ?? ['sat'])
           setUpdateTargetMode(s.update.target.mode)
           setUpdateTargetStacks(s.update.target.stack_ids ?? [])
+          setUpdateExcludedServices(s.update.target.excluded_services ?? {})
           setUpdatePull(s.update.options.pull_images)
           setUpdateBuild(s.update.options.build_images)
           setUpdateOrphans(s.update.options.remove_orphans)
@@ -434,10 +463,47 @@ function SchedulesSection() {
         }
         if (stacksResult.status === 'fulfilled') {
           setStackOptions(stacksResult.value.items)
+          Promise.allSettled(stacksResult.value.items.map((stack) => getStack(stack.id)))
+            .then((results) => {
+              const next: Record<string, string[]> = {}
+              for (const result of results) {
+                if (result.status !== 'fulfilled') continue
+                next[result.value.stack.id] = result.value.stack.services.map((service) => service.name).sort()
+              }
+              setServiceOptions(next)
+            })
         }
       })
       .catch(() => {})
       .finally(() => setLoading(false))
+  }, [])
+
+  const visibleUpdateStackIds = useMemo(() => (
+    updateTargetMode === 'selected'
+      ? updateTargetStacks
+      : stackOptions.map((stack) => stack.id)
+  ), [stackOptions, updateTargetMode, updateTargetStacks])
+  const hasVisibleExcludedServices = useMemo(() => (
+    hasExcludedServices(filteredExcludedServices(updateExcludedServices, visibleUpdateStackIds) ?? {})
+  ), [updateExcludedServices, visibleUpdateStackIds])
+
+  const toggleExcludedService = useCallback((stackId: string, serviceName: string, excluded: boolean) => {
+    setUpdateExcludedServices((current) => {
+      const existing = current[stackId] ?? []
+      const nextForStack = excluded
+        ? Array.from(new Set([...existing, serviceName])).sort()
+        : existing.filter((item) => item !== serviceName)
+      const next = { ...current }
+      if (nextForStack.length > 0) {
+        next[stackId] = nextForStack
+      } else {
+        delete next[stackId]
+      }
+      return next
+    })
+    if (excluded) {
+      setUpdateOrphans(false)
+    }
   }, [])
 
   const handleSave = useCallback(async () => {
@@ -457,6 +523,7 @@ function SchedulesSection() {
           target: {
             mode: updateTargetMode,
             stack_ids: updateTargetMode === 'selected' ? updateTargetStacks : undefined,
+            excluded_services: filteredExcludedServices(updateExcludedServices, visibleUpdateStackIds),
           },
           options: {
             pull_images: updatePull,
@@ -486,7 +553,7 @@ function SchedulesSection() {
     } finally {
       setSavingSchedules(false)
     }
-  }, [updateEnabled, updateFreq, updateTime, updateWeekdays, updateTargetMode, updateTargetStacks, updatePull, updateBuild, updateOrphans, updatePrune, updatePruneVol, pruneEnabled, pruneFreq, pruneTime, pruneWeekdays, pruneImages, pruneBuildCache, pruneStopped, pruneVolumes])
+  }, [updateEnabled, updateFreq, updateTime, updateWeekdays, updateTargetMode, updateTargetStacks, visibleUpdateStackIds, updateExcludedServices, updatePull, updateBuild, updateOrphans, updatePrune, updatePruneVol, pruneEnabled, pruneFreq, pruneTime, pruneWeekdays, pruneImages, pruneBuildCache, pruneStopped, pruneVolumes])
 
   if (loading) {
     return (
@@ -560,10 +627,40 @@ function SchedulesSection() {
             </div>
           )}
 
+          {visibleUpdateStackIds.length > 0 && (
+            <div className="space-y-2 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-3">
+              <div className="text-xs font-medium text-[var(--text)]">Skip services</div>
+              <div className="space-y-2">
+                {visibleUpdateStackIds.map((stackId) => {
+                  const services = serviceOptions[stackId] ?? []
+                  if (services.length === 0) return null
+                  return (
+                    <div key={stackId} className="space-y-1">
+                      <div className="font-mono text-[10px] uppercase tracking-wide text-[var(--muted)]">{stackId}</div>
+                      <div className="flex flex-wrap gap-2">
+                        {services.map((serviceName) => (
+                          <label key={serviceName} className="flex items-center gap-1.5 rounded border border-[var(--panel-border)] px-2 py-1 text-[10px] text-[var(--text)]">
+                            <input
+                              type="checkbox"
+                              checked={(updateExcludedServices[stackId] ?? []).includes(serviceName)}
+                              onChange={(e) => toggleExcludedService(stackId, serviceName, e.target.checked)}
+                              className="rounded accent-[var(--accent)]"
+                            />
+                            <span className="font-mono">{serviceName}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           <div className="space-y-1 text-xs text-[var(--muted)]">
             <label className="flex items-center gap-2"><input type="checkbox" checked={updatePull} onChange={(e) => setUpdatePull(e.target.checked)} className="rounded" />Pull images</label>
             <label className="flex items-center gap-2"><input type="checkbox" checked={updateBuild} onChange={(e) => setUpdateBuild(e.target.checked)} className="rounded" />Build images</label>
-            <label className="flex items-center gap-2"><input type="checkbox" checked={updateOrphans} onChange={(e) => setUpdateOrphans(e.target.checked)} className="rounded" />Remove orphans</label>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={updateOrphans} disabled={hasVisibleExcludedServices} onChange={(e) => setUpdateOrphans(e.target.checked)} className="rounded" />Remove orphans</label>
             <label className="flex items-center gap-2 text-[var(--warning)]"><input type="checkbox" checked={updatePrune} onChange={(e) => { setUpdatePrune(e.target.checked); if (!e.target.checked) setUpdatePruneVol(false) }} className="rounded" />Prune after update</label>
             {updatePrune && <label className="ml-5 flex items-center gap-2 text-[var(--danger)]"><input type="checkbox" checked={updatePruneVol} onChange={(e) => setUpdatePruneVol(e.target.checked)} className="rounded" />Include volumes</label>}
           </div>

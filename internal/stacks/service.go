@@ -150,6 +150,7 @@ func rollupUpdates(services []Service, statusByImage map[string]ImageUpdateState
 
 type MaintenanceStepOptions struct {
 	RemoveOrphans bool
+	ServiceNames  []string
 }
 
 func NewServiceReader(cfg config.Config, logger *slog.Logger) *ServiceReader {
@@ -676,14 +677,15 @@ func (s *ServiceReader) RunMaintenanceStep(ctx context.Context, stackID, action 
 
 	switch action {
 	case "pull":
-		return s.runComposeActionOutput(ctx, stack, "pull")
+		return s.runComposeActionOutput(ctx, stack, "pull", options.ServiceNames...)
 	case "build":
-		return s.runComposeActionOutput(ctx, stack, "build")
+		return s.runComposeActionOutput(ctx, stack, "build", options.ServiceNames...)
 	case "up":
 		args := []string{"-d"}
 		if options.RemoveOrphans {
 			args = append(args, "--remove-orphans")
 		}
+		args = append(args, options.ServiceNames...)
 		return s.runComposeActionOutput(ctx, stack, "up", args...)
 	default:
 		return "", ErrUnsupportedAction

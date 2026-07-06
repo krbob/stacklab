@@ -34,6 +34,7 @@ type runner interface {
 
 type stackLister interface {
 	List(ctx context.Context, query stacks.ListQuery) (stacks.StackListResponse, error)
+	Get(ctx context.Context, stackID string) (stacks.StackDetailResponse, error)
 }
 
 type Service struct {
@@ -288,6 +289,9 @@ func (s *Service) validateSettings(ctx context.Context, settings Settings) error
 	if err := validateUpdateConfig(ctx, s.runner, settings.Update); err != nil {
 		return err
 	}
+	if err := s.validateUpdateServiceExclusions(ctx, settings.Update); err != nil {
+		return err
+	}
 	if err := validatePruneConfig(settings.Prune); err != nil {
 		return err
 	}
@@ -336,6 +340,7 @@ func normalizeUpdateConfig(config UpdateScheduleConfig) UpdateScheduleConfig {
 	normalized := config
 	normalized.Target.Mode = strings.TrimSpace(normalized.Target.Mode)
 	normalized.Target.StackIDs = dedupeStackIDs(normalized.Target.StackIDs)
+	normalized.Target.ExcludedServices = normalizeExcludedServices(normalized.Target.ExcludedServices)
 	return normalized
 }
 
@@ -364,6 +369,45 @@ func validateUpdateConfig(ctx context.Context, runner runner, config UpdateSched
 	}
 	if config.Options.IncludeVolumes && !config.Options.PruneAfter {
 		return errors.New("update.options.include_volumes requires prune_after = true")
+	}
+	if config.Options.RemoveOrphans && hasExcludedServices(config.Target.ExcludedServices) {
+		return errors.New("update.options.remove_orphans cannot be enabled when service exclusions are configured")
+	}
+	return nil
+}
+
+func (s *Service) validateUpdateServiceExclusions(ctx context.Context, config UpdateScheduleConfig) error {
+	if !hasExcludedServices(config.Target.ExcludedServices) {
+		return nil
+	}
+	targetStackIDs, err := s.runner.ResolveTargetStacks(ctx, config.Target.Mode, config.Target.StackIDs)
+	if err != nil {
+		return err
+	}
+	targeted := make(map[string]struct{}, len(targetStackIDs))
+	for _, stackID := range targetStackIDs {
+		targeted[stackID] = struct{}{}
+	}
+	for stackID, serviceNames := range config.Target.ExcludedServices {
+		if len(serviceNames) == 0 {
+			continue
+		}
+		if _, ok := targeted[stackID]; !ok {
+			return fmt.Errorf("update.target.excluded_services includes non-target stack %q", stackID)
+		}
+		detail, err := s.stackLister.Get(ctx, stackID)
+		if err != nil {
+			return err
+		}
+		known := make(map[string]struct{}, len(detail.Stack.Services))
+		for _, service := range detail.Stack.Services {
+			known[service.Name] = struct{}{}
+		}
+		for _, serviceName := range serviceNames {
+			if _, ok := known[serviceName]; !ok {
+				return fmt.Errorf("update.target.excluded_services includes unknown service %q for stack %q", serviceName, stackID)
+			}
+		}
 	}
 	return nil
 }
@@ -538,6 +582,36 @@ func dedupeStackIDs(stackIDs []string) []string {
 	}
 	sort.Strings(result)
 	return result
+}
+
+func normalizeExcludedServices(excluded map[string][]string) map[string][]string {
+	if len(excluded) == 0 {
+		return nil
+	}
+	result := map[string][]string{}
+	for stackID, serviceNames := range excluded {
+		stackID = strings.TrimSpace(stackID)
+		if stackID == "" {
+			continue
+		}
+		normalized := dedupeStackIDs(serviceNames)
+		if len(normalized) > 0 {
+			result[stackID] = normalized
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func hasExcludedServices(excluded map[string][]string) bool {
+	for _, serviceNames := range excluded {
+		if len(serviceNames) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) listManagedStackIDs(ctx context.Context) ([]string, error) {

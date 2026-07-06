@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -86,6 +87,19 @@ func (f *fakeStackLister) List(ctx context.Context, query stacks.ListQuery) (sta
 	return stacks.StackListResponse{Items: append([]stacks.StackListItem(nil), f.items...)}, nil
 }
 
+func (f *fakeStackLister) Get(ctx context.Context, stackID string) (stacks.StackDetailResponse, error) {
+	return stacks.StackDetailResponse{
+		Stack: stacks.StackDetail{
+			StackHeader: stacks.StackHeader{ID: stackID, Name: stackID},
+			Services: []stacks.Service{
+				{Name: "app", Mode: stacks.ServiceModeImage},
+				{Name: "db", Mode: stacks.ServiceModeImage},
+			},
+			AvailableActions: []string{"up"},
+		},
+	}, nil
+}
+
 func openSchedulerTestStore(t *testing.T) *store.Store {
 	t.Helper()
 	db, err := store.Open(filepath.Join(t.TempDir(), "stacklab.db"))
@@ -108,6 +122,69 @@ func TestUpdateSettingsRejectsInvalidWeeklySchedule(t *testing.T) {
 			Frequency: FrequencyWeekly,
 			Time:      "25:00",
 			Target:    maintenancejobs.UpdateTarget{Mode: "all"},
+			Options: maintenancejobs.UpdateOptions{
+				PullImages:    true,
+				BuildImages:   true,
+				RemoveOrphans: true,
+			},
+		},
+		Prune: defaultSettings().Prune,
+	})
+	if err == nil {
+		t.Fatal("UpdateSettings() error = nil, want validation error")
+	}
+}
+
+func TestUpdateSettingsPersistsServiceExclusions(t *testing.T) {
+	testStore := openSchedulerTestStore(t)
+	service := NewService(testStore, audit.NewService(testStore), &fakeRunner{}, &fakeStackLister{
+		items: []stacks.StackListItem{{StackHeader: stacks.StackHeader{ID: "demo"}}},
+	}, nil)
+
+	response, err := service.UpdateSettings(context.Background(), UpdateSettingsRequest{
+		Update: UpdateScheduleConfig{
+			Enabled:   true,
+			Frequency: FrequencyDaily,
+			Time:      "03:30",
+			Target: maintenancejobs.UpdateTarget{
+				Mode:             "selected",
+				StackIDs:         []string{"demo"},
+				ExcludedServices: map[string][]string{"demo": {"db", "app", "db"}},
+			},
+			Options: maintenancejobs.UpdateOptions{
+				PullImages:    true,
+				BuildImages:   true,
+				RemoveOrphans: false,
+			},
+		},
+		Prune: defaultSettings().Prune,
+	})
+	if err != nil {
+		t.Fatalf("UpdateSettings() error = %v", err)
+	}
+	got := response.Update.Target.ExcludedServices["demo"]
+	want := []string{"app", "db"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("excluded services = %#v, want %#v", got, want)
+	}
+}
+
+func TestUpdateSettingsRejectsRemoveOrphansWithServiceExclusions(t *testing.T) {
+	testStore := openSchedulerTestStore(t)
+	service := NewService(testStore, audit.NewService(testStore), &fakeRunner{}, &fakeStackLister{
+		items: []stacks.StackListItem{{StackHeader: stacks.StackHeader{ID: "demo"}}},
+	}, nil)
+
+	_, err := service.UpdateSettings(context.Background(), UpdateSettingsRequest{
+		Update: UpdateScheduleConfig{
+			Enabled:   true,
+			Frequency: FrequencyDaily,
+			Time:      "03:30",
+			Target: maintenancejobs.UpdateTarget{
+				Mode:             "selected",
+				StackIDs:         []string{"demo"},
+				ExcludedServices: map[string][]string{"demo": {"db"}},
+			},
 			Options: maintenancejobs.UpdateOptions{
 				PullImages:    true,
 				BuildImages:   true,

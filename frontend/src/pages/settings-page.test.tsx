@@ -10,6 +10,7 @@ const mockSendNotificationTest = vi.fn();
 const mockGetMaintenanceSchedules = vi.fn();
 const mockUpdateMaintenanceSchedules = vi.fn();
 const mockGetStacks = vi.fn();
+const mockGetStack = vi.fn();
 const mockGetStacklabUpdateOverview = vi.fn();
 const mockApplyStacklabUpdate = vi.fn();
 const mockOpenJob = vi.fn();
@@ -26,6 +27,7 @@ vi.mock("@/lib/api-client", () => ({
   updateMaintenanceSchedules: (...args: unknown[]) =>
     mockUpdateMaintenanceSchedules(...args),
   getStacks: (...args: unknown[]) => mockGetStacks(...args),
+  getStack: (...args: unknown[]) => mockGetStack(...args),
   getStacklabUpdateOverview: () => mockGetStacklabUpdateOverview(),
   applyStacklabUpdate: (...args: unknown[]) => mockApplyStacklabUpdate(...args),
 }));
@@ -43,6 +45,7 @@ describe("SettingsPage", () => {
     mockSendNotificationTest.mockReset();
     mockGetStacklabUpdateOverview.mockReset();
     mockApplyStacklabUpdate.mockReset();
+    mockGetStack.mockReset();
     mockOpenJob.mockReset();
 
     mockGetMeta.mockResolvedValue({
@@ -91,6 +94,21 @@ describe("SettingsPage", () => {
         stopped_count: 0,
         error_count: 0,
         container_count: { running: 1, total: 1 },
+      },
+    });
+    mockGetStack.mockResolvedValue({
+      stack: {
+        id: 'demo',
+        name: 'demo',
+        display_state: 'running',
+        runtime_state: 'running',
+        config_state: 'in_sync',
+        activity_state: 'idle',
+        health_summary: { healthy_container_count: 1, unhealthy_container_count: 0, unknown_health_container_count: 0 },
+        capabilities: { can_edit_definition: true, can_view_logs: true, can_view_stats: true, can_open_terminal: true },
+        available_actions: ['up'],
+        services: [{ name: 'app', mode: 'image', healthcheck_present: true }],
+        containers: [],
       },
     });
     mockGetStacklabUpdateOverview.mockResolvedValue({
