@@ -1,0 +1,110 @@
+name: README screenshots
+
+# Regenerate the README gallery from a real, Docker-backed Stacklab instance
+# booted inside the runner — the same harness Browser E2E uses. This never
+# touches the LAN test VM (unreachable from GitHub-hosted runners); it stands
+# the app up from the e2e fixtures so the result is deterministic.
+#
+# Runs only when the frontend changes, and proposes the refreshed PNGs as a PR
+# (create-pull-request opens nothing when the images are byte-identical, so
+# there is no empty-diff noise). Merging that PR only touches docs/**, so it
+# does not re-trigger this workflow.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'frontend/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: readme-screenshots-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  screenshots:
+    name: capture
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.18.0
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Install Playwright browser
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Start backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts/e2e/run-backend.sh >"${RUNNER_TEMP}/stacklab-screenshots.log" 2>&1 &
+          echo $! > "${RUNNER_TEMP}/stacklab-screenshots.pid"
+
+      - name: Wait for backend health
+        shell: bash
+        run: |
+          set -euo pipefail
+          for _ in {1..60}; do
+            if curl -fsS http://127.0.0.1:18081/api/health >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Backend did not become healthy in time" >&2
+          exit 1
+
+      - name: Capture screenshots
+        working-directory: frontend
+        env:
+          STACKLAB_URL: http://127.0.0.1:18081
+          STACKLAB_PASSWORD: stacklab-e2e
+        run: npm run screenshots:readme
+
+      - name: Stop backend
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f "${RUNNER_TEMP}/stacklab-screenshots.pid" ]]; then
+            pid="$(cat "${RUNNER_TEMP}/stacklab-screenshots.pid")"
+            kill "${pid}" 2>/dev/null || true
+            wait "${pid}" 2>/dev/null || true
+          fi
+
+      - name: Open PR with refreshed screenshots
+        uses: peter-evans/create-pull-request@v7
+        with:
+          add-paths: docs/images/readme/*.png
+          branch: chore/readme-screenshots
+          delete-branch: true
+          title: "chore(docs): refresh README screenshots"
+          commit-message: "chore(docs): refresh README screenshots"
+          body: |
+            Automated refresh of the README gallery from the Docker-backed
+            e2e harness. Review the visual diff before merging.

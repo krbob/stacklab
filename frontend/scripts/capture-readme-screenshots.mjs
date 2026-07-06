@@ -83,7 +83,7 @@ async function openConfigFile(page) {
   await folderButton.click()
   const fileButton = page.getByRole('button', { name: /app\.conf$/ })
   await fileButton.click()
-  await page.getByText(`${DEMO_CONFIG_DIR}/app.conf`).waitFor({ state: 'visible', timeout: 10_000 })
+  await page.getByText(`${DEMO_CONFIG_DIR}/app.conf`, { exact: true }).waitFor({ state: 'visible', timeout: 10_000 })
 }
 
 async function waitForStacksPage(page) {
