@@ -15,6 +15,7 @@ Options:
   --channel CHANNEL      stable | nightly. Default: stable
   --arch ARCH            amd64 | arm64. Default: amd64
   --key-url URL          Override public key URL
+  --expected-version V   Require this exact stacklab package version
   --help                 Show this help
 EOF
 }
@@ -30,6 +31,7 @@ repo_url="https://krbob.github.io/stacklab/apt"
 channel="stable"
 arch="amd64"
 key_url=""
+expected_version=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -47,6 +49,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --key-url)
       key_url="$2"
+      shift 2
+      ;;
+    --expected-version)
+      expected_version="$2"
       shift 2
       ;;
     --help)
@@ -69,6 +75,10 @@ done
   echo "--arch must be amd64 or arm64" >&2
   exit 1
 }
+if [[ -n "${expected_version}" && ! "${expected_version}" =~ ^[0-9A-Za-z.+:~_-]+$ ]]; then
+  echo "--expected-version contains unsupported characters" >&2
+  exit 1
+fi
 
 need_cmd docker
 
@@ -85,14 +95,28 @@ trap cleanup EXIT
 cat > "${workdir}/Dockerfile" <<EOF
 FROM --platform=linux/${arch} debian:bookworm-slim
 
+ARG EXPECTED_VERSION=""
+
 RUN apt-get update && apt-get install -y ca-certificates curl gnupg
 RUN mkdir -p /usr/share/keyrings \\
  && curl -fsSL "${key_url}" -o /usr/share/keyrings/stacklab-archive-keyring.gpg \\
  && echo "deb [arch=${arch} signed-by=/usr/share/keyrings/stacklab-archive-keyring.gpg] ${repo_url} ${channel} main" > /etc/apt/sources.list.d/stacklab.list \\
  && apt-get update \\
  && apt-cache policy stacklab \\
- && apt-get install -y --no-install-recommends stacklab
+ && if [ -n "\${EXPECTED_VERSION}" ]; then \\
+      candidate="\$(apt-cache policy stacklab | awk '/Candidate:/ { print \$2; exit }')"; \\
+      if [ "\${candidate}" != "\${EXPECTED_VERSION}" ]; then \\
+        echo "expected stacklab \${EXPECTED_VERSION}, got candidate \${candidate}" >&2; \\
+        exit 1; \\
+      fi; \\
+      apt-get install -y --no-install-recommends "stacklab=\${EXPECTED_VERSION}"; \\
+    else \\
+      apt-get install -y --no-install-recommends stacklab; \\
+    fi
 EOF
 
-docker build --platform="linux/${arch}" -t "stacklab-apt-smoke-${channel}-${arch}" "${workdir}"
-
+docker build \
+  --platform="linux/${arch}" \
+  --build-arg "EXPECTED_VERSION=${expected_version}" \
+  -t "stacklab-apt-smoke-${channel}-${arch}" \
+  "${workdir}"

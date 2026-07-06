@@ -16,6 +16,10 @@ on:
         required: false
         default: https://krbob.github.io/stacklab/apt
         type: string
+      expected_version:
+        description: Optional exact stacklab package version to require
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -28,8 +32,16 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Smoke install from published APT repo
+        env:
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+        shell: bash
         run: |
-          scripts/release/smoke-apt-repo-install.sh \
-            --channel "${{ inputs.channel }}" \
-            --repo-url "${{ inputs.repo_url }}" \
+          args=(
+            --channel "${{ inputs.channel }}"
+            --repo-url "${{ inputs.repo_url }}"
             --arch amd64
+          )
+          if [[ -n "${EXPECTED_VERSION}" ]]; then
+            args+=(--expected-version "${EXPECTED_VERSION}")
+          fi
+          scripts/release/smoke-apt-repo-install.sh "${args[@]}"
