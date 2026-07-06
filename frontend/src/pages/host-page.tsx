@@ -195,6 +195,7 @@ function OverviewCards({
   const currentResources = metrics?.current ?? null
   const cpu = currentResources?.cpu ?? resources.cpu
   const memory = currentResources?.memory ?? resources.memory
+  const swap = currentResources?.swap ?? null
   const primaryFilesystem = currentResources?.filesystems.find((filesystem) => filesystem.primary) ?? currentResources?.filesystems[0]
   const disk = primaryFilesystem ?? {
     used_bytes: resources.disk.used_bytes,
@@ -257,6 +258,15 @@ function OverviewCards({
             </div>
             <PercentBar value={memory.usage_percent} color={memoryTone.bar} />
           </div>
+          {swap && (
+            <div>
+              <div className="flex justify-between text-xs">
+                <span className="text-[var(--muted)]">Swap</span>
+                <span className={utilizationTone(swap.usage_percent).text}>{swap.total_bytes > 0 ? `${formatBytes(swap.used_bytes)} / ${formatBytes(swap.total_bytes)}` : 'disabled'}</span>
+              </div>
+              <PercentBar value={swap.usage_percent} color={utilizationTone(swap.usage_percent, 'bg-[#8FB8DE]', '#8FB8DE').bar} />
+            </div>
+          )}
           <div>
             <div className="flex justify-between text-xs">
               <span className="text-[var(--muted)]">Disk</span>
@@ -359,6 +369,7 @@ function HostMetricsDashboard({
           valueClassName={memoryTone.text}
         >
           <PercentBar value={current.memory.usage_percent} color={memoryTone.bar} />
+          <SwapRow swap={current.swap} />
         </MetricCard>
 
         <MetricCard
@@ -528,6 +539,28 @@ function FilesystemRow({ filesystem }: { filesystem: HostMetricSample['filesyste
         </div>
       </div>
       <PercentBar value={filesystem.usage_percent} color={tone.bar} />
+    </div>
+  )
+}
+
+function SwapRow({ swap }: { swap: HostMetricSample['swap'] }) {
+  const tone = utilizationTone(swap.usage_percent, 'bg-[#8FB8DE]', '#8FB8DE')
+  if (swap.total_bytes === 0) {
+    return (
+      <div className="mt-2 flex items-center justify-between gap-2 text-xs">
+        <span className="text-[var(--muted)]">Swap</span>
+        <span className="text-[var(--muted)]">disabled</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-2">
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <span className="text-[var(--muted)]">Swap</span>
+        <span className={tone.text}>{formatBytes(swap.used_bytes)} / {formatBytes(swap.total_bytes)}</span>
+      </div>
+      <PercentBar value={swap.usage_percent} color={tone.bar} />
     </div>
   )
 }

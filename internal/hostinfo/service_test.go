@@ -193,6 +193,9 @@ func TestMetricsCollectorSamplesFilesystemsAndNetworkRates(t *testing.T) {
 	if response.Current.Memory.TotalBytes != 1024000*1024 || response.Current.Memory.UsagePercent != 50 {
 		t.Fatalf("unexpected memory usage: %#v", response.Current.Memory)
 	}
+	if response.Current.Swap.TotalBytes != 2048000*1024 || response.Current.Swap.UsedBytes != 512000*1024 || response.Current.Swap.UsagePercent != 25 {
+		t.Fatalf("unexpected swap usage: %#v", response.Current.Swap)
+	}
 	if len(response.Current.Filesystems) != 1 {
 		t.Fatalf("len(filesystems) = %d, want 1: %#v", len(response.Current.Filesystems), response.Current.Filesystems)
 	}
@@ -266,7 +269,7 @@ func writeMetricsProcFixture(t *testing.T, procDir, statLine string, eth0RXBytes
 
 	files := map[string]string{
 		"loadavg": "0.31 0.22 0.18 1/100 123\n",
-		"meminfo": "MemTotal:        1024000 kB\nMemAvailable:     512000 kB\n",
+		"meminfo": "MemTotal:        1024000 kB\nMemAvailable:     512000 kB\nSwapTotal:       2048000 kB\nSwapFree:        1536000 kB\n",
 		"stat":    statLine,
 		filepath.Join("net", "dev"): strings.Join([]string{
 			"Inter-|   Receive                                                |  Transmit",

@@ -133,6 +133,12 @@ Response:
       "available_bytes": 5444206592,
       "usage_percent": 36.6
     },
+    "swap": {
+      "total_bytes": 2147483648,
+      "used_bytes": 536870912,
+      "available_bytes": 1610612736,
+      "usage_percent": 25.0
+    },
     "filesystems": [
       {
         "mount_point": "/srv/stacklab",
@@ -172,6 +178,8 @@ Notes:
 - the frontend polls this endpoint only while the `/host` page is visible
 - after the dashboard stops polling, active mode expires and sampling returns to the background interval
 - filesystem metrics come from Linux mount information plus `statfs`
+- swap metrics come from `SwapTotal` and `SwapFree` in `/proc/meminfo`; hosts
+  without swap report zero totals
 - virtual filesystems and Docker/container runtime internals are filtered out
 - network filesystems such as NFS/CIFS are skipped in v1 so a stalled remote mount cannot block dashboard sampling
 - network throughput is derived from `/proc/net/dev` byte deltas; v1 does not run speedtest checks or public IP discovery

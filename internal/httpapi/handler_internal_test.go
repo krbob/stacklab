@@ -267,6 +267,12 @@ func TestHandlerHostOverviewAndLogs(t *testing.T) {
 					AvailableBytes: 512,
 					UsagePercent:   50,
 				},
+				Swap: hostinfo.SwapUsage{
+					TotalBytes:     4096,
+					UsedBytes:      1024,
+					AvailableBytes: 3072,
+					UsagePercent:   25,
+				},
 				Filesystems: []hostinfo.FilesystemUsage{
 					{
 						MountPoint:     "/srv/stacklab",
@@ -320,7 +326,7 @@ func TestHandlerHostOverviewAndLogs(t *testing.T) {
 	}
 	var metricsPayload hostinfo.MetricsResponse
 	decodeInternalResponse(t, metricsResponse, &metricsPayload)
-	if metricsPayload.SampleIntervalSeconds != 1 || metricsPayload.Current == nil || metricsPayload.Current.Network.TotalRXBytesPerSec != 128 {
+	if metricsPayload.SampleIntervalSeconds != 1 || metricsPayload.Current == nil || metricsPayload.Current.Network.TotalRXBytesPerSec != 128 || metricsPayload.Current.Swap.UsagePercent != 25 {
 		t.Fatalf("unexpected metrics payload: %#v", metricsPayload)
 	}
 

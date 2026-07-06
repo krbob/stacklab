@@ -554,8 +554,16 @@ export interface HostMetricSample {
   sampled_at: string
   cpu: HostOverviewResponse['resources']['cpu']
   memory: HostOverviewResponse['resources']['memory']
+  swap: HostSwapUsage
   filesystems: HostFilesystemUsage[]
   network: HostNetworkUsage
+}
+
+export interface HostSwapUsage {
+  total_bytes: number
+  used_bytes: number
+  available_bytes: number
+  usage_percent: number
 }
 
 export interface HostFilesystemUsage {

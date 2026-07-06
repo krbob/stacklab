@@ -1634,13 +1634,31 @@ components:
           $ref: '#/components/schemas/HostCPU'
         memory:
           $ref: '#/components/schemas/HostMemory'
+        swap:
+          $ref: '#/components/schemas/HostSwap'
         filesystems:
           type: array
           items:
             $ref: '#/components/schemas/HostFilesystem'
         network:
           $ref: '#/components/schemas/HostNetwork'
-      required: [sampled_at, cpu, memory, filesystems, network]
+      required: [sampled_at, cpu, memory, swap, filesystems, network]
+    HostSwap:
+      type: object
+      properties:
+        total_bytes:
+          type: integer
+          format: int64
+        used_bytes:
+          type: integer
+          format: int64
+        available_bytes:
+          type: integer
+          format: int64
+        usage_percent:
+          type: number
+          format: double
+      required: [total_bytes, used_bytes, available_bytes, usage_percent]
     HostFilesystem:
       type: object
       properties:

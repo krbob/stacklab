@@ -81,6 +81,12 @@ const metrics: HostMetricsResponse = {
     sampled_at: '2026-04-04T12:00:10Z',
     cpu: overview.resources.cpu,
     memory: overview.resources.memory,
+    swap: {
+      total_bytes: 2 * 1024 * 1024 * 1024,
+      used_bytes: 512 * 1024 * 1024,
+      available_bytes: 1536 * 1024 * 1024,
+      usage_percent: 25,
+    },
     filesystems: [
       {
         mount_point: '/srv/stacklab',
@@ -112,6 +118,12 @@ const metrics: HostMetricsResponse = {
       sampled_at: '2026-04-04T12:00:09Z',
       cpu: { ...overview.resources.cpu, usage_percent: 12.5 },
       memory: { ...overview.resources.memory, usage_percent: 35 },
+      swap: {
+        total_bytes: 2 * 1024 * 1024 * 1024,
+        used_bytes: 256 * 1024 * 1024,
+        available_bytes: 1792 * 1024 * 1024,
+        usage_percent: 12.5,
+      },
       filesystems: [
         {
           mount_point: '/srv/stacklab',
@@ -162,6 +174,8 @@ describe('HostPage', () => {
     expect(screen.getByText(/Engine 28\.5\.1/)).toBeInTheDocument()
     expect(screen.getByText(/Compose 2\.40\.0/)).toBeInTheDocument()
     expect(screen.getByText('Host metrics')).toBeInTheDocument()
+    expect(screen.getAllByText('Swap').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('512.0 MiB / 2.0 GiB').length).toBeGreaterThan(0)
     expect(screen.getByText('/srv/stacklab')).toBeInTheDocument()
     expect(screen.getAllByText('eth0').length).toBeGreaterThan(0)
     expect(screen.getAllByText(/2\.0 KiB\/s/).length).toBeGreaterThan(0)

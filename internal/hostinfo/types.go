@@ -47,6 +47,7 @@ type HostMetricSample struct {
 	SampledAt   time.Time         `json:"sampled_at"`
 	CPU         CPUUsage          `json:"cpu"`
 	Memory      MemoryUsage       `json:"memory"`
+	Swap        SwapUsage         `json:"swap"`
 	Filesystems []FilesystemUsage `json:"filesystems"`
 	Network     NetworkUsage      `json:"network"`
 }
@@ -58,6 +59,13 @@ type CPUUsage struct {
 }
 
 type MemoryUsage struct {
+	TotalBytes     uint64  `json:"total_bytes"`
+	UsedBytes      uint64  `json:"used_bytes"`
+	AvailableBytes uint64  `json:"available_bytes"`
+	UsagePercent   float64 `json:"usage_percent"`
+}
+
+type SwapUsage struct {
 	TotalBytes     uint64  `json:"total_bytes"`
 	UsedBytes      uint64  `json:"used_bytes"`
 	AvailableBytes uint64  `json:"available_bytes"`

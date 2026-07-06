@@ -64,6 +64,8 @@ Confirmed metrics:
 
 - CPU percent, core count, load average, and short history
 - memory usage and short history
+- swap usage in the Memory card, including an explicit disabled state when no
+  swap is configured
 - aggregate network RX/TX throughput and per-interface RX/TX
 - mounted filesystems with percent, used/total bytes, mount point, device, and filesystem type
 - the Stacklab root filesystem is marked as primary
