@@ -40,8 +40,8 @@ Implemented and already exercised on Linux staging hosts:
 
 ### 1. Template Library And Starter Catalog
 
-- create new stacks from curated local templates
-- keep templates Compose-first and transparent
+- expand the curated local template catalog now that create-from-template works
+- keep templates Compose-first and transparent, with simple `${VAR}` variables
 - avoid remote template catalogs until the local workflow is stable
 
 ### 2. Polish And Adoption
@@ -85,12 +85,8 @@ Engineering backlog:
 
 Product backlog:
 
-- complete deploy-baseline drift detection by persisting normalized `compose.yaml` and `.env` hashes after successful deploy-oriented actions
-- implement `resolved-config?source=last_valid` from the persisted deploy baseline so operators can compare the current draft with the last known good resolved Compose model
 - add optional scheduled-update config snapshot commits: when a scheduled stack update starts from a clean Git workspace, updates at least one container, succeeds, and leaves controlled config files changed, Stacklab can create an automatic Git commit for those generated config changes instead of mixing them with later operator edits
 - add stack backup orchestration for managed config, data directories, and named volumes: discover per-stack backup targets, schedule backup jobs, surface retention and restore metadata, emit audit/notifications, and provide a deliberate replacement path for sidecar tools such as Backrest without becoming a generic whole-host backup product
-- add service/container-level exclusions for scheduled updates, so automatic maintenance can skip selected Compose services or named containers while still updating the rest of the stack and reporting skipped targets explicitly
-- add Compose lint warnings for risky or missing operational defaults such as absent healthchecks, missing restart policies, and public `0.0.0.0` port binds
 - expand Compose and Docker diagnostics with operator-facing checks for restart policies, healthchecks, startup ordering, resource limits, log growth risk, and daemon settings that affect homelab reliability
 - add image update checks that can notify when a registry tag resolves to a new digest
 - upgrade global activity from low-rate polling to WebSocket push once background activity volume justifies the extra transport complexity

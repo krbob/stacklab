@@ -967,6 +967,8 @@ paths:
                 $ref: '#/components/schemas/JobEnvelopeResponse'
         '401':
           $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
         '409':
           $ref: '#/components/responses/ErrorConflict'
         '422':
@@ -2348,11 +2350,32 @@ components:
           type: string
         description:
           type: string
+        icon:
+          type: string
         compose_yaml:
           type: string
         built_in:
           type: boolean
+        variables:
+          type: array
+          items:
+            $ref: '#/components/schemas/TemplateVariable'
       required: [id, name, compose_yaml, built_in]
+    TemplateVariable:
+      type: object
+      properties:
+        name:
+          type: string
+          pattern: '^[A-Z][A-Z0-9_]*$'
+        label:
+          type: string
+        description:
+          type: string
+        default:
+          type: string
+        required:
+          type: boolean
+      required: [name, required]
     TemplatesResponse:
       type: object
       properties:
@@ -2719,9 +2742,15 @@ components:
           type: boolean
         deploy_after_create:
           type: boolean
+        template_id:
+          type: string
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+        variables:
+          type: object
+          additionalProperties:
+            type: string
       required:
         - stack_id
-        - compose_yaml
         - env
         - create_config_dir
         - create_data_dir
@@ -2937,6 +2966,12 @@ components:
               type: array
               items:
                 type: string
+            excluded_services:
+              type: object
+              additionalProperties:
+                type: array
+                items:
+                  type: string
           required: [mode]
         options:
           type: object
@@ -3076,6 +3111,10 @@ components:
                     $ref: '#/components/schemas/JobState'
                   target_stack_id:
                     type: string
+                  target_service_names:
+                    type: array
+                    items:
+                      type: string
                 required: [action, state]
           required: [steps]
           nullable: true
@@ -3163,6 +3202,10 @@ components:
                 $ref: '#/components/schemas/JobState'
               target_stack_id:
                 type: string
+              target_service_names:
+                type: array
+                items:
+                  type: string
             required: [action, state]
       required: [steps]
       nullable: true
@@ -3177,6 +3220,10 @@ components:
           type: string
         target_stack_id:
           type: string
+        target_service_names:
+          type: array
+          items:
+            type: string
       required: [index, total, action]
       nullable: true
     ActiveJobLatestEvent:
@@ -3221,6 +3268,12 @@ components:
               type: array
               items:
                 type: string
+            excluded_services:
+              type: object
+              additionalProperties:
+                type: array
+                items:
+                  type: string
           required: [mode]
         options:
           type: object

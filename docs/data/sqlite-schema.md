@@ -244,15 +244,17 @@ Examples:
 
 ## `stack_deploy_baselines`
 
-Stores the last known successful deployment baseline for drift detection.
-
-Suggested columns:
+Stores the last known successful deployment baseline for drift detection and
+`resolved-config?source=last_valid`.
 
 | Column | Type | Notes |
 |---|---|---|
 | `stack_id` | `TEXT PRIMARY KEY` | Stack directory name |
 | `compose_sha256` | `TEXT NOT NULL` | Hash of normalized saved compose content |
 | `env_sha256` | `TEXT NOT NULL` | Hash of saved `.env` content or empty string hash |
+| `compose_yaml` | `TEXT NOT NULL` | Compose snapshot captured after successful deploy |
+| `env` | `TEXT NOT NULL` | `.env` snapshot captured after successful deploy, empty if absent |
+| `env_exists` | `INTEGER NOT NULL DEFAULT 0` | Whether `.env` existed in the deployed revision |
 | `last_deployed_at` | `TEXT NOT NULL` | ISO 8601 UTC |
 | `last_job_id` | `TEXT` | Reference to deployment job |
 
@@ -260,6 +262,7 @@ Rules:
 
 - updated only on successful deployment-oriented actions
 - basis for `config_state = in_sync` vs `drifted`
+- snapshot source for resolving the last deployed config in the editor
 
 v1 scope:
 

@@ -141,9 +141,9 @@ logs/stats/jobs streams:
   `warnings: [{ code, message, service, line }]` — first lint rules from the
   backlog: missing healthcheck, missing restart policy, `0.0.0.0` port binds.
   Warnings never block save/deploy.
-- `GET .../resolved-config?source=last_valid` per the existing backlog item
-  (requires persisting the deploy baseline) — powers the "diff vs last known
-  good" editor view and completes drift detection surfacing.
+- `GET .../resolved-config?source=last_valid` resolves the persisted deploy
+  baseline — powers the "diff vs last known good" editor view and completes
+  drift detection surfacing.
 
 ## Slice F — stack templates (create flow)
 
@@ -152,10 +152,10 @@ Near-term roadmap goal 1, needed for the redesigned create-stack screen:
 - `GET /api/templates` → local curated templates from
   `/srv/stacklab/templates/<id>/` (`compose.yaml` + `template.yaml` with
   name/description/icon/variables).
-- `POST /api/stacks` gains optional `template_id` + `variables` (server-side
-  substitution, plain `${VAR}` only, no remote catalogs).
+- `POST /api/stacks` accepts optional `template_id` + `variables` for
+  server-side substitution, plain `${VAR}` only, no remote catalogs.
 
-## Implementation status (2026-07-04)
+## Implementation status (2026-07-06)
 
 - Slices A1/A2/C/D: implemented and deployed.
 - Slice B: implemented — `POST /api/maintenance/image-updates/check` runs the
@@ -167,10 +167,11 @@ Near-term roadmap goal 1, needed for the redesigned create-stack screen:
   falls back to `--progress plain` with heuristic layer/container parsing.
 - Slice E: lint warnings implemented in resolved-config responses
   (`missing_healthcheck`, `missing_restart_policy`, `public_port_bind`);
-  `source=last_valid` diff still pending the deploy-baseline backlog item.
+  `source=last_valid` implemented from the persisted deploy baseline.
 - Slice F: `GET /api/templates` implemented — operator templates from
   `<root>/templates/<id>/` (compose.yaml + template.yaml) with built-in
-  starters as fallback; creation still posts plain compose content.
+  starters as fallback; create-stack supports template variables and server-side
+  rendering via `template_id` + `variables`.
 
 ## Sequencing
 

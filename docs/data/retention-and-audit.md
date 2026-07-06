@@ -147,7 +147,7 @@ Rationale:
 Retention:
 
 - keep indefinitely while the stack exists
-- remove when stack definition is explicitly deleted and no runtime remains
+- remove when the stack definition is explicitly deleted
 
 ## Cleanup Strategy
 

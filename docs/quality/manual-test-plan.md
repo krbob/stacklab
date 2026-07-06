@@ -239,8 +239,8 @@ go run ./scripts/dev/seed-retention-fixtures.go \
   Deploy.
 - **E8** Save & Deploy (poprawny config): zapisuje → job → `up`; ProgressPanel na
   żywo; po sukcesie stan stacka zaktualizowany, drift baseline odświeżony.
-- **E9** `resolved-config?source=last_valid` → obecnie 501 (nieзaimplementowane);
-  upewnij się, że UI nie wystawia tej opcji lub obsługuje 501 czytelnie.
+- **E9** `resolved-config?source=last_valid` → przed pierwszym deployem `409`;
+  po udanym deployu zwraca ostatnią wdrożoną konfigurację nawet po edycji draftu.
 - **E10** Komunikaty walidacji wystarczają do zlokalizowania błędu (linia/opis).
 
 ---

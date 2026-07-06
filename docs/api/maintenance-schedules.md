@@ -40,7 +40,10 @@ Response:
     "time": "03:30",
     "weekdays": ["sat"],
     "target": {
-      "mode": "all"
+      "mode": "all",
+      "excluded_services": {
+        "demo": ["db"]
+      }
     },
     "options": {
       "pull_images": true,
@@ -101,7 +104,10 @@ Request:
     "weekdays": ["sat"],
     "target": {
       "mode": "selected",
-      "stack_ids": ["demo", "traefik"]
+      "stack_ids": ["demo", "traefik"],
+      "excluded_services": {
+        "demo": ["db"]
+      }
     },
     "options": {
       "pull_images": true,
@@ -133,6 +139,9 @@ Validation:
 - weekly schedules require at least one weekday
 - update target mode must be `all` or `selected`
 - selected update targets must contain stack IDs
+- `target.excluded_services` keys must be targeted stacks and values must be
+  services present in that stack definition
+- `remove_orphans = true` is rejected when any services are excluded
 - `include_volumes = true` requires `prune_after = true`
 - prune scope must enable at least one category
 
@@ -149,6 +158,8 @@ Behavior:
   - audit trail
   - notifications
   - global activity
+- scheduled updates with service exclusions do not refresh the full-stack deploy
+  baseline used by drift detection and `source=last_valid`
 
 Audit / job details:
 
@@ -156,6 +167,7 @@ Audit / job details:
 - job audit details include:
   - `trigger = scheduled`
   - `schedule_key = update|prune`
+  - `excluded_services` for update jobs that skip selected services
 - skipped runs without a started job are recorded as system audit events
 
 Recommended first UI direction:

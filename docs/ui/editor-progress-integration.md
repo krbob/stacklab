@@ -18,7 +18,6 @@ This document does not cover:
 
 - logs, stats, or terminal streams
 - audit screen behavior beyond linking to job details
-- `source=last_valid` for resolved config, which is not implemented yet
 
 ## Current Backend Reality
 
@@ -48,7 +47,8 @@ Expected behavior:
 - `definition` is available for normal stacks with a canonical `compose.yaml`
 - `definition` returns `409 invalid_state` for stack states that do not expose a definition, such as `orphaned`
 - `resolved-config?source=current` returns the current resolved preview from files on disk
-- `resolved-config?source=last_valid` currently returns `501 not_implemented`
+- `resolved-config?source=last_valid` returns the resolved deploy baseline, or
+  `409 invalid_state` when the stack has not been deployed through Stacklab yet
 
 ### Draft preview
 
@@ -257,7 +257,6 @@ Common editor/progress-relevant errors:
 - `409 stack_locked`
 - `422 validation_failed`
 - `500 internal_error`
-- `501 not_implemented` for `source=last_valid`
 
 ### State-sensitive UI
 
@@ -287,7 +286,6 @@ This is especially important for:
 
 These are known gaps in the current implementation, not UI bugs:
 
-- `GET /api/stacks/{stackId}/resolved-config?source=last_valid` is not implemented
 - `PUT /definition` failure responses do not include `job.id`
 - a save can be `succeeded` and still have emitted `job_warning` during the same job stream
 

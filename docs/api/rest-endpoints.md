@@ -1127,7 +1127,10 @@ Request:
 {
   "target": {
     "mode": "selected",
-    "stack_ids": ["demo", "traefik"]
+    "stack_ids": ["demo", "traefik"],
+    "excluded_services": {
+      "demo": ["db"]
+    }
   },
   "options": {
     "pull_images": true,
@@ -1183,9 +1186,13 @@ Rules:
   - `selected`
   - `all`
 - `target.stack_ids` must be non-empty when `mode = selected`
+- `target.excluded_services` may map stack IDs to Compose service names that
+  should be skipped by pull/build/up during the update workflow
 - update order is alphabetical by `stack_id`
 - v1 is fail-fast: the first failed stack step stops the remaining workflow
 - `prune_after.include_volumes = true` requires `prune_after.enabled = true`
+- `remove_orphans = true` is rejected when `target.excluded_services` is present
+- partial service updates do not refresh the full-stack deploy baseline
 - returns `409 stack_locked` if another mutating job already owns one of the selected stacks
 
 ## `GET /api/templates`
@@ -1194,7 +1201,8 @@ Purpose:
 
 - list curated stack templates for the create flow (Slice F)
 - operator templates from `<root>/templates/<id>/` (`compose.yaml` +
-  optional `template.yaml` with `name`/`description`); built-in starters
+  optional `template.yaml` with `name`/`description`/`icon`/`variables`);
+  built-in starters
   when none exist
 
 Response:
@@ -1206,8 +1214,17 @@ Response:
       "id": "web-service",
       "name": "Web service",
       "description": "Single container behind the reverse proxy...",
+      "icon": "globe",
       "compose_yaml": "services:\n  app:\n    image: nginx:stable\n...",
-      "built_in": true
+      "built_in": true,
+      "variables": [
+        {
+          "name": "HOST_PORT",
+          "label": "Host port",
+          "default": "8080",
+          "required": true
+        }
+      ]
     }
   ]
 }
@@ -1825,7 +1842,8 @@ Purpose:
 Query parameters:
 
 - `source=current` optional, default
-- `source=last_valid` optional future extension
+- `source=last_valid` returns the resolved config from the last successful
+  deploy baseline; returns `409 invalid_state` when no baseline exists yet
 
 Success response:
 
@@ -1993,7 +2011,11 @@ Request:
   "env": "",
   "create_config_dir": true,
   "create_data_dir": true,
-  "deploy_after_create": false
+  "deploy_after_create": false,
+  "template_id": "web-service",
+  "variables": {
+    "HOST_PORT": "8080"
+  }
 }
 ```
 
@@ -2022,6 +2044,8 @@ Rules:
 
 - invalid stack ID returns `422 validation_failed`
 - existing stack ID returns `409 conflict`
+- `template_id` is optional; when present, the server renders the template
+  with `variables` and uses that content as `compose_yaml`
 - when `deploy_after_create = true`, backend still returns a single job with top-level `action = create_stack`
 - that job becomes a workflow job whose steps are `create_stack` followed by `up`
 - the UI should present this as one progress flow, not as two unrelated jobs
