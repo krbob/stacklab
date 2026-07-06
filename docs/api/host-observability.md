@@ -225,6 +225,9 @@ Notes:
   whole disks and their partitions in the totals
 - virtual filesystems and Docker/container runtime internals are filtered out
 - network filesystems such as NFS/CIFS are skipped in v1 so a stalled remote mount cannot block dashboard sampling
+- `statfs` still runs synchronously for accepted local filesystems; add timeout
+  isolation only if real deployments expose a local or unclassified filesystem
+  that can hang
 - network throughput is derived from `/proc/net/dev` byte deltas; v1 does not run speedtest checks or public IP discovery
 - Docker bridge/veth-style virtual interfaces are filtered out of the dashboard totals
 - GPU metrics remain a backlog candidate, not part of this contract

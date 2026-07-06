@@ -105,6 +105,20 @@ Backlog candidates:
 - optional speedtest integration
 - configurable filesystem include/exclude list if real deployments need it
 
+Tracked engineering follow-ups:
+
+- Memoize dashboard-derived series and sparkline inputs if `/host` becomes
+  noticeably expensive on weak clients. Current active mode can re-render around
+  once per metrics poll plus the uptime clock, which is acceptable for now.
+- Dedupe the visibility/focus refresh path if returning to the tab proves noisy.
+  The current behavior can issue one extra overview/metrics refresh when the
+  browser fires both `focus` and `visibilitychange`; this is harmless but not
+  perfectly tidy.
+- Revisit hard timeout/isolation around `statfs` if real deployments show local
+  or not-yet-classified filesystems blocking. Network filesystems are skipped in
+  v1, which removes the main practical hang risk, but `statfs` still runs
+  synchronously for accepted local filesystems.
+
 ## Stacklab Logs Panel
 
 Confirmed placement:
