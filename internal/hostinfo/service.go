@@ -348,9 +348,14 @@ func (s *Service) readDiskUsage() DiskUsage {
 		return DiskUsage{Path: path}
 	}
 
-	total := stats.Blocks * uint64(stats.Bsize)
-	available := stats.Bavail * uint64(stats.Bsize)
-	used := total - (stats.Bfree * uint64(stats.Bsize))
+	blockSize := statfsBlockSize(stats)
+	total := stats.Blocks * blockSize
+	available := stats.Bavail * blockSize
+	free := stats.Bfree * blockSize
+	used := uint64(0)
+	if total >= free {
+		used = total - free
+	}
 
 	usagePercent := 0.0
 	if total > 0 {

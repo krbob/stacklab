@@ -58,7 +58,10 @@ func readProcCPUSample(procRoot string) (cpuSample, bool) {
 		}
 
 		var total uint64
-		for _, value := range values {
+		for index, value := range values {
+			if index >= 8 {
+				break
+			}
 			total += value
 		}
 

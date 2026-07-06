@@ -642,9 +642,9 @@ function DiskIORow({ diskIO }: { diskIO: HostMetricSample['disk_io'] }) {
   const topDevice = diskIO.devices[0]
   return (
     <div className="mt-2 space-y-1 text-xs text-[var(--muted)]">
-      <div className="flex items-center justify-between gap-2">
-        <span>Disk I/O</span>
-        <span className="text-[var(--text)]">{formatRate(diskIO.total_read_bytes_per_sec)} read · {formatRate(diskIO.total_write_bytes_per_sec)} write</span>
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <span className="shrink-0">Disk I/O</span>
+        <span className="min-w-0 truncate text-right text-[var(--text)]">{formatRate(diskIO.total_read_bytes_per_sec)} read · {formatRate(diskIO.total_write_bytes_per_sec)} write</span>
       </div>
       {topDevice && (
         <div className="truncate">

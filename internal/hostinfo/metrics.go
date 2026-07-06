@@ -360,14 +360,12 @@ func parseTemperatureCelsius(raw string) (float64, bool) {
 	if raw == "" {
 		return 0, false
 	}
-	value, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	milliCelsius, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
 	if err != nil {
 		return 0, false
 	}
-	if value > 1000 || value < -1000 {
-		value = value / 1000
-	}
-	if value < -50 || value > 150 {
+	value := milliCelsius / 1000
+	if value <= 0 || value > 150 {
 		return 0, false
 	}
 	return roundFloat(value), true
@@ -533,7 +531,7 @@ func (c *MetricsCollector) filesystemUsage(mountPoint, device, fsType string) (F
 		return FilesystemUsage{}, false
 	}
 
-	blockSize := uint64(stats.Bsize)
+	blockSize := statfsBlockSize(stats)
 	total := stats.Blocks * blockSize
 	free := stats.Bfree * blockSize
 	available := stats.Bavail * blockSize
@@ -823,15 +821,47 @@ func isLikelyBlockPartition(name string) bool {
 	if len(name) < 2 {
 		return false
 	}
-	last := name[len(name)-1]
-	if last < '0' || last > '9' {
+
+	digitStart := len(name)
+	for digitStart > 0 && isASCIIDigit(name[digitStart-1]) {
+		digitStart--
+	}
+	if digitStart == len(name) || digitStart == 0 {
 		return false
 	}
+
 	if strings.Contains(name, "nvme") || strings.Contains(name, "mmcblk") {
-		return strings.Contains(name, "p")
+		return strings.HasSuffix(name[:digitStart], "p")
 	}
-	previous := name[len(name)-2]
-	return previous >= 'a' && previous <= 'z'
+	if strings.HasPrefix(name, "md") && allASCIIDigits(name[2:]) {
+		return false
+	}
+	if strings.HasPrefix(name, "dm-") {
+		return strings.HasSuffix(name[:digitStart], "p")
+	}
+
+	previous := name[digitStart-1]
+	return isASCIILetter(previous)
+}
+
+func isASCIIDigit(value byte) bool {
+	return value >= '0' && value <= '9'
+}
+
+func isASCIILetter(value byte) bool {
+	return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z')
+}
+
+func allASCIIDigits(value string) bool {
+	if value == "" {
+		return false
+	}
+	for index := 0; index < len(value); index++ {
+		if !isASCIIDigit(value[index]) {
+			return false
+		}
+	}
+	return true
 }
 
 func pathHasPrefix(pathValue, prefix string) bool {

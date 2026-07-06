@@ -298,6 +298,69 @@ func TestMetricsCollectorDoesNotSelectNonCPUSensorAsCPUTemperature(t *testing.T)
 	}
 }
 
+func TestParseTemperatureCelsiusUsesSysfsMillidegrees(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		raw  string
+		want float64
+		ok   bool
+	}{
+		{name: "standard", raw: "42000", want: 42, ok: true},
+		{name: "sub degree", raw: "900", want: 0.9, ok: true},
+		{name: "zero sentinel", raw: "0", ok: false},
+		{name: "negative sentinel", raw: "-5000", ok: false},
+		{name: "implausible high", raw: "151000", ok: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, ok := parseTemperatureCelsius(tt.raw)
+			if ok != tt.ok {
+				t.Fatalf("parseTemperatureCelsius(%q) ok = %v, want %v", tt.raw, ok, tt.ok)
+			}
+			if got != tt.want {
+				t.Fatalf("parseTemperatureCelsius(%q) = %v, want %v", tt.raw, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestShouldSkipBlockDeviceFiltersPartitions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{name: "vda", want: false},
+		{name: "vda1", want: true},
+		{name: "vda15", want: true},
+		{name: "sda10", want: true},
+		{name: "xvda14", want: true},
+		{name: "nvme0n1", want: false},
+		{name: "nvme0n1p15", want: true},
+		{name: "mmcblk0", want: false},
+		{name: "mmcblk0p2", want: true},
+		{name: "md0", want: false},
+		{name: "dm-0", want: false},
+		{name: "dm-0p1", want: true},
+		{name: "loop0", want: true},
+		{name: "zram0", want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := shouldSkipBlockDevice(tt.name); got != tt.want {
+				t.Fatalf("shouldSkipBlockDevice(%q) = %v, want %v", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestMetricsCollectorPrunesHistoryByTime(t *testing.T) {
 	t.Parallel()
 
@@ -390,6 +453,7 @@ func writeMetricsProcFixture(t *testing.T, procDir, statLine string, eth0RXBytes
 			"   7       0 loop0 1 0 100 0 1 0 100 0 0 0 0 0 0 0 0",
 			" 252       0 vda 10 0 " + strconv.FormatUint(diskReadSectors, 10) + " 0 20 0 " + strconv.FormatUint(diskWriteSectors, 10) + " 0 0 0 0 0 0 0 0",
 			" 252       1 vda1 99 0 999999 0 99 0 999999 0 0 0 0 0 0 0 0",
+			" 252      15 vda15 99 0 999999 0 99 0 999999 0 0 0 0 0 0 0 0",
 		}, "\n") + "\n",
 		filepath.Join("net", "dev"): strings.Join([]string{
 			"Inter-|   Receive                                                |  Transmit",
