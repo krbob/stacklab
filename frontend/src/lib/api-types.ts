@@ -556,6 +556,7 @@ export interface HostMetricSample {
   memory: HostOverviewResponse['resources']['memory']
   swap: HostSwapUsage
   filesystems: HostFilesystemUsage[]
+  disk_io: HostDiskIOUsage
   network: HostNetworkUsage
 }
 
@@ -575,6 +576,20 @@ export interface HostFilesystemUsage {
   available_bytes: number
   usage_percent: number
   primary: boolean
+}
+
+export interface HostDiskIOUsage {
+  total_read_bytes_per_sec: number
+  total_write_bytes_per_sec: number
+  devices: HostDiskIODeviceUsage[]
+}
+
+export interface HostDiskIODeviceUsage {
+  name: string
+  read_bytes: number
+  write_bytes: number
+  read_bytes_per_sec: number
+  write_bytes_per_sec: number
 }
 
 export interface HostNetworkUsage {

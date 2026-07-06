@@ -151,6 +151,19 @@ Response:
         "primary": true
       }
     ],
+    "disk_io": {
+      "total_read_bytes_per_sec": 4096,
+      "total_write_bytes_per_sec": 2048,
+      "devices": [
+        {
+          "name": "nvme0n1",
+          "read_bytes": 123456789,
+          "write_bytes": 98765432,
+          "read_bytes_per_sec": 4096,
+          "write_bytes_per_sec": 2048
+        }
+      ]
+    },
     "network": {
       "total_rx_bytes_per_sec": 2048,
       "total_tx_bytes_per_sec": 1024,
@@ -180,6 +193,10 @@ Notes:
 - filesystem metrics come from Linux mount information plus `statfs`
 - swap metrics come from `SwapTotal` and `SwapFree` in `/proc/meminfo`; hosts
   without swap report zero totals
+- disk I/O throughput is derived from `/proc/diskstats` sector deltas and uses
+  `512` bytes per sector
+- loop/ram devices and likely partitions are filtered out to avoid double-counting
+  whole disks and their partitions in the totals
 - virtual filesystems and Docker/container runtime internals are filtered out
 - network filesystems such as NFS/CIFS are skipped in v1 so a stalled remote mount cannot block dashboard sampling
 - network throughput is derived from `/proc/net/dev` byte deltas; v1 does not run speedtest checks or public IP discovery

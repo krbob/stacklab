@@ -67,6 +67,8 @@ Confirmed metrics:
 - swap usage in the Memory card, including an explicit disabled state when no
   swap is configured
 - aggregate network RX/TX throughput and per-interface RX/TX
+- disk read/write throughput in the Storage card, including the most active
+  top-level block device
 - mounted filesystems with percent, used/total bytes, mount point, device, and filesystem type
 - the Stacklab root filesystem is marked as primary
 

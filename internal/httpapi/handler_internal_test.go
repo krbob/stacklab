@@ -285,6 +285,13 @@ func TestHandlerHostOverviewAndLogs(t *testing.T) {
 						Primary:        true,
 					},
 				},
+				DiskIO: hostinfo.DiskIOUsage{
+					TotalReadBytesPerSec:  256,
+					TotalWriteBytesPerSec: 128,
+					Devices: []hostinfo.DiskIODeviceUsage{
+						{Name: "sda", ReadBytes: 4096, WriteBytes: 2048, ReadBytesPerSec: 256, WriteBytesPerSec: 128},
+					},
+				},
 				Network: hostinfo.NetworkUsage{
 					TotalRXBytesPerSec: 128,
 					TotalTXBytesPerSec: 64,
@@ -326,7 +333,7 @@ func TestHandlerHostOverviewAndLogs(t *testing.T) {
 	}
 	var metricsPayload hostinfo.MetricsResponse
 	decodeInternalResponse(t, metricsResponse, &metricsPayload)
-	if metricsPayload.SampleIntervalSeconds != 1 || metricsPayload.Current == nil || metricsPayload.Current.Network.TotalRXBytesPerSec != 128 || metricsPayload.Current.Swap.UsagePercent != 25 {
+	if metricsPayload.SampleIntervalSeconds != 1 || metricsPayload.Current == nil || metricsPayload.Current.Network.TotalRXBytesPerSec != 128 || metricsPayload.Current.Swap.UsagePercent != 25 || metricsPayload.Current.DiskIO.TotalReadBytesPerSec != 256 {
 		t.Fatalf("unexpected metrics payload: %#v", metricsPayload)
 	}
 

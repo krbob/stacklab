@@ -41,8 +41,15 @@ type MetricsCollector struct {
 	activeUntil   time.Time
 	lastCPU       cpuSample
 	hasLastCPU    bool
+	lastDiskIO    map[string]diskIOCounter
+	lastDiskIOAt  time.Time
 	lastNetwork   map[string]networkCounter
 	lastNetworkAt time.Time
+}
+
+type diskIOCounter struct {
+	readBytes  uint64
+	writeBytes uint64
 }
 
 type networkCounter struct {
@@ -68,6 +75,7 @@ func newMetricsCollector(rootDir, procRoot string) *MetricsCollector {
 		now:                time.Now,
 		statfs:             syscall.Statfs,
 		wakeCh:             make(chan struct{}, 1),
+		lastDiskIO:         map[string]diskIOCounter{},
 		lastNetwork:        map[string]networkCounter{},
 	}
 }
@@ -192,6 +200,7 @@ func (c *MetricsCollector) readSample() HostMetricSample {
 		Memory:      c.readMemoryUsage(),
 		Swap:        c.readSwapUsage(),
 		Filesystems: c.readFilesystems(),
+		DiskIO:      c.readDiskIOUsage(now),
 		Network:     c.readNetworkUsage(now),
 	}
 }
@@ -489,6 +498,102 @@ func (c *MetricsCollector) filesystemUsage(mountPoint, device, fsType string) (F
 	}, true
 }
 
+func (c *MetricsCollector) readDiskIOUsage(sampledAt time.Time) DiskIOUsage {
+	counters := c.readDiskIOCounters()
+	names := make([]string, 0, len(counters))
+	for name := range counters {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	elapsedSeconds := 0.0
+	if !c.lastDiskIOAt.IsZero() {
+		elapsedSeconds = sampledAt.Sub(c.lastDiskIOAt).Seconds()
+	}
+
+	devices := make([]DiskIODeviceUsage, 0, len(names))
+	var totalReadRate float64
+	var totalWriteRate float64
+	for _, name := range names {
+		counter := counters[name]
+		readRate := 0.0
+		writeRate := 0.0
+		if elapsedSeconds > 0 {
+			if previous, ok := c.lastDiskIO[name]; ok {
+				if counter.readBytes >= previous.readBytes {
+					readRate = float64(counter.readBytes-previous.readBytes) / elapsedSeconds
+				}
+				if counter.writeBytes >= previous.writeBytes {
+					writeRate = float64(counter.writeBytes-previous.writeBytes) / elapsedSeconds
+				}
+			}
+		}
+		readRate = roundFloat(readRate)
+		writeRate = roundFloat(writeRate)
+		totalReadRate += readRate
+		totalWriteRate += writeRate
+		devices = append(devices, DiskIODeviceUsage{
+			Name:             name,
+			ReadBytes:        counter.readBytes,
+			WriteBytes:       counter.writeBytes,
+			ReadBytesPerSec:  readRate,
+			WriteBytesPerSec: writeRate,
+		})
+	}
+
+	sort.SliceStable(devices, func(i, j int) bool {
+		leftRate := devices[i].ReadBytesPerSec + devices[i].WriteBytesPerSec
+		rightRate := devices[j].ReadBytesPerSec + devices[j].WriteBytesPerSec
+		if leftRate != rightRate {
+			return leftRate > rightRate
+		}
+		return devices[i].Name < devices[j].Name
+	})
+
+	c.lastDiskIO = counters
+	c.lastDiskIOAt = sampledAt
+
+	return DiskIOUsage{
+		TotalReadBytesPerSec:  roundFloat(totalReadRate),
+		TotalWriteBytesPerSec: roundFloat(totalWriteRate),
+		Devices:               devices,
+	}
+}
+
+func (c *MetricsCollector) readDiskIOCounters() map[string]diskIOCounter {
+	data, err := os.ReadFile(filepath.Join(c.procRoot, "diskstats"))
+	if err != nil {
+		return map[string]diskIOCounter{}
+	}
+
+	counters := map[string]diskIOCounter{}
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 10 {
+			continue
+		}
+
+		name := fields[2]
+		if shouldSkipBlockDevice(name) {
+			continue
+		}
+
+		readSectors, readErr := strconv.ParseUint(fields[5], 10, 64)
+		writeSectors, writeErr := strconv.ParseUint(fields[9], 10, 64)
+		if readErr != nil || writeErr != nil {
+			continue
+		}
+
+		counters[name] = diskIOCounter{
+			readBytes:  readSectors * 512,
+			writeBytes: writeSectors * 512,
+		}
+	}
+
+	return counters
+}
+
 func (c *MetricsCollector) readNetworkUsage(sampledAt time.Time) NetworkUsage {
 	counters := c.readNetworkCounters()
 	names := make([]string, 0, len(counters))
@@ -639,6 +744,34 @@ func shouldSkipNetworkInterface(name string) bool {
 		}
 	}
 	return false
+}
+
+func shouldSkipBlockDevice(name string) bool {
+	if name == "" || strings.HasPrefix(name, "loop") || strings.HasPrefix(name, "ram") {
+		return true
+	}
+	if strings.HasPrefix(name, "zram") {
+		return true
+	}
+	if strings.Contains(name, "/") {
+		return true
+	}
+	return isLikelyBlockPartition(name)
+}
+
+func isLikelyBlockPartition(name string) bool {
+	if len(name) < 2 {
+		return false
+	}
+	last := name[len(name)-1]
+	if last < '0' || last > '9' {
+		return false
+	}
+	if strings.Contains(name, "nvme") || strings.Contains(name, "mmcblk") {
+		return strings.Contains(name, "p")
+	}
+	previous := name[len(name)-2]
+	return previous >= 'a' && previous <= 'z'
 }
 
 func pathHasPrefix(pathValue, prefix string) bool {

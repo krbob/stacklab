@@ -402,6 +402,7 @@ function HostMetricsDashboard({
           valueClassName={storageTone.text}
         >
           <PercentBar value={storage.usage_percent} color={storageTone.bar} />
+          <DiskIORow diskIO={current.disk_io} />
         </MetricCard>
       </div>
 
@@ -561,6 +562,23 @@ function SwapRow({ swap }: { swap: HostMetricSample['swap'] }) {
         <span className={tone.text}>{formatBytes(swap.used_bytes)} / {formatBytes(swap.total_bytes)}</span>
       </div>
       <PercentBar value={swap.usage_percent} color={tone.bar} />
+    </div>
+  )
+}
+
+function DiskIORow({ diskIO }: { diskIO: HostMetricSample['disk_io'] }) {
+  const topDevice = diskIO.devices[0]
+  return (
+    <div className="mt-2 space-y-1 text-xs text-[var(--muted)]">
+      <div className="flex items-center justify-between gap-2">
+        <span>Disk I/O</span>
+        <span className="text-[var(--text)]">{formatRate(diskIO.total_read_bytes_per_sec)} read · {formatRate(diskIO.total_write_bytes_per_sec)} write</span>
+      </div>
+      {topDevice && (
+        <div className="truncate">
+          {topDevice.name}: {formatRate(topDevice.read_bytes_per_sec)} read · {formatRate(topDevice.write_bytes_per_sec)} write
+        </div>
+      )}
     </div>
   )
 }

@@ -49,6 +49,7 @@ type HostMetricSample struct {
 	Memory      MemoryUsage       `json:"memory"`
 	Swap        SwapUsage         `json:"swap"`
 	Filesystems []FilesystemUsage `json:"filesystems"`
+	DiskIO      DiskIOUsage       `json:"disk_io"`
 	Network     NetworkUsage      `json:"network"`
 }
 
@@ -89,6 +90,20 @@ type FilesystemUsage struct {
 	AvailableBytes uint64  `json:"available_bytes"`
 	UsagePercent   float64 `json:"usage_percent"`
 	Primary        bool    `json:"primary"`
+}
+
+type DiskIOUsage struct {
+	TotalReadBytesPerSec  float64             `json:"total_read_bytes_per_sec"`
+	TotalWriteBytesPerSec float64             `json:"total_write_bytes_per_sec"`
+	Devices               []DiskIODeviceUsage `json:"devices"`
+}
+
+type DiskIODeviceUsage struct {
+	Name             string  `json:"name"`
+	ReadBytes        uint64  `json:"read_bytes"`
+	WriteBytes       uint64  `json:"write_bytes"`
+	ReadBytesPerSec  float64 `json:"read_bytes_per_sec"`
+	WriteBytesPerSec float64 `json:"write_bytes_per_sec"`
 }
 
 type NetworkUsage struct {

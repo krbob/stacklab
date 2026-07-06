@@ -99,6 +99,19 @@ const metrics: HostMetricsResponse = {
         primary: true,
       },
     ],
+    disk_io: {
+      total_read_bytes_per_sec: 4096,
+      total_write_bytes_per_sec: 2048,
+      devices: [
+        {
+          name: 'nvme0n1',
+          read_bytes: 1024 * 1024,
+          write_bytes: 512 * 1024,
+          read_bytes_per_sec: 4096,
+          write_bytes_per_sec: 2048,
+        },
+      ],
+    },
     network: {
       total_rx_bytes_per_sec: 2048,
       total_tx_bytes_per_sec: 1024,
@@ -136,6 +149,19 @@ const metrics: HostMetricsResponse = {
           primary: true,
         },
       ],
+      disk_io: {
+        total_read_bytes_per_sec: 2048,
+        total_write_bytes_per_sec: 1024,
+        devices: [
+          {
+            name: 'nvme0n1',
+            read_bytes: 1020 * 1024,
+            write_bytes: 510 * 1024,
+            read_bytes_per_sec: 2048,
+            write_bytes_per_sec: 1024,
+          },
+        ],
+      },
       network: {
         total_rx_bytes_per_sec: 1024,
         total_tx_bytes_per_sec: 512,
@@ -176,6 +202,8 @@ describe('HostPage', () => {
     expect(screen.getByText('Host metrics')).toBeInTheDocument()
     expect(screen.getAllByText('Swap').length).toBeGreaterThan(0)
     expect(screen.getAllByText('512.0 MiB / 2.0 GiB').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/4\.0 KiB\/s read/).length).toBeGreaterThan(0)
+    expect(screen.getByText(/nvme0n1:/)).toBeInTheDocument()
     expect(screen.getByText('/srv/stacklab')).toBeInTheDocument()
     expect(screen.getAllByText('eth0').length).toBeGreaterThan(0)
     expect(screen.getAllByText(/2\.0 KiB\/s/).length).toBeGreaterThan(0)

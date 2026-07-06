@@ -159,7 +159,7 @@ func TestMetricsCollectorSamplesFilesystemsAndNetworkRates(t *testing.T) {
 		t.Fatalf("MkdirAll(root) error = %v", err)
 	}
 
-	writeMetricsProcFixture(t, procDir, "cpu  100 0 0 100 0 0 0 0 0 0\n", 1000, 2000)
+	writeMetricsProcFixture(t, procDir, "cpu  100 0 0 100 0 0 0 0 0 0\n", 1000, 2000, 1000, 2000)
 	mountInfo := strings.Join([]string{
 		"26 23 8:2 / " + mountPoint + " rw,relatime - ext4 /dev/nvme0n1p2 rw",
 		"27 23 0:42 / /mnt/offline-nas rw,relatime - nfs4 nas:/share rw",
@@ -177,7 +177,7 @@ func TestMetricsCollectorSamplesFilesystemsAndNetworkRates(t *testing.T) {
 
 	collector.sampleAndStore()
 	now = now.Add(10 * time.Second)
-	writeMetricsProcFixture(t, procDir, "cpu  150 0 0 150 0 0 0 0 0 0\n", 2500, 2600)
+	writeMetricsProcFixture(t, procDir, "cpu  150 0 0 150 0 0 0 0 0 0\n", 2500, 2600, 1200, 2100)
 	collector.sampleAndStore()
 
 	response := collector.Snapshot()
@@ -201,6 +201,12 @@ func TestMetricsCollectorSamplesFilesystemsAndNetworkRates(t *testing.T) {
 	}
 	if filesystem := response.Current.Filesystems[0]; filesystem.MountPoint != mountPoint || filesystem.Device != "/dev/nvme0n1p2" || filesystem.FSType != "ext4" || !filesystem.Primary {
 		t.Fatalf("unexpected filesystem: %#v", filesystem)
+	}
+	if response.Current.DiskIO.TotalReadBytesPerSec != 10240 || response.Current.DiskIO.TotalWriteBytesPerSec != 5120 {
+		t.Fatalf("unexpected disk IO totals: %#v", response.Current.DiskIO)
+	}
+	if len(response.Current.DiskIO.Devices) != 1 || response.Current.DiskIO.Devices[0].Name != "vda" {
+		t.Fatalf("unexpected disk IO devices: %#v", response.Current.DiskIO.Devices)
 	}
 	if response.Current.Network.TotalRXBytesPerSec != 150 || response.Current.Network.TotalTXBytesPerSec != 60 {
 		t.Fatalf("unexpected network totals: %#v", response.Current.Network)
@@ -264,13 +270,18 @@ func TestMetricsCollectorSwitchesToActiveIntervalAfterSnapshot(t *testing.T) {
 	}
 }
 
-func writeMetricsProcFixture(t *testing.T, procDir, statLine string, eth0RXBytes, eth0TXBytes uint64) {
+func writeMetricsProcFixture(t *testing.T, procDir, statLine string, eth0RXBytes, eth0TXBytes, diskReadSectors, diskWriteSectors uint64) {
 	t.Helper()
 
 	files := map[string]string{
 		"loadavg": "0.31 0.22 0.18 1/100 123\n",
 		"meminfo": "MemTotal:        1024000 kB\nMemAvailable:     512000 kB\nSwapTotal:       2048000 kB\nSwapFree:        1536000 kB\n",
 		"stat":    statLine,
+		"diskstats": strings.Join([]string{
+			"   7       0 loop0 1 0 100 0 1 0 100 0 0 0 0 0 0 0 0",
+			" 252       0 vda 10 0 " + strconv.FormatUint(diskReadSectors, 10) + " 0 20 0 " + strconv.FormatUint(diskWriteSectors, 10) + " 0 0 0 0 0 0 0 0",
+			" 252       1 vda1 99 0 999999 0 99 0 999999 0 0 0 0 0 0 0 0",
+		}, "\n") + "\n",
 		filepath.Join("net", "dev"): strings.Join([]string{
 			"Inter-|   Receive                                                |  Transmit",
 			" face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed",
