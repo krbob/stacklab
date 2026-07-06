@@ -97,7 +97,7 @@ func (c *MetricsCollector) Start(ctx context.Context) {
 	}
 }
 
-func (c *MetricsCollector) Snapshot() MetricsResponse {
+func (c *MetricsCollector) Snapshot(query MetricsQuery) MetricsResponse {
 	c.markActive()
 	if c.shouldSample(c.activeInterval) {
 		c.sampleAndStore()
@@ -105,14 +105,18 @@ func (c *MetricsCollector) Snapshot() MetricsResponse {
 
 	now := c.now().UTC()
 	c.mu.RLock()
-	history := append([]HostMetricSample(nil), c.samples...)
+	allHistory := append([]HostMetricSample(nil), c.samples...)
 	interval := c.currentIntervalLocked(now)
 	c.mu.RUnlock()
 
 	var current *HostMetricSample
-	if len(history) > 0 {
-		currentSample := history[len(history)-1]
+	if len(allHistory) > 0 {
+		currentSample := allHistory[len(allHistory)-1]
 		current = &currentSample
+	}
+	history := allHistory
+	if query.Since != nil {
+		history = filterMetricHistorySince(allHistory, *query.Since)
 	}
 
 	return MetricsResponse{
@@ -123,6 +127,16 @@ func (c *MetricsCollector) Snapshot() MetricsResponse {
 		Current:                         current,
 		History:                         history,
 	}
+}
+
+func filterMetricHistorySince(history []HostMetricSample, since time.Time) []HostMetricSample {
+	filtered := make([]HostMetricSample, 0, len(history))
+	for _, sample := range history {
+		if sample.SampledAt.After(since) {
+			filtered = append(filtered, sample)
+		}
+	}
+	return filtered
 }
 
 func (c *MetricsCollector) markActive() {

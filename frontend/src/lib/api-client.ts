@@ -162,8 +162,11 @@ export function getHostOverview(): Promise<HostOverviewResponse> {
   return request('/api/host/overview')
 }
 
-export function getHostMetrics(): Promise<HostMetricsResponse> {
-  return request('/api/host/metrics')
+export function getHostMetrics(params?: { since?: string }): Promise<HostMetricsResponse> {
+  const search = new URLSearchParams()
+  if (params?.since) search.set('since', params.since)
+  const qs = search.toString()
+  return request(`/api/host/metrics${qs ? `?${qs}` : ''}`)
 }
 
 export function getStacklabLogs(params?: { limit?: number; cursor?: string; level?: string; q?: string }): Promise<StacklabLogsResponse> {

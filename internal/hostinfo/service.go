@@ -97,8 +97,8 @@ func (s *Service) StartMetrics(ctx context.Context) {
 	go s.metrics.Start(ctx)
 }
 
-func (s *Service) Metrics(ctx context.Context) (MetricsResponse, error) {
-	return s.metrics.Snapshot(), nil
+func (s *Service) Metrics(ctx context.Context, query MetricsQuery) (MetricsResponse, error) {
+	return s.metrics.Snapshot(query), nil
 }
 
 func (s *Service) StacklabLogs(ctx context.Context, query LogsQuery) (StacklabLogsResponse, error) {

@@ -63,7 +63,7 @@ type Handler struct {
 
 type hostInfoReader interface {
 	Overview(ctx context.Context) (hostinfo.OverviewResponse, error)
-	Metrics(ctx context.Context) (hostinfo.MetricsResponse, error)
+	Metrics(ctx context.Context, query hostinfo.MetricsQuery) (hostinfo.MetricsResponse, error)
 	StacklabLogs(ctx context.Context, query hostinfo.LogsQuery) (hostinfo.StacklabLogsResponse, error)
 }
 
@@ -373,7 +373,18 @@ func (h *Handler) handleHostOverview(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleHostMetrics(w http.ResponseWriter, r *http.Request) {
-	response, err := h.hostInfo.Metrics(r.Context())
+	query := hostinfo.MetricsQuery{}
+	if rawSince := strings.TrimSpace(r.URL.Query().Get("since")); rawSince != "" {
+		since, err := time.Parse(time.RFC3339Nano, rawSince)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "validation_failed", "since must be an RFC3339 timestamp.", nil)
+			return
+		}
+		since = since.UTC()
+		query.Since = &since
+	}
+
+	response, err := h.hostInfo.Metrics(r.Context(), query)
 	if err != nil {
 		h.logger.Error("host metrics failed", slog.String("err", err.Error()))
 		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load host metrics.", nil)

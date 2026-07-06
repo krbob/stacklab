@@ -78,6 +78,8 @@ Sampling behavior:
 - idle/background sampling interval: `30s`
 - dashboard-active sampling interval: `1s`
 - polling `GET /api/host/metrics` marks the collector active
+- after the first full metrics load, the frontend polls with `since` and merges
+  only new history samples into local state
 - leaving `/host` or hiding the browser tab stops the frontend polling; after the active TTL expires, the backend returns to the background interval
 - history is an in-memory `30m` ring buffer
 - history is pruned by timestamp, so mixed `1s`/`30s` sampling still reports a real 30-minute window

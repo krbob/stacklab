@@ -180,7 +180,7 @@ func TestMetricsCollectorSamplesFilesystemsAndNetworkRates(t *testing.T) {
 	writeMetricsProcFixture(t, procDir, "cpu  150 0 0 150 0 0 0 0 0 0\n", 2500, 2600, 1200, 2100)
 	collector.sampleAndStore()
 
-	response := collector.Snapshot()
+	response := collector.Snapshot(MetricsQuery{})
 	if response.Current == nil {
 		t.Fatalf("response.Current is nil")
 	}
@@ -234,12 +234,36 @@ func TestMetricsCollectorPrunesHistoryByTime(t *testing.T) {
 
 	collector.sampleAndStore()
 
-	response := collector.Snapshot()
+	response := collector.Snapshot(MetricsQuery{})
 	if len(response.History) != 2 {
 		t.Fatalf("len(response.History) = %d, want 2: %#v", len(response.History), response.History)
 	}
 	if response.History[0].SampledAt.Before(now.Add(-time.Minute)) {
 		t.Fatalf("old sample was not pruned: %#v", response.History)
+	}
+}
+
+func TestMetricsCollectorSnapshotFiltersHistorySince(t *testing.T) {
+	t.Parallel()
+
+	collector := newMetricsCollector(t.TempDir(), t.TempDir())
+	base := time.Unix(1_712_598_000, 0).UTC()
+	collector.samples = []HostMetricSample{
+		{SampledAt: base.Add(-2 * time.Second)},
+		{SampledAt: base.Add(-time.Second)},
+		{SampledAt: base},
+	}
+	collector.now = func() time.Time {
+		return base
+	}
+	since := base.Add(-time.Second)
+
+	response := collector.Snapshot(MetricsQuery{Since: &since})
+	if response.Current == nil || !response.Current.SampledAt.Equal(base) {
+		t.Fatalf("unexpected current sample: %#v", response.Current)
+	}
+	if len(response.History) != 1 || !response.History[0].SampledAt.Equal(base) {
+		t.Fatalf("unexpected filtered history: %#v", response.History)
 	}
 }
 
@@ -256,7 +280,7 @@ func TestMetricsCollectorSwitchesToActiveIntervalAfterSnapshot(t *testing.T) {
 		t.Fatalf("currentInterval() = %v, want %v", got, metricsBackgroundSampleInterval)
 	}
 
-	response := collector.Snapshot()
+	response := collector.Snapshot(MetricsQuery{})
 	if response.SampleIntervalSeconds != int(metricsActiveSampleInterval.Seconds()) {
 		t.Fatalf("response.SampleIntervalSeconds = %d, want %d", response.SampleIntervalSeconds, int(metricsActiveSampleInterval.Seconds()))
 	}

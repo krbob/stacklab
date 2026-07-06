@@ -43,6 +43,7 @@ type fakeHostInfo struct {
 	overviewError    error
 	metricsResponse  hostinfo.MetricsResponse
 	metricsError     error
+	lastMetricsQuery hostinfo.MetricsQuery
 	logsResponse     hostinfo.StacklabLogsResponse
 	logsError        error
 	lastLogsQuery    hostinfo.LogsQuery
@@ -93,7 +94,8 @@ func (f *fakeHostInfo) Overview(ctx context.Context) (hostinfo.OverviewResponse,
 	return f.overviewResponse, f.overviewError
 }
 
-func (f *fakeHostInfo) Metrics(ctx context.Context) (hostinfo.MetricsResponse, error) {
+func (f *fakeHostInfo) Metrics(ctx context.Context, query hostinfo.MetricsQuery) (hostinfo.MetricsResponse, error) {
+	f.lastMetricsQuery = query
 	return f.metricsResponse, f.metricsError
 }
 
@@ -327,7 +329,7 @@ func TestHandlerHostOverviewAndLogs(t *testing.T) {
 		t.Fatalf("unexpected overview payload: %#v", overviewPayload)
 	}
 
-	metricsResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/host/metrics", nil, cookies)
+	metricsResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/host/metrics?since=2026-04-04T12%3A00%3A00Z", nil, cookies)
 	if metricsResponse.Code != http.StatusOK {
 		t.Fatalf("GET /api/host/metrics status = %d, want %d; body=%s", metricsResponse.Code, http.StatusOK, metricsResponse.Body.String())
 	}
@@ -335,6 +337,9 @@ func TestHandlerHostOverviewAndLogs(t *testing.T) {
 	decodeInternalResponse(t, metricsResponse, &metricsPayload)
 	if metricsPayload.SampleIntervalSeconds != 1 || metricsPayload.Current == nil || metricsPayload.Current.Network.TotalRXBytesPerSec != 128 || metricsPayload.Current.Swap.UsagePercent != 25 || metricsPayload.Current.DiskIO.TotalReadBytesPerSec != 256 {
 		t.Fatalf("unexpected metrics payload: %#v", metricsPayload)
+	}
+	if host.lastMetricsQuery.Since == nil || !host.lastMetricsQuery.Since.Equal(time.Date(2026, 4, 4, 12, 0, 0, 0, time.UTC)) {
+		t.Fatalf("unexpected metrics query: %#v", host.lastMetricsQuery)
 	}
 
 	logsResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/host/stacklab-logs?limit=25&level=error&q=bind&cursor=s%3Dprev", nil, cookies)
@@ -356,6 +361,19 @@ func TestHandlerStacklabLogsUnavailable(t *testing.T) {
 	response := performInternalJSONRequest(t, served, http.MethodGet, "/api/host/stacklab-logs", nil, cookies)
 	if response.Code != http.StatusServiceUnavailable {
 		t.Fatalf("GET /api/host/stacklab-logs status = %d, want %d; body=%s", response.Code, http.StatusServiceUnavailable, response.Body.String())
+	}
+}
+
+func TestHandlerHostMetricsRejectsInvalidSince(t *testing.T) {
+	t.Parallel()
+
+	handler, served, _ := newInternalTestHandler(t)
+	handler.hostInfo = &fakeHostInfo{}
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	response := performInternalJSONRequest(t, served, http.MethodGet, "/api/host/metrics?since=not-a-time", nil, cookies)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("GET /api/host/metrics?since=not-a-time status = %d, want %d; body=%s", response.Code, http.StatusBadRequest, response.Body.String())
 	}
 }
 

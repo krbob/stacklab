@@ -76,6 +76,14 @@ paths:
     get:
       tags: [Host]
       operationId: getHostMetrics
+      parameters:
+        - in: query
+          name: since
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Return only history samples newer than this RFC3339 timestamp. Current sample is always returned.
       responses:
         '200':
           description: Host resource metrics with a short in-memory history.

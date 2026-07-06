@@ -112,6 +112,11 @@ Purpose:
 
 - return live host resource metrics and a short in-memory history for the native Host dashboard
 
+Query parameters:
+
+- `since` optional RFC3339 timestamp; when present, `history` contains only
+  samples newer than `since`, while `current` still returns the latest sample
+
 Response:
 
 ```json
@@ -186,6 +191,8 @@ Notes:
 
 - metrics are sampled server-side and kept only in memory
 - history is pruned by sample timestamp to a `30m` window; no SQLite persistence is part of v1
+- first UI load fetches the current history window; subsequent active polling can
+  use `since=<last_sampled_at>` to fetch only new samples
 - idle/background sampling runs every `30s`
 - calling this endpoint marks the dashboard as active; active sampling runs every `1s`
 - the frontend polls this endpoint only while the `/host` page is visible

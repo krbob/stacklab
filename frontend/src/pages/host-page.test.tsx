@@ -268,23 +268,22 @@ describe('HostPage', () => {
         ...metrics,
         current: metrics.current && {
           ...metrics.current,
+          sampled_at: '2026-04-04T12:00:11Z',
           cpu: {
             ...metrics.current.cpu,
             usage_percent: 3.2,
           },
         },
-        history: [
-          ...metrics.history,
-          ...(metrics.current
-            ? [{
-                ...metrics.current,
-                cpu: {
-                  ...metrics.current.cpu,
-                  usage_percent: 3.2,
-                },
-              }]
-            : []),
-        ],
+        history: metrics.current
+          ? [{
+              ...metrics.current,
+              sampled_at: '2026-04-04T12:00:11Z',
+              cpu: {
+                ...metrics.current.cpu,
+                usage_percent: 3.2,
+              },
+            }]
+          : [],
       })
     let metricsPoll: (() => void) | null = null
     const setIntervalSpy = vi.spyOn(globalThis, 'setInterval')
@@ -314,6 +313,8 @@ describe('HostPage', () => {
     await waitFor(() => {
       expect(mockGetHostMetrics).toHaveBeenCalledTimes(2)
     })
+    expect(mockGetHostMetrics).toHaveBeenNthCalledWith(1, undefined)
+    expect(mockGetHostMetrics).toHaveBeenNthCalledWith(2, { since: '2026-04-04T12:00:10Z' })
     expect((await screen.findAllByText('3.2%')).length).toBeGreaterThan(0)
 
     setIntervalSpy.mockRestore()

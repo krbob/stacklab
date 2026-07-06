@@ -43,6 +43,10 @@ type MetricsResponse struct {
 	History                         []HostMetricSample `json:"history"`
 }
 
+type MetricsQuery struct {
+	Since *time.Time
+}
+
 type HostMetricSample struct {
 	SampledAt   time.Time         `json:"sampled_at"`
 	CPU         CPUUsage          `json:"cpu"`
