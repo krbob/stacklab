@@ -99,8 +99,9 @@ flow instead:
   - `/usr/share/doc/stacklab/examples/stacklab-workspace-admin.sudoers.example`
   - `/usr/share/doc/stacklab/examples/stacklab-self-update.sudoers.example`
 - The package depends on:
+  - `adduser`
   - `systemd`
-  - Docker Engine
+  - Docker Engine and Docker CLI
   - Compose
   - `git`
 - After install, adjust `/etc/stacklab/stacklab.env` as needed and start or

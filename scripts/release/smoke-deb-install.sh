@@ -78,15 +78,11 @@ main() {
       export DEBIAN_FRONTEND=noninteractive
       apt-get update >/dev/null
       apt-get install -y --no-install-recommends \
-        adduser \
         ca-certificates \
-        docker.io \
-        docker-compose \
-        git \
-        systemd >/dev/null
+        /tmp/stacklab.deb >/dev/null
 
-      dpkg -i /tmp/stacklab.deb >/dev/null
-
+      command -v docker >/dev/null
+      command -v docker-compose >/dev/null || docker compose version >/dev/null
       test -x /usr/lib/stacklab/bin/stacklab
       test -f /etc/stacklab/stacklab.env
       test -f /lib/systemd/system/stacklab.service
