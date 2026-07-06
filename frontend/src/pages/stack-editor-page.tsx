@@ -22,6 +22,7 @@ export function StackEditorPage() {
   const [savedEnv, setSavedEnv] = useState('')
 
   const [resolvedContent, setResolvedContent] = useState('')
+  const [resolvedSource, setResolvedSource] = useState<'current' | 'draft' | 'last_valid'>('current')
   const [warnings, setWarnings] = useState<import('@/lib/api-types').ComposeWarning[]>([])
   const [resolvedValid, setResolvedValid] = useState(true)
   const [resolvedError, setResolvedError] = useState('')
@@ -50,11 +51,13 @@ export function StackEditorPage() {
       setEnvExists(def.files.env.exists)
       if (resolved.valid && resolved.content) {
         setResolvedContent(resolved.content)
+        setResolvedSource('current')
         setResolvedValid(true)
         setResolvedError('')
         setWarnings(resolved.warnings ?? [])
       } else if (resolved.error) {
         setResolvedContent('')
+        setResolvedSource('current')
         setResolvedValid(false)
         setResolvedError(resolved.error.message)
       }
@@ -76,19 +79,45 @@ export function StackEditorPage() {
       })
       if (result.valid && result.content) {
         setResolvedContent(result.content)
+        setResolvedSource('draft')
         setResolvedValid(true)
         setResolvedError('')
         setWarnings(result.warnings ?? [])
       } else if (result.error) {
         setResolvedContent('')
+        setResolvedSource('draft')
         setResolvedValid(false)
         setResolvedError(result.error.message)
       }
     } catch (err) {
       setResolvedError(err instanceof Error ? err.message : 'Preview failed')
+      setResolvedSource('draft')
       setResolvedValid(false)
     }
   }, [stack.id, composeYaml, envContent])
+
+  const handleLastValid = useCallback(async () => {
+    try {
+      const result = await getResolvedConfig(stack.id, 'last_valid')
+      if (result.valid && result.content) {
+        setResolvedContent(result.content)
+        setResolvedSource('last_valid')
+        setResolvedValid(true)
+        setResolvedError('')
+        setWarnings(result.warnings ?? [])
+      } else if (result.error) {
+        setResolvedContent('')
+        setResolvedSource('last_valid')
+        setResolvedValid(false)
+        setResolvedError(result.error.message)
+      }
+    } catch (err) {
+      setResolvedContent('')
+      setResolvedSource('last_valid')
+      setResolvedValid(false)
+      setResolvedError(err instanceof Error ? err.message : 'Last deployed config is unavailable')
+    }
+  }, [stack.id])
 
   // Save (and optionally deploy after save completes)
   const handleSave = useCallback(async (deploy: boolean) => {
@@ -125,6 +154,7 @@ export function StackEditorPage() {
       getResolvedConfig(stack.id).then((resolved) => {
         if (resolved.valid && resolved.content) {
           setResolvedContent(resolved.content)
+          setResolvedSource('current')
           setResolvedValid(true)
           setResolvedError('')
           setWarnings(resolved.warnings ?? [])
@@ -198,6 +228,13 @@ export function StackEditorPage() {
           >
             Preview
           </button>
+          <button
+            onClick={handleLastValid}
+            disabled={!stack.last_deployed_at}
+            className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)] disabled:opacity-40"
+          >
+            Last deployed
+          </button>
           {isDirty && (
             <button
               onClick={handleDiscard}
@@ -261,7 +298,7 @@ export function StackEditorPage() {
         </div>
         <div className="min-h-0 min-w-0 overflow-auto rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs text-[var(--muted)]">
           <div className="mb-2 text-[var(--accent)] text-xs uppercase tracking-wider">
-            Resolved config
+            {resolvedSource === 'last_valid' ? 'Last deployed config' : resolvedSource === 'draft' ? 'Draft resolved config' : 'Resolved config'}
           </div>
           {resolvedContent ? (
             <pre className="whitespace-pre-wrap text-[var(--text)]">{resolvedContent}</pre>

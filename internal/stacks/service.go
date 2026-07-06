@@ -2,6 +2,8 @@ package stacks
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +22,7 @@ import (
 	"time"
 
 	"stacklab/internal/config"
+	"stacklab/internal/store"
 
 	"gopkg.in/yaml.v3"
 )
@@ -52,12 +55,17 @@ type composeCLI struct {
 
 type ServiceReader struct {
 	cfg                  config.Config
+	store                *store.Store
 	logger               *slog.Logger
 	hostShell            bool
 	stats                *StatsCollector
 	updateStatus         func() map[string]ImageUpdateState
 	definitionWarningMu  sync.Mutex
 	definitionWarningLog map[string]string
+}
+
+func (s *ServiceReader) AttachStore(appStore *store.Store) {
+	s.store = appStore
 }
 
 // AttachStatsCollector wires the host-level stats collector; list responses
@@ -273,7 +281,7 @@ func (s *ServiceReader) Get(ctx context.Context, stackID string) (StackDetailRes
 				AvailableActions: stack.availableActions(),
 				Services:         stack.Services,
 				Containers:       stack.Containers,
-				LastDeployedAt:   nil,
+				LastDeployedAt:   stack.LastDeployedAt,
 				LastAction:       nil,
 			},
 		}, nil
@@ -329,10 +337,6 @@ func (s *ServiceReader) Definition(ctx context.Context, stackID string) (StackDe
 }
 
 func (s *ServiceReader) ResolvedConfigCurrent(ctx context.Context, stackID string, source string) (ResolvedConfigResponse, error) {
-	if source == "last_valid" {
-		return ResolvedConfigResponse{}, fmt.Errorf("last_valid source is not implemented")
-	}
-
 	stack, err := s.findStack(ctx, stackID)
 	if err != nil {
 		return ResolvedConfigResponse{}, err
@@ -340,8 +344,50 @@ func (s *ServiceReader) ResolvedConfigCurrent(ctx context.Context, stackID strin
 	if stack.RuntimeState == RuntimeStateOrphaned {
 		return ResolvedConfigResponse{}, ErrInvalidState
 	}
+	if source == "last_valid" {
+		return s.resolveLastValid(ctx, stack)
+	}
 
 	return s.resolveCurrent(ctx, stack), nil
+}
+
+func (s *ServiceReader) resolveLastValid(ctx context.Context, stack discoveredStack) (ResolvedConfigResponse, error) {
+	if s.store == nil {
+		return ResolvedConfigResponse{}, ErrInvalidState
+	}
+	baseline, ok, err := s.store.StackDeployBaseline(ctx, stack.ID)
+	if err != nil {
+		return ResolvedConfigResponse{}, err
+	}
+	if !ok {
+		return ResolvedConfigResponse{}, ErrInvalidState
+	}
+
+	envPath, cleanup, err := writeTempEnvFile(s.cfg.DataDir, baseline.Env)
+	if err != nil {
+		return ResolvedConfigResponse{}, err
+	}
+	defer cleanup()
+
+	content, resolveErr := runComposeConfig(ctx, stack.RootPath, "-", envPath, baseline.ComposeYAML)
+	if resolveErr != nil {
+		return ResolvedConfigResponse{
+			StackID: stack.ID,
+			Valid:   false,
+			Error: &ErrorDetail{
+				Code:    "validation_failed",
+				Message: resolveErr.Error(),
+				Details: nil,
+			},
+		}, nil
+	}
+
+	return ResolvedConfigResponse{
+		StackID:  stack.ID,
+		Valid:    true,
+		Content:  content,
+		Warnings: LintCompose([]byte(baseline.ComposeYAML)),
+	}, nil
 }
 
 func (s *ServiceReader) ResolvedConfigDraft(ctx context.Context, stackID string, request ResolvedConfigRequest) (ResolvedConfigResponse, error) {
@@ -510,7 +556,44 @@ func (s *ServiceReader) RemoveDefinition(ctx context.Context, stackID string) er
 	if err := removeDirIfEmpty(paths.RootPath); err != nil {
 		return fmt.Errorf("remove stack root: %w", err)
 	}
+	if s.store != nil {
+		if err := s.store.DeleteStackDeployBaseline(ctx, stackID); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func (s *ServiceReader) RecordDeployBaseline(ctx context.Context, stackID, jobID string, deployedAt time.Time) error {
+	if s.store == nil {
+		return nil
+	}
+	if !IsValidStackID(stackID) {
+		return ErrNotFound
+	}
+	paths := stackPaths(s.cfg.RootDir, stackID)
+	composeBytes, err := os.ReadFile(paths.ComposeFilePath)
+	if err != nil {
+		return fmt.Errorf("read compose file for deploy baseline: %w", err)
+	}
+	env := ""
+	envExists := false
+	if envBytes, err := os.ReadFile(paths.EnvFilePath); err == nil {
+		env = string(envBytes)
+		envExists = true
+	} else if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read env file for deploy baseline: %w", err)
+	}
+	return s.store.UpsertStackDeployBaseline(ctx, store.StackDeployBaseline{
+		StackID:        stackID,
+		ComposeSHA256:  contentSHA256(string(composeBytes)),
+		EnvSHA256:      contentSHA256(env),
+		ComposeYAML:    string(composeBytes),
+		Env:            env,
+		EnvExists:      envExists,
+		LastDeployedAt: deployedAt.UTC(),
+		LastJobID:      jobID,
+	})
 }
 
 func (s *ServiceReader) RemoveConfigDir(stackID string) error {
@@ -657,15 +740,21 @@ type discoveredStack struct {
 	HealthSummary    HealthSummary
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+	LastDeployedAt   *time.Time
 	DefinitionExists bool
 }
 
 type definitionSnapshot struct {
-	Services    []Service
-	Metadata    *StackMetadata
-	ConfigState ConfigState
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	Services      []Service
+	Metadata      *StackMetadata
+	ConfigState   ConfigState
+	ComposeYAML   string
+	ComposeSHA256 string
+	Env           string
+	EnvExists     bool
+	EnvSHA256     string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 type dockerInspectContainer struct {
@@ -695,6 +784,10 @@ type dockerPortBinding struct {
 
 func (s *ServiceReader) readStacks(ctx context.Context) ([]discoveredStack, error) {
 	definedStacks, err := s.scanDefinitions()
+	if err != nil {
+		return nil, err
+	}
+	baselines, err := s.loadDeployBaselines(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -728,8 +821,22 @@ func (s *ServiceReader) readStacks(ctx context.Context) ([]discoveredStack, erro
 			stack.Services = definition.Services
 			stack.Metadata = definition.Metadata
 			stack.ConfigState = definition.ConfigState
+			if stack.ConfigState != ConfigStateInvalid {
+				if baseline, ok := baselines[id]; ok {
+					deployedAt := baseline.LastDeployedAt
+					stack.LastDeployedAt = &deployedAt
+					if baseline.ComposeSHA256 == definition.ComposeSHA256 && baseline.EnvSHA256 == definition.EnvSHA256 {
+						stack.ConfigState = ConfigStateInSync
+					} else {
+						stack.ConfigState = ConfigStateDrifted
+					}
+				}
+			}
 			stack.CreatedAt = definition.CreatedAt
 			stack.UpdatedAt = definition.UpdatedAt
+		} else if baseline, ok := baselines[id]; ok {
+			deployedAt := baseline.LastDeployedAt
+			stack.LastDeployedAt = &deployedAt
 		}
 
 		if runtime, ok := runtimeStacks[id]; ok {
@@ -762,6 +869,27 @@ func (s *ServiceReader) readStacks(ctx context.Context) ([]discoveredStack, erro
 	})
 
 	return stacks, nil
+}
+
+func (s *ServiceReader) loadDeployBaselines(ctx context.Context) (map[string]store.StackDeployBaseline, error) {
+	result := map[string]store.StackDeployBaseline{}
+	if s.store == nil {
+		return result, nil
+	}
+	items, err := s.store.ListStackDeployBaselines(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		result[item.StackID] = item
+	}
+	return result, nil
+}
+
+func contentSHA256(content string) string {
+	normalized := strings.ReplaceAll(content, "\r\n", "\n")
+	sum := sha256.Sum256([]byte(normalized))
+	return hex.EncodeToString(sum[:])
 }
 
 func (s *ServiceReader) scanDefinitions() (map[string]definitionSnapshot, error) {
@@ -804,6 +932,24 @@ func (s *ServiceReader) scanDefinitions() (map[string]definitionSnapshot, error)
 		}
 		s.clearDefinitionWarning(entry.Name(), "read")
 
+		envContent := ""
+		envExists := false
+		if envBytes, err := os.ReadFile(envPath); err == nil {
+			envExists = true
+			envContent = string(envBytes)
+			s.clearDefinitionWarning(entry.Name(), "env")
+		} else if err != nil && !os.IsNotExist(err) {
+			s.logDefinitionWarning("failed to read env file", entry.Name(), "env", err)
+			result[entry.Name()] = definitionSnapshot{
+				ConfigState: ConfigStateInvalid,
+				CreatedAt:   createdAt,
+				UpdatedAt:   updatedAt,
+			}
+			continue
+		} else {
+			s.clearDefinitionWarning(entry.Name(), "env")
+		}
+
 		services, metadata, parseErr := parseComposeServices(stackRoot, content)
 		configState := ConfigStateUnknown
 		if parseErr != nil {
@@ -814,11 +960,16 @@ func (s *ServiceReader) scanDefinitions() (map[string]definitionSnapshot, error)
 		}
 
 		result[entry.Name()] = definitionSnapshot{
-			Services:    services,
-			Metadata:    metadata,
-			ConfigState: configState,
-			CreatedAt:   createdAt,
-			UpdatedAt:   updatedAt,
+			Services:      services,
+			Metadata:      metadata,
+			ConfigState:   configState,
+			ComposeYAML:   string(content),
+			ComposeSHA256: contentSHA256(string(content)),
+			Env:           envContent,
+			EnvExists:     envExists,
+			EnvSHA256:     contentSHA256(envContent),
+			CreatedAt:     createdAt,
+			UpdatedAt:     updatedAt,
 		}
 	}
 

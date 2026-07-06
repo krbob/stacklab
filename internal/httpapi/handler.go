@@ -137,6 +137,7 @@ func NewHandlerWithContext(appCtx context.Context, cfg config.Config, logger *sl
 		appCtx = context.Background()
 	}
 	stackReader := stacks.NewServiceReader(cfg, logger)
+	stackReader.AttachStore(jobService.Store())
 	statsCollector := stacks.NewStatsCollector(logger)
 	statsCollector.Start(appCtx)
 	stackReader.AttachStatsCollector(statsCollector)
@@ -1786,6 +1787,14 @@ func (h *Handler) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]any{"job": job})
 			return
 		}
+		if err := h.stackReader.RecordDeployBaseline(r.Context(), request.StackID, job.ID, time.Now().UTC()); err != nil {
+			workflow = markWorkflowFailed(workflow, 1)
+			job, _ = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
+			job, _ = h.jobs.FinishFailed(r.Context(), job, "create_stack_failed", err.Error())
+			_ = h.audit.RecordStackJob(r.Context(), job)
+			writeJSON(w, http.StatusOK, map[string]any{"job": job})
+			return
+		}
 		workflow = markWorkflowSucceeded(workflow, 1)
 		job, _ = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
 		_ = h.jobs.PublishEvent(r.Context(), job, "job_step_finished", "Started stack runtime.", "", workflowStepRef(workflow, 1))
@@ -1989,8 +1998,6 @@ func (h *Handler) handleGetResolvedConfig(w http.ResponseWriter, r *http.Request
 	case "", "current":
 		source = "current"
 	case "last_valid":
-		writeError(w, http.StatusNotImplemented, "not_implemented", "last_valid resolved config is not implemented yet.", nil)
-		return
 	default:
 		writeError(w, http.StatusBadRequest, "validation_failed", "Unsupported resolved config source.", nil)
 		return
@@ -2832,10 +2839,23 @@ func (h *Handler) runStackActionJob(job store.Job, workflow []store.JobWorkflowS
 		h.logger.Error("finish stack action job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
 		return
 	}
+	if stackActionUpdatesDeployBaseline(finishedJob.Action) {
+		deployedAt := time.Now().UTC()
+		if finishedJob.FinishedAt != nil {
+			deployedAt = *finishedJob.FinishedAt
+		}
+		if err := h.stackReader.RecordDeployBaseline(ctx, finishedJob.StackID, finishedJob.ID, deployedAt); err != nil {
+			h.logger.Warn("record deploy baseline failed", slog.String("stack_id", finishedJob.StackID), slog.String("job_id", finishedJob.ID), slog.String("err", err.Error()))
+		}
+	}
 
 	if err := h.audit.RecordStackJob(ctx, finishedJob); err != nil {
 		h.logger.Warn("record stack action audit failed", slog.String("job_id", finishedJob.ID), slog.String("err", err.Error()))
 	}
+}
+
+func stackActionUpdatesDeployBaseline(action string) bool {
+	return action == "up" || action == "recreate"
 }
 
 func validateDockerRegistryLoginRequest(request dockerregistryauth.LoginRequest) error {

@@ -47,6 +47,7 @@ func main() {
 	jobService := jobs.NewService(authStore)
 	notificationService := notifications.NewService(authStore, logger)
 	stackReader := stacks.NewServiceReader(cfg, logger)
+	stackReader.AttachStore(authStore)
 	notificationService.SetStackInspector(stackReader)
 	notificationService.SetStacklabLogReader(hostinfo.NewService(cfg, time.Now().UTC()))
 	maintenanceService := maintenance.NewService()

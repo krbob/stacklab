@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"stacklab/internal/config"
+	"stacklab/internal/store"
 )
 
 func TestParseComposeServicesParsesImageBuildPortsVolumesAndDependsOn(t *testing.T) {
@@ -388,6 +389,59 @@ func TestCreateListGetSaveAndDeleteStackFilesystemFlow(t *testing.T) {
 	assertMissing(t, filepath.Join(reader.cfg.RootDir, "stacks", stackID))
 	assertMissing(t, filepath.Join(reader.cfg.RootDir, "config", stackID))
 	assertMissing(t, filepath.Join(reader.cfg.RootDir, "data", stackID))
+}
+
+func TestDeployBaselineDrivesConfigState(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	reader := newTestServiceReader(t)
+	testStore, err := store.Open(filepath.Join(t.TempDir(), "stacklab.db"))
+	if err != nil {
+		t.Fatalf("store.Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = testStore.Close() })
+	reader.AttachStore(testStore)
+
+	stackID := uniqueTestStackID()
+	compose := "services:\n  app:\n    image: nginx:alpine\n"
+	if err := reader.CreateStack(ctx, CreateStackRequest{StackID: stackID, ComposeYAML: compose}); err != nil {
+		t.Fatalf("CreateStack() error = %v", err)
+	}
+
+	before, err := reader.Get(ctx, stackID)
+	if err != nil {
+		t.Fatalf("Get(before baseline) error = %v", err)
+	}
+	if before.Stack.ConfigState != ConfigStateUnknown {
+		t.Fatalf("ConfigState before baseline = %q, want %q", before.Stack.ConfigState, ConfigStateUnknown)
+	}
+
+	deployedAt := time.Date(2026, 7, 6, 3, 17, 0, 0, time.UTC)
+	if err := reader.RecordDeployBaseline(ctx, stackID, "job_123", deployedAt); err != nil {
+		t.Fatalf("RecordDeployBaseline() error = %v", err)
+	}
+	inSync, err := reader.Get(ctx, stackID)
+	if err != nil {
+		t.Fatalf("Get(after baseline) error = %v", err)
+	}
+	if inSync.Stack.ConfigState != ConfigStateInSync {
+		t.Fatalf("ConfigState after baseline = %q, want %q", inSync.Stack.ConfigState, ConfigStateInSync)
+	}
+	if inSync.Stack.LastDeployedAt == nil || !inSync.Stack.LastDeployedAt.Equal(deployedAt) {
+		t.Fatalf("LastDeployedAt = %#v, want %v", inSync.Stack.LastDeployedAt, deployedAt)
+	}
+
+	if _, err := reader.SaveDefinition(ctx, stackID, UpdateDefinitionRequest{ComposeYAML: compose + "    restart: unless-stopped\n"}); err != nil {
+		t.Fatalf("SaveDefinition() error = %v", err)
+	}
+	drifted, err := reader.Get(ctx, stackID)
+	if err != nil {
+		t.Fatalf("Get(after edit) error = %v", err)
+	}
+	if drifted.Stack.ConfigState != ConfigStateDrifted {
+		t.Fatalf("ConfigState after edit = %q, want %q", drifted.Stack.ConfigState, ConfigStateDrifted)
+	}
 }
 
 func TestSaveDefinitionEmptyEnvDoesNotCreateFileWhenMissing(t *testing.T) {

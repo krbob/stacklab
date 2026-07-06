@@ -291,6 +291,54 @@ func TestPruneOperationalData(t *testing.T) {
 	}
 }
 
+func TestStackDeployBaselineRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	testStore := openTestStore(t)
+	deployedAt := time.Date(2026, 7, 6, 3, 17, 0, 0, time.UTC)
+
+	baseline := StackDeployBaseline{
+		StackID:        "demo",
+		ComposeSHA256:  "compose-hash",
+		EnvSHA256:      "env-hash",
+		ComposeYAML:    "services:\n  app:\n    image: nginx\n",
+		Env:            "TAG=latest\n",
+		EnvExists:      true,
+		LastDeployedAt: deployedAt,
+		LastJobID:      "job_123",
+	}
+	if err := testStore.UpsertStackDeployBaseline(ctx, baseline); err != nil {
+		t.Fatalf("UpsertStackDeployBaseline() error = %v", err)
+	}
+
+	got, ok, err := testStore.StackDeployBaseline(ctx, "demo")
+	if err != nil {
+		t.Fatalf("StackDeployBaseline() error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("StackDeployBaseline() ok = false, want true")
+	}
+	if got.StackID != baseline.StackID || got.ComposeSHA256 != baseline.ComposeSHA256 || got.EnvSHA256 != baseline.EnvSHA256 || got.ComposeYAML != baseline.ComposeYAML || got.Env != baseline.Env || !got.EnvExists || got.LastJobID != baseline.LastJobID || !got.LastDeployedAt.Equal(deployedAt) {
+		t.Fatalf("StackDeployBaseline() = %#v, want %#v", got, baseline)
+	}
+
+	items, err := testStore.ListStackDeployBaselines(ctx)
+	if err != nil {
+		t.Fatalf("ListStackDeployBaselines() error = %v", err)
+	}
+	if len(items) != 1 || items[0].StackID != "demo" {
+		t.Fatalf("ListStackDeployBaselines() = %#v", items)
+	}
+
+	if err := testStore.DeleteStackDeployBaseline(ctx, "demo"); err != nil {
+		t.Fatalf("DeleteStackDeployBaseline() error = %v", err)
+	}
+	if _, ok, err := testStore.StackDeployBaseline(ctx, "demo"); err != nil || ok {
+		t.Fatalf("StackDeployBaseline(after delete) ok=%v err=%v, want false nil", ok, err)
+	}
+}
+
 func openTestStore(t *testing.T) *Store {
 	t.Helper()
 

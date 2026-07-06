@@ -253,6 +253,16 @@ func (s *Store) migrate(ctx context.Context) error {
 			state TEXT NOT NULL,
 			checked_at TEXT NOT NULL
 		);`,
+		`CREATE TABLE IF NOT EXISTS stack_deploy_baselines (
+			stack_id TEXT PRIMARY KEY,
+			compose_sha256 TEXT NOT NULL,
+			env_sha256 TEXT NOT NULL,
+			compose_yaml TEXT NOT NULL,
+			env TEXT NOT NULL,
+			env_exists INTEGER NOT NULL,
+			last_deployed_at TEXT NOT NULL,
+			last_job_id TEXT
+		);`,
 		`CREATE TABLE IF NOT EXISTS audit_entries (
 			id TEXT PRIMARY KEY,
 			stack_id TEXT,
@@ -1195,6 +1205,17 @@ type ImageUpdateStatus struct {
 	CheckedAt    time.Time `json:"checked_at"`
 }
 
+type StackDeployBaseline struct {
+	StackID        string
+	ComposeSHA256  string
+	EnvSHA256      string
+	ComposeYAML    string
+	Env            string
+	EnvExists      bool
+	LastDeployedAt time.Time
+	LastJobID      string
+}
+
 func (s *Store) UpsertImageUpdateStatus(ctx context.Context, status ImageUpdateStatus) error {
 	_, err := s.db.ExecContext(
 		ctx,
@@ -1248,4 +1269,122 @@ func (s *Store) ListImageUpdateStatus(ctx context.Context) ([]ImageUpdateStatus,
 		return nil, fmt.Errorf("iterate image update status: %w", err)
 	}
 	return items, nil
+}
+
+// --- Stack deploy baselines ---
+
+func (s *Store) UpsertStackDeployBaseline(ctx context.Context, baseline StackDeployBaseline) error {
+	_, err := s.db.ExecContext(
+		ctx,
+		`INSERT INTO stack_deploy_baselines (
+		   stack_id, compose_sha256, env_sha256, compose_yaml, env, env_exists, last_deployed_at, last_job_id
+		 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(stack_id) DO UPDATE SET
+		   compose_sha256 = excluded.compose_sha256,
+		   env_sha256 = excluded.env_sha256,
+		   compose_yaml = excluded.compose_yaml,
+		   env = excluded.env,
+		   env_exists = excluded.env_exists,
+		   last_deployed_at = excluded.last_deployed_at,
+		   last_job_id = excluded.last_job_id`,
+		baseline.StackID,
+		baseline.ComposeSHA256,
+		baseline.EnvSHA256,
+		baseline.ComposeYAML,
+		baseline.Env,
+		boolInt(baseline.EnvExists),
+		baseline.LastDeployedAt.UTC().Format(time.RFC3339Nano),
+		nullIfEmpty(baseline.LastJobID),
+	)
+	if err != nil {
+		return fmt.Errorf("upsert stack deploy baseline: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) StackDeployBaseline(ctx context.Context, stackID string) (StackDeployBaseline, bool, error) {
+	var baseline StackDeployBaseline
+	var rawLastDeployedAt string
+	var envExists int
+	var lastJobID sql.NullString
+	err := s.db.QueryRowContext(
+		ctx,
+		`SELECT stack_id, compose_sha256, env_sha256, compose_yaml, env, env_exists, last_deployed_at, last_job_id
+		   FROM stack_deploy_baselines
+		  WHERE stack_id = ?`,
+		stackID,
+	).Scan(
+		&baseline.StackID,
+		&baseline.ComposeSHA256,
+		&baseline.EnvSHA256,
+		&baseline.ComposeYAML,
+		&baseline.Env,
+		&envExists,
+		&rawLastDeployedAt,
+		&lastJobID,
+	)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return StackDeployBaseline{}, false, nil
+	case err != nil:
+		return StackDeployBaseline{}, false, fmt.Errorf("load stack deploy baseline: %w", err)
+	}
+	lastDeployedAt, err := time.Parse(time.RFC3339Nano, rawLastDeployedAt)
+	if err != nil {
+		return StackDeployBaseline{}, false, fmt.Errorf("parse stack deploy baseline last_deployed_at: %w", err)
+	}
+	baseline.EnvExists = envExists != 0
+	baseline.LastDeployedAt = lastDeployedAt
+	baseline.LastJobID = lastJobID.String
+	return baseline, true, nil
+}
+
+func (s *Store) ListStackDeployBaselines(ctx context.Context) ([]StackDeployBaseline, error) {
+	rows, err := s.db.QueryContext(
+		ctx,
+		`SELECT stack_id, compose_sha256, env_sha256, compose_yaml, env, env_exists, last_deployed_at, last_job_id
+		   FROM stack_deploy_baselines
+		  ORDER BY stack_id ASC`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list stack deploy baselines: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]StackDeployBaseline, 0, 16)
+	for rows.Next() {
+		var item StackDeployBaseline
+		var rawLastDeployedAt string
+		var envExists int
+		var lastJobID sql.NullString
+		if err := rows.Scan(&item.StackID, &item.ComposeSHA256, &item.EnvSHA256, &item.ComposeYAML, &item.Env, &envExists, &rawLastDeployedAt, &lastJobID); err != nil {
+			return nil, fmt.Errorf("scan stack deploy baseline: %w", err)
+		}
+		lastDeployedAt, err := time.Parse(time.RFC3339Nano, rawLastDeployedAt)
+		if err != nil {
+			return nil, fmt.Errorf("parse stack deploy baseline last_deployed_at: %w", err)
+		}
+		item.EnvExists = envExists != 0
+		item.LastDeployedAt = lastDeployedAt
+		item.LastJobID = lastJobID.String
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate stack deploy baselines: %w", err)
+	}
+	return items, nil
+}
+
+func (s *Store) DeleteStackDeployBaseline(ctx context.Context, stackID string) error {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM stack_deploy_baselines WHERE stack_id = ?`, stackID); err != nil {
+		return fmt.Errorf("delete stack deploy baseline: %w", err)
+	}
+	return nil
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }

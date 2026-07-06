@@ -335,8 +335,11 @@ export function repairStackWorkspacePermissions(
   })
 }
 
-export function getResolvedConfig(stackId: string): Promise<ResolvedConfigResponse> {
-  return request(`/api/stacks/${encodeURIComponent(stackId)}/resolved-config`)
+export function getResolvedConfig(stackId: string, source?: 'current' | 'last_valid'): Promise<ResolvedConfigResponse> {
+  const search = new URLSearchParams()
+  if (source) search.set('source', source)
+  const qs = search.toString()
+  return request(`/api/stacks/${encodeURIComponent(stackId)}/resolved-config${qs ? `?${qs}` : ''}`)
 }
 
 export function getStackAudit(stackId: string, params?: { cursor?: string; limit?: number }): Promise<AuditResponse> {
