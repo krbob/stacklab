@@ -59,10 +59,14 @@ export function CreateStackPage() {
   const idValid = stackId.length > 0 && STACK_ID_REGEX.test(stackId)
   const selectedTemplateObject = templates.find((template) => template.id === selectedTemplate) ?? null
   const usingTemplate = selectedTemplateObject !== null
+  const missingRequiredVariables = selectedTemplateObject?.variables?.filter((variable) => (
+    variable.required && (templateVariables[variable.name] ?? '').trim() === ''
+  )) ?? []
+  const templateVariablesValid = missingRequiredVariables.length === 0
 
   const handleSubmit = useCallback(async (e: FormEvent) => {
     e.preventDefault()
-    if (!idValid) return
+    if (!idValid || !templateVariablesValid) return
 
     setCreating(true)
     setError(null)
@@ -84,7 +88,7 @@ export function CreateStackPage() {
       setError(err instanceof Error ? err.message : 'Create failed')
       setCreating(false)
     }
-  }, [stackId, composeYaml, deployAfter, idValid, selectedTemplateObject, templateVariables])
+  }, [stackId, composeYaml, deployAfter, idValid, selectedTemplateObject, templateVariables, templateVariablesValid])
 
   const handleJobDone = useCallback((state: string) => {
     setCreating(false)
@@ -178,8 +182,12 @@ export function CreateStackPage() {
                       value={templateVariables[variable.name] ?? ''}
                       onChange={(e) => updateTemplateVariable(variable.name, e.target.value)}
                       disabled={creating}
+                      aria-invalid={variable.required && (templateVariables[variable.name] ?? '').trim() === ''}
                       className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
                     />
+                    {variable.required && (templateVariables[variable.name] ?? '').trim() === '' && (
+                      <span className="mt-1 block text-[10px] text-[var(--danger)]">{variable.label || variable.name} is required.</span>
+                    )}
                     {variable.description && <span className="mt-1 block text-[10px] text-[var(--muted)]">{variable.description}</span>}
                   </label>
                 ))}
@@ -227,7 +235,7 @@ export function CreateStackPage() {
           <button
             data-testid="create-stack-submit"
             type="submit"
-            disabled={!idValid || creating}
+            disabled={!idValid || creating || !templateVariablesValid}
             className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40"
           >
             {creating ? 'Creating...' : deployAfter ? 'Create & Deploy' : 'Create'}

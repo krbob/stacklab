@@ -7,6 +7,7 @@ import { ProgressPanel } from '@/components/progress-panel'
 import { cn } from '@/lib/cn'
 
 type ActiveTab = 'compose' | 'env'
+type DraftValidationState = 'valid' | 'invalid' | 'stale'
 
 export function StackEditorPage() {
   const { stack, refetch } = useOutletContext<{
@@ -24,8 +25,9 @@ export function StackEditorPage() {
   const [resolvedContent, setResolvedContent] = useState('')
   const [resolvedSource, setResolvedSource] = useState<'current' | 'draft' | 'last_valid'>('current')
   const [warnings, setWarnings] = useState<import('@/lib/api-types').ComposeWarning[]>([])
-  const [resolvedValid, setResolvedValid] = useState(true)
   const [resolvedError, setResolvedError] = useState('')
+  const [draftValidationState, setDraftValidationState] = useState<DraftValidationState>('stale')
+  const [draftValidationMessage, setDraftValidationMessage] = useState('Preview current changes before deploy')
 
   const [saving, setSaving] = useState(false)
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
@@ -34,6 +36,22 @@ export function StackEditorPage() {
   const [loadingDef, setLoadingDef] = useState(true)
 
   const isDirty = composeYaml !== savedCompose || envContent !== savedEnv
+  const canDeployDraft = draftValidationState === 'valid'
+
+  const markDraftStale = useCallback(() => {
+    setDraftValidationState('stale')
+    setDraftValidationMessage('Preview current changes before deploy')
+  }, [])
+
+  const handleComposeChange = useCallback((value: string) => {
+    setComposeYaml(value)
+    markDraftStale()
+  }, [markDraftStale])
+
+  const handleEnvChange = useCallback((value: string) => {
+    setEnvContent(value)
+    markDraftStale()
+  }, [markDraftStale])
 
   // Load definition
   useEffect(() => {
@@ -52,14 +70,16 @@ export function StackEditorPage() {
       if (resolved.valid && resolved.content) {
         setResolvedContent(resolved.content)
         setResolvedSource('current')
-        setResolvedValid(true)
         setResolvedError('')
         setWarnings(resolved.warnings ?? [])
+        setDraftValidationState('valid')
+        setDraftValidationMessage('')
       } else if (resolved.error) {
         setResolvedContent('')
         setResolvedSource('current')
-        setResolvedValid(false)
         setResolvedError(resolved.error.message)
+        setDraftValidationState('invalid')
+        setDraftValidationMessage(resolved.error.message)
       }
     }).catch((err) => {
       if (cancelled) return
@@ -80,19 +100,23 @@ export function StackEditorPage() {
       if (result.valid && result.content) {
         setResolvedContent(result.content)
         setResolvedSource('draft')
-        setResolvedValid(true)
         setResolvedError('')
         setWarnings(result.warnings ?? [])
+        setDraftValidationState('valid')
+        setDraftValidationMessage('')
       } else if (result.error) {
         setResolvedContent('')
         setResolvedSource('draft')
-        setResolvedValid(false)
         setResolvedError(result.error.message)
+        setDraftValidationState('invalid')
+        setDraftValidationMessage(result.error.message)
       }
     } catch (err) {
-      setResolvedError(err instanceof Error ? err.message : 'Preview failed')
+      const message = err instanceof Error ? err.message : 'Preview failed'
+      setResolvedError(message)
       setResolvedSource('draft')
-      setResolvedValid(false)
+      setDraftValidationState('invalid')
+      setDraftValidationMessage(message)
     }
   }, [stack.id, composeYaml, envContent])
 
@@ -102,19 +126,16 @@ export function StackEditorPage() {
       if (result.valid && result.content) {
         setResolvedContent(result.content)
         setResolvedSource('last_valid')
-        setResolvedValid(true)
         setResolvedError('')
         setWarnings(result.warnings ?? [])
       } else if (result.error) {
         setResolvedContent('')
         setResolvedSource('last_valid')
-        setResolvedValid(false)
         setResolvedError(result.error.message)
       }
     } catch (err) {
       setResolvedContent('')
       setResolvedSource('last_valid')
-      setResolvedValid(false)
       setResolvedError(err instanceof Error ? err.message : 'Last deployed config is unavailable')
     }
   }, [stack.id])
@@ -145,7 +166,8 @@ export function StackEditorPage() {
   const handleDiscard = useCallback(() => {
     setComposeYaml(savedCompose)
     setEnvContent(savedEnv)
-  }, [savedCompose, savedEnv])
+    markDraftStale()
+  }, [savedCompose, savedEnv, markDraftStale])
 
   const handleJobDone = useCallback(async (state: string) => {
     if (state === 'succeeded') {
@@ -155,9 +177,16 @@ export function StackEditorPage() {
         if (resolved.valid && resolved.content) {
           setResolvedContent(resolved.content)
           setResolvedSource('current')
-          setResolvedValid(true)
           setResolvedError('')
           setWarnings(resolved.warnings ?? [])
+          setDraftValidationState('valid')
+          setDraftValidationMessage('')
+        } else if (resolved.error) {
+          setResolvedContent('')
+          setResolvedSource('current')
+          setResolvedError(resolved.error.message)
+          setDraftValidationState('invalid')
+          setDraftValidationMessage(resolved.error.message)
         }
       }).catch(() => {})
 
@@ -254,7 +283,7 @@ export function StackEditorPage() {
           <button
             data-testid="editor-save-deploy"
             onClick={() => handleSave(true)}
-            disabled={saving || !resolvedValid || stack.activity_state === 'locked'}
+            disabled={saving || !canDeployDraft || stack.activity_state === 'locked'}
             className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40"
           >
             Save & Deploy
@@ -264,10 +293,12 @@ export function StackEditorPage() {
 
       {/* Validation status */}
       <div className="flex items-center gap-2 text-xs">
-        {resolvedValid ? (
+        {draftValidationState === 'valid' ? (
           <span className="text-[var(--ok)]">✓ Config valid</span>
+        ) : draftValidationState === 'stale' ? (
+          <span className="text-[var(--warning)]">Preview current changes before deploy</span>
         ) : (
-          <span className="text-[var(--danger)]">✗ {resolvedError || 'Invalid config'}</span>
+          <span className="text-[var(--danger)]">✗ {draftValidationMessage || 'Invalid config'}</span>
         )}
         {isDirty && <span className="text-[var(--warning)]">· Unsaved changes</span>}
       </div>
@@ -287,12 +318,12 @@ export function StackEditorPage() {
           {activeTab === 'compose' ? (
             <YamlEditor
               value={composeYaml}
-              onChange={setComposeYaml}
+              onChange={handleComposeChange}
             />
           ) : (
             <YamlEditor
               value={envContent}
-              onChange={setEnvContent}
+              onChange={handleEnvChange}
             />
           )}
         </div>

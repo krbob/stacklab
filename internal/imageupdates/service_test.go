@@ -5,8 +5,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"stacklab/internal/store"
 )
 
 func TestSplitImageRef(t *testing.T) {
@@ -51,6 +55,54 @@ func TestNormalizeRepository(t *testing.T) {
 	b := normalizeRepository("docker.io/library/nginx")
 	if a != b {
 		t.Fatalf("normalizeRepository mismatch: %q vs %q", a, b)
+	}
+}
+
+func TestStatusByImageUsesInMemoryCache(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	testStore, err := store.Open(filepath.Join(t.TempDir(), "stacklab.db"))
+	if err != nil {
+		t.Fatalf("store.Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = testStore.Close() })
+
+	checkedAt := time.Date(2026, 7, 6, 3, 17, 0, 0, time.UTC)
+	if err := testStore.UpsertImageUpdateStatus(ctx, store.ImageUpdateStatus{
+		ImageRef:  "nginx:latest",
+		State:     StateAvailable,
+		CheckedAt: checkedAt,
+	}); err != nil {
+		t.Fatalf("UpsertImageUpdateStatus(initial) error = %v", err)
+	}
+
+	service := NewService(nil, testStore)
+	if err := service.Load(ctx); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got := service.StatusByImage()["nginx:latest"].State; got != StateAvailable {
+		t.Fatalf("StatusByImage(initial) = %q, want %q", got, StateAvailable)
+	}
+
+	if err := testStore.UpsertImageUpdateStatus(ctx, store.ImageUpdateStatus{
+		ImageRef:  "nginx:latest",
+		State:     StateUnknown,
+		CheckedAt: checkedAt.Add(time.Minute),
+	}); err != nil {
+		t.Fatalf("UpsertImageUpdateStatus(updated store) error = %v", err)
+	}
+	if got := service.StatusByImage()["nginx:latest"].State; got != StateAvailable {
+		t.Fatalf("StatusByImage(after direct store write) = %q, want cached %q", got, StateAvailable)
+	}
+
+	service.CacheStatuses([]store.ImageUpdateStatus{{
+		ImageRef:  "nginx:latest",
+		State:     StateUnknown,
+		CheckedAt: checkedAt.Add(time.Minute),
+	}})
+	if got := service.StatusByImage()["nginx:latest"].State; got != StateUnknown {
+		t.Fatalf("StatusByImage(after cache update) = %q, want %q", got, StateUnknown)
 	}
 }
 

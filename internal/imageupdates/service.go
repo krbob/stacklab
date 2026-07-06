@@ -70,19 +70,6 @@ func (s *Service) Load(ctx context.Context) error {
 
 // StatusByImage returns the cached per-image state.
 func (s *Service) StatusByImage() map[string]store.ImageUpdateStatus {
-	if s.store != nil {
-		if items, err := s.store.ListImageUpdateStatus(context.Background()); err == nil {
-			s.mu.Lock()
-			s.cache = map[string]store.ImageUpdateStatus{}
-			for _, item := range items {
-				s.cache[item.ImageRef] = item
-			}
-			s.mu.Unlock()
-		} else if s.logger != nil {
-			s.logger.Warn("reload image update status failed", slog.String("err", err.Error()))
-		}
-	}
-
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	result := make(map[string]store.ImageUpdateStatus, len(s.cache))
@@ -90,6 +77,22 @@ func (s *Service) StatusByImage() map[string]store.ImageUpdateStatus {
 		result[ref] = status
 	}
 	return result
+}
+
+// CacheStatuses applies externally persisted status changes, such as stack
+// invalidations, to the in-memory hot-path cache.
+func (s *Service) CacheStatuses(statuses []store.ImageUpdateStatus) {
+	if len(statuses) == 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cache == nil {
+		s.cache = map[string]store.ImageUpdateStatus{}
+	}
+	for _, status := range statuses {
+		s.cache[status.ImageRef] = status
+	}
 }
 
 // CheckImages resolves the update state for every given image ref, persists
@@ -105,9 +108,7 @@ func (s *Service) CheckImages(ctx context.Context, imageRefs []string, onProgres
 		if err := s.store.UpsertImageUpdateStatus(ctx, status); err != nil && s.logger != nil {
 			s.logger.Warn("persist image update status failed", slog.String("image", ref), slog.String("err", err.Error()))
 		}
-		s.mu.Lock()
-		s.cache[ref] = status
-		s.mu.Unlock()
+		s.CacheStatuses([]store.ImageUpdateStatus{status})
 
 		if onProgress != nil {
 			onProgress(index+1, len(unique), ref+" → "+status.State)

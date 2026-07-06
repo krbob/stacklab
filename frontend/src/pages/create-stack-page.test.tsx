@@ -88,4 +88,21 @@ describe('CreateStackPage', () => {
       }))
     })
   })
+
+  it('blocks submit when a required template variable is empty', async () => {
+    render(
+      <MemoryRouter>
+        <CreateStackPage />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(await screen.findByTestId('template-option-web-service'))
+    fireEvent.change(screen.getByTestId('create-stack-name'), { target: { value: 'demo-web' } })
+    fireEvent.change(screen.getByTestId('template-variable-IMAGE'), { target: { value: '' } })
+
+    expect(screen.getByText('Image is required.')).toBeInTheDocument()
+    expect(screen.getByTestId('create-stack-submit')).toBeDisabled()
+    fireEvent.click(screen.getByTestId('create-stack-submit'))
+    expect(mockCreateStack).not.toHaveBeenCalled()
+  })
 })

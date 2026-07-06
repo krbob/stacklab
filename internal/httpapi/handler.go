@@ -153,6 +153,7 @@ func NewHandlerWithContext(appCtx context.Context, cfg config.Config, logger *sl
 		}
 		return result
 	})
+	stackReader.AttachUpdateStatusCacheUpdater(imageUpdateService.CacheStatuses)
 	maintenanceService := maintenance.NewService()
 	handler := &Handler{
 		appCtx:        appCtx,

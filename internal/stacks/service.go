@@ -60,6 +60,7 @@ type ServiceReader struct {
 	hostShell            bool
 	stats                *StatsCollector
 	updateStatus         func() map[string]ImageUpdateState
+	cacheUpdateStatuses  func([]store.ImageUpdateStatus)
 	definitionWarningMu  sync.Mutex
 	definitionWarningLog map[string]string
 }
@@ -78,6 +79,12 @@ func (s *ServiceReader) AttachStatsCollector(collector *StatsCollector) {
 // list responses roll it up per stack when present.
 func (s *ServiceReader) AttachUpdateStatus(provider func() map[string]ImageUpdateState) {
 	s.updateStatus = provider
+}
+
+// AttachUpdateStatusCacheUpdater wires a cache update hook used when stack
+// actions persist image update invalidations outside the imageupdates service.
+func (s *ServiceReader) AttachUpdateStatusCacheUpdater(updater func([]store.ImageUpdateStatus)) {
+	s.cacheUpdateStatuses = updater
 }
 
 // AllImageRefs returns the unique image references used by managed stacks
@@ -613,14 +620,20 @@ func (s *ServiceReader) InvalidateImageUpdateStatus(ctx context.Context, stackID
 		return err
 	}
 	now := time.Now().UTC()
+	statuses := make([]store.ImageUpdateStatus, 0, len(refs))
 	for _, ref := range refs {
-		if err := s.store.UpsertImageUpdateStatus(ctx, store.ImageUpdateStatus{
+		status := store.ImageUpdateStatus{
 			ImageRef:  ref,
 			State:     "unknown",
 			CheckedAt: now,
-		}); err != nil {
+		}
+		if err := s.store.UpsertImageUpdateStatus(ctx, status); err != nil {
 			return err
 		}
+		statuses = append(statuses, status)
+	}
+	if s.cacheUpdateStatuses != nil {
+		s.cacheUpdateStatuses(statuses)
 	}
 	return nil
 }

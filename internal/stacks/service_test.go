@@ -472,6 +472,10 @@ func TestInvalidateImageUpdateStatusMarksTargetedImagesUnknown(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = testStore.Close() })
 	reader.AttachStore(testStore)
+	var cachedUpdates []store.ImageUpdateStatus
+	reader.AttachUpdateStatusCacheUpdater(func(statuses []store.ImageUpdateStatus) {
+		cachedUpdates = append(cachedUpdates, statuses...)
+	})
 
 	stackID := uniqueTestStackID()
 	if err := reader.CreateStack(ctx, CreateStackRequest{
@@ -512,6 +516,9 @@ func TestInvalidateImageUpdateStatusMarksTargetedImagesUnknown(t *testing.T) {
 	if statusByImage["postgres:17"].State != "available" {
 		t.Fatalf("db image state = %q, want available", statusByImage["postgres:17"].State)
 	}
+	if len(cachedUpdates) != 1 || cachedUpdates[0].ImageRef != "example/app:latest" || cachedUpdates[0].State != "unknown" {
+		t.Fatalf("cache updates after targeted invalidation = %#v, want app unknown", cachedUpdates)
+	}
 
 	if err := reader.InvalidateImageUpdateStatus(ctx, stackID, nil); err != nil {
 		t.Fatalf("InvalidateImageUpdateStatus(full) error = %v", err)
@@ -519,6 +526,9 @@ func TestInvalidateImageUpdateStatusMarksTargetedImagesUnknown(t *testing.T) {
 	statusByImage = imageUpdateStatusByRef(t, testStore)
 	if statusByImage["postgres:17"].State != "unknown" {
 		t.Fatalf("db image state after full invalidation = %q, want unknown", statusByImage["postgres:17"].State)
+	}
+	if len(cachedUpdates) != 3 {
+		t.Fatalf("cache updates after full invalidation = %#v, want 3 total updates", cachedUpdates)
 	}
 }
 
