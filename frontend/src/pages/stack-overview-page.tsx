@@ -38,10 +38,9 @@ export function StackOverviewPage() {
       )}
 
       {/* Status lives once in the stack header (stack-layout); the overview
-          only carries the action bar. */}
-      <div className="flex justify-end">
-        <ActionBar stack={stack} onAction={refetch} onRemove={() => setShowDelete(true)} />
-      </div>
+          only carries the action bar. The bar spans full width so the output
+          panel below it does too; the buttons themselves stay right-aligned. */}
+      <ActionBar stack={stack} onAction={refetch} onRemove={() => setShowDelete(true)} />
 
       {showDelete && (
         <DeleteStackDialog
@@ -176,7 +175,7 @@ function ActionBar({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap justify-end gap-2">
         {buttons.map((btn) => {
           if (!actions.includes(btn.action as typeof actions[number])) return null
           return (
