@@ -23,6 +23,7 @@ type stackReader interface {
 	RunMaintenanceStep(ctx context.Context, stackID, action string, options stacks.MaintenanceStepOptions) (string, error)
 	RunMaintenanceStepStreaming(ctx context.Context, stackID, action string, options stacks.MaintenanceStepOptions, onProgress func(stacks.StepProgress)) (string, error)
 	RecordDeployBaseline(ctx context.Context, stackID, jobID string, deployedAt time.Time) error
+	InvalidateImageUpdateStatus(ctx context.Context, stackID string, serviceNames []string) error
 }
 
 type pruneRunner interface {
@@ -237,6 +238,11 @@ func (s *Service) RunUpdate(ctx context.Context, request UpdateRequest, requeste
 				s.logger.Warn("record maintenance audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
 			}
 			return job, nil
+		}
+		if step.TargetStackID != "" && updateStepInvalidatesImageUpdates(step.Action) {
+			if err := s.stackReader.InvalidateImageUpdateStatus(ctx, step.TargetStackID, step.TargetServiceNames); err != nil && s.logger != nil {
+				s.logger.Warn("invalidate image update status failed", slog.String("stack_id", step.TargetStackID), slog.String("job_id", job.ID), slog.String("err", err.Error()))
+			}
 		}
 		if step.Action == "up" && step.TargetStackID != "" && step.TargetServiceNames == nil {
 			if baselineErr := s.stackReader.RecordDeployBaseline(ctx, step.TargetStackID, job.ID, time.Now().UTC()); baselineErr != nil {
@@ -475,6 +481,10 @@ func maintenanceActionLabel(action string) string {
 	default:
 		return action
 	}
+}
+
+func updateStepInvalidatesImageUpdates(action string) bool {
+	return action == "pull" || action == "up"
 }
 
 func buildPruneWorkflow(scope maintenance.PruneScope) []store.JobWorkflowStep {

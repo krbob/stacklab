@@ -70,6 +70,19 @@ func (s *Service) Load(ctx context.Context) error {
 
 // StatusByImage returns the cached per-image state.
 func (s *Service) StatusByImage() map[string]store.ImageUpdateStatus {
+	if s.store != nil {
+		if items, err := s.store.ListImageUpdateStatus(context.Background()); err == nil {
+			s.mu.Lock()
+			s.cache = map[string]store.ImageUpdateStatus{}
+			for _, item := range items {
+				s.cache[item.ImageRef] = item
+			}
+			s.mu.Unlock()
+		} else if s.logger != nil {
+			s.logger.Warn("reload image update status failed", slog.String("err", err.Error()))
+		}
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	result := make(map[string]store.ImageUpdateStatus, len(s.cache))

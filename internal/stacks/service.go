@@ -604,6 +604,57 @@ func (s *ServiceReader) RecordDeployBaseline(ctx context.Context, stackID, jobID
 	})
 }
 
+func (s *ServiceReader) InvalidateImageUpdateStatus(ctx context.Context, stackID string, serviceNames []string) error {
+	if s.store == nil {
+		return nil
+	}
+	refs, err := s.imageRefsForStack(ctx, stackID, serviceNames)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	for _, ref := range refs {
+		if err := s.store.UpsertImageUpdateStatus(ctx, store.ImageUpdateStatus{
+			ImageRef:  ref,
+			State:     "unknown",
+			CheckedAt: now,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *ServiceReader) imageRefsForStack(ctx context.Context, stackID string, serviceNames []string) ([]string, error) {
+	stack, err := s.findStack(ctx, stackID)
+	if err != nil {
+		return nil, err
+	}
+	targeted := map[string]struct{}{}
+	for _, serviceName := range serviceNames {
+		targeted[serviceName] = struct{}{}
+	}
+	refs := []string{}
+	seen := map[string]struct{}{}
+	for _, service := range stack.Services {
+		if service.ImageRef == nil || *service.ImageRef == "" {
+			continue
+		}
+		if len(targeted) > 0 {
+			if _, ok := targeted[service.Name]; !ok {
+				continue
+			}
+		}
+		if _, ok := seen[*service.ImageRef]; ok {
+			continue
+		}
+		seen[*service.ImageRef] = struct{}{}
+		refs = append(refs, *service.ImageRef)
+	}
+	sort.Strings(refs)
+	return refs, nil
+}
+
 func (s *ServiceReader) RemoveConfigDir(stackID string) error {
 	paths := stackPaths(s.cfg.RootDir, stackID)
 	if err := removeDirIfExists(paths.ConfigPath); err != nil {

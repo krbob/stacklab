@@ -444,6 +444,67 @@ func TestDeployBaselineDrivesConfigState(t *testing.T) {
 	}
 }
 
+func TestInvalidateImageUpdateStatusMarksTargetedImagesUnknown(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	reader := newTestServiceReader(t)
+	testStore, err := store.Open(filepath.Join(t.TempDir(), "stacklab.db"))
+	if err != nil {
+		t.Fatalf("store.Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = testStore.Close() })
+	reader.AttachStore(testStore)
+
+	stackID := uniqueTestStackID()
+	if err := reader.CreateStack(ctx, CreateStackRequest{
+		StackID: stackID,
+		ComposeYAML: `services:
+  app:
+    image: example/app:latest
+  db:
+    image: postgres:17
+`,
+	}); err != nil {
+		t.Fatalf("CreateStack() error = %v", err)
+	}
+
+	checkedAt := time.Date(2026, 7, 6, 3, 17, 0, 0, time.UTC)
+	for _, imageRef := range []string{"example/app:latest", "postgres:17"} {
+		if err := testStore.UpsertImageUpdateStatus(ctx, store.ImageUpdateStatus{
+			ImageRef:     imageRef,
+			LocalDigest:  "sha256:old",
+			RemoteDigest: "sha256:new",
+			State:        "available",
+			CheckedAt:    checkedAt,
+		}); err != nil {
+			t.Fatalf("UpsertImageUpdateStatus(%s) error = %v", imageRef, err)
+		}
+	}
+
+	if err := reader.InvalidateImageUpdateStatus(ctx, stackID, []string{"app"}); err != nil {
+		t.Fatalf("InvalidateImageUpdateStatus() error = %v", err)
+	}
+	statusByImage := imageUpdateStatusByRef(t, testStore)
+	if statusByImage["example/app:latest"].State != "unknown" {
+		t.Fatalf("app image state = %q, want unknown", statusByImage["example/app:latest"].State)
+	}
+	if statusByImage["example/app:latest"].LocalDigest != "" || statusByImage["example/app:latest"].RemoteDigest != "" {
+		t.Fatalf("app image digests = %#v, want cleared", statusByImage["example/app:latest"])
+	}
+	if statusByImage["postgres:17"].State != "available" {
+		t.Fatalf("db image state = %q, want available", statusByImage["postgres:17"].State)
+	}
+
+	if err := reader.InvalidateImageUpdateStatus(ctx, stackID, nil); err != nil {
+		t.Fatalf("InvalidateImageUpdateStatus(full) error = %v", err)
+	}
+	statusByImage = imageUpdateStatusByRef(t, testStore)
+	if statusByImage["postgres:17"].State != "unknown" {
+		t.Fatalf("db image state after full invalidation = %q, want unknown", statusByImage["postgres:17"].State)
+	}
+}
+
 func TestSaveDefinitionEmptyEnvDoesNotCreateFileWhenMissing(t *testing.T) {
 	t.Parallel()
 
@@ -563,4 +624,18 @@ func assertMissing(t *testing.T, path string) {
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("expected %q to be missing, got err = %v", path, err)
 	}
+}
+
+func imageUpdateStatusByRef(t *testing.T, testStore *store.Store) map[string]store.ImageUpdateStatus {
+	t.Helper()
+
+	items, err := testStore.ListImageUpdateStatus(context.Background())
+	if err != nil {
+		t.Fatalf("ListImageUpdateStatus() error = %v", err)
+	}
+	result := map[string]store.ImageUpdateStatus{}
+	for _, item := range items {
+		result[item.ImageRef] = item
+	}
+	return result
 }

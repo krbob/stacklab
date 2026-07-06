@@ -15,14 +15,21 @@ import (
 )
 
 type fakeMaintenanceStackReader struct {
-	details       map[string]stacks.StackDetailResponse
-	stepCalls     []maintenanceStepCall
-	baselineCalls int
+	details          map[string]stacks.StackDetailResponse
+	stepCalls        []maintenanceStepCall
+	baselineCalls    int
+	invalidateCalls  int
+	invalidatedImage []invalidatedImageCall
 }
 
 type maintenanceStepCall struct {
 	StackID      string
 	Action       string
+	ServiceNames []string
+}
+
+type invalidatedImageCall struct {
+	StackID      string
 	ServiceNames []string
 }
 
@@ -70,6 +77,15 @@ func (f *fakeMaintenanceStackReader) RunMaintenanceStepStreaming(ctx context.Con
 
 func (f *fakeMaintenanceStackReader) RecordDeployBaseline(ctx context.Context, stackID, jobID string, deployedAt time.Time) error {
 	f.baselineCalls++
+	return nil
+}
+
+func (f *fakeMaintenanceStackReader) InvalidateImageUpdateStatus(ctx context.Context, stackID string, serviceNames []string) error {
+	f.invalidateCalls++
+	f.invalidatedImage = append(f.invalidatedImage, invalidatedImageCall{
+		StackID:      stackID,
+		ServiceNames: append([]string(nil), serviceNames...),
+	})
 	return nil
 }
 
@@ -186,6 +202,9 @@ func TestRunUpdateRecordsDeployBaselineOnlyForFullStackUp(t *testing.T) {
 	if fullReader.baselineCalls != 1 {
 		t.Fatalf("full baselineCalls = %d, want 1", fullReader.baselineCalls)
 	}
+	if fullReader.invalidateCalls != 1 || len(fullReader.invalidatedImage[0].ServiceNames) != 0 {
+		t.Fatalf("full image invalidations = %#v, want one full-stack invalidation", fullReader.invalidatedImage)
+	}
 
 	partialReader := fakeMaintenanceReader()
 	partialService := newMaintenanceTestService(t, partialReader)
@@ -205,6 +224,9 @@ func TestRunUpdateRecordsDeployBaselineOnlyForFullStackUp(t *testing.T) {
 	}
 	if partialReader.baselineCalls != 0 {
 		t.Fatalf("partial baselineCalls = %d, want 0", partialReader.baselineCalls)
+	}
+	if partialReader.invalidateCalls != 1 || !reflect.DeepEqual(partialReader.invalidatedImage[0].ServiceNames, []string{"app"}) {
+		t.Fatalf("partial image invalidations = %#v, want one app-targeted invalidation", partialReader.invalidatedImage)
 	}
 	if len(partialReader.stepCalls) != 1 || !reflect.DeepEqual(partialReader.stepCalls[0].ServiceNames, []string{"app"}) {
 		t.Fatalf("partial step calls = %#v, want one app-targeted up", partialReader.stepCalls)

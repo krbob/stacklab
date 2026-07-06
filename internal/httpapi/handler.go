@@ -1801,6 +1801,9 @@ func (h *Handler) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]any{"job": job})
 			return
 		}
+		if err := h.stackReader.InvalidateImageUpdateStatus(r.Context(), request.StackID, nil); err != nil {
+			h.logger.Warn("invalidate image update status failed", slog.String("stack_id", request.StackID), slog.String("job_id", job.ID), slog.String("err", err.Error()))
+		}
 		workflow = markWorkflowSucceeded(workflow, 1)
 		job, _ = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
 		_ = h.jobs.PublishEvent(r.Context(), job, "job_step_finished", "Started stack runtime.", "", workflowStepRef(workflow, 1))
@@ -2854,6 +2857,11 @@ func (h *Handler) runStackActionJob(job store.Job, workflow []store.JobWorkflowS
 			h.logger.Warn("record deploy baseline failed", slog.String("stack_id", finishedJob.StackID), slog.String("job_id", finishedJob.ID), slog.String("err", err.Error()))
 		}
 	}
+	if stackActionInvalidatesImageUpdates(finishedJob.Action) {
+		if err := h.stackReader.InvalidateImageUpdateStatus(ctx, finishedJob.StackID, nil); err != nil {
+			h.logger.Warn("invalidate image update status failed", slog.String("stack_id", finishedJob.StackID), slog.String("job_id", finishedJob.ID), slog.String("err", err.Error()))
+		}
+	}
 
 	if err := h.audit.RecordStackJob(ctx, finishedJob); err != nil {
 		h.logger.Warn("record stack action audit failed", slog.String("job_id", finishedJob.ID), slog.String("err", err.Error()))
@@ -2862,6 +2870,10 @@ func (h *Handler) runStackActionJob(job store.Job, workflow []store.JobWorkflowS
 
 func stackActionUpdatesDeployBaseline(action string) bool {
 	return action == "up" || action == "recreate"
+}
+
+func stackActionInvalidatesImageUpdates(action string) bool {
+	return action == "pull" || action == "up" || action == "recreate"
 }
 
 func validateDockerRegistryLoginRequest(request dockerregistryauth.LoginRequest) error {
