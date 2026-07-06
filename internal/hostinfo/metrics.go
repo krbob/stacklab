@@ -194,11 +194,12 @@ func (c *MetricsCollector) pruneSamplesLocked(now time.Time) {
 
 func (c *MetricsCollector) readSample() HostMetricSample {
 	now := c.now().UTC()
+	memInfo := readProcMemInfoValues(c.procRoot)
 	return HostMetricSample{
 		SampledAt:   now,
 		CPU:         c.readCPUUsage(),
-		Memory:      c.readMemoryUsage(),
-		Swap:        c.readSwapUsage(),
+		Memory:      memoryUsageFromMemInfo(memInfo),
+		Swap:        swapUsageFromMemInfo(memInfo),
 		Filesystems: c.readFilesystems(),
 		DiskIO:      c.readDiskIOUsage(now),
 		Network:     c.readNetworkUsage(now),
@@ -208,13 +209,13 @@ func (c *MetricsCollector) readSample() HostMetricSample {
 func (c *MetricsCollector) readCPUUsage() CPUUsage {
 	return CPUUsage{
 		CoreCount:    runtime.NumCPU(),
-		LoadAverage:  readMetricsLoadAverage(c.procRoot),
+		LoadAverage:  readProcLoadAverage(c.procRoot),
 		UsagePercent: c.readCPUPercent(),
 	}
 }
 
 func (c *MetricsCollector) readCPUPercent() float64 {
-	sample, ok := readMetricsCPUSample(c.procRoot)
+	sample, ok := readProcCPUSample(c.procRoot)
 	if !ok {
 		return 0
 	}
@@ -238,145 +239,6 @@ func (c *MetricsCollector) readCPUPercent() float64 {
 	}
 
 	return roundFloat((float64(totalDelta-idleDelta) / float64(totalDelta)) * 100)
-}
-
-func readMetricsLoadAverage(procRoot string) []float64 {
-	data, err := os.ReadFile(filepath.Join(procRoot, "loadavg"))
-	if err != nil {
-		return []float64{0, 0, 0}
-	}
-	fields := strings.Fields(string(data))
-	if len(fields) < 3 {
-		return []float64{0, 0, 0}
-	}
-
-	result := make([]float64, 0, 3)
-	for i := 0; i < 3; i++ {
-		value, err := strconv.ParseFloat(fields[i], 64)
-		if err != nil {
-			result = append(result, 0)
-			continue
-		}
-		result = append(result, roundFloat(value))
-	}
-	return result
-}
-
-func readMetricsCPUSample(procRoot string) (cpuSample, bool) {
-	data, err := os.ReadFile(filepath.Join(procRoot, "stat"))
-	if err != nil {
-		return cpuSample{}, false
-	}
-
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "cpu ") {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) < 5 {
-			return cpuSample{}, false
-		}
-
-		values := make([]uint64, 0, len(fields)-1)
-		for _, field := range fields[1:] {
-			value, err := strconv.ParseUint(field, 10, 64)
-			if err != nil {
-				return cpuSample{}, false
-			}
-			values = append(values, value)
-		}
-
-		var total uint64
-		for _, value := range values {
-			total += value
-		}
-
-		idle := values[3]
-		if len(values) > 4 {
-			idle += values[4]
-		}
-		return cpuSample{total: total, idle: idle}, true
-	}
-
-	return cpuSample{}, false
-}
-
-func (c *MetricsCollector) readMemoryUsage() MemoryUsage {
-	values := readMemInfoValues(c.procRoot)
-
-	total := values["MemTotal"]
-	available := values["MemAvailable"]
-	if available == 0 {
-		available = values["MemFree"]
-	}
-	used := uint64(0)
-	if total >= available {
-		used = total - available
-	}
-
-	usagePercent := 0.0
-	if total > 0 {
-		usagePercent = roundFloat((float64(used) / float64(total)) * 100)
-	}
-
-	return MemoryUsage{
-		TotalBytes:     total,
-		UsedBytes:      used,
-		AvailableBytes: available,
-		UsagePercent:   usagePercent,
-	}
-}
-
-func (c *MetricsCollector) readSwapUsage() SwapUsage {
-	values := readMemInfoValues(c.procRoot)
-
-	total := values["SwapTotal"]
-	free := values["SwapFree"]
-	used := uint64(0)
-	if total >= free {
-		used = total - free
-	}
-
-	usagePercent := 0.0
-	if total > 0 {
-		usagePercent = roundFloat((float64(used) / float64(total)) * 100)
-	}
-
-	return SwapUsage{
-		TotalBytes:     total,
-		UsedBytes:      used,
-		AvailableBytes: free,
-		UsagePercent:   usagePercent,
-	}
-}
-
-func readMemInfoValues(procRoot string) map[string]uint64 {
-	data, err := os.ReadFile(filepath.Join(procRoot, "meminfo"))
-	if err != nil {
-		return map[string]uint64{}
-	}
-
-	values := map[string]uint64{}
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-	for scanner.Scan() {
-		line := scanner.Text()
-		parts := strings.SplitN(line, ":", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		fields := strings.Fields(strings.TrimSpace(parts[1]))
-		if len(fields) == 0 {
-			continue
-		}
-		value, err := strconv.ParseUint(fields[0], 10, 64)
-		if err != nil {
-			continue
-		}
-		values[parts[0]] = value * 1024
-	}
-	return values
 }
 
 func (c *MetricsCollector) readFilesystems() []FilesystemUsage {
