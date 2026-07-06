@@ -162,6 +162,7 @@ func TestMetricsCollectorSamplesFilesystemsAndNetworkRates(t *testing.T) {
 	writeMetricsProcFixture(t, procDir, "cpu  100 0 0 100 0 0 0 0 0 0\n", 1000, 2000)
 	mountInfo := strings.Join([]string{
 		"26 23 8:2 / " + mountPoint + " rw,relatime - ext4 /dev/nvme0n1p2 rw",
+		"27 23 0:42 / /mnt/offline-nas rw,relatime - nfs4 nas:/share rw",
 		"27 23 0:23 / /run rw,nosuid,nodev - tmpfs tmpfs rw",
 	}, "\n")
 	if err := os.WriteFile(filepath.Join(procDir, "self", "mountinfo"), []byte(mountInfo+"\n"), 0o644); err != nil {
@@ -206,6 +207,33 @@ func TestMetricsCollectorSamplesFilesystemsAndNetworkRates(t *testing.T) {
 	}
 }
 
+func TestMetricsCollectorPrunesHistoryByTime(t *testing.T) {
+	t.Parallel()
+
+	collector := newMetricsCollector(t.TempDir(), t.TempDir())
+	collector.historyWindow = time.Minute
+	collector.maxSamples = 100
+
+	now := time.Unix(1_712_598_000, 0).UTC()
+	collector.samples = []HostMetricSample{
+		{SampledAt: now.Add(-2 * time.Minute)},
+		{SampledAt: now.Add(-30 * time.Second)},
+	}
+	collector.now = func() time.Time {
+		return now
+	}
+
+	collector.sampleAndStore()
+
+	response := collector.Snapshot()
+	if len(response.History) != 2 {
+		t.Fatalf("len(response.History) = %d, want 2: %#v", len(response.History), response.History)
+	}
+	if response.History[0].SampledAt.Before(now.Add(-time.Minute)) {
+		t.Fatalf("old sample was not pruned: %#v", response.History)
+	}
+}
+
 func TestMetricsCollectorSwitchesToActiveIntervalAfterSnapshot(t *testing.T) {
 	t.Parallel()
 
@@ -245,6 +273,8 @@ func writeMetricsProcFixture(t *testing.T, procDir, statLine string, eth0RXBytes
 			" face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed",
 			"  lo: 1 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0",
 			"eth0: " + strconv.FormatUint(eth0RXBytes, 10) + " 0 0 0 0 0 0 0 " + strconv.FormatUint(eth0TXBytes, 10) + " 0 0 0 0 0 0 0",
+			"br-123456: 999999 0 0 0 0 0 0 0 999999 0 0 0 0 0 0 0",
+			"vethabc: 999999 0 0 0 0 0 0 0 999999 0 0 0 0 0 0 0",
 		}, "\n") + "\n",
 	}
 

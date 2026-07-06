@@ -166,10 +166,22 @@ func (c *MetricsCollector) sampleAndStore() {
 
 	c.mu.Lock()
 	c.samples = append(c.samples, sample)
+	c.pruneSamplesLocked(sample.SampledAt)
 	if len(c.samples) > c.maxSamples {
 		c.samples = append([]HostMetricSample(nil), c.samples[len(c.samples)-c.maxSamples:]...)
 	}
 	c.mu.Unlock()
+}
+
+func (c *MetricsCollector) pruneSamplesLocked(now time.Time) {
+	cutoff := now.Add(-c.historyWindow)
+	first := 0
+	for first < len(c.samples) && c.samples[first].SampledAt.Before(cutoff) {
+		first++
+	}
+	if first > 0 {
+		c.samples = append([]HostMetricSample(nil), c.samples[first:]...)
+	}
 }
 
 func (c *MetricsCollector) readSample() HostMetricSample {
@@ -333,9 +345,16 @@ func (c *MetricsCollector) readFilesystems() []FilesystemUsage {
 	mounts := c.readMountInfo()
 	filesystems := make([]FilesystemUsage, 0, len(mounts))
 	seen := map[string]bool{}
+	rootCoveredByNetworkMount := false
 
 	for _, mount := range mounts {
 		if seen[mount.mountPoint] || isVirtualFilesystem(mount.fsType) || shouldSkipMountPoint(mount.mountPoint) {
+			continue
+		}
+		if isNetworkFilesystem(mount.fsType) {
+			if pathHasPrefix(c.rootDir, mount.mountPoint) {
+				rootCoveredByNetworkMount = true
+			}
 			continue
 		}
 		seen[mount.mountPoint] = true
@@ -357,7 +376,7 @@ func (c *MetricsCollector) readFilesystems() []FilesystemUsage {
 	}
 	if primaryIndex >= 0 {
 		filesystems[primaryIndex].Primary = true
-	} else {
+	} else if !rootCoveredByNetworkMount {
 		filesystems = append(filesystems, c.rootFilesystemUsage())
 	}
 
@@ -519,7 +538,7 @@ func (c *MetricsCollector) readNetworkCounters() map[string]networkCounter {
 		}
 
 		name := strings.TrimSpace(parts[0])
-		if name == "" || name == "lo" {
+		if shouldSkipNetworkInterface(name) {
 			continue
 		}
 
@@ -550,6 +569,24 @@ func isVirtualFilesystem(fsType string) bool {
 	}
 }
 
+func isNetworkFilesystem(fsType string) bool {
+	if strings.HasPrefix(fsType, "fuse.") {
+		switch fsType {
+		case "fuse.sshfs", "fuse.rclone", "fuse.curlftpfs", "fuse.davfs":
+			return true
+		default:
+			return false
+		}
+	}
+
+	switch fsType {
+	case "9p", "afs", "cifs", "davfs", "gfs", "gfs2", "glusterfs", "ncpfs", "nfs", "nfs4", "smb3", "smbfs", "sshfs":
+		return true
+	default:
+		return false
+	}
+}
+
 func shouldSkipMountPoint(mountPoint string) bool {
 	clean := filepath.Clean(mountPoint)
 	if clean == string(os.PathSeparator) {
@@ -557,6 +594,18 @@ func shouldSkipMountPoint(mountPoint string) bool {
 	}
 	for _, prefix := range []string{"/proc", "/sys", "/dev", "/run", "/var/lib/docker", "/var/lib/containerd"} {
 		if clean == prefix || strings.HasPrefix(clean, prefix+string(os.PathSeparator)) {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldSkipNetworkInterface(name string) bool {
+	if name == "" || name == "lo" {
+		return true
+	}
+	for _, prefix := range []string{"br-", "cni", "docker", "flannel", "veth", "virbr"} {
+		if strings.HasPrefix(name, prefix) {
 			return true
 		}
 	}

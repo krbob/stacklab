@@ -166,14 +166,16 @@ Response:
 Notes:
 
 - metrics are sampled server-side and kept only in memory
-- the history target is `30m`; no SQLite persistence is part of v1
+- history is pruned by sample timestamp to a `30m` window; no SQLite persistence is part of v1
 - idle/background sampling runs every `30s`
 - calling this endpoint marks the dashboard as active; active sampling runs every `1s`
 - the frontend polls this endpoint only while the `/host` page is visible
 - after the dashboard stops polling, active mode expires and sampling returns to the background interval
 - filesystem metrics come from Linux mount information plus `statfs`
 - virtual filesystems and Docker/container runtime internals are filtered out
+- network filesystems such as NFS/CIFS are skipped in v1 so a stalled remote mount cannot block dashboard sampling
 - network throughput is derived from `/proc/net/dev` byte deltas; v1 does not run speedtest checks or public IP discovery
+- Docker bridge/veth-style virtual interfaces are filtered out of the dashboard totals
 - GPU, CPU temperature, and sensor-level metrics are backlog candidates, not part of this contract
 
 ## `GET /api/host/stacklab-logs`

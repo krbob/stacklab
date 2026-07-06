@@ -76,13 +76,16 @@ Sampling behavior:
 - polling `GET /api/host/metrics` marks the collector active
 - leaving `/host` or hiding the browser tab stops the frontend polling; after the active TTL expires, the backend returns to the background interval
 - history is an in-memory `30m` ring buffer
+- history is pruned by timestamp, so mixed `1s`/`30s` sampling still reports a real 30-minute window
 - there is no SQLite persistence in v1
 
 Dashdot parity decisions:
 
 - always show percentages where a percent is available
 - show host filesystems natively from `mountinfo`/`statfs`; no dashdot-style container virtual mount mapping is needed for normal Stacklab installs
+- skip network filesystems in v1 to avoid blocking dashboard sampling on an unavailable NAS/share
 - show network interface throughput from byte counters
+- filter Docker bridge/veth-style virtual interfaces from the primary dashboard view
 - do not implement speedtest / Ookla EULA flow in v1
 - do not implement public IP, GPU, CPU temperature, or sensor-level metrics in v1
 

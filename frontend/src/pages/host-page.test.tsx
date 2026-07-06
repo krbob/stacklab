@@ -164,7 +164,7 @@ describe('HostPage', () => {
     expect(screen.getByText('Host metrics')).toBeInTheDocument()
     expect(screen.getByText('/srv/stacklab')).toBeInTheDocument()
     expect(screen.getAllByText('eth0').length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/2\.0 KB\/s/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/2\.0 KiB\/s/).length).toBeGreaterThan(0)
     expect(await screen.findByText('Started HTTP server')).toBeInTheDocument()
     expect(screen.getByText('Failed to bind port')).toBeInTheDocument()
 
@@ -276,6 +276,51 @@ describe('HostPage', () => {
 
     setIntervalSpy.mockRestore()
     clearIntervalSpy.mockRestore()
+  })
+
+  it('uses fixed 0-100 scale for percentage sparklines', async () => {
+    mockGetHostMetrics.mockResolvedValue({
+      ...metrics,
+      current: metrics.current && {
+        ...metrics.current,
+        cpu: {
+          ...metrics.current.cpu,
+          usage_percent: 1,
+        },
+      },
+      history: [
+        {
+          ...metrics.history[0],
+          cpu: {
+            ...metrics.history[0].cpu,
+            usage_percent: 1,
+          },
+        },
+      ],
+    })
+
+    render(<HostPage />)
+
+    const cpuSparkline = await screen.findByRole('img', { name: 'CPU usage history' })
+    expect(cpuSparkline.querySelector('polyline')?.getAttribute('points')).toBe('0,33.7 120,33.7')
+  })
+
+  it('uses danger tone for saturated resources', async () => {
+    mockGetHostMetrics.mockResolvedValue({
+      ...metrics,
+      current: metrics.current && {
+        ...metrics.current,
+        memory: {
+          ...metrics.current.memory,
+          usage_percent: 99,
+        },
+      },
+    })
+
+    render(<HostPage />)
+
+    const saturatedValues = await screen.findAllByText('99.0%')
+    expect(saturatedValues.some((node) => node.className.includes('text-[var(--danger)]'))).toBe(true)
   })
 
   it('formats uptime with seconds precision', () => {

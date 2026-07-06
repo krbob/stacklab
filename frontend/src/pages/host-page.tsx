@@ -17,6 +17,28 @@ function PercentBar({ value, color }: { value: number; color: string }) {
   )
 }
 
+function utilizationTone(value: number, normalBar = 'bg-[var(--accent)]', normalLine = 'var(--accent)') {
+  if (value >= 90) {
+    return {
+      bar: 'bg-[var(--danger)]',
+      line: 'var(--danger)',
+      text: 'text-[var(--danger)]',
+    }
+  }
+  if (value >= 80) {
+    return {
+      bar: 'bg-[var(--warning)]',
+      line: 'var(--warning)',
+      text: 'text-[var(--warning)]',
+    }
+  }
+  return {
+    bar: normalBar,
+    line: normalLine,
+    text: 'text-[var(--text)]',
+  }
+}
+
 export function HostPage() {
   const [overview, setOverview] = useState<HostOverviewResponse | null>(null)
   const [overviewError, setOverviewError] = useState<Error | null>(null)
@@ -72,11 +94,12 @@ export function HostPage() {
 
   // Auto-refresh overview metadata.
   useEffect(() => {
+    if (!pageVisible) return
     const interval = setInterval(() => {
       void loadOverview()
     }, OVERVIEW_POLL_INTERVAL_MS)
     return () => clearInterval(interval)
-  }, [loadOverview])
+  }, [loadOverview, pageVisible])
 
   // Keep host metrics in dash-like active mode while this page is open.
   useEffect(() => {
@@ -111,10 +134,10 @@ export function HostPage() {
   }, [loadMetrics, loadOverview])
 
   useEffect(() => {
-    if (!overview) return
+    if (!overview || !pageVisible) return
     const interval = setInterval(() => setNowMs(Date.now()), 1_000)
     return () => clearInterval(interval)
-  }, [overview])
+  }, [overview, pageVisible])
 
   return (
     <div className="flex flex-col gap-4">
@@ -181,6 +204,9 @@ function OverviewCards({
   const liveUptimeSeconds = fetchedAtMs == null
     ? host.uptime_seconds
     : host.uptime_seconds + Math.max(0, Math.floor((nowMs - fetchedAtMs) / 1000))
+  const cpuTone = utilizationTone(cpu.usage_percent)
+  const memoryTone = utilizationTone(memory.usage_percent, 'bg-[#E8C07A]', '#E8C07A')
+  const diskTone = utilizationTone(disk.usage_percent, 'bg-[var(--warning)]', '#D66F3F')
 
   return (
     <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -220,23 +246,23 @@ function OverviewCards({
           <div>
             <div className="flex justify-between text-xs">
               <span className="text-[var(--muted)]">CPU ({cpu.core_count} cores)</span>
-              <span className="text-[var(--text)]">{cpu.usage_percent.toFixed(1)}%</span>
+              <span className={cpuTone.text}>{cpu.usage_percent.toFixed(1)}%</span>
             </div>
-            <PercentBar value={cpu.usage_percent} color="bg-[var(--accent)]" />
+            <PercentBar value={cpu.usage_percent} color={cpuTone.bar} />
           </div>
           <div>
             <div className="flex justify-between text-xs">
               <span className="text-[var(--muted)]">Memory</span>
-              <span className="text-[var(--text)]">{formatBytes(memory.used_bytes)} / {formatBytes(memory.total_bytes)}</span>
+              <span className={memoryTone.text}>{formatBytes(memory.used_bytes)} / {formatBytes(memory.total_bytes)}</span>
             </div>
-            <PercentBar value={memory.usage_percent} color="bg-[#E8C07A]" />
+            <PercentBar value={memory.usage_percent} color={memoryTone.bar} />
           </div>
           <div>
             <div className="flex justify-between text-xs">
               <span className="text-[var(--muted)]">Disk</span>
-              <span className="text-[var(--text)]">{formatBytes(disk.used_bytes)} / {formatBytes(disk.total_bytes)}</span>
+              <span className={diskTone.text}>{formatBytes(disk.used_bytes)} / {formatBytes(disk.total_bytes)}</span>
             </div>
-            <PercentBar value={disk.usage_percent} color="bg-[var(--warning)]" />
+            <PercentBar value={disk.usage_percent} color={diskTone.bar} />
           </div>
         </div>
       </div>
@@ -291,6 +317,9 @@ function HostMetricsDashboard({
   const networkRate = current.network.total_rx_bytes_per_sec + current.network.total_tx_bytes_per_sec
   const topInterface = current.network.interfaces[0]
   const sampledAt = new Date(current.sampled_at).toLocaleTimeString()
+  const cpuTone = utilizationTone(current.cpu.usage_percent)
+  const memoryTone = utilizationTone(current.memory.usage_percent, 'bg-[#E8C07A]', '#E8C07A')
+  const storageTone = utilizationTone(storage.usage_percent, 'bg-[var(--warning)]', '#D66F3F')
 
   return (
     <div className="mt-5 flex flex-col gap-3">
@@ -309,21 +338,27 @@ function HostMetricsDashboard({
         <MetricCard
           title="CPU"
           value={`${current.cpu.usage_percent.toFixed(1)}%`}
-          detail={`${current.cpu.core_count} cores · load ${current.cpu.load_average.join(' / ')}`}
-          color="#F5A524"
+          detail={`${current.cpu.core_count} cores · load ${formatLoadAverage(current.cpu.load_average)}`}
+          color={cpuTone.line}
           values={history.map((sample) => sample.cpu.usage_percent)}
+          sparklineMax={100}
+          sparklineLabel="CPU usage history"
+          valueClassName={cpuTone.text}
         >
-          <PercentBar value={current.cpu.usage_percent} color="bg-[var(--accent)]" />
+          <PercentBar value={current.cpu.usage_percent} color={cpuTone.bar} />
         </MetricCard>
 
         <MetricCard
           title="Memory"
           value={`${current.memory.usage_percent.toFixed(1)}%`}
           detail={`${formatBytes(current.memory.used_bytes)} / ${formatBytes(current.memory.total_bytes)}`}
-          color="#E8C07A"
+          color={memoryTone.line}
           values={history.map((sample) => sample.memory.usage_percent)}
+          sparklineMax={100}
+          sparklineLabel="Memory usage history"
+          valueClassName={memoryTone.text}
         >
-          <PercentBar value={current.memory.usage_percent} color="bg-[#E8C07A]" />
+          <PercentBar value={current.memory.usage_percent} color={memoryTone.bar} />
         </MetricCard>
 
         <MetricCard
@@ -332,6 +367,7 @@ function HostMetricsDashboard({
           detail={`${formatRate(current.network.total_tx_bytes_per_sec)} ↑${topInterface ? ` · ${topInterface.name}` : ''}`}
           color="#5EC2B7"
           values={history.map((sample) => sample.network.total_rx_bytes_per_sec + sample.network.total_tx_bytes_per_sec)}
+          sparklineLabel="Network throughput history"
         >
           <div className="space-y-1 text-xs text-[var(--muted)]">
             <div className="flex min-w-0 justify-between gap-2">
@@ -345,13 +381,16 @@ function HostMetricsDashboard({
           title="Storage"
           value={`${storage.usage_percent.toFixed(1)}%`}
           detail={`${formatBytes(storage.used_bytes)} / ${formatBytes(storage.total_bytes)}`}
-          color="#D66F3F"
+          color={storageTone.line}
           values={history.map((sample) => {
             const filesystem = sample.filesystems.find((item) => item.primary) ?? sample.filesystems[0]
             return filesystem?.usage_percent ?? storage.usage_percent
           })}
+          sparklineMax={100}
+          sparklineLabel="Storage usage history"
+          valueClassName={storageTone.text}
         >
-          <PercentBar value={storage.usage_percent} color="bg-[var(--warning)]" />
+          <PercentBar value={storage.usage_percent} color={storageTone.bar} />
         </MetricCard>
       </div>
 
@@ -400,6 +439,9 @@ function MetricCard({
   detail,
   color,
   values,
+  sparklineMax,
+  sparklineLabel,
+  valueClassName,
   children,
 }: {
   title: string
@@ -407,25 +449,28 @@ function MetricCard({
   detail: string
   color: string
   values: number[]
+  sparklineMax?: number
+  sparklineLabel?: string
+  valueClassName?: string
   children: ReactNode
 }) {
   return (
     <div className="min-w-0 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4">
       <div className="font-brand text-xs uppercase tracking-wider text-[var(--accent)]">{title}</div>
-      <div className="mt-2 truncate text-2xl font-medium text-[var(--text)]">{value}</div>
+      <div className={cn('mt-2 truncate text-2xl font-medium', valueClassName ?? 'text-[var(--text)]')}>{value}</div>
       <div className="mt-1 truncate text-xs text-[var(--muted)]">{detail}</div>
       <div className="mt-3">
-        <Sparkline values={values} color={color} />
+        <Sparkline values={values} color={color} max={sparklineMax} label={sparklineLabel ?? `${title} history`} />
       </div>
       <div className="mt-3">{children}</div>
     </div>
   )
 }
 
-function Sparkline({ values, color }: { values: number[]; color: string }) {
-  const points = sparklinePoints(values)
+function Sparkline({ values, color, max, label }: { values: number[]; color: string; max?: number; label: string }) {
+  const points = sparklinePoints(values, max)
   return (
-    <svg viewBox="0 0 120 36" role="img" aria-label="Metric history" className="h-9 w-full overflow-visible">
+    <svg viewBox="0 0 120 36" role="img" aria-label={label} className="h-9 w-full overflow-visible">
       <polyline
         points={points}
         fill="none"
@@ -439,16 +484,16 @@ function Sparkline({ values, color }: { values: number[]; color: string }) {
   )
 }
 
-function sparklinePoints(values: number[]): string {
+function sparklinePoints(values: number[], maxOverride?: number): string {
   if (values.length === 0) {
     return '0,34 120,34'
   }
+  const max = maxOverride ?? Math.max(...values, 1)
   if (values.length === 1) {
-    const y = sparklineY(values[0], Math.max(values[0], 1))
+    const y = sparklineY(values[0], max)
     return `0,${y} 120,${y}`
   }
 
-  const max = Math.max(...values, 1)
   return values.map((value, index) => {
     const x = (index / (values.length - 1)) * 120
     const y = sparklineY(value, max)
@@ -466,6 +511,7 @@ function roundSVGCoord(value: number): number {
 
 function FilesystemRow({ filesystem }: { filesystem: HostMetricSample['filesystems'][number] }) {
   const label = filesystem.device || filesystem.fs_type || 'filesystem'
+  const tone = utilizationTone(filesystem.usage_percent, filesystem.primary ? 'bg-[var(--accent)]' : 'bg-[var(--warning)]')
   return (
     <div className="min-w-0">
       <div className="mb-1 flex min-w-0 items-start justify-between gap-3 text-xs">
@@ -477,13 +523,17 @@ function FilesystemRow({ filesystem }: { filesystem: HostMetricSample['filesyste
           <div className="truncate text-[var(--muted)]">{label}</div>
         </div>
         <div className="shrink-0 text-right text-[var(--muted)]">
-          <div className="text-[var(--text)]">{filesystem.usage_percent.toFixed(1)}%</div>
+          <div className={tone.text}>{filesystem.usage_percent.toFixed(1)}%</div>
           <div>{formatBytes(filesystem.used_bytes)} / {formatBytes(filesystem.total_bytes)}</div>
         </div>
       </div>
-      <PercentBar value={filesystem.usage_percent} color={filesystem.primary ? 'bg-[var(--accent)]' : 'bg-[var(--warning)]'} />
+      <PercentBar value={filesystem.usage_percent} color={tone.bar} />
     </div>
   )
+}
+
+function formatLoadAverage(values: number[]): string {
+  return values.map((value) => value.toFixed(2)).join(' / ')
 }
 
 function formatRate(bytesPerSecond: number): string {
