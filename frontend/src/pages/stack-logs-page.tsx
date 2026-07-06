@@ -157,14 +157,19 @@ export function StackLogsPage() {
           <div className="py-8 text-center text-[var(--muted)]">Waiting for logs...</div>
         )}
         {filteredEntries.map((entry, i) => (
-          <div key={i} className="flex gap-2 hover:bg-[rgba(255,255,255,0.02)]">
-            <span className="shrink-0 text-stone-600">
-              {new Date(entry.timestamp).toLocaleTimeString()}
-            </span>
-            <span className={cn('shrink-0 w-24 truncate', colorMap.get(entry.service_name))}>
-              {entry.service_name}
-            </span>
-            <span className="text-[var(--text)] break-all">{entry.line}</span>
+          <div key={i} className="flex flex-col gap-0.5 py-0.5 hover:bg-[rgba(255,255,255,0.02)] sm:flex-row sm:gap-2 sm:py-0">
+            {/* Meta (time · service) stays on its own line on phones so the
+                message below can use the full width instead of a cramped
+                right-hand column. Inline on sm+ (tablet/desktop). */}
+            <div className="flex shrink-0 gap-2">
+              <span className="shrink-0 text-stone-600">
+                {new Date(entry.timestamp).toLocaleTimeString()}
+              </span>
+              <span className={cn('shrink-0 w-24 truncate', colorMap.get(entry.service_name))}>
+                {entry.service_name}
+              </span>
+            </div>
+            <span className="min-w-0 break-all text-[var(--text)] sm:flex-1">{entry.line}</span>
           </div>
         ))}
       </div>
