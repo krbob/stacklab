@@ -59,9 +59,18 @@ type networkCounter struct {
 }
 
 type mountInfo struct {
+	root       string
 	mountPoint string
+	majorMinor string
 	device     string
 	fsType     string
+}
+
+type filesystemCandidate struct {
+	mount           mountInfo
+	usage           FilesystemUsage
+	coversRootDir   bool
+	wholeFilesystem bool
 }
 
 func newMetricsCollector(rootDir, procRoot string) *MetricsCollector {
@@ -439,12 +448,12 @@ func isCPUTemperatureSensor(sensor TemperatureSensor) bool {
 
 func (c *MetricsCollector) readFilesystems() []FilesystemUsage {
 	mounts := c.readMountInfo()
-	filesystems := make([]FilesystemUsage, 0, len(mounts))
-	seen := map[string]bool{}
+	candidates := make([]filesystemCandidate, 0, len(mounts))
+	seenMountPoints := map[string]bool{}
 	rootCoveredByNetworkMount := false
 
 	for _, mount := range mounts {
-		if seen[mount.mountPoint] || isVirtualFilesystem(mount.fsType) || shouldSkipMountPoint(mount.mountPoint) {
+		if seenMountPoints[mount.mountPoint] || isVirtualFilesystem(mount.fsType) || shouldSkipMountPoint(mount.mountPoint) {
 			continue
 		}
 		if isNetworkFilesystem(mount.fsType) {
@@ -453,14 +462,21 @@ func (c *MetricsCollector) readFilesystems() []FilesystemUsage {
 			}
 			continue
 		}
-		seen[mount.mountPoint] = true
+		seenMountPoints[mount.mountPoint] = true
 
 		usage, ok := c.filesystemUsage(mount.mountPoint, mount.device, mount.fsType)
 		if !ok {
 			continue
 		}
-		filesystems = append(filesystems, usage)
+		candidates = append(candidates, filesystemCandidate{
+			mount:           mount,
+			usage:           usage,
+			coversRootDir:   pathHasPrefix(c.rootDir, mount.mountPoint),
+			wholeFilesystem: filepath.Clean(mount.root) == string(os.PathSeparator),
+		})
 	}
+
+	filesystems := dedupeFilesystemCandidates(candidates)
 
 	primaryIndex := -1
 	primaryLength := -1
@@ -486,6 +502,51 @@ func (c *MetricsCollector) readFilesystems() []FilesystemUsage {
 	return filesystems
 }
 
+func dedupeFilesystemCandidates(candidates []filesystemCandidate) []FilesystemUsage {
+	selected := []filesystemCandidate{}
+	selectedByKey := map[string]int{}
+	for _, candidate := range candidates {
+		key := filesystemIdentityKey(candidate.mount)
+		if index, ok := selectedByKey[key]; ok {
+			if betterFilesystemCandidate(candidate, selected[index]) {
+				selected[index] = candidate
+			}
+			continue
+		}
+		selectedByKey[key] = len(selected)
+		selected = append(selected, candidate)
+	}
+
+	filesystems := make([]FilesystemUsage, 0, len(selected))
+	for _, candidate := range selected {
+		filesystems = append(filesystems, candidate.usage)
+	}
+	return filesystems
+}
+
+func filesystemIdentityKey(mount mountInfo) string {
+	if mount.majorMinor == "" || mount.device == "" {
+		return mount.fsType + "\x00" + mount.mountPoint
+	}
+	return mount.fsType + "\x00" + mount.majorMinor + "\x00" + mount.device
+}
+
+func betterFilesystemCandidate(candidate, current filesystemCandidate) bool {
+	if candidate.coversRootDir != current.coversRootDir {
+		return candidate.coversRootDir
+	}
+	if candidate.wholeFilesystem != current.wholeFilesystem {
+		return candidate.wholeFilesystem
+	}
+
+	candidateMountPoint := filepath.Clean(candidate.mount.mountPoint)
+	currentMountPoint := filepath.Clean(current.mount.mountPoint)
+	if len(candidateMountPoint) != len(currentMountPoint) {
+		return len(candidateMountPoint) < len(currentMountPoint)
+	}
+	return candidateMountPoint < currentMountPoint
+}
+
 func (c *MetricsCollector) readMountInfo() []mountInfo {
 	data, err := os.ReadFile(filepath.Join(c.procRoot, "self", "mountinfo"))
 	if err != nil {
@@ -507,7 +568,9 @@ func (c *MetricsCollector) readMountInfo() []mountInfo {
 		}
 
 		mounts = append(mounts, mountInfo{
+			root:       unescapeMountInfo(preFields[3]),
 			mountPoint: unescapeMountInfo(preFields[4]),
+			majorMinor: preFields[2],
 			fsType:     postFields[0],
 			device:     unescapeMountInfo(postFields[1]),
 		})

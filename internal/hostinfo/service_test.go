@@ -240,6 +240,55 @@ func TestMetricsCollectorSamplesFilesystemsAndNetworkRates(t *testing.T) {
 	}
 }
 
+func TestMetricsCollectorDedupesSystemdBindMountFilesystems(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	procDir := filepath.Join(tempDir, "proc")
+	if err := os.MkdirAll(filepath.Join(procDir, "self"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(proc/self) error = %v", err)
+	}
+
+	hostRoot := filepath.Join(tempDir, "host")
+	stacklabRoot := filepath.Join(hostRoot, "srv", "stacklab")
+	etcDir := filepath.Join(tempDir, "namespace", "etc")
+	usrDir := filepath.Join(tempDir, "namespace", "usr")
+	efiDir := filepath.Join(tempDir, "efi")
+	storageDir := filepath.Join(tempDir, "storage")
+	for _, dir := range []string{hostRoot, stacklabRoot, etcDir, usrDir, efiDir, storageDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%s) error = %v", dir, err)
+		}
+	}
+
+	mountInfo := strings.Join([]string{
+		"26 23 8:2 / " + hostRoot + " rw,relatime - ext4 /dev/nvme0n1p2 rw",
+		"27 23 8:2 /srv/stacklab " + stacklabRoot + " rw,relatime - ext4 /dev/nvme0n1p2 rw",
+		"28 23 8:2 /etc " + etcDir + " rw,relatime - ext4 /dev/nvme0n1p2 rw",
+		"29 23 8:2 /usr " + usrDir + " rw,relatime - ext4 /dev/nvme0n1p2 rw",
+		"30 23 259:1 / " + efiDir + " rw,relatime - vfat /dev/nvme0n1p1 rw",
+		"31 23 259:4 / " + storageDir + " rw,relatime - btrfs /dev/nvme0n1p4 rw",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(procDir, "self", "mountinfo"), []byte(mountInfo+"\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(mountinfo) error = %v", err)
+	}
+
+	collector := newMetricsCollector(stacklabRoot, procDir)
+	filesystems := collector.readFilesystems()
+	if len(filesystems) != 3 {
+		t.Fatalf("len(filesystems) = %d, want 3: %#v", len(filesystems), filesystems)
+	}
+	if filesystems[0].MountPoint != hostRoot || filesystems[0].Device != "/dev/nvme0n1p2" || !filesystems[0].Primary {
+		t.Fatalf("unexpected primary filesystem: %#v", filesystems[0])
+	}
+	if filesystems[1].MountPoint != efiDir || filesystems[1].Device != "/dev/nvme0n1p1" || filesystems[1].Primary {
+		t.Fatalf("unexpected EFI filesystem: %#v", filesystems[1])
+	}
+	if filesystems[2].MountPoint != storageDir || filesystems[2].Device != "/dev/nvme0n1p4" || filesystems[2].Primary {
+		t.Fatalf("unexpected storage filesystem: %#v", filesystems[2])
+	}
+}
+
 func TestMetricsCollectorReadsThermalZoneTemperatureSensors(t *testing.T) {
 	t.Parallel()
 
