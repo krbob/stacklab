@@ -235,7 +235,7 @@ describe('HostPage', () => {
 
     expect(mockGetHostOverview).toHaveBeenCalledTimes(1)
     expect(mockGetHostMetrics).toHaveBeenCalledTimes(1)
-    expect(mockGetStacklabLogs).toHaveBeenCalledWith({ limit: 200, cursor: undefined, level: undefined })
+    expect(mockGetStacklabLogs).toHaveBeenCalledWith({ limit: 200, cursor: undefined, level: undefined, includeHttpAccess: false })
   })
 
   it('reloads logs when level filter changes', async () => {
@@ -253,9 +253,37 @@ describe('HostPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'error' }))
 
     await waitFor(() => {
-      expect(mockGetStacklabLogs).toHaveBeenLastCalledWith({ limit: 200, cursor: undefined, level: 'error' })
+      expect(mockGetStacklabLogs).toHaveBeenLastCalledWith({ limit: 200, cursor: undefined, level: 'error', includeHttpAccess: false })
     })
     expect(await screen.findByText('Failed to bind port')).toBeInTheDocument()
+  })
+
+  it('reloads logs when HTTP access visibility changes', async () => {
+    mockGetStacklabLogs
+      .mockResolvedValueOnce(logsResponse)
+      .mockResolvedValueOnce({
+        ...logsResponse,
+        items: [
+          ...logsResponse.items,
+          {
+            timestamp: '2026-04-04T12:00:02Z',
+            level: 'info',
+            message: 'time=2026-04-04T12:00:02Z level=INFO msg="http request" method=GET path=/api/host/metrics status=200',
+            cursor: 'cursor-3',
+          },
+        ],
+        next_cursor: 'cursor-3',
+      })
+
+    render(<HostPage />)
+
+    await screen.findByText('Started HTTP server')
+    fireEvent.click(screen.getByRole('button', { name: 'HTTP' }))
+
+    await waitFor(() => {
+      expect(mockGetStacklabLogs).toHaveBeenLastCalledWith({ limit: 200, cursor: undefined, level: undefined, includeHttpAccess: true })
+    })
+    expect(await screen.findByText(/path=\/api\/host\/metrics/)).toBeInTheDocument()
   })
 
   it('shows empty logs state', async () => {

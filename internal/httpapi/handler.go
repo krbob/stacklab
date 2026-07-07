@@ -402,10 +402,11 @@ func (h *Handler) handleStacklabLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response, err := h.hostInfo.StacklabLogs(r.Context(), hostinfo.LogsQuery{
-		Limit:  limit,
-		Cursor: strings.TrimSpace(r.URL.Query().Get("cursor")),
-		Level:  strings.TrimSpace(r.URL.Query().Get("level")),
-		Search: strings.TrimSpace(r.URL.Query().Get("q")),
+		Limit:             limit,
+		Cursor:            strings.TrimSpace(r.URL.Query().Get("cursor")),
+		Level:             strings.TrimSpace(r.URL.Query().Get("level")),
+		Search:            strings.TrimSpace(r.URL.Query().Get("q")),
+		IncludeHTTPAccess: parseOptionalBool(r.URL.Query().Get("include_http"), false),
 	})
 	if err != nil {
 		if errors.Is(err, hostinfo.ErrLogsUnavailable) {

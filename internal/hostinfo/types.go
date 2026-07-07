@@ -137,10 +137,11 @@ type NetworkInterfaceUsage struct {
 }
 
 type LogsQuery struct {
-	Limit  int
-	Cursor string
-	Level  string
-	Search string
+	Limit             int
+	Cursor            string
+	Level             string
+	Search            string
+	IncludeHTTPAccess bool
 }
 
 type StacklabLogsResponse struct {

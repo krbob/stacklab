@@ -122,6 +122,13 @@ paths:
           required: false
           schema:
             type: string
+        - in: query
+          name: include_http
+          required: false
+          description: Include routine Stacklab HTTP access logs. Hidden by default to keep the host log panel focused on actionable events.
+          schema:
+            type: boolean
+            default: false
       responses:
         '200':
           description: Recent Stacklab service logs from journald.

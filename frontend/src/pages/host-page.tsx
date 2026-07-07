@@ -688,6 +688,7 @@ function StacklabLogs() {
   const [error, setError] = useState<string | null>(null)
   const [level, setLevel] = useState<string>('')
   const [filter, setFilter] = useState('')
+  const [includeHttpAccess, setIncludeHttpAccess] = useState(false)
   const [following, setFollowing] = useState(true)
   const cursorRef = useRef<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -699,6 +700,7 @@ function StacklabLogs() {
         limit: append ? 50 : 200,
         cursor: append ? (cursorRef.current ?? undefined) : undefined,
         level: level || undefined,
+        includeHttpAccess,
       })
 
       if (append) {
@@ -718,7 +720,7 @@ function StacklabLogs() {
     } finally {
       setLoading(false)
     }
-  }, [level])
+  }, [includeHttpAccess, level])
 
   // Initial load
   useEffect(() => {
@@ -798,6 +800,20 @@ function StacklabLogs() {
             placeholder="Filter..."
             className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
           />
+
+          <button
+            type="button"
+            title="Show HTTP access logs"
+            onClick={() => setIncludeHttpAccess((value) => !value)}
+            className={cn(
+              'rounded-md border px-2.5 py-1 text-xs transition',
+              includeHttpAccess
+                ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
+                : 'border-[var(--panel-border)] text-[var(--muted)]',
+            )}
+          >
+            HTTP
+          </button>
 
           <button
             onClick={() => setFollowing(!following)}

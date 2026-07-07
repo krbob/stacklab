@@ -202,6 +202,8 @@ Query parameters:
 - `cursor` optional opaque follow cursor
 - `level` optional: `debug`, `info`, `warn`, `error`
 - `q` optional text filter
+- `include_http` optional boolean, default `false`; when false, routine Stacklab
+  HTTP access logs are hidden from the response
 
 Response:
 

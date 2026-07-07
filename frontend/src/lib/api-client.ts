@@ -169,12 +169,13 @@ export function getHostMetrics(params?: { since?: string }): Promise<HostMetrics
   return request(`/api/host/metrics${qs ? `?${qs}` : ''}`)
 }
 
-export function getStacklabLogs(params?: { limit?: number; cursor?: string; level?: string; q?: string }): Promise<StacklabLogsResponse> {
+export function getStacklabLogs(params?: { limit?: number; cursor?: string; level?: string; q?: string; includeHttpAccess?: boolean }): Promise<StacklabLogsResponse> {
   const search = new URLSearchParams()
   if (params?.limit) search.set('limit', String(params.limit))
   if (params?.cursor) search.set('cursor', params.cursor)
   if (params?.level) search.set('level', params.level)
   if (params?.q) search.set('q', params.q)
+  if (params?.includeHttpAccess) search.set('include_http', 'true')
   const qs = search.toString()
   return request(`/api/host/stacklab-logs${qs ? `?${qs}` : ''}`)
 }

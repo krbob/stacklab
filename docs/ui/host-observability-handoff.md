@@ -137,6 +137,9 @@ Required capabilities:
 - follow mode via polling
 - severity filter
 - text filter
+- HTTP access-log toggle; routine `msg="http request"` entries are hidden by
+  default because dashboard polling and asset requests otherwise drown out
+  actionable Stacklab events
 
 Nice to have later:
 

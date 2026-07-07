@@ -130,7 +130,7 @@ func (s *Service) StacklabLogs(ctx context.Context, query LogsQuery) (StacklabLo
 		return StacklabLogsResponse{}, fmt.Errorf("parse journal output: %w", err)
 	}
 
-	filtered := filterLogEntries(entries, strings.TrimSpace(strings.ToLower(query.Level)), strings.TrimSpace(strings.ToLower(query.Search)))
+	filtered := filterLogEntries(entries, strings.TrimSpace(strings.ToLower(query.Level)), strings.TrimSpace(strings.ToLower(query.Search)), query.IncludeHTTPAccess)
 	response := StacklabLogsResponse{
 		Items:   filtered,
 		HasMore: len(entries) >= limit,
@@ -177,7 +177,7 @@ func parseJournalEntries(output []byte) ([]StacklabLogEntry, error) {
 	return entries, nil
 }
 
-func filterLogEntries(entries []StacklabLogEntry, level, search string) []StacklabLogEntry {
+func filterLogEntries(entries []StacklabLogEntry, level, search string, includeHTTPAccess bool) []StacklabLogEntry {
 	filtered := make([]StacklabLogEntry, 0, len(entries))
 	for _, entry := range entries {
 		if level != "" && entry.Level != level {
@@ -186,9 +186,20 @@ func filterLogEntries(entries []StacklabLogEntry, level, search string) []Stackl
 		if search != "" && !strings.Contains(strings.ToLower(entry.Message), search) {
 			continue
 		}
+		if !includeHTTPAccess && entry.Level == "info" && isHTTPAccessLogEntry(entry.Message) {
+			continue
+		}
 		filtered = append(filtered, entry)
 	}
 	return filtered
+}
+
+func isHTTPAccessLogEntry(message string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(message))
+	return normalized == "http request" ||
+		strings.Contains(normalized, `msg="http request"`) ||
+		strings.Contains(normalized, `"msg":"http request"`) ||
+		strings.Contains(normalized, "msg=http request")
 }
 
 func parseJournalTimestamp(value any) time.Time {

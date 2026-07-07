@@ -248,6 +248,8 @@ Query parameters:
 - `cursor` optional pagination/follow cursor
 - `level` optional: `debug`, `info`, `warn`, `error`
 - `q` optional text filter applied server-side when practical, otherwise client-side only
+- `include_http` optional boolean, default `false`; when false, routine Stacklab
+  HTTP access logs (`msg="http request"`) are hidden from this diagnostic view
 
 Response:
 
@@ -271,6 +273,9 @@ Notes:
 - this endpoint should support polling-based follow mode
 - it does not need WebSocket support in the first implementation
 - `cursor` should be opaque to the UI
+- the default response filters out routine HTTP access logs to keep `/host`
+  focused on actionable Stacklab events; the journal remains unchanged and the
+  UI can opt into full access-log visibility with `include_http=true`
 - on hosts without readable `journald` service logs, the UI should show an unavailable/degraded state instead of treating it as a generic failure
 
 ## `GET /api/host/stacklab-logs/stream`

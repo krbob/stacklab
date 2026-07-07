@@ -44,14 +44,38 @@ func TestFilterLogEntries(t *testing.T) {
 		{Level: "warn", Message: "Slow response"},
 	}
 
-	filtered := filterLogEntries(entries, "error", "")
+	filtered := filterLogEntries(entries, "error", "", false)
 	if len(filtered) != 1 || filtered[0].Message != "Failed to bind port" {
 		t.Fatalf("unexpected level filter result: %#v", filtered)
 	}
 
-	filtered = filterLogEntries(entries, "", "server")
+	filtered = filterLogEntries(entries, "", "server", false)
 	if len(filtered) != 1 || filtered[0].Message != "Started HTTP server" {
 		t.Fatalf("unexpected search filter result: %#v", filtered)
+	}
+}
+
+func TestFilterLogEntriesHidesHTTPAccessLogsByDefault(t *testing.T) {
+	t.Parallel()
+
+	entries := []StacklabLogEntry{
+		{Level: "info", Message: `time=2026-07-07T10:42:53+02:00 level=INFO msg="http request" method=GET path=/api/host/metrics status=200 duration=2ms`},
+		{Level: "info", Message: `{"time":"2026-07-07T10:42:53+02:00","level":"INFO","msg":"http request","method":"GET"}`},
+		{Level: "info", Message: "Started HTTP server"},
+		{Level: "warn", Message: `time=2026-07-07T10:42:53+02:00 level=WARN msg="http request" method=GET path=/api/failing status=500 duration=2ms`},
+	}
+
+	filtered := filterLogEntries(entries, "", "", false)
+	if len(filtered) != 2 {
+		t.Fatalf("len(filtered) = %d, want 2: %#v", len(filtered), filtered)
+	}
+	if filtered[0].Message != "Started HTTP server" || filtered[1].Level != "warn" {
+		t.Fatalf("unexpected filtered entries: %#v", filtered)
+	}
+
+	filtered = filterLogEntries(entries, "", "", true)
+	if len(filtered) != len(entries) {
+		t.Fatalf("len(filtered with HTTP access) = %d, want %d", len(filtered), len(entries))
 	}
 }
 
@@ -82,6 +106,34 @@ func TestStacklabLogsUsesRunnerAndFilters(t *testing.T) {
 	}
 	if response.Items[0].Cursor != "s=cursor-2" || response.NextCursor != "s=cursor-2" {
 		t.Fatalf("unexpected response: %#v", response)
+	}
+}
+
+func TestStacklabLogsIncludesHTTPAccessLogsWhenRequested(t *testing.T) {
+	t.Parallel()
+
+	service := NewService(config.Config{RootDir: t.TempDir(), SystemdUnitName: "stacklab"}, time.Unix(1_712_598_000, 0).UTC())
+	service.runCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		return []byte(strings.Join([]string{
+			`{"__REALTIME_TIMESTAMP":"1712336000000000","PRIORITY":"6","MESSAGE":"time=2026-07-07T10:42:53+02:00 level=INFO msg=\"http request\" method=GET path=/api/host/metrics status=200 duration=2ms","__CURSOR":"s=cursor-1"}`,
+			`{"__REALTIME_TIMESTAMP":"1712336010000000","PRIORITY":"6","MESSAGE":"startup complete","__CURSOR":"s=cursor-2"}`,
+		}, "\n")), nil
+	}
+
+	response, err := service.StacklabLogs(context.Background(), LogsQuery{Limit: 200})
+	if err != nil {
+		t.Fatalf("StacklabLogs() error = %v", err)
+	}
+	if len(response.Items) != 1 || response.Items[0].Cursor != "s=cursor-2" {
+		t.Fatalf("unexpected default response: %#v", response)
+	}
+
+	response, err = service.StacklabLogs(context.Background(), LogsQuery{Limit: 200, IncludeHTTPAccess: true})
+	if err != nil {
+		t.Fatalf("StacklabLogs(include HTTP) error = %v", err)
+	}
+	if len(response.Items) != 2 || response.Items[0].Cursor != "s=cursor-1" {
+		t.Fatalf("unexpected include HTTP response: %#v", response)
 	}
 }
 
