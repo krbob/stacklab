@@ -128,9 +128,7 @@ func (s *Service) GetSettings(ctx context.Context) (SettingsResponse, error) {
 }
 
 func (s *Service) UpdateSettings(ctx context.Context, request UpdateSettingsRequest) (SettingsResponse, error) {
-	settings := SettingsResponse{
-		PublicIPLookupEnabled: request.PublicIPLookupEnabled,
-	}
+	settings := SettingsResponse(request)
 	if err := s.saveSettings(ctx, settings); err != nil {
 		return SettingsResponse{}, err
 	}

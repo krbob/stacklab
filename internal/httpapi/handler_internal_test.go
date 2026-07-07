@@ -113,7 +113,7 @@ func (f *fakeHostInfo) GetSettings(ctx context.Context) (hostinfo.SettingsRespon
 
 func (f *fakeHostInfo) UpdateSettings(ctx context.Context, request hostinfo.UpdateSettingsRequest) (hostinfo.SettingsResponse, error) {
 	f.lastSettings = request
-	f.settingsResponse = hostinfo.SettingsResponse{PublicIPLookupEnabled: request.PublicIPLookupEnabled}
+	f.settingsResponse = hostinfo.SettingsResponse(request)
 	return f.settingsResponse, f.settingsError
 }
 
