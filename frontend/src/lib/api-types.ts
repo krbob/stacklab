@@ -559,6 +559,7 @@ export interface HostMetricSample {
   filesystems: HostFilesystemUsage[]
   disk_io: HostDiskIOUsage
   network: HostNetworkUsage
+  processes?: HostProcessUsage
 }
 
 export interface HostSwapUsage {
@@ -618,6 +619,21 @@ export interface HostNetworkInterfaceUsage {
   tx_bytes: number
   rx_bytes_per_sec: number
   tx_bytes_per_sec: number
+}
+
+export interface HostProcessUsage {
+  total: number
+  items: HostProcessInfo[]
+}
+
+export interface HostProcessInfo {
+  pid: number
+  user: string
+  state: string
+  cpu_percent: number
+  memory_bytes: number
+  memory_percent: number
+  command: string
 }
 
 export interface StacklabLogEntry {

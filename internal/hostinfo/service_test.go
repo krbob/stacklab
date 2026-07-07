@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -257,6 +258,12 @@ func TestMetricsCollectorSamplesFilesystemsAndNetworkRates(t *testing.T) {
 	if len(response.History) != 2 {
 		t.Fatalf("len(response.History) = %d, want 2", len(response.History))
 	}
+	if response.Current.Processes == nil {
+		t.Fatal("response.Current.Processes is nil")
+	}
+	if response.History[0].Processes != nil {
+		t.Fatalf("history process payload should be omitted: %#v", response.History[0].Processes)
+	}
 	if response.Current.CPU.UsagePercent != 50 {
 		t.Fatalf("response.Current.CPU.UsagePercent = %v, want 50", response.Current.CPU.UsagePercent)
 	}
@@ -289,6 +296,79 @@ func TestMetricsCollectorSamplesFilesystemsAndNetworkRates(t *testing.T) {
 	}
 	if len(response.Current.Network.Interfaces) != 1 || response.Current.Network.Interfaces[0].Name != "eth0" {
 		t.Fatalf("unexpected interfaces: %#v", response.Current.Network.Interfaces)
+	}
+}
+
+func TestParseProcessStat(t *testing.T) {
+	t.Parallel()
+
+	sample, ok := parseProcessStat(123, processStatLine(123, "worker name", "R", 10, 7, 3), 4096)
+	if !ok {
+		t.Fatal("parseProcessStat() returned false")
+	}
+	if sample.pid != 123 || sample.command != "worker name" || sample.state != "R" {
+		t.Fatalf("unexpected process identity: %#v", sample)
+	}
+	if sample.ticks != 17 {
+		t.Fatalf("sample.ticks = %d, want 17", sample.ticks)
+	}
+	if sample.rssBytes != 12_288 {
+		t.Fatalf("sample.rssBytes = %d, want 12288", sample.rssBytes)
+	}
+}
+
+func TestMetricsCollectorReadsTopProcesses(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	procDir := filepath.Join(tempDir, "proc")
+	if err := os.MkdirAll(procDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(proc) error = %v", err)
+	}
+
+	memTotal := uint64(os.Getpagesize() * 4000)
+	collector := newMetricsCollector(t.TempDir(), procDir)
+
+	if err := os.WriteFile(filepath.Join(procDir, "stat"), []byte("cpu  100 0 0 100 0 0 0 0 0 0\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(stat) error = %v", err)
+	}
+	writeProcessFixture(t, procDir, 101, "stacklab", "S", 10, 5, 1000)
+	writeProcessFixture(t, procDir, 202, "busy worker", "R", 20, 10, 2000)
+
+	first := collector.readProcessUsage(map[string]uint64{"MemTotal": memTotal})
+	if first.Total != 2 {
+		t.Fatalf("first.Total = %d, want 2", first.Total)
+	}
+	if len(first.Items) != 2 {
+		t.Fatalf("len(first.Items) = %d, want 2: %#v", len(first.Items), first.Items)
+	}
+	if first.Items[0].CPUPercent != 0 {
+		t.Fatalf("first CPUPercent = %v, want 0", first.Items[0].CPUPercent)
+	}
+
+	if err := os.WriteFile(filepath.Join(procDir, "stat"), []byte("cpu  200 0 0 200 0 0 0 0 0 0\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(stat) error = %v", err)
+	}
+	writeProcessFixture(t, procDir, 101, "stacklab", "S", 20, 15, 1000)
+	writeProcessFixture(t, procDir, 202, "busy worker", "R", 80, 60, 2000)
+
+	second := collector.readProcessUsage(map[string]uint64{"MemTotal": memTotal})
+	if len(second.Items) != 2 {
+		t.Fatalf("len(second.Items) = %d, want 2: %#v", len(second.Items), second.Items)
+	}
+	top := second.Items[0]
+	if top.PID != 202 || top.Command != "busy worker" || top.State != "R" {
+		t.Fatalf("unexpected top process: %#v", top)
+	}
+	wantCPU := roundFloat((float64(110) / float64(200)) * float64(runtime.NumCPU()) * 100)
+	if top.CPUPercent != wantCPU {
+		t.Fatalf("top.CPUPercent = %v, want %v", top.CPUPercent, wantCPU)
+	}
+	if top.MemoryBytes != uint64(os.Getpagesize()*2000) || top.MemoryPercent != 50 {
+		t.Fatalf("unexpected top memory: %#v", top)
+	}
+	if top.User == "" {
+		t.Fatal("top.User is empty")
 	}
 }
 
@@ -670,4 +750,31 @@ func writeMetricsProcFixture(t *testing.T, procDir, statLine string, eth0RXBytes
 			t.Fatalf("WriteFile(%s) error = %v", name, err)
 		}
 	}
+}
+
+func writeProcessFixture(t *testing.T, procDir string, pid int, command, state string, utime, stime uint64, rssPages int64) {
+	t.Helper()
+
+	processDir := filepath.Join(procDir, strconv.Itoa(pid))
+	if err := os.MkdirAll(processDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(process %d) error = %v", pid, err)
+	}
+	if err := os.WriteFile(filepath.Join(processDir, "stat"), []byte(processStatLine(pid, command, state, utime, stime, rssPages)), 0o644); err != nil {
+		t.Fatalf("WriteFile(process stat %d) error = %v", pid, err)
+	}
+	if err := os.WriteFile(filepath.Join(processDir, "comm"), []byte(command+"\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(process comm %d) error = %v", pid, err)
+	}
+}
+
+func processStatLine(pid int, command, state string, utime, stime uint64, rssPages int64) string {
+	fields := []string{
+		state,
+		"0", "0", "0", "0", "0", "0", "0", "0", "0", "0",
+		strconv.FormatUint(utime, 10),
+		strconv.FormatUint(stime, 10),
+		"0", "0", "20", "0", "1", "0", "0", "0",
+		strconv.FormatInt(rssPages, 10),
+	}
+	return strconv.Itoa(pid) + " (" + command + ") " + strings.Join(fields, " ") + "\n"
 }

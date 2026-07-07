@@ -56,6 +56,7 @@ type HostMetricSample struct {
 	Filesystems  []FilesystemUsage `json:"filesystems"`
 	DiskIO       DiskIOUsage       `json:"disk_io"`
 	Network      NetworkUsage      `json:"network"`
+	Processes    *ProcessUsage     `json:"processes,omitempty"`
 }
 
 type CPUUsage struct {
@@ -136,6 +137,21 @@ type NetworkInterfaceUsage struct {
 	TXBytes       uint64  `json:"tx_bytes"`
 	RXBytesPerSec float64 `json:"rx_bytes_per_sec"`
 	TXBytesPerSec float64 `json:"tx_bytes_per_sec"`
+}
+
+type ProcessUsage struct {
+	Total int           `json:"total"`
+	Items []ProcessInfo `json:"items"`
+}
+
+type ProcessInfo struct {
+	PID           int     `json:"pid"`
+	User          string  `json:"user"`
+	State         string  `json:"state"`
+	CPUPercent    float64 `json:"cpu_percent"`
+	MemoryBytes   uint64  `json:"memory_bytes"`
+	MemoryPercent float64 `json:"memory_percent"`
+	Command       string  `json:"command"`
 }
 
 type LogsQuery struct {

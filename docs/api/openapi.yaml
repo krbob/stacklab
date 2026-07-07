@@ -1661,6 +1661,8 @@ components:
           $ref: '#/components/schemas/HostDiskIO'
         network:
           $ref: '#/components/schemas/HostNetwork'
+        processes:
+          $ref: '#/components/schemas/HostProcesses'
       required: [sampled_at, cpu, memory, swap, temperatures, filesystems, disk_io, network]
     HostSwap:
       type: object
@@ -1795,6 +1797,37 @@ components:
           type: number
           format: double
       required: [name, rx_bytes, tx_bytes, rx_bytes_per_sec, tx_bytes_per_sec]
+    HostProcesses:
+      type: object
+      properties:
+        total:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/HostProcess'
+      required: [total, items]
+    HostProcess:
+      type: object
+      properties:
+        pid:
+          type: integer
+        user:
+          type: string
+        state:
+          type: string
+        cpu_percent:
+          type: number
+          format: double
+        memory_bytes:
+          type: integer
+          format: int64
+        memory_percent:
+          type: number
+          format: double
+        command:
+          type: string
+      required: [pid, user, state, cpu_percent, memory_bytes, memory_percent, command]
     StacklabLogsResponse:
       type: object
       properties:

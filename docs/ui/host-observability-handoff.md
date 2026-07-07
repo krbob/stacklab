@@ -76,6 +76,8 @@ Confirmed metrics:
 - public IP address in the Network card when lookup succeeds
 - disk read/write throughput in the Storage card, including the most active
   top-level block device
+- top processes panel with read-only PID, user, CPU %, memory, state, and command
+  name; it does not expose full command-line arguments
 - mounted filesystems with percent, used/total bytes, mount point, device, and filesystem type
 - duplicate bind mounts of the same physical filesystem are collapsed so
   `systemd` sandbox paths such as `/etc`, `/usr`, or the Stacklab root do not
@@ -93,6 +95,8 @@ Sampling behavior:
 - leaving `/host` or hiding the browser tab stops the frontend polling; after the active TTL expires, the backend returns to the background interval
 - history is an in-memory `30m` ring buffer
 - history is pruned by timestamp, so mixed `1s`/`30s` sampling still reports a real 30-minute window
+- process metrics are current-only and are omitted from history samples to keep
+  incremental polling small
 - there is no SQLite persistence in v1
 
 Dashdot parity decisions:
@@ -105,6 +109,8 @@ Dashdot parity decisions:
 - show network interface throughput from byte counters
 - show public IP through an asynchronous cached lookup while `/host` is active;
   failures are silent and do not block local host metrics
+- show a small htop-style process list from `/proc`, with local CPU/RAM sorting
+  and no process management actions
 - filter Docker bridge/veth-style virtual interfaces from the primary dashboard view
 - show CPU temperature/sensors directly from `/sys/class/hwmon` and
   `/sys/class/thermal` without requiring `lm-sensors`
@@ -114,6 +120,9 @@ Dashdot parity decisions:
 Backlog candidates:
 
 - GPU usage
+- per-process disk I/O
+- process tree or process actions, if we ever explicitly choose to make `/host`
+  more than read-only observability
 - optional speedtest integration
 - configurable filesystem include/exclude list if real deployments need it
 

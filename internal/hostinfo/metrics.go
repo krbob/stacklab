@@ -24,6 +24,8 @@ const (
 	metricsActiveTTL                = 15 * time.Second
 	metricsHistoryWindow            = 30 * time.Minute
 	metricsMaxSamples               = int(metricsHistoryWindow / metricsActiveSampleInterval)
+	processesMaxItems               = 30
+	processesPerMetricLimit         = 15
 	publicIPCacheTTL                = 10 * time.Minute
 	publicIPFailureRetryInterval    = time.Minute
 	publicIPFetchTimeout            = 2 * time.Second
@@ -43,16 +45,21 @@ type MetricsCollector struct {
 	statfs             func(string, *syscall.Statfs_t) error
 	wakeCh             chan struct{}
 
-	sampleMu      sync.Mutex
-	mu            sync.RWMutex
-	samples       []HostMetricSample
-	activeUntil   time.Time
-	lastCPU       cpuSample
-	hasLastCPU    bool
-	lastDiskIO    map[string]diskIOCounter
-	lastDiskIOAt  time.Time
-	lastNetwork   map[string]networkCounter
-	lastNetworkAt time.Time
+	sampleMu             sync.Mutex
+	mu                   sync.RWMutex
+	samples              []HostMetricSample
+	latestProcesses      *ProcessUsage
+	activeUntil          time.Time
+	lastCPU              cpuSample
+	hasLastCPU           bool
+	lastDiskIO           map[string]diskIOCounter
+	lastDiskIOAt         time.Time
+	lastNetwork          map[string]networkCounter
+	lastNetworkAt        time.Time
+	lastProcesses        map[int]processCPUCounter
+	lastProcessSystemCPU uint64
+	usernamesByUID       map[uint32]string
+	usernamesLoaded      bool
 
 	publicIPMu              sync.Mutex
 	publicIP                string
@@ -69,6 +76,18 @@ type diskIOCounter struct {
 type networkCounter struct {
 	rxBytes uint64
 	txBytes uint64
+}
+
+type processCPUCounter struct {
+	ticks uint64
+}
+
+type processStatSample struct {
+	pid      int
+	command  string
+	state    string
+	ticks    uint64
+	rssBytes uint64
 }
 
 type mountInfo struct {
@@ -101,6 +120,7 @@ func newMetricsCollector(rootDir, procRoot string) *MetricsCollector {
 		wakeCh:             make(chan struct{}, 1),
 		lastDiskIO:         map[string]diskIOCounter{},
 		lastNetwork:        map[string]networkCounter{},
+		lastProcesses:      map[int]processCPUCounter{},
 		publicIPResolver:   defaultPublicIPResolver,
 	}
 }
@@ -131,12 +151,14 @@ func (c *MetricsCollector) Snapshot(query MetricsQuery) MetricsResponse {
 	now := c.now().UTC()
 	c.mu.RLock()
 	allHistory := append([]HostMetricSample(nil), c.samples...)
+	processes := cloneProcessUsage(c.latestProcesses)
 	interval := c.currentIntervalLocked(now)
 	c.mu.RUnlock()
 
 	var current *HostMetricSample
 	if len(allHistory) > 0 {
 		currentSample := allHistory[len(allHistory)-1]
+		currentSample.Processes = processes
 		current = &currentSample
 	}
 	history := allHistory
@@ -210,8 +232,11 @@ func (c *MetricsCollector) sampleAndStore() {
 	defer c.sampleMu.Unlock()
 
 	sample := c.readSample()
+	processes := sample.Processes
+	sample.Processes = nil
 
 	c.mu.Lock()
+	c.latestProcesses = processes
 	c.samples = append(c.samples, sample)
 	c.pruneSamplesLocked(sample.SampledAt)
 	if len(c.samples) > c.maxSamples {
@@ -243,6 +268,7 @@ func (c *MetricsCollector) readSample() HostMetricSample {
 		Filesystems:  c.readFilesystems(),
 		DiskIO:       c.readDiskIOUsage(now),
 		Network:      c.readNetworkUsage(now),
+		Processes:    c.readProcessUsage(memInfo),
 	}
 }
 
@@ -279,6 +305,280 @@ func (c *MetricsCollector) readCPUPercent() float64 {
 	}
 
 	return roundFloat((float64(totalDelta-idleDelta) / float64(totalDelta)) * 100)
+}
+
+func cloneProcessUsage(usage *ProcessUsage) *ProcessUsage {
+	if usage == nil {
+		return nil
+	}
+	cloned := ProcessUsage{
+		Total: usage.Total,
+		Items: append([]ProcessInfo(nil), usage.Items...),
+	}
+	if cloned.Items == nil {
+		cloned.Items = []ProcessInfo{}
+	}
+	return &cloned
+}
+
+func (c *MetricsCollector) readProcessUsage(memInfo map[string]uint64) *ProcessUsage {
+	entries, err := os.ReadDir(c.procRoot)
+	if err != nil {
+		return &ProcessUsage{Items: []ProcessInfo{}}
+	}
+
+	systemSample, hasSystemSample := readProcCPUSample(c.procRoot)
+	systemDelta := uint64(0)
+	if hasSystemSample && c.lastProcessSystemCPU > 0 && systemSample.total >= c.lastProcessSystemCPU {
+		systemDelta = systemSample.total - c.lastProcessSystemCPU
+	}
+
+	memTotal := memInfo["MemTotal"]
+	pageSize := os.Getpagesize()
+	currentCounters := map[int]processCPUCounter{}
+	userCache := map[uint32]string{}
+	processes := []ProcessInfo{}
+
+	for _, entry := range entries {
+		if !entry.IsDir() || !isNumericProcessDir(entry.Name()) {
+			continue
+		}
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil || pid <= 0 {
+			continue
+		}
+
+		processDir := filepath.Join(c.procRoot, entry.Name())
+		sample, ok := c.readProcessStat(pid, pageSize)
+		if !ok {
+			continue
+		}
+		currentCounters[pid] = processCPUCounter{ticks: sample.ticks}
+
+		cpuPercent := 0.0
+		if systemDelta > 0 {
+			if previous, ok := c.lastProcesses[pid]; ok && sample.ticks >= previous.ticks {
+				cpuPercent = roundFloat((float64(sample.ticks-previous.ticks) / float64(systemDelta)) * float64(runtime.NumCPU()) * 100)
+			}
+		}
+
+		memoryPercent := 0.0
+		if memTotal > 0 {
+			memoryPercent = roundFloat((float64(sample.rssBytes) / float64(memTotal)) * 100)
+		}
+
+		processes = append(processes, ProcessInfo{
+			PID:           pid,
+			User:          c.processOwner(processDir, userCache),
+			State:         sample.state,
+			CPUPercent:    cpuPercent,
+			MemoryBytes:   sample.rssBytes,
+			MemoryPercent: memoryPercent,
+			Command:       c.readProcessCommand(pid, sample.command),
+		})
+	}
+
+	if hasSystemSample {
+		c.lastProcessSystemCPU = systemSample.total
+	}
+	c.lastProcesses = currentCounters
+
+	return &ProcessUsage{
+		Total: len(processes),
+		Items: selectTopProcesses(processes),
+	}
+}
+
+func (c *MetricsCollector) readProcessStat(pid int, pageSize int) (processStatSample, bool) {
+	data, err := os.ReadFile(filepath.Join(c.procRoot, strconv.Itoa(pid), "stat"))
+	if err != nil {
+		return processStatSample{}, false
+	}
+	return parseProcessStat(pid, string(data), pageSize)
+}
+
+func parseProcessStat(pid int, statLine string, pageSize int) (processStatSample, bool) {
+	left := strings.Index(statLine, "(")
+	right := strings.LastIndex(statLine, ")")
+	if left < 0 || right <= left {
+		return processStatSample{}, false
+	}
+
+	fields := strings.Fields(statLine[right+1:])
+	if len(fields) < 22 {
+		return processStatSample{}, false
+	}
+
+	utime, err := strconv.ParseUint(fields[11], 10, 64)
+	if err != nil {
+		return processStatSample{}, false
+	}
+	stime, err := strconv.ParseUint(fields[12], 10, 64)
+	if err != nil {
+		return processStatSample{}, false
+	}
+	rssPages, err := strconv.ParseInt(fields[21], 10, 64)
+	if err != nil {
+		return processStatSample{}, false
+	}
+
+	rssBytes := uint64(0)
+	if rssPages > 0 && pageSize > 0 {
+		rssBytes = uint64(rssPages) * uint64(pageSize)
+	}
+
+	return processStatSample{
+		pid:      pid,
+		command:  sanitizeProcessCommand(statLine[left+1:right], pid),
+		state:    fields[0],
+		ticks:    utime + stime,
+		rssBytes: rssBytes,
+	}, true
+}
+
+func (c *MetricsCollector) readProcessCommand(pid int, fallback string) string {
+	raw := readTrimmedFile(filepath.Join(c.procRoot, strconv.Itoa(pid), "comm"))
+	if strings.TrimSpace(raw) != "" {
+		return sanitizeProcessCommand(raw, pid)
+	}
+	return fallback
+}
+
+func sanitizeProcessCommand(command string, pid int) string {
+	command = strings.TrimSpace(strings.ReplaceAll(command, "\x00", " "))
+	if command == "" {
+		return "pid " + strconv.Itoa(pid)
+	}
+	const maxCommandLength = 80
+	if len(command) > maxCommandLength {
+		return strings.TrimSpace(command[:maxCommandLength])
+	}
+	return command
+}
+
+func isNumericProcessDir(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, char := range name {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func (c *MetricsCollector) processOwner(processDir string, cache map[uint32]string) string {
+	info, err := os.Stat(processDir)
+	if err != nil {
+		return ""
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return ""
+	}
+	uid := stat.Uid
+	if cached, ok := cache[uid]; ok {
+		return cached
+	}
+
+	uidString := strconv.FormatUint(uint64(uid), 10)
+	if !c.usernamesLoaded {
+		c.usernamesByUID = readPasswdUsernames("/etc/passwd")
+		c.usernamesLoaded = true
+	}
+	username := c.usernamesByUID[uid]
+	if username == "" {
+		username = uidString
+	}
+	cache[uid] = username
+	return username
+}
+
+func readPasswdUsernames(path string) map[uint32]string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return map[uint32]string{}
+	}
+	usernames := map[uint32]string{}
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Split(line, ":")
+		if len(fields) < 3 || fields[0] == "" {
+			continue
+		}
+		uid64, err := strconv.ParseUint(fields[2], 10, 32)
+		if err != nil {
+			continue
+		}
+		usernames[uint32(uid64)] = fields[0]
+	}
+	return usernames
+}
+
+func selectTopProcesses(processes []ProcessInfo) []ProcessInfo {
+	if len(processes) == 0 {
+		return []ProcessInfo{}
+	}
+
+	selected := map[int]ProcessInfo{}
+	byCPU := append([]ProcessInfo(nil), processes...)
+	sortProcessInfos(byCPU, "cpu")
+	addTopProcesses(selected, byCPU, processesPerMetricLimit)
+
+	byMemory := append([]ProcessInfo(nil), processes...)
+	sortProcessInfos(byMemory, "memory")
+	addTopProcesses(selected, byMemory, processesPerMetricLimit)
+
+	result := make([]ProcessInfo, 0, len(selected))
+	for _, process := range selected {
+		result = append(result, process)
+	}
+	sortProcessInfos(result, "cpu")
+	if len(result) > processesMaxItems {
+		return append([]ProcessInfo(nil), result[:processesMaxItems]...)
+	}
+	return result
+}
+
+func addTopProcesses(selected map[int]ProcessInfo, processes []ProcessInfo, limit int) {
+	if limit > len(processes) {
+		limit = len(processes)
+	}
+	for i := 0; i < limit; i++ {
+		selected[processes[i].PID] = processes[i]
+	}
+}
+
+func sortProcessInfos(processes []ProcessInfo, by string) {
+	sort.SliceStable(processes, func(i, j int) bool {
+		left := processes[i]
+		right := processes[j]
+		switch by {
+		case "memory":
+			if left.MemoryBytes != right.MemoryBytes {
+				return left.MemoryBytes > right.MemoryBytes
+			}
+			if left.CPUPercent != right.CPUPercent {
+				return left.CPUPercent > right.CPUPercent
+			}
+		default:
+			if left.CPUPercent != right.CPUPercent {
+				return left.CPUPercent > right.CPUPercent
+			}
+			if left.MemoryBytes != right.MemoryBytes {
+				return left.MemoryBytes > right.MemoryBytes
+			}
+		}
+		if left.Command != right.Command {
+			return left.Command < right.Command
+		}
+		return left.PID < right.PID
+	})
 }
 
 func (c *MetricsCollector) readTemperatureUsage() TemperatureUsage {

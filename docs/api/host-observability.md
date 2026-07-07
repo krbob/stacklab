@@ -14,7 +14,7 @@ It is intentionally narrower than a full host monitoring API.
 - help the operator distinguish host problems from stack problems
 - expose Stacklab's own version and runtime context clearly
 - provide an operator dashboard for CPU, CPU temperature, memory, filesystems,
-  disk I/O, and network throughput
+  disk I/O, network throughput, and top process visibility
 - make Stacklab service logs available in the browser without exposing arbitrary host logs
 
 ## Platform Caveat
@@ -189,7 +189,7 @@ Response:
     "network": {
       "total_rx_bytes_per_sec": 2048,
       "total_tx_bytes_per_sec": 1024,
-      "public_ip": "203.0.113.10",
+      "public_ip": "8.8.8.8",
       "interfaces": [
         {
           "name": "eth0",
@@ -197,6 +197,20 @@ Response:
           "tx_bytes": 98765432,
           "rx_bytes_per_sec": 2048,
           "tx_bytes_per_sec": 1024
+        }
+      ]
+    },
+    "processes": {
+      "total": 118,
+      "items": [
+        {
+          "pid": 1234,
+          "user": "stacklab",
+          "state": "S",
+          "cpu_percent": 12.5,
+          "memory_bytes": 268435456,
+          "memory_percent": 3.1,
+          "command": "stacklab"
         }
       ]
     }
@@ -246,6 +260,14 @@ Notes:
   while the dashboard is active, cached for `10m`, and omitted when the lookup
   fails or returns a private/non-global address; lookup failures never block host
   metric sampling
+- process metrics are read from `/proc/<pid>/stat`, `/proc/<pid>/comm`, and
+  process directory ownership; Stacklab does not read or return full process
+  command lines, so process arguments are not exposed in the dashboard
+- process `cpu_percent` is based on deltas between samples; the first sample can
+  report `0`, and a busy multi-threaded process can exceed `100%` on multi-core
+  hosts
+- `processes` is returned only on `current`; history samples omit it to keep the
+  30-minute metrics window small
 - v1 does not run speedtest checks
 - Docker bridge/veth-style virtual interfaces are filtered out of the dashboard totals
 - GPU metrics remain a backlog candidate, not part of this contract

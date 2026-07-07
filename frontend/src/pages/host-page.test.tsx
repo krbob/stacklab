@@ -141,6 +141,29 @@ const metrics: HostMetricsResponse = {
         },
       ],
     },
+    processes: {
+      total: 3,
+      items: [
+        {
+          pid: 1234,
+          user: 'stacklab',
+          state: 'S',
+          cpu_percent: 12.5,
+          memory_bytes: 256 * 1024 * 1024,
+          memory_percent: 3.1,
+          command: 'stacklab',
+        },
+        {
+          pid: 2222,
+          user: 'postgres',
+          state: 'R',
+          cpu_percent: 2,
+          memory_bytes: 1024 * 1024 * 1024,
+          memory_percent: 12.5,
+          command: 'postgres',
+        },
+      ],
+    },
   },
   history: [
     {
@@ -245,6 +268,11 @@ describe('HostPage', () => {
     expect(screen.getAllByText(/2\.0 KiB\/s/).length).toBeGreaterThan(0)
     expect(screen.getByText('Public IP')).toBeInTheDocument()
     expect(screen.getByText('8.8.8.8')).toBeInTheDocument()
+    expect(screen.getByText('Top processes')).toBeInTheDocument()
+    expect(screen.getByText('3 visible')).toBeInTheDocument()
+    expect(screen.getAllByText('postgres').length).toBeGreaterThan(0)
+    expect(screen.getByText('1234')).toBeInTheDocument()
+    expect(screen.getAllByText('12.5%').length).toBeGreaterThan(0)
     expect(await screen.findByText('Started HTTP server')).toBeInTheDocument()
     expect(screen.getByText('Failed to bind port')).toBeInTheDocument()
 
