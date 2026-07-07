@@ -29,6 +29,7 @@ type Config struct {
 	WorkspaceAdminHelperPath     string
 	WorkspaceAdminUseSudo        bool
 	WorkspaceAdminRepairStrategy string
+	HostPublicIPLookupEnabled    bool
 	SessionCookieName            string
 	SessionIdleTimeout           time.Duration
 	SessionAbsoluteLifetime      time.Duration
@@ -64,6 +65,7 @@ func Load() Config {
 		WorkspaceAdminHelperPath:     getenv("STACKLAB_WORKSPACE_ADMIN_HELPER_PATH", ""),
 		WorkspaceAdminUseSudo:        parseBool(getenv("STACKLAB_WORKSPACE_ADMIN_USE_SUDO", "false")),
 		WorkspaceAdminRepairStrategy: getenv("STACKLAB_WORKSPACE_ADMIN_REPAIR_STRATEGY", "ownership"),
+		HostPublicIPLookupEnabled:    parseBool(getenv("STACKLAB_HOST_PUBLIC_IP_LOOKUP_ENABLED", "false")),
 		SessionCookieName:            getenv("STACKLAB_SESSION_COOKIE_NAME", "stacklab_session"),
 		SessionIdleTimeout:           parseDuration(getenv("STACKLAB_SESSION_IDLE_TIMEOUT", "12h"), 12*time.Hour),
 		SessionAbsoluteLifetime:      parseDuration(getenv("STACKLAB_SESSION_ABSOLUTE_LIFETIME", "168h"), 7*24*time.Hour),

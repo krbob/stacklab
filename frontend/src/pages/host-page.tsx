@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { Eye, EyeOff } from 'lucide-react'
 import { getHostMetrics, getHostOverview, getStacklabLogs } from '@/lib/api-client'
 import type { HostMetricSample, HostMetricsResponse, HostOverviewResponse, StacklabLogEntry } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
@@ -333,6 +334,7 @@ function HostMetricsDashboard({
   error: Error | null
 }) {
   const [processSort, setProcessSort] = useState<ProcessSortKey>('cpu')
+  const [publicIPVisible, setPublicIPVisible] = useState(false)
   const current = metrics?.current ?? null
   const history = (metrics?.history ?? []).slice(-180)
 
@@ -432,7 +434,18 @@ function HostMetricsDashboard({
             {current.network.public_ip && (
               <div className="flex min-w-0 justify-between gap-2">
                 <span className="shrink-0">Public IP</span>
-                <span className="min-w-0 break-all text-right text-[var(--text)]">{current.network.public_ip}</span>
+                <span className="flex min-w-0 items-center justify-end gap-2 text-right">
+                  <span className="min-w-0 break-all text-[var(--text)]">{publicIPVisible ? current.network.public_ip : maskPublicIP(current.network.public_ip)}</span>
+                  <button
+                    type="button"
+                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded border border-[var(--panel-border)] text-[var(--muted)] transition hover:text-[var(--text)]"
+                    onClick={() => setPublicIPVisible((visible) => !visible)}
+                    aria-label={publicIPVisible ? 'Hide public IP' : 'Show public IP'}
+                    title={publicIPVisible ? 'Hide public IP' : 'Show public IP'}
+                  >
+                    {publicIPVisible ? <EyeOff className="h-3.5 w-3.5" aria-hidden="true" /> : <Eye className="h-3.5 w-3.5" aria-hidden="true" />}
+                  </button>
+                </span>
               </div>
             )}
           </div>
@@ -788,6 +801,10 @@ function formatTemperature(value: number): string {
 
 function formatPercent(value: number): string {
   return `${Math.max(0, value).toFixed(1)}%`
+}
+
+function maskPublicIP(value: string): string {
+  return value.includes(':') ? '****:****:****' : '***.***.***.***'
 }
 
 function formatRate(bytesPerSecond: number): string {

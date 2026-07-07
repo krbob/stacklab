@@ -44,6 +44,8 @@ type cpuSample struct {
 }
 
 func NewService(cfg config.Config, startedAt time.Time) *Service {
+	metrics := newMetricsCollector(cfg.RootDir, "/proc")
+	metrics.publicIPLookupEnabled = cfg.HostPublicIPLookupEnabled
 	return &Service{
 		cfg:              cfg,
 		startedAt:        startedAt.UTC(),
@@ -51,7 +53,7 @@ func NewService(cfg config.Config, startedAt time.Time) *Service {
 		osReleasePath:    "/etc/os-release",
 		stacklabUnitName: cfg.SystemdUnitName,
 		runCommand:       defaultCommandRunner,
-		metrics:          newMetricsCollector(cfg.RootDir, "/proc"),
+		metrics:          metrics,
 	}
 }
 

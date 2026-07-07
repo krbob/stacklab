@@ -372,6 +372,42 @@ func TestMetricsCollectorReadsTopProcesses(t *testing.T) {
 	}
 }
 
+func TestMetricsCollectorThrottlesProcessSampling(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	procDir := filepath.Join(tempDir, "proc")
+	if err := os.MkdirAll(procDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(proc) error = %v", err)
+	}
+
+	collector := newMetricsCollector(t.TempDir(), procDir)
+	collector.processSampleInterval = 5 * time.Second
+	memInfo := map[string]uint64{"MemTotal": uint64(os.Getpagesize() * 4000)}
+	base := time.Unix(1_712_598_000, 0).UTC()
+
+	if err := os.WriteFile(filepath.Join(procDir, "stat"), []byte("cpu  100 0 0 100 0 0 0 0 0 0\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(stat) error = %v", err)
+	}
+	writeProcessFixture(t, procDir, 101, "stacklab", "S", 10, 5, 1000)
+
+	first := collector.readProcessUsageForSample(base, memInfo)
+	if first.Total != 1 {
+		t.Fatalf("first.Total = %d, want 1", first.Total)
+	}
+
+	writeProcessFixture(t, procDir, 202, "new worker", "R", 20, 10, 2000)
+	cached := collector.readProcessUsageForSample(base.Add(time.Second), memInfo)
+	if cached.Total != 1 {
+		t.Fatalf("cached.Total = %d, want 1 while process cache is fresh", cached.Total)
+	}
+
+	refreshed := collector.readProcessUsageForSample(base.Add(6*time.Second), memInfo)
+	if refreshed.Total != 2 {
+		t.Fatalf("refreshed.Total = %d, want 2 after process cache expires", refreshed.Total)
+	}
+}
+
 func TestMetricsCollectorDedupesSystemdBindMountFilesystems(t *testing.T) {
 	t.Parallel()
 
@@ -530,6 +566,7 @@ func TestNormalizePublicIP(t *testing.T) {
 
 func TestMetricsCollectorRefreshesPublicIPAsynchronously(t *testing.T) {
 	collector := newMetricsCollector(t.TempDir(), t.TempDir())
+	collector.publicIPLookupEnabled = true
 	now := time.Unix(1_712_598_000, 0).UTC()
 	collector.now = func() time.Time {
 		return now
@@ -560,10 +597,29 @@ func TestMetricsCollectorRefreshesPublicIPAsynchronously(t *testing.T) {
 	t.Fatalf("cachedPublicIP() did not return refreshed IP")
 }
 
+func TestMetricsCollectorDoesNotRefreshPublicIPWhenDisabled(t *testing.T) {
+	t.Parallel()
+
+	collector := newMetricsCollector(t.TempDir(), t.TempDir())
+	called := false
+	collector.publicIPResolver = func(ctx context.Context) (string, error) {
+		called = true
+		return "8.8.8.8", nil
+	}
+
+	if got := collector.cachedPublicIP(time.Now().UTC(), true); got != "" {
+		t.Fatalf("cachedPublicIP(disabled) = %q, want empty", got)
+	}
+	if called {
+		t.Fatal("public IP resolver was called while lookup was disabled")
+	}
+}
+
 func TestMetricsCollectorDoesNotRefreshPublicIPWhenInactive(t *testing.T) {
 	t.Parallel()
 
 	collector := newMetricsCollector(t.TempDir(), t.TempDir())
+	collector.publicIPLookupEnabled = true
 	called := false
 	collector.publicIPResolver = func(ctx context.Context) (string, error) {
 		called = true
@@ -575,6 +631,29 @@ func TestMetricsCollectorDoesNotRefreshPublicIPWhenInactive(t *testing.T) {
 	}
 	if called {
 		t.Fatal("public IP resolver was called while refresh was disabled")
+	}
+}
+
+func TestMetricsCollectorPublicIPRefreshRecoversFromPanic(t *testing.T) {
+	t.Parallel()
+
+	collector := newMetricsCollector(t.TempDir(), t.TempDir())
+	collector.publicIPLookupEnabled = true
+	collector.publicIPRefreshInFlight = true
+	collector.publicIPResolver = func(ctx context.Context) (string, error) {
+		panic("resolver panic")
+	}
+
+	collector.refreshPublicIP()
+
+	if collector.publicIPRefreshInFlight {
+		t.Fatal("publicIPRefreshInFlight = true after panic")
+	}
+	if collector.publicIPCheckedAt.IsZero() {
+		t.Fatal("publicIPCheckedAt was not updated after panic")
+	}
+	if collector.publicIP != "" {
+		t.Fatalf("publicIP = %q, want empty after panic", collector.publicIP)
 	}
 }
 

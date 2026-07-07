@@ -73,7 +73,8 @@ Confirmed metrics:
 - swap usage in the Memory card, including an explicit disabled state when no
   swap is configured
 - aggregate network RX/TX throughput and per-interface RX/TX
-- public IP address in the Network card when lookup succeeds
+- public IP address in the Network card when opt-in lookup succeeds; the value
+  is masked until explicitly revealed
 - disk read/write throughput in the Storage card, including the most active
   top-level block device
 - top processes panel with read-only PID, user, CPU %, memory, state, and command
@@ -95,8 +96,8 @@ Sampling behavior:
 - leaving `/host` or hiding the browser tab stops the frontend polling; after the active TTL expires, the backend returns to the background interval
 - history is an in-memory `30m` ring buffer
 - history is pruned by timestamp, so mixed `1s`/`30s` sampling still reports a real 30-minute window
-- process metrics are current-only and are omitted from history samples to keep
-  incremental polling small
+- process metrics are current-only, throttled below the active `1s` host metrics
+  loop, and omitted from history samples to keep incremental polling small
 - there is no SQLite persistence in v1
 
 Dashdot parity decisions:
@@ -107,8 +108,8 @@ Dashdot parity decisions:
   normal Stacklab installs
 - skip network filesystems in v1 to avoid blocking dashboard sampling on an unavailable NAS/share
 - show network interface throughput from byte counters
-- show public IP through an asynchronous cached lookup while `/host` is active;
-  failures are silent and do not block local host metrics
+- show public IP through an opt-in asynchronous cached lookup while `/host` is
+  active; failures are silent and do not block local host metrics
 - show a small htop-style process list from `/proc`, with local CPU/RAM sorting
   and no process management actions
 - filter Docker bridge/veth-style virtual interfaces from the primary dashboard view

@@ -87,6 +87,7 @@ Recommended environment variables:
 | `STACKLAB_DATA_DIR` | `/var/lib/stacklab` | SQLite and runtime files |
 | `STACKLAB_HTTP_ADDR` | `127.0.0.1:8080` | Bind address |
 | `STACKLAB_LOG_LEVEL` | `info` | Log level |
+| `STACKLAB_HOST_PUBLIC_IP_LOOKUP_ENABLED` | `false` | Opt-in public IP lookup for the Host dashboard |
 | `HOME` | `/var/lib/stacklab/home` | Stable writable home for Compose and service runtime |
 | `DOCKER_CONFIG` | `/var/lib/stacklab/docker` | Writable Docker config path when `ProtectHome=true` |
 
@@ -118,6 +119,7 @@ Environment=STACKLAB_ROOT=/opt/stacklab
 Environment=STACKLAB_DATA_DIR=/var/lib/stacklab
 Environment=STACKLAB_HTTP_ADDR=127.0.0.1:8080
 Environment=STACKLAB_LOG_LEVEL=info
+Environment=STACKLAB_HOST_PUBLIC_IP_LOOKUP_ENABLED=false
 Environment=HOME=/var/lib/stacklab/home
 Environment=DOCKER_CONFIG=/var/lib/stacklab/docker
 ExecStart=/opt/stacklab/app/current/bin/stacklab

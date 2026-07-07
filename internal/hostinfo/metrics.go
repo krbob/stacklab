@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -26,11 +27,14 @@ const (
 	metricsMaxSamples               = int(metricsHistoryWindow / metricsActiveSampleInterval)
 	processesMaxItems               = 30
 	processesPerMetricLimit         = 15
+	processesSampleInterval         = 5 * time.Second
 	publicIPCacheTTL                = 10 * time.Minute
 	publicIPFailureRetryInterval    = time.Minute
 	publicIPFetchTimeout            = 2 * time.Second
 	publicIPLookupURL               = "https://api64.ipify.org"
 )
+
+var errPublicIPLookupPanic = errors.New("public IP lookup panic")
 
 type MetricsCollector struct {
 	procRoot           string
@@ -45,26 +49,30 @@ type MetricsCollector struct {
 	statfs             func(string, *syscall.Statfs_t) error
 	wakeCh             chan struct{}
 
-	sampleMu             sync.Mutex
-	mu                   sync.RWMutex
-	samples              []HostMetricSample
-	latestProcesses      *ProcessUsage
-	activeUntil          time.Time
-	lastCPU              cpuSample
-	hasLastCPU           bool
-	lastDiskIO           map[string]diskIOCounter
-	lastDiskIOAt         time.Time
-	lastNetwork          map[string]networkCounter
-	lastNetworkAt        time.Time
-	lastProcesses        map[int]processCPUCounter
-	lastProcessSystemCPU uint64
-	usernamesByUID       map[uint32]string
-	usernamesLoaded      bool
+	sampleMu              sync.Mutex
+	mu                    sync.RWMutex
+	samples               []HostMetricSample
+	latestProcesses       *ProcessUsage
+	activeUntil           time.Time
+	lastCPU               cpuSample
+	hasLastCPU            bool
+	lastDiskIO            map[string]diskIOCounter
+	lastDiskIOAt          time.Time
+	lastNetwork           map[string]networkCounter
+	lastNetworkAt         time.Time
+	lastProcesses         map[int]processCPUCounter
+	lastProcessSystemCPU  uint64
+	lastProcessUsage      *ProcessUsage
+	lastProcessSampledAt  time.Time
+	processSampleInterval time.Duration
+	usernamesByUID        map[uint32]string
+	usernamesLoaded       bool
 
 	publicIPMu              sync.Mutex
 	publicIP                string
 	publicIPCheckedAt       time.Time
 	publicIPRefreshInFlight bool
+	publicIPLookupEnabled   bool
 	publicIPResolver        func(context.Context) (string, error)
 }
 
@@ -107,21 +115,22 @@ type filesystemCandidate struct {
 
 func newMetricsCollector(rootDir, procRoot string) *MetricsCollector {
 	return &MetricsCollector{
-		procRoot:           procRoot,
-		sysRoot:            "/sys",
-		rootDir:            rootDir,
-		activeInterval:     metricsActiveSampleInterval,
-		backgroundInterval: metricsBackgroundSampleInterval,
-		activeTTL:          metricsActiveTTL,
-		historyWindow:      metricsHistoryWindow,
-		maxSamples:         metricsMaxSamples,
-		now:                time.Now,
-		statfs:             syscall.Statfs,
-		wakeCh:             make(chan struct{}, 1),
-		lastDiskIO:         map[string]diskIOCounter{},
-		lastNetwork:        map[string]networkCounter{},
-		lastProcesses:      map[int]processCPUCounter{},
-		publicIPResolver:   defaultPublicIPResolver,
+		procRoot:              procRoot,
+		sysRoot:               "/sys",
+		rootDir:               rootDir,
+		activeInterval:        metricsActiveSampleInterval,
+		backgroundInterval:    metricsBackgroundSampleInterval,
+		activeTTL:             metricsActiveTTL,
+		historyWindow:         metricsHistoryWindow,
+		maxSamples:            metricsMaxSamples,
+		processSampleInterval: processesSampleInterval,
+		now:                   time.Now,
+		statfs:                syscall.Statfs,
+		wakeCh:                make(chan struct{}, 1),
+		lastDiskIO:            map[string]diskIOCounter{},
+		lastNetwork:           map[string]networkCounter{},
+		lastProcesses:         map[int]processCPUCounter{},
+		publicIPResolver:      defaultPublicIPResolver,
 	}
 }
 
@@ -268,7 +277,7 @@ func (c *MetricsCollector) readSample() HostMetricSample {
 		Filesystems:  c.readFilesystems(),
 		DiskIO:       c.readDiskIOUsage(now),
 		Network:      c.readNetworkUsage(now),
-		Processes:    c.readProcessUsage(memInfo),
+		Processes:    c.readProcessUsageForSample(now, memInfo),
 	}
 }
 
@@ -319,6 +328,16 @@ func cloneProcessUsage(usage *ProcessUsage) *ProcessUsage {
 		cloned.Items = []ProcessInfo{}
 	}
 	return &cloned
+}
+
+func (c *MetricsCollector) readProcessUsageForSample(now time.Time, memInfo map[string]uint64) *ProcessUsage {
+	if c.lastProcessUsage != nil && now.Sub(c.lastProcessSampledAt) < c.processSampleInterval {
+		return cloneProcessUsage(c.lastProcessUsage)
+	}
+	usage := c.readProcessUsage(memInfo)
+	c.lastProcessUsage = cloneProcessUsage(usage)
+	c.lastProcessSampledAt = now
+	return usage
 }
 
 func (c *MetricsCollector) readProcessUsage(memInfo map[string]uint64) *ProcessUsage {
@@ -1135,6 +1154,10 @@ func (c *MetricsCollector) isActiveAt(now time.Time) bool {
 }
 
 func (c *MetricsCollector) cachedPublicIP(now time.Time, allowRefresh bool) string {
+	if !c.publicIPLookupEnabled {
+		return ""
+	}
+
 	c.publicIPMu.Lock()
 	defer c.publicIPMu.Unlock()
 
@@ -1156,21 +1179,29 @@ func (c *MetricsCollector) cachedPublicIP(now time.Time, allowRefresh bool) stri
 }
 
 func (c *MetricsCollector) refreshPublicIP() {
+	var ip string
+	var err error
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			ip = ""
+			err = errPublicIPLookupPanic
+		}
+		now := c.now().UTC()
+		c.publicIPMu.Lock()
+		defer c.publicIPMu.Unlock()
+		if err == nil {
+			if normalized, ok := normalizePublicIP(ip); ok {
+				c.publicIP = normalized
+			}
+		}
+		c.publicIPCheckedAt = now
+		c.publicIPRefreshInFlight = false
+	}()
+
 	ctx, cancel := context.WithTimeout(context.Background(), publicIPFetchTimeout)
 	defer cancel()
 
-	ip, err := c.publicIPResolver(ctx)
-	now := c.now().UTC()
-
-	c.publicIPMu.Lock()
-	defer c.publicIPMu.Unlock()
-	if err == nil {
-		if normalized, ok := normalizePublicIP(ip); ok {
-			c.publicIP = normalized
-		}
-	}
-	c.publicIPCheckedAt = now
-	c.publicIPRefreshInFlight = false
+	ip, err = c.publicIPResolver(ctx)
 }
 
 func defaultPublicIPResolver(ctx context.Context) (string, error) {
@@ -1179,7 +1210,12 @@ func defaultPublicIPResolver(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	client := &http.Client{Timeout: publicIPFetchTimeout}
+	client := &http.Client{
+		Timeout: publicIPFetchTimeout,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 	response, err := client.Do(request)
 	if err != nil {
 		return "", err

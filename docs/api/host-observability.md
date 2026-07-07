@@ -260,12 +260,17 @@ Notes:
   while the dashboard is active, cached for `10m`, and omitted when the lookup
   fails or returns a private/non-global address; lookup failures never block host
   metric sampling
+- public IP lookup is opt-in and requires
+  `STACKLAB_HOST_PUBLIC_IP_LOOKUP_ENABLED=true`; the UI masks the value until
+  the operator explicitly reveals it
 - process metrics are read from `/proc/<pid>/stat`, `/proc/<pid>/comm`, and
   process directory ownership; Stacklab does not read or return full process
   command lines, so process arguments are not exposed in the dashboard
 - process `cpu_percent` is based on deltas between samples; the first sample can
   report `0`, and a busy multi-threaded process can exceed `100%` on multi-core
   hosts
+- process collection is throttled to a slower interval than the active host
+  metrics loop to avoid a full `/proc` walk every second on busy hosts
 - `processes` is returned only on `current`; history samples omit it to keep the
   30-minute metrics window small
 - v1 does not run speedtest checks
