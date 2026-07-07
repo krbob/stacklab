@@ -53,6 +53,9 @@ export function CreateStackPage() {
   }
 
   function handleComposeChange(value: string) {
+    if (value === composeYaml) {
+      return
+    }
     if (selectedTemplate !== null) {
       setSelectedTemplate(null)
       setTemplateVariables({})

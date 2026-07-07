@@ -106,6 +106,21 @@ describe('CreateStackPage', () => {
     expect(mockCreateStack).not.toHaveBeenCalled()
   })
 
+  it('keeps template mode when the editor echoes the rendered compose value', async () => {
+    render(
+      <MemoryRouter>
+        <CreateStackPage />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(await screen.findByTestId('template-option-web-service'))
+    const editor = screen.getByLabelText('yaml-editor') as HTMLTextAreaElement
+    fireEvent.change(editor, { target: { value: editor.value } })
+
+    expect(screen.getByTestId('template-variable-HOST_PORT')).toBeInTheDocument()
+    expect(screen.getByText('Rendered compose preview')).toBeInTheDocument()
+  })
+
   it('detaches from template mode when the rendered compose is edited', async () => {
     render(
       <MemoryRouter>

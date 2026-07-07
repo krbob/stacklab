@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { EditorView, keymap } from '@codemirror/view'
-import { EditorState } from '@codemirror/state'
+import { Annotation, EditorState } from '@codemirror/state'
 import { basicSetup } from 'codemirror'
 import { yaml } from '@codemirror/lang-yaml'
 import { indentWithTab } from '@codemirror/commands'
@@ -11,6 +11,8 @@ interface YamlEditorProps {
   onChange: (value: string) => void
   readOnly?: boolean
 }
+
+const externalValueSync = Annotation.define<boolean>()
 
 export function YamlEditor({ value, onChange, readOnly = false }: YamlEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -32,7 +34,8 @@ export function YamlEditor({ value, onChange, readOnly = false }: YamlEditorProp
         amberConsole,
         keymap.of([indentWithTab]),
         EditorView.updateListener.of((update) => {
-          if (update.docChanged) {
+          const externalUpdate = update.transactions.some((transaction) => transaction.annotation(externalValueSync))
+          if (update.docChanged && !externalUpdate) {
             onChangeRef.current(update.state.doc.toString())
           }
         }),
@@ -63,6 +66,7 @@ export function YamlEditor({ value, onChange, readOnly = false }: YamlEditorProp
     if (current !== value) {
       view.dispatch({
         changes: { from: 0, to: current.length, insert: value },
+        annotations: externalValueSync.of(true),
       })
     }
   }, [value])
