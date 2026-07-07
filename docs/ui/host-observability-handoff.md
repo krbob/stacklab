@@ -71,6 +71,9 @@ Confirmed metrics:
 - disk read/write throughput in the Storage card, including the most active
   top-level block device
 - mounted filesystems with percent, used/total bytes, mount point, device, and filesystem type
+- duplicate bind mounts of the same physical filesystem are collapsed so
+  `systemd` sandbox paths such as `/etc`, `/usr`, or the Stacklab root do not
+  appear as separate disks
 - the Stacklab root filesystem is marked as primary
 
 Sampling behavior:
@@ -89,7 +92,9 @@ Sampling behavior:
 Dashdot parity decisions:
 
 - always show percentages where a percent is available
-- show host filesystems natively from `mountinfo`/`statfs`; no dashdot-style container virtual mount mapping is needed for normal Stacklab installs
+- show host filesystems natively from `mountinfo`/`statfs`, deduped by physical
+  mount identity; no dashdot-style container virtual mount mapping is needed for
+  normal Stacklab installs
 - skip network filesystems in v1 to avoid blocking dashboard sampling on an unavailable NAS/share
 - show network interface throughput from byte counters
 - filter Docker bridge/veth-style virtual interfaces from the primary dashboard view

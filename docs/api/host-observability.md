@@ -210,6 +210,10 @@ Notes:
 - the frontend polls this endpoint only while the `/host` page is visible
 - after the dashboard stops polling, active mode expires and sampling returns to the background interval
 - filesystem metrics come from Linux mount information plus `statfs`
+- filesystem metrics are deduplicated by physical mount identity
+  (`fs_type`, `major:minor`, and device/source) because package-managed
+  `systemd` services can expose Stacklab `ReadWritePaths` as repeated bind
+  mounts in `/proc/self/mountinfo`
 - swap metrics come from `SwapTotal` and `SwapFree` in `/proc/meminfo`; hosts
   without swap report zero totals
 - temperature metrics are read directly from Linux sysfs:
