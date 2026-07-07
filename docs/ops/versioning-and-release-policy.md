@@ -17,8 +17,7 @@ Recommendation:
 - keep automated nightly publication
 - keep automated monthly stable publication on the `1st`
 - keep hotfix publication manual
-- keep risky dependency merges manual
-- allow selective low-risk automerge only in a short window after the monthly stable
+- allow Renovate automerge for all green PRs only in a short window after the monthly stable
 
 ## Why Not Fully Automatic Releases Immediately
 
@@ -123,8 +122,8 @@ Recommended model:
 
 - Renovate opens dependency update PRs continuously
 - CI validates them
-- low-risk classes may automerge only in a short early-month window
-- risky or major updates are still merged intentionally
+- all green Renovate PRs may automerge only in a short early-month window
+- risky or major updates stay visible through grouping/separate PRs and can still be held manually
 - monthly stable release picks up already-merged, already-green, already-soaked updates
 
 This keeps dependency maintenance continuous while keeping published releases controlled.
@@ -140,7 +139,7 @@ Current automation model:
 Recommended release train:
 
 - automatic stable publication on the `1st` from the already-green state of `main`
-- early-month selective low-risk automerge for trusted Renovate classes after the stable release
+- early-month Renovate automerge for all green PRs after the stable release
 - nightly prereleases from `main` as the soak channel during the rest of the month
 
 Important constraint:
@@ -208,7 +207,7 @@ At that point, we may consider:
 
 - automatic nightly prereleases
 - automatic monthly stable publication
-- selective automerge for low-risk dependencies
+- monthly-window Renovate automerge for all green dependency PRs
 - stronger release trains
 
 ## Recommendation For The Current Phase
@@ -217,7 +216,7 @@ Do now:
 
 - keep versioning policy documented
 - keep nightly, stable, and hotfix workflows operational
-- keep selective automerge narrowly scoped
+- keep Renovate automerge constrained to the post-stable monthly window
 - keep nightly soak as the validation loop for the next stable
 - keep APT channel retention active:
   - `stable`: newest 6 package versions
@@ -227,4 +226,4 @@ Do now:
 Do later:
 
 - add stronger host-native post-publish smoke
-- widen low-risk automerge only if soak keeps proving safe
+- tighten or pause automerge if nightly soak stops proving safe

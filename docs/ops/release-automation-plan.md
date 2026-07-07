@@ -108,8 +108,8 @@ Yes, but only under explicit conditions.
 
 An automatic stable release on the `1st` day of the month is reasonable **if**:
 
-- high-risk updates are still merged manually
-- only low-risk dependency classes are allowed to automerge
+- Renovate automerge runs after, not before, the monthly stable publication
+- dependency PRs merged in the post-stable window soak through nightly builds before the next stable
 - `main` is kept continuously releasable
 - required checks are all green at release time
 - there are meaningful changes since the previous stable release
@@ -140,9 +140,9 @@ The preferred operating model is a short integration window followed by a longer
 Recommended cadence:
 
 - on the `1st`: publish the monthly stable from the already-green state of `main`
-- early in the month after the stable release: allow selective automerge for low-risk Renovate PRs
+- early in the month after the stable release: allow automerge for green Renovate PRs
 - rest of the month: run nightly prereleases from `main`
-- during the month: manually merge risky updates only when they are intentionally reviewed
+- during the month: manually merge or hold dependency PRs only when intentionally overriding the normal window
 
 This gives Stacklab three distinct phases:
 
@@ -155,15 +155,16 @@ It is intentionally **not**:
 - merge everything on release day
 - immediately release whatever was just merged
 
-### Low-risk merge window
+### Dependency merge window
 
 The intended long-term model is:
 
-- keep low-risk automerge narrowly scoped
+- allow Renovate automerge for all green dependency PRs
 - prefer a short merge window early in the month
-- keep medium-risk and high-risk PRs manual
+- keep risky updates visible through grouping and separate major PRs
 
-This should cover only updates that repeatedly prove safe in CI and in nightly testing.
+This keeps dependency integration separate from stable publication while still
+letting Renovate do the routine merge work.
 
 ### Nightly soak period
 
@@ -189,48 +190,31 @@ If those conditions are not met, the stable workflow should skip or be rerun man
 
 ## Renovate Policy for Release Automation
 
-Release automation depends on a stricter dependency policy than the current "all manual" baseline.
+Release automation depends on a dependency policy that separates PR creation,
+merge timing, nightly soak, and stable publication.
 
-Recommended long-term split:
+Recommended long-term model:
 
-### Low-risk classes
+### Automerge eligibility
 
-Current candidates for selective automerge:
+- all Renovate PRs are eligible for automerge once required checks pass
+- Renovate may create PRs at any time; branch/PR creation is not globally scheduled
+- automerge is constrained to the monthly post-stable window on the `2nd`-`3rd`
+- major updates are kept separate, but are not excluded from automerge
 
-- frontend devDependencies
-- linting and formatting tools
-- selected GitHub Actions updates:
-  - `actions/checkout`
-  - `actions/setup-go`
-  - `actions/setup-node`
-- other tooling dependencies that repeatedly prove safe in CI
+### Risk controls
 
-### Medium-risk classes
-
-Keep manual:
-
-- frontend runtime dependencies
-- UI/editor libraries
-- browser automation dependencies
-- GitHub Actions that affect release, Pages, packaging, or deployment behavior
-
-### High-risk classes
-
-Keep manual:
-
-- Go dependencies that affect:
-  - WebSocket transport
-  - PTY/session handling
-  - SQLite/persistence
-  - Docker/Compose execution
-- Docker-facing runtime dependencies
-- major version bumps unless explicitly reviewed
+- required PR checks stay mandatory
+- grouping keeps routine update volume readable
+- high-risk Go runtime modules and major updates stay separate for visibility
+- a human can still close, pause, rebase/retry, or manually merge when needed
 
 Practical consequence:
 
-- automatic monthly stable is viable only if automerge is constrained to low-risk updates
-- majors and risky runtime changes must still be merged intentionally before release day
-- the stable release should happen before the next early-month automerge window opens
+- the stable release happens before the next early-month automerge window opens
+- dependency updates merged on the `2nd`-`3rd` soak through nightly builds before
+  the next stable release
+- the `1st` is never both stable publication day and dependency integration day
 
 ## GitHub Releases and Release Notes
 
@@ -483,7 +467,7 @@ Implement this in phases.
 
 ### Phase 4
 
-- allow selective Renovate automerge for low-risk classes
+- allow Renovate automerge for all green PRs in the monthly post-stable window
 - automate monthly stable release on the `1st`
 
 ## Minimum Preconditions Before Full Automation
@@ -511,5 +495,5 @@ Do later:
 
 - enable nightly prereleases
 - enable APT publication
-- enable selective automerge for low-risk updates
+- enable Renovate automerge for all green PRs in the monthly post-stable window
 - finally enable automatic monthly stable publication
