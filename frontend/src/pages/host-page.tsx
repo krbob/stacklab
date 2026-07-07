@@ -992,9 +992,9 @@ function StacklabLogs() {
           <div className="py-8 text-center text-[var(--muted)]">Loading logs...</div>
         )}
 
-        {!loading && entries.length === 0 && (
+        {!loading && entries.length === 0 && !error && (
           <div className="py-8 text-center text-[var(--muted)]">
-            No logs available. Stacklab service logs require journald access.
+            No Stacklab log entries match the current view.
           </div>
         )}
 

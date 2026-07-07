@@ -24,6 +24,9 @@ import (
 const (
 	settingsKey      = "host_observability_v1"
 	settingsCacheTTL = 5 * time.Second
+
+	filteredJournalScanMultiplier = 10
+	maxJournalRawEntries          = 5000
 )
 
 var ErrLogsUnavailable = errors.New("stacklab logs unavailable")
@@ -217,6 +220,7 @@ func (s *Service) StacklabLogs(ctx context.Context, query LogsQuery) (StacklabLo
 		limit = 1000
 	}
 
+	rawLimit := rawJournalLimit(limit, query)
 	args := []string{
 		"-u", s.stacklabUnitName,
 		"--no-pager",
@@ -225,7 +229,7 @@ func (s *Service) StacklabLogs(ctx context.Context, query LogsQuery) (StacklabLo
 	if query.Cursor != "" {
 		args = append(args, "--after-cursor", query.Cursor)
 	}
-	args = append(args, "-n", strconv.Itoa(limit))
+	args = append(args, "-n", strconv.Itoa(rawLimit))
 
 	output, err := s.runCommand(ctx, "journalctl", args...)
 	if err != nil {
@@ -238,15 +242,32 @@ func (s *Service) StacklabLogs(ctx context.Context, query LogsQuery) (StacklabLo
 	}
 
 	filtered := filterLogEntries(entries, strings.TrimSpace(strings.ToLower(query.Level)), strings.TrimSpace(strings.ToLower(query.Search)), query.IncludeHTTPAccess)
-	response := StacklabLogsResponse{
-		Items:   filtered,
-		HasMore: len(entries) >= limit,
+	items := filtered
+	if len(items) > limit {
+		items = items[len(items)-limit:]
 	}
-	if len(filtered) > 0 {
-		response.NextCursor = filtered[len(filtered)-1].Cursor
+	response := StacklabLogsResponse{
+		Items:   items,
+		HasMore: len(filtered) > limit || len(entries) >= rawLimit,
+	}
+	if len(items) > 0 {
+		response.NextCursor = items[len(items)-1].Cursor
+	} else if len(entries) > 0 {
+		response.NextCursor = entries[len(entries)-1].Cursor
 	}
 
 	return response, nil
+}
+
+func rawJournalLimit(limit int, query LogsQuery) int {
+	rawLimit := limit
+	if !query.IncludeHTTPAccess || strings.TrimSpace(query.Level) != "" || strings.TrimSpace(query.Search) != "" {
+		rawLimit = limit * filteredJournalScanMultiplier
+	}
+	if rawLimit > maxJournalRawEntries {
+		return maxJournalRawEntries
+	}
+	return rawLimit
 }
 
 func parseJournalEntries(output []byte) ([]StacklabLogEntry, error) {

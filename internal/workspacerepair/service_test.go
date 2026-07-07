@@ -53,6 +53,64 @@ func TestCapabilityWithSudoProbeSuccess(t *testing.T) {
 	}
 }
 
+func TestCapabilityCachesSudoProbeAcrossRepairFlow(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	targetPath := filepath.Join(tempDir, "demo.conf")
+	if err := os.WriteFile(targetPath, []byte("hello\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(target) error = %v", err)
+	}
+	helperPath := filepath.Join(tempDir, "helper")
+	if err := os.WriteFile(helperPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile(helper) error = %v", err)
+	}
+
+	service := NewService(config.Config{
+		WorkspaceAdminHelperPath:     helperPath,
+		WorkspaceAdminUseSudo:        true,
+		WorkspaceAdminRepairStrategy: "acl",
+	})
+	var probes int
+	var repairs int
+	service.runCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		if name != "sudo" {
+			t.Fatalf("runCommand name = %q, want sudo", name)
+		}
+		if len(args) < 5 {
+			t.Fatalf("unexpected sudo args: %#v", args)
+		}
+		switch args[4] {
+		case "probe":
+			probes++
+			return []byte(`{"changed_items":0}`), nil
+		case "repair":
+			repairs++
+			return []byte(`{"changed_items":1}`), nil
+		default:
+			t.Fatalf("unexpected helper command: %#v", args)
+			return nil, nil
+		}
+	}
+
+	if capability := service.Capability(context.Background()); !capability.Supported {
+		t.Fatalf("expected supported capability, got %#v", capability)
+	}
+	if _, err := service.Repair(context.Background(), targetPath, false); err != nil {
+		t.Fatalf("Repair() error = %v", err)
+	}
+	if capability := service.Capability(context.Background()); !capability.Supported {
+		t.Fatalf("expected supported capability after repair, got %#v", capability)
+	}
+
+	if probes != 1 {
+		t.Fatalf("probe calls = %d, want 1", probes)
+	}
+	if repairs != 1 {
+		t.Fatalf("repair calls = %d, want 1", repairs)
+	}
+}
+
 func TestCapabilityExplainsNoNewPrivileges(t *testing.T) {
 	t.Parallel()
 

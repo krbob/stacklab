@@ -8,23 +8,31 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"stacklab/internal/config"
 	"stacklab/internal/fsmeta"
 )
 
-const unsupportedMessage = "Workspace permission repair is not configured yet."
+const (
+	unsupportedMessage        = "Workspace permission repair is not configured yet."
+	defaultCapabilityCacheTTL = time.Minute
+)
 
 var ErrUnsupported = errors.New("workspace permission repair is not supported")
 
 type commandRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
 
 type Service struct {
-	helperPath     string
-	useSudo        bool
-	repairStrategy string
-	runCommand     commandRunner
+	helperPath         string
+	useSudo            bool
+	repairStrategy     string
+	runCommand         commandRunner
+	capabilityTTL      time.Duration
+	capabilityMu       sync.Mutex
+	cachedCapability   Capability
+	capabilityCachedAt time.Time
 }
 
 func NewService(cfg config.Config) *Service {
@@ -33,6 +41,7 @@ func NewService(cfg config.Config) *Service {
 		useSudo:        cfg.WorkspaceAdminUseSudo,
 		repairStrategy: normalizeRepairStrategy(cfg.WorkspaceAdminRepairStrategy),
 		runCommand:     defaultCommandRunner,
+		capabilityTTL:  defaultCapabilityCacheTTL,
 	}
 }
 
@@ -52,6 +61,20 @@ func defaultCommandRunner(ctx context.Context, name string, args ...string) ([]b
 }
 
 func (s *Service) Capability(ctx context.Context) Capability {
+	s.capabilityMu.Lock()
+	defer s.capabilityMu.Unlock()
+
+	if s.capabilityTTL > 0 && !s.capabilityCachedAt.IsZero() && time.Since(s.capabilityCachedAt) < s.capabilityTTL {
+		return s.cachedCapability
+	}
+
+	response := s.computeCapability(ctx)
+	s.cachedCapability = response
+	s.capabilityCachedAt = time.Now()
+	return response
+}
+
+func (s *Service) computeCapability(ctx context.Context) Capability {
 	response := Capability{
 		Supported: false,
 		Recursive: true,

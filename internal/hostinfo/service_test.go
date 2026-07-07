@@ -138,6 +138,73 @@ func TestStacklabLogsIncludesHTTPAccessLogsWhenRequested(t *testing.T) {
 	}
 }
 
+func TestStacklabLogsScansBeyondDisplayLimitBeforeFiltering(t *testing.T) {
+	t.Parallel()
+
+	service := NewService(config.Config{RootDir: t.TempDir(), SystemdUnitName: "stacklab"}, time.Unix(1_712_598_000, 0).UTC())
+	service.runCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		if name != "journalctl" {
+			t.Fatalf("unexpected command %q", name)
+		}
+		if !hasJournalLimit(args, "20") {
+			t.Fatalf("journalctl args = %#v, want raw -n 20 for filtered limit 2", args)
+		}
+		return []byte(strings.Join([]string{
+			`{"__REALTIME_TIMESTAMP":"1712336000000000","PRIORITY":"6","MESSAGE":"startup complete","__CURSOR":"s=cursor-1"}`,
+			`{"__REALTIME_TIMESTAMP":"1712336010000000","PRIORITY":"6","MESSAGE":"permission probe complete","__CURSOR":"s=cursor-2"}`,
+			`{"__REALTIME_TIMESTAMP":"1712336020000000","PRIORITY":"6","MESSAGE":"workspace repair complete","__CURSOR":"s=cursor-3"}`,
+			`{"__REALTIME_TIMESTAMP":"1712336030000000","PRIORITY":"6","MESSAGE":"time=2026-07-07T10:42:53+02:00 level=INFO msg=\"http request\" method=GET path=/api/host/metrics status=200 duration=2ms","__CURSOR":"s=cursor-4"}`,
+			`{"__REALTIME_TIMESTAMP":"1712336040000000","PRIORITY":"6","MESSAGE":"time=2026-07-07T10:42:54+02:00 level=INFO msg=\"http request\" method=GET path=/api/host/metrics status=200 duration=2ms","__CURSOR":"s=cursor-5"}`,
+		}, "\n")), nil
+	}
+
+	response, err := service.StacklabLogs(context.Background(), LogsQuery{Limit: 2})
+	if err != nil {
+		t.Fatalf("StacklabLogs() error = %v", err)
+	}
+	if len(response.Items) != 2 {
+		t.Fatalf("len(items) = %d, want 2: %#v", len(response.Items), response.Items)
+	}
+	if response.Items[0].Cursor != "s=cursor-2" || response.Items[1].Cursor != "s=cursor-3" {
+		t.Fatalf("unexpected capped filtered items: %#v", response.Items)
+	}
+	if response.NextCursor != "s=cursor-3" {
+		t.Fatalf("NextCursor = %q, want s=cursor-3", response.NextCursor)
+	}
+}
+
+func TestStacklabLogsAdvancesCursorWhenOnlyFilteredEntriesAreReturned(t *testing.T) {
+	t.Parallel()
+
+	service := NewService(config.Config{RootDir: t.TempDir(), SystemdUnitName: "stacklab"}, time.Unix(1_712_598_000, 0).UTC())
+	service.runCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		return []byte(strings.Join([]string{
+			`{"__REALTIME_TIMESTAMP":"1712336030000000","PRIORITY":"6","MESSAGE":"time=2026-07-07T10:42:53+02:00 level=INFO msg=\"http request\" method=GET path=/api/host/metrics status=200 duration=2ms","__CURSOR":"s=cursor-1"}`,
+			`{"__REALTIME_TIMESTAMP":"1712336040000000","PRIORITY":"6","MESSAGE":"time=2026-07-07T10:42:54+02:00 level=INFO msg=\"http request\" method=GET path=/api/host/metrics status=200 duration=2ms","__CURSOR":"s=cursor-2"}`,
+		}, "\n")), nil
+	}
+
+	response, err := service.StacklabLogs(context.Background(), LogsQuery{Limit: 2})
+	if err != nil {
+		t.Fatalf("StacklabLogs() error = %v", err)
+	}
+	if len(response.Items) != 0 {
+		t.Fatalf("len(items) = %d, want 0: %#v", len(response.Items), response.Items)
+	}
+	if response.NextCursor != "s=cursor-2" {
+		t.Fatalf("NextCursor = %q, want last raw cursor", response.NextCursor)
+	}
+}
+
+func hasJournalLimit(args []string, value string) bool {
+	for i, arg := range args {
+		if arg == "-n" && i+1 < len(args) && args[i+1] == value {
+			return true
+		}
+	}
+	return false
+}
+
 func TestOverviewReadsProcAndDiskData(t *testing.T) {
 	t.Parallel()
 

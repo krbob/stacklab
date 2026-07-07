@@ -353,7 +353,7 @@ describe('HostPage', () => {
     render(<HostPage />)
 
     await screen.findByText('homelab')
-    expect(await screen.findByText(/No logs available/)).toBeInTheDocument()
+    expect(await screen.findByText(/No Stacklab log entries match/)).toBeInTheDocument()
   })
 
   it('shows host overview error', async () => {
