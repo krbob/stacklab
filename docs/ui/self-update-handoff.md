@@ -74,7 +74,7 @@ Recommended v1 shape:
 - treat this as a deliberate, high-trust admin action
 - show current and candidate version clearly before the operator clicks update
 - version labels must wrap on narrow mobile viewports; nightly package versions
-  can be long, e.g. `YYYY.MM.0~nightlyYYYYMMDD+g<commit>`
+  can be long, e.g. `YYYY.MM.0~nightlyYYYYMMDD+r<RUN_NUMBER>.g<commit>`
 - if `write_capability.supported = false`, show the reason inline instead of hiding the feature
 - self-update should reuse:
   - global activity

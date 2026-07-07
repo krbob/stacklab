@@ -70,13 +70,15 @@ Examples:
 - `2026.04.0`
 - `2026.04.1`
 - `2026.05.0`
-- `2026.05.0~nightly20260404+gabcdef1` for Debian nightly package versions
+- `2026.05.0~nightly20260404+r123.gabcdef1` for Debian nightly package versions
 
 Meaning:
 
 - `YYYY` = year
 - `MM` = release month
 - `PATCH` = extra release in the same month
+- `r123` = GitHub Actions nightly workflow run number, used so repeated
+  nightly builds on the same day sort correctly in APT
 
 Why this is a good fit:
 

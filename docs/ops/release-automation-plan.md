@@ -92,12 +92,14 @@ Nightly package versions should sort below the future stable release for the sam
 
 Recommended Debian version shape:
 
-- `2026.05.0~nightly20260404+gabcdef1`
+- `2026.05.0~nightly20260404+r123.gabcdef1`
 
 Why:
 
 - `~nightly` sorts before `2026.05.0`
 - upgrading from nightly to stable is natural for APT
+- `r<RUN_NUMBER>` makes multiple nightly builds from the same day sort in
+  workflow order instead of hash order
 - every nightly remains uniquely identifiable
 
 ## Can the Monthly Stable Release Be Automatic?

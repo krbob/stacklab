@@ -353,8 +353,8 @@ describe("SettingsPage", () => {
   });
 
   it("allows long nightly self-update versions to wrap on mobile", async () => {
-    const currentVersion = "2026.08.0~nightly20260707+g0f60ce54verylongsuffix";
-    const candidateVersion = "2026.08.0~nightly20260708+gabcdef1234567890verylongsuffix";
+    const currentVersion = "2026.08.0~nightly20260707+r123.g0f60ce54verylongsuffix";
+    const candidateVersion = "2026.08.0~nightly20260708+r124.gabcdef1234567890verylongsuffix";
     mockGetStacklabUpdateOverview.mockResolvedValue({
       current_version: currentVersion,
       install_mode: "apt",

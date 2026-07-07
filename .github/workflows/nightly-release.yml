@@ -51,7 +51,7 @@ jobs:
           PY
           )"
           nightly_tag="nightly-${today}-${short_sha}"
-          release_version="${next_base}~nightly${today}+g${short_sha}"
+          release_version="${next_base}~nightly${today}+r${GITHUB_RUN_NUMBER}.g${short_sha}"
           latest_nightly="$(git for-each-ref --sort=-creatordate --format='%(refname:short)' 'refs/tags/nightly-*' | head -n1 || true)"
           previous_tag="${latest_nightly}"
           should_publish=true
