@@ -47,6 +47,14 @@ type MetricsQuery struct {
 	Since *time.Time
 }
 
+type SettingsResponse struct {
+	PublicIPLookupEnabled bool `json:"public_ip_lookup_enabled"`
+}
+
+type UpdateSettingsRequest struct {
+	PublicIPLookupEnabled bool `json:"public_ip_lookup_enabled"`
+}
+
 type HostMetricSample struct {
 	SampledAt    time.Time         `json:"sampled_at"`
 	CPU          CPUUsage          `json:"cpu"`
@@ -145,13 +153,14 @@ type ProcessUsage struct {
 }
 
 type ProcessInfo struct {
-	PID           int     `json:"pid"`
-	User          string  `json:"user"`
-	State         string  `json:"state"`
-	CPUPercent    float64 `json:"cpu_percent"`
-	MemoryBytes   uint64  `json:"memory_bytes"`
-	MemoryPercent float64 `json:"memory_percent"`
-	Command       string  `json:"command"`
+	PID            int     `json:"pid"`
+	User           string  `json:"user"`
+	State          string  `json:"state"`
+	CPUPercent     float64 `json:"cpu_percent"`
+	MemoryBytes    uint64  `json:"memory_bytes"`
+	MemoryPercent  float64 `json:"memory_percent"`
+	Command        string  `json:"command"`
+	DisplayCommand string  `json:"display_command,omitempty"`
 }
 
 type LogsQuery struct {

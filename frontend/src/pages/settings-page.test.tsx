@@ -9,6 +9,8 @@ const mockUpdateNotificationSettings = vi.fn();
 const mockSendNotificationTest = vi.fn();
 const mockGetMaintenanceSchedules = vi.fn();
 const mockUpdateMaintenanceSchedules = vi.fn();
+const mockGetHostSettings = vi.fn();
+const mockUpdateHostSettings = vi.fn();
 const mockGetStacks = vi.fn();
 const mockGetStack = vi.fn();
 const mockGetStacklabUpdateOverview = vi.fn();
@@ -26,6 +28,8 @@ vi.mock("@/lib/api-client", () => ({
   getMaintenanceSchedules: () => mockGetMaintenanceSchedules(),
   updateMaintenanceSchedules: (...args: unknown[]) =>
     mockUpdateMaintenanceSchedules(...args),
+  getHostSettings: () => mockGetHostSettings(),
+  updateHostSettings: (...args: unknown[]) => mockUpdateHostSettings(...args),
   getStacks: (...args: unknown[]) => mockGetStacks(...args),
   getStack: (...args: unknown[]) => mockGetStack(...args),
   getStacklabUpdateOverview: () => mockGetStacklabUpdateOverview(),
@@ -43,6 +47,8 @@ describe("SettingsPage", () => {
     mockGetNotificationSettings.mockReset();
     mockUpdateNotificationSettings.mockReset();
     mockSendNotificationTest.mockReset();
+    mockGetHostSettings.mockReset();
+    mockUpdateHostSettings.mockReset();
     mockGetStacklabUpdateOverview.mockReset();
     mockApplyStacklabUpdate.mockReset();
     mockGetStack.mockReset();
@@ -74,6 +80,12 @@ describe("SettingsPage", () => {
       prune: { enabled: false, frequency: 'weekly', time: '04:30', weekdays: ['sun'], scope: { images: true, build_cache: true, stopped_containers: true, volumes: false }, status: {} },
     });
     mockUpdateMaintenanceSchedules.mockReset();
+    mockGetHostSettings.mockResolvedValue({
+      public_ip_lookup_enabled: false,
+    });
+    mockUpdateHostSettings.mockResolvedValue({
+      public_ip_lookup_enabled: true,
+    });
     mockGetStacks.mockResolvedValue({
       items: [
         {
@@ -274,6 +286,21 @@ describe("SettingsPage", () => {
         }),
       );
     });
+  });
+
+  it("saves host observability settings", async () => {
+    render(<SettingsPage />);
+
+    expect(await screen.findByText("Host observability")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Enable public IP lookup"));
+    fireEvent.click(screen.getByText("Save host settings"));
+
+    await waitFor(() => {
+      expect(mockUpdateHostSettings).toHaveBeenCalledWith({
+        public_ip_lookup_enabled: true,
+      });
+    });
+    expect(await screen.findByText("Saved")).toBeInTheDocument();
   });
 
   it("lazy-loads stack services only after expanding skip services", async () => {

@@ -77,8 +77,9 @@ Confirmed metrics:
   is masked until explicitly revealed
 - disk read/write throughput in the Storage card, including the most active
   top-level block device
-- top processes panel with read-only PID, user, CPU %, memory, state, and command
-  name; it does not expose full command-line arguments
+- top processes panel with read-only PID, user, CPU %, memory, state, short
+  command name, and a capped/redacted display command derived from cmdline so
+  repeated `java` processes can be distinguished
 - mounted filesystems with percent, used/total bytes, mount point, device, and filesystem type
 - duplicate bind mounts of the same physical filesystem are collapsed so
   `systemd` sandbox paths such as `/etc`, `/usr`, or the Stacklab root do not
@@ -109,7 +110,7 @@ Dashdot parity decisions:
 - skip network filesystems in v1 to avoid blocking dashboard sampling on an unavailable NAS/share
 - show network interface throughput from byte counters
 - show public IP through an opt-in asynchronous cached lookup while `/host` is
-  active; failures are silent and do not block local host metrics
+  active; the option is controlled from Settings and persisted in Stacklab
 - show a small htop-style process list from `/proc`, with local CPU/RAM sorting
   and no process management actions
 - filter Docker bridge/veth-style virtual interfaces from the primary dashboard view

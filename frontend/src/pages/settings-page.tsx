@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
-import { getMeta, changePassword, getNotificationSettings, updateNotificationSettings, sendNotificationTest, getMaintenanceSchedules, updateMaintenanceSchedules, getStacks, getStack, getStacklabUpdateOverview, applyStacklabUpdate } from '@/lib/api-client'
+import { getMeta, changePassword, getNotificationSettings, updateNotificationSettings, sendNotificationTest, getMaintenanceSchedules, updateMaintenanceSchedules, getHostSettings, updateHostSettings, getStacks, getStack, getStacklabUpdateOverview, applyStacklabUpdate } from '@/lib/api-client'
 import { useJobDrawer } from '@/hooks/use-job-drawer'
 import type { MetaResponse, MaintenanceSchedulesResponse, ScheduleFrequency, ScheduleWeekday, StackListItem, StacklabUpdateOverviewResponse } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
@@ -83,6 +83,11 @@ export function SettingsPage() {
           <StacklabUpdateSection />
         </SettingsCard>
 
+        {/* Host */}
+        <SettingsCard>
+          <HostSettingsSection />
+        </SettingsCard>
+
         {/* About */}
         {meta && (
           <SettingsCard>
@@ -108,6 +113,73 @@ function SettingsCard({ children }: { children: ReactNode }) {
       <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
         {children}
       </section>
+    </div>
+  )
+}
+
+function HostSettingsSection() {
+  const [loading, setLoading] = useState(true)
+  const [publicIPLookupEnabled, setPublicIPLookupEnabled] = useState(false)
+  const [savedState, setSavedState] = useState('')
+  const [savingHost, setSavingHost] = useState(false)
+  const [saveResult, setSaveResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  const currentState = JSON.stringify({ publicIPLookupEnabled })
+  const isDirty = currentState !== savedState
+
+  useEffect(() => {
+    getHostSettings()
+      .then((settings) => {
+        setPublicIPLookupEnabled(settings.public_ip_lookup_enabled)
+        setSavedState(JSON.stringify({ publicIPLookupEnabled: settings.public_ip_lookup_enabled }))
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  const handleSave = useCallback(async () => {
+    setSavingHost(true)
+    setSaveResult(null)
+    try {
+      const saved = await updateHostSettings({ public_ip_lookup_enabled: publicIPLookupEnabled })
+      setPublicIPLookupEnabled(saved.public_ip_lookup_enabled)
+      setSavedState(JSON.stringify({ publicIPLookupEnabled: saved.public_ip_lookup_enabled }))
+      setSaveResult({ type: 'success', text: 'Saved' })
+    } catch (err) {
+      setSaveResult({ type: 'error', text: err instanceof Error ? err.message : 'Save failed' })
+    } finally {
+      setSavingHost(false)
+    }
+  }, [publicIPLookupEnabled])
+
+  return (
+    <div>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="text-sm font-medium text-[var(--text)]">Host observability</h3>
+        {loading && <span className="text-xs text-[var(--muted)]">Loading...</span>}
+      </div>
+      <div className="space-y-3">
+        <label className="flex items-start gap-3 text-sm text-[var(--text)]">
+          <input
+            type="checkbox"
+            checked={publicIPLookupEnabled}
+            onChange={(event) => setPublicIPLookupEnabled(event.target.checked)}
+            disabled={loading || savingHost}
+            className="mt-1"
+            aria-label="Enable public IP lookup"
+          />
+          <span className="min-w-0">
+            <span className="block">Public IP lookup</span>
+            <span className="mt-1 block text-xs text-[var(--muted)]">Uses an external lookup service while the Host page is active. The value stays masked until revealed.</span>
+          </span>
+        </label>
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={handleSave} disabled={loading || savingHost || !isDirty} className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40">
+            {savingHost ? 'Saving...' : 'Save host settings'}
+          </button>
+          {saveResult && <span className={cn('text-xs', saveResult.type === 'success' ? 'text-[var(--ok)]' : 'text-[var(--danger)]')}>{saveResult.text}</span>}
+        </div>
+      </div>
     </div>
   )
 }

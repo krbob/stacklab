@@ -372,6 +372,56 @@ func TestMetricsCollectorReadsTopProcesses(t *testing.T) {
 	}
 }
 
+func TestMetricsCollectorReadsProcessDisplayCommandFromCmdline(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	procDir := filepath.Join(tempDir, "proc")
+	if err := os.MkdirAll(procDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(proc) error = %v", err)
+	}
+
+	collector := newMetricsCollector(t.TempDir(), procDir)
+	memTotal := uint64(os.Getpagesize() * 4000)
+	if err := os.WriteFile(filepath.Join(procDir, "stat"), []byte("cpu  100 0 0 100 0 0 0 0 0 0\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(stat) error = %v", err)
+	}
+	writeProcessFixture(t, procDir, 303, "java", "S", 10, 5, 1000)
+	writeProcessCmdlineFixture(t, procDir, 303, []string{
+		"/usr/bin/java",
+		"-Xmx2G",
+		"-Ddb.password=swordfish",
+		"-jar",
+		"/srv/minecraft/server.jar",
+		"nogui",
+	})
+
+	usage := collector.readProcessUsage(map[string]uint64{"MemTotal": memTotal})
+	if len(usage.Items) != 1 {
+		t.Fatalf("len(usage.Items) = %d, want 1: %#v", len(usage.Items), usage.Items)
+	}
+	process := usage.Items[0]
+	if process.Command != "java" {
+		t.Fatalf("process.Command = %q, want java", process.Command)
+	}
+	if process.DisplayCommand != "java -jar server.jar nogui" {
+		t.Fatalf("process.DisplayCommand = %q, want compact java jar label", process.DisplayCommand)
+	}
+	if strings.Contains(process.DisplayCommand, "swordfish") {
+		t.Fatalf("process.DisplayCommand leaked secret: %q", process.DisplayCommand)
+	}
+}
+
+func TestRedactProcessArgs(t *testing.T) {
+	t.Parallel()
+
+	got := strings.Join(redactProcessArgs([]string{"worker", "--token", "abc123", "--password=secret", "plain"}), " ")
+	want := "worker --token [redacted] --password=[redacted] plain"
+	if got != want {
+		t.Fatalf("redactProcessArgs() = %q, want %q", got, want)
+	}
+}
+
 func TestMetricsCollectorThrottlesProcessSampling(t *testing.T) {
 	t.Parallel()
 
@@ -566,7 +616,7 @@ func TestNormalizePublicIP(t *testing.T) {
 
 func TestMetricsCollectorRefreshesPublicIPAsynchronously(t *testing.T) {
 	collector := newMetricsCollector(t.TempDir(), t.TempDir())
-	collector.publicIPLookupEnabled = true
+	collector.publicIPLookupEnabled = func() bool { return true }
 	now := time.Unix(1_712_598_000, 0).UTC()
 	collector.now = func() time.Time {
 		return now
@@ -615,11 +665,41 @@ func TestMetricsCollectorDoesNotRefreshPublicIPWhenDisabled(t *testing.T) {
 	}
 }
 
+func TestHostSettingsPersistAndDrivePublicIPLookup(t *testing.T) {
+	t.Parallel()
+
+	settingStore := &fakeHostSettingsStore{values: map[string]string{}}
+	service := NewServiceWithStore(config.Config{
+		RootDir:                   t.TempDir(),
+		SystemdUnitName:           "stacklab",
+		HostPublicIPLookupEnabled: true,
+	}, time.Unix(1_712_598_000, 0).UTC(), settingStore)
+
+	initial, err := service.GetSettings(context.Background())
+	if err != nil {
+		t.Fatalf("GetSettings() error = %v", err)
+	}
+	if !initial.PublicIPLookupEnabled || !service.publicIPLookupEnabled() {
+		t.Fatalf("initial public IP lookup should inherit env default: %#v", initial)
+	}
+
+	updated, err := service.UpdateSettings(context.Background(), UpdateSettingsRequest{PublicIPLookupEnabled: false})
+	if err != nil {
+		t.Fatalf("UpdateSettings() error = %v", err)
+	}
+	if updated.PublicIPLookupEnabled || service.publicIPLookupEnabled() {
+		t.Fatalf("public IP lookup should be disabled after persisted update: %#v", updated)
+	}
+	if settingStore.values[settingsKey] == "" {
+		t.Fatal("host settings were not persisted")
+	}
+}
+
 func TestMetricsCollectorDoesNotRefreshPublicIPWhenInactive(t *testing.T) {
 	t.Parallel()
 
 	collector := newMetricsCollector(t.TempDir(), t.TempDir())
-	collector.publicIPLookupEnabled = true
+	collector.publicIPLookupEnabled = func() bool { return true }
 	called := false
 	collector.publicIPResolver = func(ctx context.Context) (string, error) {
 		called = true
@@ -638,7 +718,7 @@ func TestMetricsCollectorPublicIPRefreshRecoversFromPanic(t *testing.T) {
 	t.Parallel()
 
 	collector := newMetricsCollector(t.TempDir(), t.TempDir())
-	collector.publicIPLookupEnabled = true
+	collector.publicIPLookupEnabled = func() bool { return true }
 	collector.publicIPRefreshInFlight = true
 	collector.publicIPResolver = func(ctx context.Context) (string, error) {
 		panic("resolver panic")
@@ -846,6 +926,15 @@ func writeProcessFixture(t *testing.T, procDir string, pid int, command, state s
 	}
 }
 
+func writeProcessCmdlineFixture(t *testing.T, procDir string, pid int, args []string) {
+	t.Helper()
+
+	processDir := filepath.Join(procDir, strconv.Itoa(pid))
+	if err := os.WriteFile(filepath.Join(processDir, "cmdline"), []byte(strings.Join(args, "\x00")+"\x00"), 0o644); err != nil {
+		t.Fatalf("WriteFile(process cmdline %d) error = %v", pid, err)
+	}
+}
+
 func processStatLine(pid int, command, state string, utime, stime uint64, rssPages int64) string {
 	fields := []string{
 		state,
@@ -856,4 +945,18 @@ func processStatLine(pid int, command, state string, utime, stime uint64, rssPag
 		strconv.FormatInt(rssPages, 10),
 	}
 	return strconv.Itoa(pid) + " (" + command + ") " + strings.Join(fields, " ") + "\n"
+}
+
+type fakeHostSettingsStore struct {
+	values map[string]string
+}
+
+func (f *fakeHostSettingsStore) AppSetting(ctx context.Context, key string) (string, bool, error) {
+	value, ok := f.values[key]
+	return value, ok, nil
+}
+
+func (f *fakeHostSettingsStore) SetAppSetting(ctx context.Context, key, valueJSON string, updatedAt time.Time) error {
+	f.values[key] = valueJSON
+	return nil
 }

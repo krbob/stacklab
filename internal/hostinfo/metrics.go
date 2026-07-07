@@ -28,6 +28,9 @@ const (
 	processesMaxItems               = 30
 	processesPerMetricLimit         = 15
 	processesSampleInterval         = 5 * time.Second
+	processCommandMaxLength         = 80
+	processDisplayCommandMaxLength  = 180
+	processCmdlineReadLimit         = 4096
 	publicIPCacheTTL                = 10 * time.Minute
 	publicIPFailureRetryInterval    = time.Minute
 	publicIPFetchTimeout            = 2 * time.Second
@@ -72,7 +75,7 @@ type MetricsCollector struct {
 	publicIP                string
 	publicIPCheckedAt       time.Time
 	publicIPRefreshInFlight bool
-	publicIPLookupEnabled   bool
+	publicIPLookupEnabled   func() bool
 	publicIPResolver        func(context.Context) (string, error)
 }
 
@@ -130,6 +133,7 @@ func newMetricsCollector(rootDir, procRoot string) *MetricsCollector {
 		lastDiskIO:            map[string]diskIOCounter{},
 		lastNetwork:           map[string]networkCounter{},
 		lastProcesses:         map[int]processCPUCounter{},
+		publicIPLookupEnabled: func() bool { return false },
 		publicIPResolver:      defaultPublicIPResolver,
 	}
 }
@@ -386,14 +390,16 @@ func (c *MetricsCollector) readProcessUsage(memInfo map[string]uint64) *ProcessU
 			memoryPercent = roundFloat((float64(sample.rssBytes) / float64(memTotal)) * 100)
 		}
 
+		command := c.readProcessCommand(pid, sample.command)
 		processes = append(processes, ProcessInfo{
-			PID:           pid,
-			User:          c.processOwner(processDir, userCache),
-			State:         sample.state,
-			CPUPercent:    cpuPercent,
-			MemoryBytes:   sample.rssBytes,
-			MemoryPercent: memoryPercent,
-			Command:       c.readProcessCommand(pid, sample.command),
+			PID:            pid,
+			User:           c.processOwner(processDir, userCache),
+			State:          sample.state,
+			CPUPercent:     cpuPercent,
+			MemoryBytes:    sample.rssBytes,
+			MemoryPercent:  memoryPercent,
+			Command:        command,
+			DisplayCommand: c.readProcessDisplayCommand(pid, command),
 		})
 	}
 
@@ -468,11 +474,166 @@ func sanitizeProcessCommand(command string, pid int) string {
 	if command == "" {
 		return "pid " + strconv.Itoa(pid)
 	}
-	const maxCommandLength = 80
-	if len(command) > maxCommandLength {
-		return strings.TrimSpace(command[:maxCommandLength])
+	if len(command) > processCommandMaxLength {
+		return strings.TrimSpace(command[:processCommandMaxLength])
 	}
 	return command
+}
+
+func (c *MetricsCollector) readProcessDisplayCommand(pid int, fallback string) string {
+	args := c.readProcessArgs(pid)
+	if len(args) == 0 {
+		return fallback
+	}
+	args = redactProcessArgs(args)
+	args = compactProcessArgs(args)
+	display := sanitizeProcessDisplayCommand(strings.Join(args, " "), pid)
+	if display == "" {
+		return fallback
+	}
+	return display
+}
+
+func (c *MetricsCollector) readProcessArgs(pid int) []string {
+	file, err := os.Open(filepath.Join(c.procRoot, strconv.Itoa(pid), "cmdline"))
+	if err != nil {
+		return nil
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(io.LimitReader(file, processCmdlineReadLimit+1))
+	if err != nil || len(data) == 0 {
+		return nil
+	}
+	if len(data) > processCmdlineReadLimit {
+		data = data[:processCmdlineReadLimit]
+	}
+
+	parts := bytes.Split(data, []byte{0})
+	args := make([]string, 0, len(parts))
+	for _, part := range parts {
+		arg := sanitizeProcessArg(string(part))
+		if arg != "" {
+			args = append(args, arg)
+		}
+	}
+	return args
+}
+
+func sanitizeProcessArg(arg string) string {
+	arg = strings.Map(func(r rune) rune {
+		if r < 32 || r == 127 {
+			return ' '
+		}
+		return r
+	}, arg)
+	return strings.Join(strings.Fields(arg), " ")
+}
+
+func sanitizeProcessDisplayCommand(command string, pid int) string {
+	command = strings.Join(strings.Fields(command), " ")
+	if command == "" {
+		return "pid " + strconv.Itoa(pid)
+	}
+	if len(command) > processDisplayCommandMaxLength {
+		return strings.TrimSpace(command[:processDisplayCommandMaxLength])
+	}
+	return command
+}
+
+func redactProcessArgs(args []string) []string {
+	redacted := make([]string, 0, len(args))
+	redactNext := false
+	for _, arg := range args {
+		if arg == "" {
+			continue
+		}
+		if redactNext {
+			redacted = append(redacted, "[redacted]")
+			redactNext = false
+			continue
+		}
+
+		if processArgLooksSensitive(arg) {
+			if key, _, ok := strings.Cut(arg, "="); ok {
+				redacted = append(redacted, key+"=[redacted]")
+			} else {
+				redacted = append(redacted, arg)
+				redactNext = true
+			}
+			continue
+		}
+
+		redacted = append(redacted, arg)
+	}
+	return redacted
+}
+
+func processArgLooksSensitive(arg string) bool {
+	lower := strings.ToLower(arg)
+	sensitiveTerms := []string{
+		"password",
+		"passwd",
+		"secret",
+		"token",
+		"apikey",
+		"api-key",
+		"access-key",
+		"private-key",
+		"credential",
+		"auth",
+		"bearer",
+	}
+	for _, term := range sensitiveTerms {
+		if strings.Contains(lower, term) {
+			return true
+		}
+	}
+	return false
+}
+
+func compactProcessArgs(args []string) []string {
+	if len(args) == 0 {
+		return args
+	}
+	executable := filepath.Base(args[0])
+	switch strings.ToLower(executable) {
+	case "java":
+		return compactJavaProcessArgs(executable, args[1:])
+	default:
+		return args
+	}
+}
+
+func compactJavaProcessArgs(executable string, args []string) []string {
+	for i := 0; i < len(args); i++ {
+		if args[i] == "-jar" && i+1 < len(args) {
+			return append([]string{executable, "-jar", filepath.Base(args[i+1])}, args[i+2:]...)
+		}
+	}
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if javaOptionConsumesNext(arg) {
+			i++
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		return append([]string{executable, arg}, args[i+1:]...)
+	}
+
+	return append([]string{executable}, args...)
+}
+
+func javaOptionConsumesNext(arg string) bool {
+	switch arg {
+	case "-cp", "-classpath", "--class-path", "-p", "--module-path", "--upgrade-module-path", "--add-modules", "-m", "--module":
+		return true
+	default:
+		return false
+	}
 }
 
 func isNumericProcessDir(name string) bool {
@@ -1154,7 +1315,7 @@ func (c *MetricsCollector) isActiveAt(now time.Time) bool {
 }
 
 func (c *MetricsCollector) cachedPublicIP(now time.Time, allowRefresh bool) string {
-	if !c.publicIPLookupEnabled {
+	if c.publicIPLookupEnabled == nil || !c.publicIPLookupEnabled() {
 		return ""
 	}
 
@@ -1176,6 +1337,14 @@ func (c *MetricsCollector) cachedPublicIP(now time.Time, allowRefresh bool) stri
 		go c.refreshPublicIP()
 	}
 	return c.publicIP
+}
+
+func (c *MetricsCollector) clearPublicIP() {
+	c.publicIPMu.Lock()
+	defer c.publicIPMu.Unlock()
+	c.publicIP = ""
+	c.publicIPCheckedAt = time.Time{}
+	c.publicIPRefreshInFlight = false
 }
 
 func (c *MetricsCollector) refreshPublicIP() {

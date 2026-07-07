@@ -47,6 +47,9 @@ type fakeHostInfo struct {
 	logsResponse     hostinfo.StacklabLogsResponse
 	logsError        error
 	lastLogsQuery    hostinfo.LogsQuery
+	settingsResponse hostinfo.SettingsResponse
+	settingsError    error
+	lastSettings     hostinfo.UpdateSettingsRequest
 }
 
 type fakeDockerAdmin struct {
@@ -102,6 +105,16 @@ func (f *fakeHostInfo) Metrics(ctx context.Context, query hostinfo.MetricsQuery)
 func (f *fakeHostInfo) StacklabLogs(ctx context.Context, query hostinfo.LogsQuery) (hostinfo.StacklabLogsResponse, error) {
 	f.lastLogsQuery = query
 	return f.logsResponse, f.logsError
+}
+
+func (f *fakeHostInfo) GetSettings(ctx context.Context) (hostinfo.SettingsResponse, error) {
+	return f.settingsResponse, f.settingsError
+}
+
+func (f *fakeHostInfo) UpdateSettings(ctx context.Context, request hostinfo.UpdateSettingsRequest) (hostinfo.SettingsResponse, error) {
+	f.lastSettings = request
+	f.settingsResponse = hostinfo.SettingsResponse{PublicIPLookupEnabled: request.PublicIPLookupEnabled}
+	return f.settingsResponse, f.settingsError
 }
 
 func (f *fakeDockerAdmin) Overview(ctx context.Context) (dockeradmin.OverviewResponse, error) {
@@ -354,6 +367,35 @@ func TestHandlerHostOverviewAndLogs(t *testing.T) {
 	}
 	if host.lastLogsQuery.Limit != 25 || host.lastLogsQuery.Level != "error" || host.lastLogsQuery.Search != "bind" || host.lastLogsQuery.Cursor != "s=prev" {
 		t.Fatalf("unexpected logs query: %#v", host.lastLogsQuery)
+	}
+}
+
+func TestHandlerHostSettings(t *testing.T) {
+	t.Parallel()
+
+	handler, served, _ := newInternalTestHandler(t)
+	host := &fakeHostInfo{settingsResponse: hostinfo.SettingsResponse{PublicIPLookupEnabled: false}}
+	handler.hostInfo = host
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	getResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/settings/host", nil, cookies)
+	if getResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/settings/host status = %d, want %d; body=%s", getResponse.Code, http.StatusOK, getResponse.Body.String())
+	}
+	var initial hostinfo.SettingsResponse
+	decodeInternalResponse(t, getResponse, &initial)
+	if initial.PublicIPLookupEnabled {
+		t.Fatalf("initial.PublicIPLookupEnabled = true, want false")
+	}
+
+	updateResponse := performInternalJSONRequest(t, served, http.MethodPut, "/api/settings/host", map[string]any{
+		"public_ip_lookup_enabled": true,
+	}, cookies)
+	if updateResponse.Code != http.StatusOK {
+		t.Fatalf("PUT /api/settings/host status = %d, want %d; body=%s", updateResponse.Code, http.StatusOK, updateResponse.Body.String())
+	}
+	if !host.lastSettings.PublicIPLookupEnabled {
+		t.Fatalf("host.lastSettings.PublicIPLookupEnabled = false, want true")
 	}
 }
 

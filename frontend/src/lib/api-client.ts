@@ -28,6 +28,8 @@ import type {
   HealthResponse,
   HostMetricsResponse,
   HostOverviewResponse,
+  HostSettingsResponse,
+  HostSettingsUpdateRequest,
   JobDetail,
   JobEventsResponse,
   JobRef,
@@ -153,6 +155,17 @@ export function getMaintenanceSchedules(): Promise<MaintenanceSchedulesResponse>
 
 export function updateMaintenanceSchedules(requestBody: MaintenanceSchedulesUpdateRequest): Promise<MaintenanceSchedulesResponse> {
   return request('/api/settings/maintenance-schedules', {
+    method: 'PUT',
+    body: JSON.stringify(requestBody),
+  })
+}
+
+export function getHostSettings(): Promise<HostSettingsResponse> {
+  return request('/api/settings/host')
+}
+
+export function updateHostSettings(requestBody: HostSettingsUpdateRequest): Promise<HostSettingsResponse> {
+  return request('/api/settings/host', {
     method: 'PUT',
     body: JSON.stringify(requestBody),
   })

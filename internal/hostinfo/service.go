@@ -21,9 +21,19 @@ import (
 	"stacklab/internal/stacks"
 )
 
+const (
+	settingsKey      = "host_observability_v1"
+	settingsCacheTTL = 5 * time.Second
+)
+
 var ErrLogsUnavailable = errors.New("stacklab logs unavailable")
 
 type commandRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
+
+type settingsStore interface {
+	AppSetting(ctx context.Context, key string) (string, bool, error)
+	SetAppSetting(ctx context.Context, key, valueJSON string, updatedAt time.Time) error
+}
 
 type Service struct {
 	cfg              config.Config
@@ -33,6 +43,10 @@ type Service struct {
 	stacklabUnitName string
 	runCommand       commandRunner
 	metrics          *MetricsCollector
+	settingsStore    settingsStore
+	settingsMu       sync.RWMutex
+	settingsCache    SettingsResponse
+	settingsCachedAt time.Time
 	mu               sync.Mutex
 	lastCPUSample    cpuSample
 	hasCPUSample     bool
@@ -44,9 +58,12 @@ type cpuSample struct {
 }
 
 func NewService(cfg config.Config, startedAt time.Time) *Service {
+	return NewServiceWithStore(cfg, startedAt, nil)
+}
+
+func NewServiceWithStore(cfg config.Config, startedAt time.Time, appStore settingsStore) *Service {
 	metrics := newMetricsCollector(cfg.RootDir, "/proc")
-	metrics.publicIPLookupEnabled = cfg.HostPublicIPLookupEnabled
-	return &Service{
+	service := &Service{
 		cfg:              cfg,
 		startedAt:        startedAt.UTC(),
 		procRoot:         "/proc",
@@ -54,7 +71,10 @@ func NewService(cfg config.Config, startedAt time.Time) *Service {
 		stacklabUnitName: cfg.SystemdUnitName,
 		runCommand:       defaultCommandRunner,
 		metrics:          metrics,
+		settingsStore:    appStore,
 	}
+	metrics.publicIPLookupEnabled = service.publicIPLookupEnabled
+	return service
 }
 
 func defaultCommandRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
@@ -101,6 +121,93 @@ func (s *Service) StartMetrics(ctx context.Context) {
 
 func (s *Service) Metrics(ctx context.Context, query MetricsQuery) (MetricsResponse, error) {
 	return s.metrics.Snapshot(query), nil
+}
+
+func (s *Service) GetSettings(ctx context.Context) (SettingsResponse, error) {
+	return s.loadSettings(ctx)
+}
+
+func (s *Service) UpdateSettings(ctx context.Context, request UpdateSettingsRequest) (SettingsResponse, error) {
+	settings := SettingsResponse{
+		PublicIPLookupEnabled: request.PublicIPLookupEnabled,
+	}
+	if err := s.saveSettings(ctx, settings); err != nil {
+		return SettingsResponse{}, err
+	}
+	s.setSettingsCache(settings)
+	if !settings.PublicIPLookupEnabled {
+		s.metrics.clearPublicIP()
+	}
+	return settings, nil
+}
+
+func (s *Service) publicIPLookupEnabled() bool {
+	settings, err := s.cachedSettings(context.Background())
+	if err != nil {
+		return s.defaultSettings().PublicIPLookupEnabled
+	}
+	return settings.PublicIPLookupEnabled
+}
+
+func (s *Service) cachedSettings(ctx context.Context) (SettingsResponse, error) {
+	now := time.Now().UTC()
+	s.settingsMu.RLock()
+	if !s.settingsCachedAt.IsZero() && now.Sub(s.settingsCachedAt) < settingsCacheTTL {
+		settings := s.settingsCache
+		s.settingsMu.RUnlock()
+		return settings, nil
+	}
+	s.settingsMu.RUnlock()
+
+	settings, err := s.loadSettings(ctx)
+	if err != nil {
+		return SettingsResponse{}, err
+	}
+	s.setSettingsCache(settings)
+	return settings, nil
+}
+
+func (s *Service) setSettingsCache(settings SettingsResponse) {
+	s.settingsMu.Lock()
+	defer s.settingsMu.Unlock()
+	s.settingsCache = settings
+	s.settingsCachedAt = time.Now().UTC()
+}
+
+func (s *Service) loadSettings(ctx context.Context) (SettingsResponse, error) {
+	settings := s.defaultSettings()
+	if s.settingsStore == nil {
+		return settings, nil
+	}
+
+	raw, ok, err := s.settingsStore.AppSetting(ctx, settingsKey)
+	if err != nil {
+		return SettingsResponse{}, err
+	}
+	if !ok {
+		return settings, nil
+	}
+	if err := json.Unmarshal([]byte(raw), &settings); err != nil {
+		return SettingsResponse{}, fmt.Errorf("parse host observability settings: %w", err)
+	}
+	return settings, nil
+}
+
+func (s *Service) saveSettings(ctx context.Context, settings SettingsResponse) error {
+	if s.settingsStore == nil {
+		return nil
+	}
+	payload, err := json.Marshal(settings)
+	if err != nil {
+		return fmt.Errorf("marshal host observability settings: %w", err)
+	}
+	return s.settingsStore.SetAppSetting(ctx, settingsKey, string(payload), time.Now().UTC())
+}
+
+func (s *Service) defaultSettings() SettingsResponse {
+	return SettingsResponse{
+		PublicIPLookupEnabled: s.cfg.HostPublicIPLookupEnabled,
+	}
 }
 
 func (s *Service) StacklabLogs(ctx context.Context, query LogsQuery) (StacklabLogsResponse, error) {

@@ -571,7 +571,12 @@ function TopProcessesPanel({
                     <span className="ml-1 text-[var(--muted)]">({formatPercent(process.memory_percent)})</span>
                   </td>
                   <td className="px-3 py-2 text-center font-mono text-[var(--muted)]">{process.state || '-'}</td>
-                  <td className="truncate px-3 py-2 text-[var(--text)]" title={process.command}>{process.command}</td>
+                  <td className="min-w-0 px-3 py-2 text-[var(--text)]" title={processLabel(process)}>
+                    <div className="truncate">{processLabel(process)}</div>
+                    {process.display_command && process.display_command !== process.command && (
+                      <div className="truncate text-[var(--muted)]">{process.command}</div>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -591,9 +596,15 @@ function sortProcesses(processes: NonNullable<HostMetricSample['processes']>['it
       if (left.cpu_percent !== right.cpu_percent) return right.cpu_percent - left.cpu_percent
       if (left.memory_bytes !== right.memory_bytes) return right.memory_bytes - left.memory_bytes
     }
-    if (left.command !== right.command) return left.command.localeCompare(right.command)
+    const leftLabel = processLabel(left)
+    const rightLabel = processLabel(right)
+    if (leftLabel !== rightLabel) return leftLabel.localeCompare(rightLabel)
     return left.pid - right.pid
   })
+}
+
+function processLabel(process: NonNullable<HostMetricSample['processes']>['items'][number]): string {
+  return process.display_command || process.command
 }
 
 function MetricCard({

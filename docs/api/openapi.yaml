@@ -1271,6 +1271,37 @@ paths:
           $ref: '#/components/responses/ErrorUnauthorized'
         '502':
           $ref: '#/components/responses/ErrorBadGateway'
+  /settings/host:
+    get:
+      tags: [Settings]
+      operationId: getHostSettings
+      responses:
+        '200':
+          description: Current Host dashboard settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HostSettingsResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+    put:
+      tags: [Settings]
+      operationId: updateHostSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HostSettingsRequest'
+      responses:
+        '200':
+          description: Host dashboard settings updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HostSettingsResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
   /settings/maintenance-schedules:
     get:
       tags: [Settings]
@@ -1639,6 +1670,15 @@ components:
         - history_window_seconds
         - current
         - history
+    HostSettingsRequest:
+      type: object
+      properties:
+        public_ip_lookup_enabled:
+          type: boolean
+      required: [public_ip_lookup_enabled]
+    HostSettingsResponse:
+      allOf:
+        - $ref: '#/components/schemas/HostSettingsRequest'
     HostMetricSample:
       type: object
       properties:
@@ -1826,6 +1866,8 @@ components:
           type: number
           format: double
         command:
+          type: string
+        display_command:
           type: string
       required: [pid, user, state, cpu_percent, memory_bytes, memory_percent, command]
     StacklabLogsResponse:

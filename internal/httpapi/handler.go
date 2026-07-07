@@ -65,6 +65,8 @@ type hostInfoReader interface {
 	Overview(ctx context.Context) (hostinfo.OverviewResponse, error)
 	Metrics(ctx context.Context, query hostinfo.MetricsQuery) (hostinfo.MetricsResponse, error)
 	StacklabLogs(ctx context.Context, query hostinfo.LogsQuery) (hostinfo.StacklabLogsResponse, error)
+	GetSettings(ctx context.Context) (hostinfo.SettingsResponse, error)
+	UpdateSettings(ctx context.Context, request hostinfo.UpdateSettingsRequest) (hostinfo.SettingsResponse, error)
 }
 
 type dockerAdminReader interface {
@@ -156,7 +158,7 @@ func NewHandlerWithContext(appCtx context.Context, cfg config.Config, logger *sl
 	})
 	stackReader.AttachUpdateStatusCacheUpdater(imageUpdateService.CacheStatuses)
 	maintenanceService := maintenance.NewService()
-	hostInfoService := hostinfo.NewService(cfg, time.Now().UTC())
+	hostInfoService := hostinfo.NewServiceWithStore(cfg, time.Now().UTC(), jobService.Store())
 	hostInfoService.StartMetrics(appCtx)
 	handler := &Handler{
 		appCtx:        appCtx,
@@ -261,6 +263,8 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/settings/notifications", h.withAuth(h.handleGetNotificationSettings))
 	h.mux.HandleFunc("PUT /api/settings/notifications", h.withAuth(h.handleUpdateNotificationSettings))
 	h.mux.HandleFunc("POST /api/settings/notifications/test", h.withAuth(h.handleSendNotificationTest))
+	h.mux.HandleFunc("GET /api/settings/host", h.withAuth(h.handleGetHostSettings))
+	h.mux.HandleFunc("PUT /api/settings/host", h.withAuth(h.handleUpdateHostSettings))
 	h.mux.HandleFunc("GET /api/settings/maintenance-schedules", h.withAuth(h.handleGetMaintenanceSchedules))
 	h.mux.HandleFunc("PUT /api/settings/maintenance-schedules", h.withAuth(h.handleUpdateMaintenanceSchedules))
 	h.mux.HandleFunc("POST /api/settings/password", h.withAuth(h.handleUpdatePassword))
@@ -2247,6 +2251,46 @@ func (h *Handler) handleSendNotificationTest(w http.ResponseWriter, r *http.Requ
 	finishedAt := time.Now().UTC()
 	if err := h.audit.RecordSystemEvent(r.Context(), "send_notification_test", "local", "succeeded", requestedAt, &finishedAt, nil); err != nil {
 		h.logger.Warn("record notification test audit failed", slog.String("err", err.Error()))
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleGetHostSettings(w http.ResponseWriter, r *http.Request) {
+	response, err := h.hostInfo.GetSettings(r.Context())
+	if err != nil {
+		h.logger.Error("get host settings failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load host settings.", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleUpdateHostSettings(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	var request hostinfo.UpdateSettingsRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+		return
+	}
+
+	requestedAt := time.Now().UTC()
+	response, err := h.hostInfo.UpdateSettings(r.Context(), request)
+	if err != nil {
+		h.logger.Error("update host settings failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to update host settings.", nil)
+		return
+	}
+
+	finishedAt := time.Now().UTC()
+	if err := h.audit.RecordSystemEvent(r.Context(), "update_host_settings", "local", "succeeded", requestedAt, &finishedAt, map[string]any{
+		"public_ip_lookup_enabled": response.PublicIPLookupEnabled,
+	}); err != nil {
+		h.logger.Warn("record host settings update failed", slog.String("err", err.Error()))
 	}
 
 	writeJSON(w, http.StatusOK, response)

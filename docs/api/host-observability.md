@@ -210,7 +210,8 @@ Response:
           "cpu_percent": 12.5,
           "memory_bytes": 268435456,
           "memory_percent": 3.1,
-          "command": "stacklab"
+          "command": "stacklab",
+          "display_command": "stacklab"
         }
       ]
     }
@@ -260,12 +261,18 @@ Notes:
   while the dashboard is active, cached for `10m`, and omitted when the lookup
   fails or returns a private/non-global address; lookup failures never block host
   metric sampling
-- public IP lookup is opt-in and requires
-  `STACKLAB_HOST_PUBLIC_IP_LOOKUP_ENABLED=true`; the UI masks the value until
-  the operator explicitly reveals it
-- process metrics are read from `/proc/<pid>/stat`, `/proc/<pid>/comm`, and
-  process directory ownership; Stacklab does not read or return full process
-  command lines, so process arguments are not exposed in the dashboard
+- public IP lookup is opt-in through `GET/PUT /api/settings/host`; the
+  `STACKLAB_HOST_PUBLIC_IP_LOOKUP_ENABLED` environment variable is only the
+  default for hosts that have not saved the setting yet
+- the UI masks public IP until the operator explicitly reveals it
+- process metrics are read from `/proc/<pid>/stat`, `/proc/<pid>/comm`,
+  `/proc/<pid>/cmdline`, and process directory ownership
+- `command` remains the short process name; `display_command` is a capped,
+  whitespace-normalized, best-effort command line for identifying processes such
+  as multiple JVMs
+- common secret-bearing process arguments such as password/token/secret/key are
+  redacted from `display_command`, but operators should still treat process
+  command lines as potentially sensitive host-local data
 - process `cpu_percent` is based on deltas between samples; the first sample can
   report `0`, and a busy multi-threaded process can exceed `100%` on multi-core
   hosts
@@ -276,6 +283,33 @@ Notes:
 - v1 does not run speedtest checks
 - Docker bridge/veth-style virtual interfaces are filtered out of the dashboard totals
 - GPU metrics remain a backlog candidate, not part of this contract
+
+## `GET /api/settings/host`
+
+Returns runtime settings for Host observability.
+
+Response:
+
+```json
+{
+  "public_ip_lookup_enabled": false
+}
+```
+
+## `PUT /api/settings/host`
+
+Persists Host observability settings in Stacklab's SQLite `app_settings` table.
+Changes take effect without a service restart.
+
+Request:
+
+```json
+{
+  "public_ip_lookup_enabled": true
+}
+```
+
+Response shape matches `GET /api/settings/host`.
 
 ## `GET /api/host/stacklab-logs`
 

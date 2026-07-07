@@ -550,6 +550,14 @@ export interface HostMetricsResponse {
   history: HostMetricSample[]
 }
 
+export interface HostSettingsResponse {
+  public_ip_lookup_enabled: boolean
+}
+
+export interface HostSettingsUpdateRequest {
+  public_ip_lookup_enabled: boolean
+}
+
 export interface HostMetricSample {
   sampled_at: string
   cpu: HostOverviewResponse['resources']['cpu']
@@ -634,6 +642,7 @@ export interface HostProcessInfo {
   memory_bytes: number
   memory_percent: number
   command: string
+  display_command?: string
 }
 
 export interface StacklabLogEntry {
