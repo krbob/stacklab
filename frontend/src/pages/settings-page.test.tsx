@@ -352,6 +352,33 @@ describe("SettingsPage", () => {
     });
   });
 
+  it("allows long nightly self-update versions to wrap on mobile", async () => {
+    const currentVersion = "2026.08.0~nightly20260707+g0f60ce54verylongsuffix";
+    const candidateVersion = "2026.08.0~nightly20260708+gabcdef1234567890verylongsuffix";
+    mockGetStacklabUpdateOverview.mockResolvedValue({
+      current_version: currentVersion,
+      install_mode: "apt",
+      package: {
+        supported: true,
+        name: "stacklab",
+        installed_version: currentVersion,
+        candidate_version: candidateVersion,
+        configured_channel: "nightly",
+        update_available: true,
+      },
+      write_capability: {
+        supported: true,
+      },
+    });
+
+    render(<SettingsPage />);
+
+    const currentVersionNodes = await screen.findAllByText(currentVersion);
+    expect(currentVersionNodes.some((node) => node.className.includes("break-all"))).toBe(true);
+    expect(screen.getByText(candidateVersion).className).toContain("break-all");
+    expect(screen.getByText(`Update available: ${candidateVersion}`).className).toContain("break-all");
+  });
+
   it("keeps stacklab self-update disabled while runtime job is active", async () => {
     mockGetStacklabUpdateOverview.mockResolvedValue({
       current_version: "2026.04.0",

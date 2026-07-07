@@ -884,36 +884,36 @@ function StacklabUpdateSection() {
 
       <div className="mt-3 max-w-lg rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4 space-y-3">
         {/* Version info */}
-        <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 font-mono text-xs">
+        <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 font-mono text-xs">
           <span className="text-[var(--muted)]">Current</span>
-          <span className="text-[var(--text)]">{overview.current_version}</span>
+          <span className="min-w-0 break-all text-[var(--text)]">{overview.current_version}</span>
           <span className="text-[var(--muted)]">Install</span>
-          <span className="text-[var(--text)]">{overview.install_mode}</span>
+          <span className="min-w-0 break-all text-[var(--text)]">{overview.install_mode}</span>
           {pkg.installed_version && (
             <>
               <span className="text-[var(--muted)]">Package</span>
-              <span className="text-[var(--text)]">{pkg.installed_version}</span>
+              <span className="min-w-0 break-all text-[var(--text)]">{pkg.installed_version}</span>
             </>
           )}
           {pkg.candidate_version && pkg.candidate_version !== pkg.installed_version && (
             <>
               <span className="text-[var(--muted)]">Candidate</span>
-              <span className="text-[var(--ok)]">{pkg.candidate_version}</span>
+              <span className="min-w-0 break-all text-[var(--ok)]">{pkg.candidate_version}</span>
             </>
           )}
           {pkg.configured_channel && (
             <>
               <span className="text-[var(--muted)]">Channel</span>
-              <span className="text-[var(--text)]">{pkg.configured_channel}</span>
+              <span className="min-w-0 break-all text-[var(--text)]">{pkg.configured_channel}</span>
             </>
           )}
         </div>
 
         {/* Update available badge */}
         {pkg.update_available && (
-          <div className="flex items-center gap-2 text-xs">
-            <span className="inline-block size-2 rounded-full bg-[var(--ok)]" />
-            <span className="text-[var(--ok)]">Update available: {pkg.candidate_version}</span>
+          <div className="flex min-w-0 items-center gap-2 text-xs">
+            <span className="inline-block size-2 shrink-0 rounded-full bg-[var(--ok)]" />
+            <span className="min-w-0 break-all text-[var(--ok)]">Update available: {pkg.candidate_version}</span>
           </div>
         )}
         {pkg.supported && !pkg.update_available && (
