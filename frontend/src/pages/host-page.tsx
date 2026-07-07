@@ -389,7 +389,7 @@ function HostMetricsDashboard({
         <MetricCard
           title="CPU"
           value={`${current.cpu.usage_percent.toFixed(1)}%`}
-          detail={`${current.cpu.core_count} cores · load ${formatLoadAverage(current.cpu.load_average)}${cpuTemperature !== null ? ` · ${formatTemperature(cpuTemperature)}` : ''}`}
+          detail={`${current.cpu.core_count} cores · load avg 1/5/15m ${formatLoadAverage(current.cpu.load_average)}${cpuTemperature !== null ? ` · ${formatTemperature(cpuTemperature)}` : ''}`}
           color={cpuTone.line}
           values={history.map((sample) => sample.cpu.usage_percent)}
           sparklineMax={100}
@@ -427,6 +427,12 @@ function HostMetricsDashboard({
               <span>Combined</span>
               <span className="text-[var(--text)]">{formatRate(networkRate)}</span>
             </div>
+            {current.network.public_ip && (
+              <div className="flex min-w-0 justify-between gap-2">
+                <span className="shrink-0">Public IP</span>
+                <span className="min-w-0 break-all text-right text-[var(--text)]">{current.network.public_ip}</span>
+              </div>
+            )}
           </div>
         </MetricCard>
 
@@ -610,9 +616,11 @@ function SwapRow({ swap }: { swap: HostMetricSample['swap'] }) {
 
 function TemperatureRow({ temperatures }: { temperatures: HostMetricSample['temperatures'] }) {
   const cpuTemperature = temperatures.cpu_celsius
-  const topSensor = temperatures.sensors[0]
+  const cpuSensor = temperatures.cpu_sensor ?? null
+  const topSensor = cpuSensor ?? temperatures.sensors[0]
   const visibleTemperature = cpuTemperature ?? topSensor?.temperature_celsius ?? null
   const label = cpuTemperature !== null ? 'CPU temp' : 'Sensor temp'
+  const sensorLabel = cpuSensor ? cpuTemperatureSensorDisplay(cpuSensor) : topSensor ? temperatureSensorLabel(topSensor) : null
 
   if (visibleTemperature === null) {
     return (
@@ -629,13 +637,25 @@ function TemperatureRow({ temperatures }: { temperatures: HostMetricSample['temp
         <span className="text-[var(--muted)]">{label}</span>
         <span className={temperatureTextClass(visibleTemperature)}>{formatTemperature(visibleTemperature)}</span>
       </div>
-      {topSensor && (
-        <div className="truncate text-[var(--muted)]">
-          {temperatureSensorLabel(topSensor)}
+      {sensorLabel && topSensor && (
+        <div className="truncate text-[var(--muted)]" title={temperatureSensorLabel(topSensor)}>
+          {sensorLabel}
         </div>
       )}
     </div>
   )
+}
+
+function cpuTemperatureSensorDisplay(sensor: HostMetricSample['temperatures']['sensors'][number]): string {
+  const name = sensor.name.toLowerCase()
+  const label = sensor.label.toLowerCase()
+  if (label.includes('tctl') || label.includes('tdie') || label.includes('package') || name.includes('x86_pkg_temp')) {
+    return 'CPU package sensor'
+  }
+  if (label.includes('core')) {
+    return 'CPU core sensor'
+  }
+  return 'CPU sensor'
 }
 
 function DiskIORow({ diskIO }: { diskIO: HostMetricSample['disk_io'] }) {

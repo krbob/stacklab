@@ -89,6 +89,11 @@ const metrics: HostMetricsResponse = {
     },
     temperatures: {
       cpu_celsius: 42.5,
+      cpu_sensor: {
+        name: 'coretemp',
+        label: 'Package id 0',
+        temperature_celsius: 42.5,
+      },
       sensors: [
         {
           name: 'coretemp',
@@ -125,6 +130,7 @@ const metrics: HostMetricsResponse = {
     network: {
       total_rx_bytes_per_sec: 2048,
       total_tx_bytes_per_sec: 1024,
+      public_ip: '8.8.8.8',
       interfaces: [
         {
           name: 'eth0',
@@ -149,6 +155,11 @@ const metrics: HostMetricsResponse = {
       },
       temperatures: {
         cpu_celsius: 41.8,
+        cpu_sensor: {
+          name: 'coretemp',
+          label: 'Package id 0',
+          temperature_celsius: 41.8,
+        },
         sensors: [
           {
             name: 'coretemp',
@@ -185,6 +196,7 @@ const metrics: HostMetricsResponse = {
       network: {
         total_rx_bytes_per_sec: 1024,
         total_tx_bytes_per_sec: 512,
+        public_ip: '8.8.8.8',
         interfaces: [
           {
             name: 'eth0',
@@ -224,12 +236,15 @@ describe('HostPage', () => {
     expect(screen.getAllByText('512.0 MiB / 2.0 GiB').length).toBeGreaterThan(0)
     expect(screen.getByText('CPU temp')).toBeInTheDocument()
     expect(screen.getAllByText('42.5 °C').length).toBeGreaterThan(0)
-    expect(screen.getByText('coretemp · Package id 0')).toBeInTheDocument()
+    expect(screen.getByText(/load avg 1\/5\/15m 0\.40 \/ 0\.30 \/ 0\.20/)).toBeInTheDocument()
+    expect(screen.getByText('CPU package sensor')).toBeInTheDocument()
     expect(screen.getAllByText(/4\.0 KiB\/s read/).length).toBeGreaterThan(0)
     expect(screen.getByText(/nvme0n1:/)).toBeInTheDocument()
     expect(screen.getByText('/srv/stacklab')).toBeInTheDocument()
     expect(screen.getAllByText('eth0').length).toBeGreaterThan(0)
     expect(screen.getAllByText(/2\.0 KiB\/s/).length).toBeGreaterThan(0)
+    expect(screen.getByText('Public IP')).toBeInTheDocument()
+    expect(screen.getByText('8.8.8.8')).toBeInTheDocument()
     expect(await screen.findByText('Started HTTP server')).toBeInTheDocument()
     expect(screen.getByText('Failed to bind port')).toBeInTheDocument()
 

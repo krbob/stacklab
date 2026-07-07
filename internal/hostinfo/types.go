@@ -80,6 +80,7 @@ type SwapUsage struct {
 
 type TemperatureUsage struct {
 	CPUCelsius *float64            `json:"cpu_celsius"`
+	CPUSensor  *TemperatureSensor  `json:"cpu_sensor,omitempty"`
 	Sensors    []TemperatureSensor `json:"sensors"`
 }
 
@@ -125,6 +126,7 @@ type DiskIODeviceUsage struct {
 type NetworkUsage struct {
 	TotalRXBytesPerSec float64                 `json:"total_rx_bytes_per_sec"`
 	TotalTXBytesPerSec float64                 `json:"total_tx_bytes_per_sec"`
+	PublicIP           string                  `json:"public_ip,omitempty"`
 	Interfaces         []NetworkInterfaceUsage `json:"interfaces"`
 }
 

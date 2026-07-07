@@ -4,6 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"io"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -21,6 +24,10 @@ const (
 	metricsActiveTTL                = 15 * time.Second
 	metricsHistoryWindow            = 30 * time.Minute
 	metricsMaxSamples               = int(metricsHistoryWindow / metricsActiveSampleInterval)
+	publicIPCacheTTL                = 10 * time.Minute
+	publicIPFailureRetryInterval    = time.Minute
+	publicIPFetchTimeout            = 2 * time.Second
+	publicIPLookupURL               = "https://api64.ipify.org"
 )
 
 type MetricsCollector struct {
@@ -46,6 +53,12 @@ type MetricsCollector struct {
 	lastDiskIOAt  time.Time
 	lastNetwork   map[string]networkCounter
 	lastNetworkAt time.Time
+
+	publicIPMu              sync.Mutex
+	publicIP                string
+	publicIPCheckedAt       time.Time
+	publicIPRefreshInFlight bool
+	publicIPResolver        func(context.Context) (string, error)
 }
 
 type diskIOCounter struct {
@@ -88,6 +101,7 @@ func newMetricsCollector(rootDir, procRoot string) *MetricsCollector {
 		wakeCh:             make(chan struct{}, 1),
 		lastDiskIO:         map[string]diskIOCounter{},
 		lastNetwork:        map[string]networkCounter{},
+		publicIPResolver:   defaultPublicIPResolver,
 	}
 }
 
@@ -278,7 +292,11 @@ func (c *MetricsCollector) readTemperatureUsage() TemperatureUsage {
 	usage := TemperatureUsage{
 		Sensors: sensors,
 	}
-	usage.CPUCelsius = selectCPUTemperature(sensors)
+	if cpuSensor := selectCPUTemperatureSensor(sensors); cpuSensor != nil {
+		usage.CPUSensor = cpuSensor
+		value := roundFloat(cpuSensor.TemperatureCelsius)
+		usage.CPUCelsius = &value
+	}
 	return usage
 }
 
@@ -417,23 +435,28 @@ func sortAndLimitTemperatureSensors(sensors []TemperatureSensor) []TemperatureSe
 	return sensors
 }
 
-func selectCPUTemperature(sensors []TemperatureSensor) *float64 {
-	var value float64
+func selectCPUTemperatureSensor(sensors []TemperatureSensor) *TemperatureSensor {
+	var selected TemperatureSensor
+	selectedScore := 0
 	found := false
 	for _, sensor := range sensors {
 		if !isCPUTemperatureSensor(sensor) {
 			continue
 		}
-		if !found || sensor.TemperatureCelsius > value {
-			value = sensor.TemperatureCelsius
+		score := cpuTemperatureSensorScore(sensor)
+		if !found ||
+			score < selectedScore ||
+			(score == selectedScore && sensor.TemperatureCelsius > selected.TemperatureCelsius) ||
+			(score == selectedScore && sensor.TemperatureCelsius == selected.TemperatureCelsius && temperatureSensorSortKey(sensor) < temperatureSensorSortKey(selected)) {
+			selected = sensor
+			selectedScore = score
 			found = true
 		}
 	}
 	if !found {
 		return nil
 	}
-	value = roundFloat(value)
-	return &value
+	return &selected
 }
 
 func isCPUTemperatureSensor(sensor TemperatureSensor) bool {
@@ -444,6 +467,33 @@ func isCPUTemperatureSensor(sensor TemperatureSensor) bool {
 		}
 	}
 	return false
+}
+
+func cpuTemperatureSensorScore(sensor TemperatureSensor) int {
+	name := strings.ToLower(sensor.Name)
+	label := strings.ToLower(sensor.Label)
+	haystack := name + " " + label
+
+	switch {
+	case strings.Contains(label, "tctl"), strings.Contains(label, "tdie"):
+		return 0
+	case strings.Contains(label, "package"):
+		return 1
+	case strings.Contains(name, "x86_pkg_temp"):
+		return 2
+	case strings.Contains(label, "cpu"), strings.Contains(name, "cpu"):
+		return 3
+	case strings.Contains(label, "core"):
+		return 4
+	case strings.Contains(haystack, "soc"):
+		return 5
+	default:
+		return 6
+	}
+}
+
+func temperatureSensorSortKey(sensor TemperatureSensor) string {
+	return strings.ToLower(sensor.Name + "\x00" + sensor.Label)
 }
 
 func (c *MetricsCollector) readFilesystems() []FilesystemUsage {
@@ -773,8 +823,93 @@ func (c *MetricsCollector) readNetworkUsage(sampledAt time.Time) NetworkUsage {
 	return NetworkUsage{
 		TotalRXBytesPerSec: roundFloat(totalRXRate),
 		TotalTXBytesPerSec: roundFloat(totalTXRate),
+		PublicIP:           c.cachedPublicIP(sampledAt, c.isActiveAt(sampledAt)),
 		Interfaces:         interfaces,
 	}
+}
+
+func (c *MetricsCollector) isActiveAt(now time.Time) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return now.Before(c.activeUntil)
+}
+
+func (c *MetricsCollector) cachedPublicIP(now time.Time, allowRefresh bool) string {
+	c.publicIPMu.Lock()
+	defer c.publicIPMu.Unlock()
+
+	checkedAt := c.publicIPCheckedAt
+	if c.publicIP != "" && (!allowRefresh || now.Sub(checkedAt) < publicIPCacheTTL) {
+		return c.publicIP
+	}
+	if !allowRefresh {
+		return ""
+	}
+	if c.publicIP == "" && !checkedAt.IsZero() && now.Sub(checkedAt) < publicIPFailureRetryInterval {
+		return ""
+	}
+	if !c.publicIPRefreshInFlight {
+		c.publicIPRefreshInFlight = true
+		go c.refreshPublicIP()
+	}
+	return c.publicIP
+}
+
+func (c *MetricsCollector) refreshPublicIP() {
+	ctx, cancel := context.WithTimeout(context.Background(), publicIPFetchTimeout)
+	defer cancel()
+
+	ip, err := c.publicIPResolver(ctx)
+	now := c.now().UTC()
+
+	c.publicIPMu.Lock()
+	defer c.publicIPMu.Unlock()
+	if err == nil {
+		if normalized, ok := normalizePublicIP(ip); ok {
+			c.publicIP = normalized
+		}
+	}
+	c.publicIPCheckedAt = now
+	c.publicIPRefreshInFlight = false
+}
+
+func defaultPublicIPResolver(ctx context.Context) (string, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, publicIPLookupURL, nil)
+	if err != nil {
+		return "", err
+	}
+
+	client := &http.Client{Timeout: publicIPFetchTimeout}
+	response, err := client.Do(request)
+	if err != nil {
+		return "", err
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return "", nil
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, 256))
+	if err != nil {
+		return "", err
+	}
+	if ip, ok := normalizePublicIP(string(body)); ok {
+		return ip, nil
+	}
+	return "", nil
+}
+
+func normalizePublicIP(raw string) (string, bool) {
+	candidate := strings.TrimSpace(raw)
+	fields := strings.Fields(candidate)
+	if len(fields) > 0 {
+		candidate = fields[0]
+	}
+	ip := net.ParseIP(candidate)
+	if ip == nil || !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return "", false
+	}
+	return ip.String(), true
 }
 
 func (c *MetricsCollector) readNetworkCounters() map[string]networkCounter {

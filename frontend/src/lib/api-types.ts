@@ -570,6 +570,7 @@ export interface HostSwapUsage {
 
 export interface HostTemperatureUsage {
   cpu_celsius: number | null
+  cpu_sensor?: HostTemperatureSensor | null
   sensors: HostTemperatureSensor[]
 }
 
@@ -607,6 +608,7 @@ export interface HostDiskIODeviceUsage {
 export interface HostNetworkUsage {
   total_rx_bytes_per_sec: number
   total_tx_bytes_per_sec: number
+  public_ip?: string
   interfaces: HostNetworkInterfaceUsage[]
 }
 

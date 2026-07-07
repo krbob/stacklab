@@ -42,7 +42,7 @@ This is expected behavior, not a product bug by itself.
 
 - full host monitoring platform
 - long-term metrics storage
-- speedtest / public IP discovery
+- speedtest checks
 - GPU metrics
 - userland sensor daemon or `lm-sensors` runtime dependency
 - generic system log browser
@@ -148,6 +148,11 @@ Response:
     },
     "temperatures": {
       "cpu_celsius": 42.5,
+      "cpu_sensor": {
+        "name": "coretemp",
+        "label": "Package id 0",
+        "temperature_celsius": 42.5
+      },
       "sensors": [
         {
           "name": "coretemp",
@@ -184,6 +189,7 @@ Response:
     "network": {
       "total_rx_bytes_per_sec": 2048,
       "total_tx_bytes_per_sec": 1024,
+      "public_ip": "203.0.113.10",
       "interfaces": [
         {
           "name": "eth0",
@@ -221,6 +227,9 @@ Notes:
 - CPU temperature is selected from CPU-like sensors such as `coretemp`,
   `k10temp`, `Tctl`, `Tdie`, package/core labels, or CPU thermal zones; if no
   CPU-like sensor is exposed, `cpu_celsius` is `null`
+- when multiple CPU-like sensors are exposed, package/Tctl/Tdie-style sensors
+  are preferred over individual core sensors so the UI label remains stable
+  instead of alternating between raw sysfs sensor names
 - sensor collection has no `lm-sensors` or `sensors` command dependency; those
   tools remain optional host diagnostics only
 - disk I/O throughput is derived from `/proc/diskstats` sector deltas and uses
@@ -232,7 +241,12 @@ Notes:
 - `statfs` still runs synchronously for accepted local filesystems; add timeout
   isolation only if real deployments expose a local or unclassified filesystem
   that can hang
-- network throughput is derived from `/proc/net/dev` byte deltas; v1 does not run speedtest checks or public IP discovery
+- network throughput is derived from `/proc/net/dev` byte deltas
+- public IP is discovered asynchronously through `https://api64.ipify.org` only
+  while the dashboard is active, cached for `10m`, and omitted when the lookup
+  fails or returns a private/non-global address; lookup failures never block host
+  metric sampling
+- v1 does not run speedtest checks
 - Docker bridge/veth-style virtual interfaces are filtered out of the dashboard totals
 - GPU metrics remain a backlog candidate, not part of this contract
 

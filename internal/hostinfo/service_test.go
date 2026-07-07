@@ -368,6 +368,25 @@ func TestMetricsCollectorReadsThermalZoneTemperatureSensors(t *testing.T) {
 	}
 }
 
+func TestMetricsCollectorSelectsStableCPUTemperatureSensor(t *testing.T) {
+	t.Parallel()
+
+	usage := TemperatureUsage{
+		Sensors: []TemperatureSensor{
+			{Name: "coretemp", Label: "Core 3", TemperatureCelsius: 63},
+			{Name: "x86_pkg_temp", Label: "thermal_zone2", TemperatureCelsius: 62},
+			{Name: "coretemp", Label: "Package id 0", TemperatureCelsius: 58},
+		},
+	}
+	cpuSensor := selectCPUTemperatureSensor(usage.Sensors)
+	if cpuSensor == nil {
+		t.Fatal("selectCPUTemperatureSensor() returned nil")
+	}
+	if cpuSensor.Name != "coretemp" || cpuSensor.Label != "Package id 0" || cpuSensor.TemperatureCelsius != 58 {
+		t.Fatalf("unexpected CPU sensor: %#v", cpuSensor)
+	}
+}
+
 func TestMetricsCollectorDoesNotSelectNonCPUSensorAsCPUTemperature(t *testing.T) {
 	t.Parallel()
 
@@ -396,6 +415,86 @@ func TestMetricsCollectorDoesNotSelectNonCPUSensorAsCPUTemperature(t *testing.T)
 	}
 	if len(usage.Sensors) != 1 || usage.Sensors[0].Name != "nvme" {
 		t.Fatalf("unexpected sensors: %#v", usage.Sensors)
+	}
+}
+
+func TestNormalizePublicIP(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		raw  string
+		want string
+		ok   bool
+	}{
+		{name: "ipv4", raw: "8.8.8.8\n", want: "8.8.8.8", ok: true},
+		{name: "ipv6", raw: "2001:4860:4860::8888\n", want: "2001:4860:4860::8888", ok: true},
+		{name: "private", raw: "192.168.1.10", ok: false},
+		{name: "loopback", raw: "127.0.0.1", ok: false},
+		{name: "invalid", raw: "not-an-ip", ok: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, ok := normalizePublicIP(tt.raw)
+			if ok != tt.ok {
+				t.Fatalf("normalizePublicIP(%q) ok = %v, want %v", tt.raw, ok, tt.ok)
+			}
+			if got != tt.want {
+				t.Fatalf("normalizePublicIP(%q) = %q, want %q", tt.raw, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMetricsCollectorRefreshesPublicIPAsynchronously(t *testing.T) {
+	collector := newMetricsCollector(t.TempDir(), t.TempDir())
+	now := time.Unix(1_712_598_000, 0).UTC()
+	collector.now = func() time.Time {
+		return now
+	}
+	called := make(chan struct{})
+	collector.publicIPResolver = func(ctx context.Context) (string, error) {
+		close(called)
+		return "8.8.8.8", nil
+	}
+
+	if got := collector.cachedPublicIP(now, true); got != "" {
+		t.Fatalf("initial cachedPublicIP() = %q, want empty while refresh is in flight", got)
+	}
+
+	select {
+	case <-called:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for public IP resolver")
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if got := collector.cachedPublicIP(now.Add(time.Second), true); got == "8.8.8.8" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("cachedPublicIP() did not return refreshed IP")
+}
+
+func TestMetricsCollectorDoesNotRefreshPublicIPWhenInactive(t *testing.T) {
+	t.Parallel()
+
+	collector := newMetricsCollector(t.TempDir(), t.TempDir())
+	called := false
+	collector.publicIPResolver = func(ctx context.Context) (string, error) {
+		called = true
+		return "8.8.8.8", nil
+	}
+
+	if got := collector.cachedPublicIP(time.Now().UTC(), false); got != "" {
+		t.Fatalf("cachedPublicIP(inactive) = %q, want empty", got)
+	}
+	if called {
+		t.Fatal("public IP resolver was called while refresh was disabled")
 	}
 }
 
