@@ -1869,7 +1869,21 @@ components:
           type: string
         display_command:
           type: string
+        container:
+          $ref: '#/components/schemas/HostProcessContainer'
       required: [pid, user, state, cpu_percent, memory_bytes, memory_percent, command]
+    HostProcessContainer:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        stack_id:
+          type: string
+        service_name:
+          type: string
+      required: [id]
     StacklabLogsResponse:
       type: object
       properties:

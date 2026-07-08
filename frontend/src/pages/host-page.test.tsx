@@ -171,6 +171,12 @@ const metrics: HostMetricsResponse = {
           memory_percent: 9.4,
           command: 'java',
           display_command: 'java -jar server.jar nogui',
+          container: {
+            id: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+            name: 'minecraft-server-1',
+            stack_id: 'minecraft',
+            service_name: 'server',
+          },
         },
       ],
     },
@@ -284,6 +290,7 @@ describe('HostPage', () => {
     expect(screen.getByText('Top processes')).toBeInTheDocument()
     expect(screen.getByText('3 visible')).toBeInTheDocument()
     expect(screen.getAllByText('postgres').length).toBeGreaterThan(0)
+    expect(screen.getByText('minecraft / server')).toBeInTheDocument()
     expect(screen.getByText('java -jar server.jar nogui')).toBeInTheDocument()
     expect(screen.getByText('1234')).toBeInTheDocument()
     expect(screen.getAllByText('12.5%').length).toBeGreaterThan(0)

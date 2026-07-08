@@ -153,14 +153,22 @@ type ProcessUsage struct {
 }
 
 type ProcessInfo struct {
-	PID            int     `json:"pid"`
-	User           string  `json:"user"`
-	State          string  `json:"state"`
-	CPUPercent     float64 `json:"cpu_percent"`
-	MemoryBytes    uint64  `json:"memory_bytes"`
-	MemoryPercent  float64 `json:"memory_percent"`
-	Command        string  `json:"command"`
-	DisplayCommand string  `json:"display_command,omitempty"`
+	PID            int                   `json:"pid"`
+	User           string                `json:"user"`
+	State          string                `json:"state"`
+	CPUPercent     float64               `json:"cpu_percent"`
+	MemoryBytes    uint64                `json:"memory_bytes"`
+	MemoryPercent  float64               `json:"memory_percent"`
+	Command        string                `json:"command"`
+	DisplayCommand string                `json:"display_command,omitempty"`
+	Container      *ProcessContainerInfo `json:"container,omitempty"`
+}
+
+type ProcessContainerInfo struct {
+	ID          string `json:"id"`
+	Name        string `json:"name,omitempty"`
+	StackID     string `json:"stack_id,omitempty"`
+	ServiceName string `json:"service_name,omitempty"`
 }
 
 type LogsQuery struct {

@@ -384,6 +384,25 @@ func TestParseProcessStat(t *testing.T) {
 	}
 }
 
+func TestParseDockerContainerIDFromCgroup(t *testing.T) {
+	t.Parallel()
+
+	id := strings.Repeat("a", 64)
+	for _, input := range []string{
+		"0::/system.slice/docker-" + id + ".scope\n",
+		"12:memory:/docker/" + id + "\n",
+		"0::/system.slice/docker.service/docker/" + id + "\n",
+	} {
+		if got := parseDockerContainerIDFromCgroup(input); got != id {
+			t.Fatalf("parseDockerContainerIDFromCgroup(%q) = %q, want %q", input, got, id)
+		}
+	}
+
+	if got := parseDockerContainerIDFromCgroup("0::/system.slice/stacklab.service\n"); got != "" {
+		t.Fatalf("host process cgroup parsed as container: %q", got)
+	}
+}
+
 func TestMetricsCollectorReadsTopProcesses(t *testing.T) {
 	t.Parallel()
 
@@ -436,6 +455,47 @@ func TestMetricsCollectorReadsTopProcesses(t *testing.T) {
 	}
 	if top.User == "" {
 		t.Fatal("top.User is empty")
+	}
+}
+
+func TestMetricsCollectorLabelsContainerProcesses(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	procDir := filepath.Join(tempDir, "proc")
+	if err := os.MkdirAll(procDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(proc) error = %v", err)
+	}
+
+	containerID := strings.Repeat("b", 64)
+	collector := newMetricsCollector(t.TempDir(), procDir)
+	collector.containerResolver = func() map[string]ProcessContainerInfo {
+		return map[string]ProcessContainerInfo{
+			containerID: {
+				ID:          containerID,
+				Name:        "minecraft-server-1",
+				StackID:     "minecraft",
+				ServiceName: "server",
+			},
+		}
+	}
+
+	if err := os.WriteFile(filepath.Join(procDir, "stat"), []byte("cpu  100 0 0 100 0 0 0 0 0 0\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(stat) error = %v", err)
+	}
+	writeProcessFixture(t, procDir, 303, "java", "S", 10, 5, 1000)
+	writeProcessCgroupFixture(t, procDir, 303, "0::/system.slice/docker-"+containerID+".scope\n")
+
+	usage := collector.readProcessUsage(map[string]uint64{"MemTotal": uint64(os.Getpagesize() * 4000)})
+	if len(usage.Items) != 1 {
+		t.Fatalf("len(usage.Items) = %d, want 1: %#v", len(usage.Items), usage.Items)
+	}
+	container := usage.Items[0].Container
+	if container == nil {
+		t.Fatalf("process container is nil: %#v", usage.Items[0])
+	}
+	if container.StackID != "minecraft" || container.ServiceName != "server" || container.Name != "minecraft-server-1" {
+		t.Fatalf("unexpected container metadata: %#v", container)
 	}
 }
 
@@ -999,6 +1059,15 @@ func writeProcessCmdlineFixture(t *testing.T, procDir string, pid int, args []st
 	processDir := filepath.Join(procDir, strconv.Itoa(pid))
 	if err := os.WriteFile(filepath.Join(processDir, "cmdline"), []byte(strings.Join(args, "\x00")+"\x00"), 0o644); err != nil {
 		t.Fatalf("WriteFile(process cmdline %d) error = %v", pid, err)
+	}
+}
+
+func writeProcessCgroupFixture(t *testing.T, procDir string, pid int, content string) {
+	t.Helper()
+
+	processDir := filepath.Join(procDir, strconv.Itoa(pid))
+	if err := os.WriteFile(filepath.Join(processDir, "cgroup"), []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile(process cgroup %d) error = %v", pid, err)
 	}
 }
 

@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -31,6 +33,8 @@ const (
 	processCommandMaxLength         = 80
 	processDisplayCommandMaxLength  = 180
 	processCmdlineReadLimit         = 4096
+	processContainerMetadataTTL     = 30 * time.Second
+	processContainerInspectTimeout  = 2 * time.Second
 	publicIPCacheTTL                = 10 * time.Minute
 	publicIPFailureRetryInterval    = time.Minute
 	publicIPFetchTimeout            = 2 * time.Second
@@ -70,6 +74,10 @@ type MetricsCollector struct {
 	processSampleInterval time.Duration
 	usernamesByUID        map[uint32]string
 	usernamesLoaded       bool
+	containerMetadataByID map[string]ProcessContainerInfo
+	containerMetadataAt   time.Time
+	containerMetadataTTL  time.Duration
+	containerResolver     func() map[string]ProcessContainerInfo
 
 	publicIPMu              sync.Mutex
 	publicIP                string
@@ -101,6 +109,14 @@ type processStatSample struct {
 	rssBytes uint64
 }
 
+type dockerProcessContainerInspect struct {
+	ID     string `json:"Id"`
+	Name   string `json:"Name"`
+	Config struct {
+		Labels map[string]string `json:"Labels"`
+	} `json:"Config"`
+}
+
 type mountInfo struct {
 	root       string
 	mountPoint string
@@ -117,7 +133,7 @@ type filesystemCandidate struct {
 }
 
 func newMetricsCollector(rootDir, procRoot string) *MetricsCollector {
-	return &MetricsCollector{
+	collector := &MetricsCollector{
 		procRoot:              procRoot,
 		sysRoot:               "/sys",
 		rootDir:               rootDir,
@@ -130,12 +146,17 @@ func newMetricsCollector(rootDir, procRoot string) *MetricsCollector {
 		now:                   time.Now,
 		statfs:                syscall.Statfs,
 		wakeCh:                make(chan struct{}, 1),
+		containerMetadataTTL:  processContainerMetadataTTL,
 		lastDiskIO:            map[string]diskIOCounter{},
 		lastNetwork:           map[string]networkCounter{},
 		lastProcesses:         map[int]processCPUCounter{},
 		publicIPLookupEnabled: func() bool { return false },
 		publicIPResolver:      defaultPublicIPResolver,
 	}
+	if procRoot == "/proc" {
+		collector.containerResolver = collector.readDockerProcessContainers
+	}
+	return collector
 }
 
 func (c *MetricsCollector) Start(ctx context.Context) {
@@ -328,6 +349,12 @@ func cloneProcessUsage(usage *ProcessUsage) *ProcessUsage {
 		Total: usage.Total,
 		Items: append([]ProcessInfo(nil), usage.Items...),
 	}
+	for index := range cloned.Items {
+		if cloned.Items[index].Container != nil {
+			container := *cloned.Items[index].Container
+			cloned.Items[index].Container = &container
+		}
+	}
 	if cloned.Items == nil {
 		cloned.Items = []ProcessInfo{}
 	}
@@ -360,6 +387,7 @@ func (c *MetricsCollector) readProcessUsage(memInfo map[string]uint64) *ProcessU
 	pageSize := os.Getpagesize()
 	currentCounters := map[int]processCPUCounter{}
 	userCache := map[uint32]string{}
+	containerMetadata := c.processContainerMetadata()
 	processes := []ProcessInfo{}
 
 	for _, entry := range entries {
@@ -400,6 +428,7 @@ func (c *MetricsCollector) readProcessUsage(memInfo map[string]uint64) *ProcessU
 			MemoryPercent:  memoryPercent,
 			Command:        command,
 			DisplayCommand: c.readProcessDisplayCommand(pid, command),
+			Container:      c.processContainer(processDir, containerMetadata),
 		})
 	}
 
@@ -420,6 +449,173 @@ func (c *MetricsCollector) readProcessStat(pid int, pageSize int) (processStatSa
 		return processStatSample{}, false
 	}
 	return parseProcessStat(pid, string(data), pageSize)
+}
+
+func (c *MetricsCollector) processContainerMetadata() map[string]ProcessContainerInfo {
+	now := c.now().UTC()
+	if c.containerMetadataByID != nil && c.containerMetadataTTL > 0 && now.Sub(c.containerMetadataAt) < c.containerMetadataTTL {
+		return c.containerMetadataByID
+	}
+	if c.containerResolver == nil {
+		c.containerMetadataByID = map[string]ProcessContainerInfo{}
+		c.containerMetadataAt = now
+		return c.containerMetadataByID
+	}
+	metadata := c.containerResolver()
+	if metadata == nil {
+		metadata = map[string]ProcessContainerInfo{}
+	}
+	c.containerMetadataByID = metadata
+	c.containerMetadataAt = now
+	return metadata
+}
+
+func (c *MetricsCollector) readDockerProcessContainers() map[string]ProcessContainerInfo {
+	ctx, cancel := context.WithTimeout(context.Background(), processContainerInspectTimeout)
+	defer cancel()
+
+	output, err := exec.CommandContext(ctx, "docker", "ps", "-q").Output()
+	if err != nil {
+		return map[string]ProcessContainerInfo{}
+	}
+	ids := strings.Fields(strings.TrimSpace(string(output)))
+	if len(ids) == 0 {
+		return map[string]ProcessContainerInfo{}
+	}
+
+	args := append([]string{"inspect"}, ids...)
+	inspectOutput, err := exec.CommandContext(ctx, "docker", args...).Output()
+	if err != nil {
+		return map[string]ProcessContainerInfo{}
+	}
+
+	var inspected []dockerProcessContainerInspect
+	if err := json.Unmarshal(inspectOutput, &inspected); err != nil {
+		return map[string]ProcessContainerInfo{}
+	}
+
+	containers := make(map[string]ProcessContainerInfo, len(inspected))
+	for _, container := range inspected {
+		id := normalizeContainerID(container.ID)
+		if id == "" {
+			continue
+		}
+		labels := container.Config.Labels
+		containers[id] = ProcessContainerInfo{
+			ID:          id,
+			Name:        strings.TrimPrefix(container.Name, "/"),
+			StackID:     labels["com.docker.compose.project"],
+			ServiceName: labels["com.docker.compose.service"],
+		}
+	}
+	return containers
+}
+
+func (c *MetricsCollector) processContainer(processDir string, metadata map[string]ProcessContainerInfo) *ProcessContainerInfo {
+	containerID := c.readProcessContainerID(processDir)
+	if containerID == "" {
+		return nil
+	}
+
+	if info, ok := metadata[containerID]; ok {
+		return cloneProcessContainerInfo(info)
+	}
+	for id, info := range metadata {
+		if containerIDsMatch(containerID, id) {
+			return cloneProcessContainerInfo(info)
+		}
+	}
+
+	return &ProcessContainerInfo{
+		ID:   containerID,
+		Name: shortContainerID(containerID),
+	}
+}
+
+func cloneProcessContainerInfo(info ProcessContainerInfo) *ProcessContainerInfo {
+	cloned := info
+	return &cloned
+}
+
+func (c *MetricsCollector) readProcessContainerID(processDir string) string {
+	data, err := os.ReadFile(filepath.Join(processDir, "cgroup"))
+	if err != nil {
+		return ""
+	}
+	return parseDockerContainerIDFromCgroup(string(data))
+}
+
+func parseDockerContainerIDFromCgroup(data string) string {
+	for _, line := range strings.Split(data, "\n") {
+		if id := dockerContainerIDAfter(line, "docker-"); id != "" {
+			return id
+		}
+		if id := dockerContainerIDAfter(line, "docker/"); id != "" {
+			return id
+		}
+	}
+	return ""
+}
+
+func dockerContainerIDAfter(value, marker string) string {
+	searchFrom := 0
+	for {
+		index := strings.Index(value[searchFrom:], marker)
+		if index < 0 {
+			return ""
+		}
+		start := searchFrom + index + len(marker)
+		id := normalizeContainerID(readHexPrefix(value[start:]))
+		if len(id) == 64 {
+			return id
+		}
+		searchFrom = start
+	}
+}
+
+func readHexPrefix(value string) string {
+	var builder strings.Builder
+	for _, char := range value {
+		if !isHexChar(char) {
+			break
+		}
+		builder.WriteRune(char)
+	}
+	return builder.String()
+}
+
+func normalizeContainerID(value string) string {
+	value = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(value, "sha256:")))
+	if len(value) < 12 {
+		return ""
+	}
+	for _, char := range value {
+		if !isHexChar(char) {
+			return ""
+		}
+	}
+	return value
+}
+
+func isHexChar(char rune) bool {
+	return (char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')
+}
+
+func containerIDsMatch(left, right string) bool {
+	left = normalizeContainerID(left)
+	right = normalizeContainerID(right)
+	if len(left) < 12 || len(right) < 12 {
+		return false
+	}
+	return left == right || strings.HasPrefix(left, right) || strings.HasPrefix(right, left)
+}
+
+func shortContainerID(id string) string {
+	id = normalizeContainerID(id)
+	if len(id) <= 12 {
+		return id
+	}
+	return id[:12]
 }
 
 func parseProcessStat(pid int, statLine string, pageSize int) (processStatSample, bool) {

@@ -212,6 +212,22 @@ Response:
           "memory_percent": 3.1,
           "command": "stacklab",
           "display_command": "stacklab"
+        },
+        {
+          "pid": 3333,
+          "user": "minecraft",
+          "state": "S",
+          "cpu_percent": 8.2,
+          "memory_bytes": 1073741824,
+          "memory_percent": 12.5,
+          "command": "java",
+          "display_command": "java -jar server.jar nogui",
+          "container": {
+            "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "name": "minecraft-server-1",
+            "stack_id": "minecraft",
+            "service_name": "server"
+          }
         }
       ]
     }
@@ -266,10 +282,15 @@ Notes:
   default for hosts that have not saved the setting yet
 - the UI masks public IP until the operator explicitly reveals it
 - process metrics are read from `/proc/<pid>/stat`, `/proc/<pid>/comm`,
-  `/proc/<pid>/cmdline`, and process directory ownership
+  `/proc/<pid>/cmdline`, `/proc/<pid>/cgroup`, and process directory ownership
 - `command` remains the short process name; `display_command` is a capped,
   whitespace-normalized, best-effort command line for identifying processes such
   as multiple JVMs
+- `container` is best-effort: Stacklab parses Docker container IDs from process
+  cgroups and joins them to a short-lived Docker metadata cache built from
+  container labels; host processes omit this field
+- Compose labels map `container.stack_id` and `container.service_name`; Docker
+  containers without Compose labels can still expose `id` and `name`
 - common secret-bearing process arguments such as password/token/secret/key are
   redacted from `display_command`, but operators should still treat process
   command lines as potentially sensitive host-local data

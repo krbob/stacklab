@@ -549,7 +549,7 @@ function TopProcessesPanel({
         <div className="text-sm text-[var(--muted)]">No process metrics available.</div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[680px] table-fixed text-left text-xs">
+          <table className="w-full min-w-[820px] table-fixed text-left text-xs">
             <thead className="text-[var(--muted)]">
               <tr className="border-b border-[var(--panel-border)]">
                 <th className="w-16 py-2 pr-3 font-medium">PID</th>
@@ -557,6 +557,7 @@ function TopProcessesPanel({
                 <th className="w-20 px-3 py-2 text-right font-medium">CPU</th>
                 <th className="w-32 px-3 py-2 text-right font-medium">RAM</th>
                 <th className="w-16 px-3 py-2 text-center font-medium">State</th>
+                <th className="w-40 px-3 py-2 font-medium">Source</th>
                 <th className="px-3 py-2 font-medium">Command</th>
               </tr>
             </thead>
@@ -571,6 +572,11 @@ function TopProcessesPanel({
                     <span className="ml-1 text-[var(--muted)]">({formatPercent(process.memory_percent)})</span>
                   </td>
                   <td className="px-3 py-2 text-center font-mono text-[var(--muted)]">{process.state || '-'}</td>
+                  <td className="min-w-0 px-3 py-2" title={processSourceTitle(process)}>
+                    <span className={processSourceClass(process)}>
+                      <span className="truncate">{processSourceLabel(process)}</span>
+                    </span>
+                  </td>
                   <td className="min-w-0 px-3 py-2 text-[var(--text)]" title={processLabel(process)}>
                     <div className="truncate">{processLabel(process)}</div>
                     {process.display_command && process.display_command !== process.command && (
@@ -605,6 +611,46 @@ function sortProcesses(processes: NonNullable<HostMetricSample['processes']>['it
 
 function processLabel(process: NonNullable<HostMetricSample['processes']>['items'][number]): string {
   return process.display_command || process.command
+}
+
+function processSourceLabel(process: NonNullable<HostMetricSample['processes']>['items'][number]): string {
+  const container = process.container
+  if (!container) {
+    return 'Host'
+  }
+  if (container.stack_id) {
+    const service = container.service_name || container.name || shortContainerId(container.id)
+    return service ? `${container.stack_id} / ${service}` : container.stack_id
+  }
+  return `Docker / ${container.name || shortContainerId(container.id)}`
+}
+
+function processSourceTitle(process: NonNullable<HostMetricSample['processes']>['items'][number]): string {
+  const container = process.container
+  if (!container) {
+    return 'Host process'
+  }
+  const parts = []
+  if (container.stack_id) parts.push(`Stack: ${container.stack_id}`)
+  if (container.service_name) parts.push(`Service: ${container.service_name}`)
+  if (container.name) parts.push(`Container: ${container.name}`)
+  if (container.id) parts.push(`ID: ${container.id}`)
+  return parts.length > 0 ? parts.join(' · ') : 'Docker container'
+}
+
+function processSourceClass(process: NonNullable<HostMetricSample['processes']>['items'][number]): string {
+  return cn(
+    'inline-flex max-w-full items-center rounded border px-2 py-0.5 text-[11px]',
+    process.container?.stack_id
+      ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.10)] text-[var(--text)]'
+      : process.container
+        ? 'border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.05)] text-[var(--muted)]'
+        : 'border-transparent bg-transparent px-0 text-[var(--muted)]',
+  )
+}
+
+function shortContainerId(id: string): string {
+  return id.length > 12 ? id.slice(0, 12) : id
 }
 
 function MetricCard({

@@ -643,6 +643,14 @@ export interface HostProcessInfo {
   memory_percent: number
   command: string
   display_command?: string
+  container?: HostProcessContainerInfo
+}
+
+export interface HostProcessContainerInfo {
+  id: string
+  name?: string
+  stack_id?: string
+  service_name?: string
 }
 
 export interface StacklabLogEntry {
