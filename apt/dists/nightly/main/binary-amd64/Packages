@@ -1,21 +1,4 @@
 Package: stacklab
-Version: 2026.08.0~nightly20260705+gf6106d0
-Architecture: amd64
-Maintainer: Stacklab Maintainers <maintainers@stacklab.invalid>
-Depends: systemd, docker.io | docker-ce | moby-engine, docker-compose | docker-compose-plugin, git
-Recommends: ca-certificates
-Filename: pool/nightly/main/s/stacklab/stacklab_2026.08.0~nightly20260705+gf6106d0_amd64.deb
-Size: 9338216
-MD5sum: 5b9e90e0037be63ae1a1a255f5b80f5a
-SHA1: 09322cbafc54b2a60e1f9628ca707411be7a7da5
-SHA256: f96078c0ba095fa47610793629f4137bbfafcb5db40c3b2acaf5e7c1705bc082
-Section: admin
-Priority: optional
-Description: Compose-first control panel for Docker Compose homelabs
- Stacklab is a host-native, filesystem-first control panel for Docker Compose
- homelabs running on a single Linux host.
-
-Package: stacklab
 Version: 2026.08.0~nightly20260706+ged0f5c5
 Architecture: amd64
 Maintainer: Stacklab Maintainers <maintainers@stacklab.invalid>
@@ -111,6 +94,23 @@ Size: 9397206
 MD5sum: 22346a3d0fe033d98434cc5caeee641d
 SHA1: b9d6743dd09947f4c6b218e8a38dac14f2951da0
 SHA256: 3b31836e3be36518064cf08e30a4c5b1ec0d86f7579115296e1d81e0028ac2e6
+Section: admin
+Priority: optional
+Description: Compose-first control panel for Docker Compose homelabs
+ Stacklab is a host-native, filesystem-first control panel for Docker Compose
+ homelabs running on a single Linux host.
+
+Package: stacklab
+Version: 2026.08.0~nightly20260708+r101.g1444c7b
+Architecture: amd64
+Maintainer: Stacklab Maintainers <maintainers@stacklab.invalid>
+Depends: adduser, systemd, docker.io | docker-ce | moby-engine, docker-cli | docker-ce-cli | moby-cli | docker.io (<< 26.0), docker-compose | docker-compose-plugin, git
+Recommends: ca-certificates
+Filename: pool/nightly/main/s/stacklab/stacklab_2026.08.0~nightly20260708+r101.g1444c7b_amd64.deb
+Size: 9403892
+MD5sum: 9f9686d0c7d2dc5c3fa174ed24eacf5e
+SHA1: 7d2c8c53c973abdd5f2dba51df1ef999a2bc51e6
+SHA256: 6b9a73ef754aaff4f10a67d19e346c2adb91a4ef3d0744005585f012e316cfe7
 Section: admin
 Priority: optional
 Description: Compose-first control panel for Docker Compose homelabs
