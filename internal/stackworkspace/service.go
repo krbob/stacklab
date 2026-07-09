@@ -11,13 +11,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
-	"unicode/utf8"
 
 	"stacklab/internal/atomicfile"
 	"stacklab/internal/config"
 	"stacklab/internal/fsmeta"
 	"stacklab/internal/stacks"
+	"stacklab/internal/workspacefiles"
 	"stacklab/internal/workspacerepair"
 )
 
@@ -260,7 +259,7 @@ func (s *Service) SaveFile(ctx context.Context, stackID string, request SaveFile
 		return SaveFileResponse{}, err
 	}
 
-	if err := ensureExpectedModifiedAt(targetPath, request.ExpectedModifiedAt); err != nil {
+	if err := workspacefiles.EnsureExpectedModifiedAt(targetPath, request.ExpectedModifiedAt, ErrConflict, "stack workspace file"); err != nil {
 		return SaveFileResponse{}, err
 	}
 
@@ -490,25 +489,10 @@ func detectEntryType(path string, info os.FileInfo) (EntryType, error) {
 	if len(sample) == 0 {
 		return EntryTypeTextFile, nil
 	}
-	if bytes.Contains(sample, []byte{0}) || !validTextSample(sample, info.Size() > int64(readBytes)) {
+	if bytes.Contains(sample, []byte{0}) || !workspacefiles.ValidTextSample(sample, info.Size() > int64(readBytes)) {
 		return EntryTypeBinaryFile, nil
 	}
 	return EntryTypeTextFile, nil
-}
-
-func validTextSample(sample []byte, truncated bool) bool {
-	if utf8.Valid(sample) {
-		return true
-	}
-	if !truncated {
-		return false
-	}
-	for trim := 1; trim < utf8.UTFMax && trim < len(sample); trim++ {
-		if utf8.Valid(sample[:len(sample)-trim]) {
-			return true
-		}
-	}
-	return false
 }
 
 func stackBlockedReason(readable, writable bool, entryType EntryType) *string {
@@ -589,24 +573,6 @@ func parentRelativePath(relativePath string) string {
 
 func writeFileAtomic(path, content, pattern string) error {
 	return atomicfile.WriteString(path, content, pattern)
-}
-
-func ensureExpectedModifiedAt(targetPath string, expected *time.Time) error {
-	if expected == nil {
-		return nil
-	}
-
-	info, err := os.Stat(targetPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return ErrConflict
-		}
-		return fmt.Errorf("stat stack workspace file before save: %w", err)
-	}
-	if !info.ModTime().UTC().Equal(expected.UTC()) {
-		return ErrConflict
-	}
-	return nil
 }
 
 func isReservedDefinitionPath(relativePath string) bool {
