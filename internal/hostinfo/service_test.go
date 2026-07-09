@@ -2,6 +2,7 @@ package hostinfo
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -503,6 +504,46 @@ func TestMetricsCollectorReadsTopProcesses(t *testing.T) {
 	}
 	if top.User == "" {
 		t.Fatal("top.User is empty")
+	}
+}
+
+func TestMetricsCollectorLimitsAndEnrichesSelectedTopProcesses(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	procDir := filepath.Join(tempDir, "proc")
+	if err := os.MkdirAll(procDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(proc) error = %v", err)
+	}
+
+	collector := newMetricsCollector(t.TempDir(), procDir)
+	memTotal := uint64(os.Getpagesize() * 100_000)
+	if err := os.WriteFile(filepath.Join(procDir, "stat"), []byte("cpu  100 0 0 100 0 0 0 0 0 0\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(stat initial) error = %v", err)
+	}
+	for i := 1; i <= 40; i++ {
+		writeProcessFixture(t, procDir, 1000+i, fmt.Sprintf("worker-%02d", i), "S", uint64(i), 0, int64(1000+i))
+	}
+	_ = collector.readProcessUsage(map[string]uint64{"MemTotal": memTotal}, map[string]ProcessContainerInfo{})
+
+	if err := os.WriteFile(filepath.Join(procDir, "stat"), []byte("cpu  200 0 0 200 0 0 0 0 0 0\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(stat second) error = %v", err)
+	}
+	for i := 1; i <= 40; i++ {
+		writeProcessFixture(t, procDir, 1000+i, fmt.Sprintf("worker-%02d", i), "S", uint64(i*3), 0, int64(1000+i))
+	}
+
+	usage := collector.readProcessUsage(map[string]uint64{"MemTotal": memTotal}, map[string]ProcessContainerInfo{})
+	if usage.Total != 40 {
+		t.Fatalf("usage.Total = %d, want 40", usage.Total)
+	}
+	if len(usage.Items) == 0 || len(usage.Items) > processesMaxItems {
+		t.Fatalf("len(usage.Items) = %d, want 1..%d", len(usage.Items), processesMaxItems)
+	}
+	for _, process := range usage.Items {
+		if process.User == "" || process.DisplayCommand == "" {
+			t.Fatalf("selected process was not enriched: %#v", process)
+		}
 	}
 }
 

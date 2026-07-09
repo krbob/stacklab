@@ -398,7 +398,6 @@ func (c *MetricsCollector) readProcessUsage(memInfo map[string]uint64, container
 	memTotal := memInfo["MemTotal"]
 	pageSize := os.Getpagesize()
 	currentCounters := map[int]processCPUCounter{}
-	userCache := map[uint32]string{}
 	processes := []ProcessInfo{}
 
 	for _, entry := range entries {
@@ -410,7 +409,6 @@ func (c *MetricsCollector) readProcessUsage(memInfo map[string]uint64, container
 			continue
 		}
 
-		processDir := filepath.Join(c.procRoot, entry.Name())
 		sample, ok := c.readProcessStat(pid, pageSize)
 		if !ok {
 			continue
@@ -429,17 +427,13 @@ func (c *MetricsCollector) readProcessUsage(memInfo map[string]uint64, container
 			memoryPercent = roundFloat((float64(sample.rssBytes) / float64(memTotal)) * 100)
 		}
 
-		command := c.readProcessCommand(pid, sample.command)
 		processes = append(processes, ProcessInfo{
-			PID:            pid,
-			User:           c.processOwner(processDir, userCache),
-			State:          sample.state,
-			CPUPercent:     cpuPercent,
-			MemoryBytes:    sample.rssBytes,
-			MemoryPercent:  memoryPercent,
-			Command:        command,
-			DisplayCommand: c.readProcessDisplayCommand(pid, command),
-			Container:      c.processContainer(processDir, containerMetadata),
+			PID:           pid,
+			State:         sample.state,
+			CPUPercent:    cpuPercent,
+			MemoryBytes:   sample.rssBytes,
+			MemoryPercent: memoryPercent,
+			Command:       sample.command,
 		})
 	}
 
@@ -448,10 +442,26 @@ func (c *MetricsCollector) readProcessUsage(memInfo map[string]uint64, container
 	}
 	c.lastProcesses = currentCounters
 
+	selected := selectTopProcesses(processes)
+	c.enrichProcessInfos(selected, containerMetadata)
 	return &ProcessUsage{
 		Total: len(processes),
-		Items: selectTopProcesses(processes),
+		Items: selected,
 	}
+}
+
+func (c *MetricsCollector) enrichProcessInfos(processes []ProcessInfo, containerMetadata map[string]ProcessContainerInfo) {
+	userCache := map[uint32]string{}
+	for i := range processes {
+		pid := processes[i].PID
+		processDir := filepath.Join(c.procRoot, strconv.Itoa(pid))
+		command := c.readProcessCommand(pid, processes[i].Command)
+		processes[i].User = c.processOwner(processDir, userCache)
+		processes[i].Command = command
+		processes[i].DisplayCommand = c.readProcessDisplayCommand(pid, command)
+		processes[i].Container = c.processContainer(processDir, containerMetadata)
+	}
+	sortProcessInfos(processes, "cpu")
 }
 
 func (c *MetricsCollector) readProcessStat(pid int, pageSize int) (processStatSample, bool) {
