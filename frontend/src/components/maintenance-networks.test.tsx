@@ -1,8 +1,9 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MaintenanceNetworks } from './maintenance-networks'
 import type { MaintenanceNetworksResponse } from '@/lib/api-types'
+import { deleteMaintenanceNetwork } from '@/lib/api-client'
 
 const mockUseApi = vi.fn()
 
@@ -50,6 +51,8 @@ const networksData: MaintenanceNetworksResponse = {
 describe('MaintenanceNetworks', () => {
   beforeEach(() => {
     mockUseApi.mockReset()
+    vi.mocked(deleteMaintenanceNetwork).mockReset()
+    vi.mocked(deleteMaintenanceNetwork).mockResolvedValue({ deleted: true, name: 'external_shared' })
     mockUseApi.mockReturnValue({
       data: networksData,
       error: null,
@@ -92,6 +95,32 @@ describe('MaintenanceNetworks', () => {
 
     expect(screen.getByRole('button', { name: 'Remove demo_default' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Remove external_shared' })).toBeEnabled()
+  })
+
+  it('requires confirmation before removing an external network', async () => {
+    const refetch = vi.fn()
+    mockUseApi.mockReturnValue({
+      data: networksData,
+      error: null,
+      loading: false,
+      refetch,
+    })
+
+    render(
+      <MemoryRouter>
+        <MaintenanceNetworks />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove external_shared' }))
+
+    expect(screen.getByRole('dialog', { name: 'Remove network "external_shared"?' })).toBeInTheDocument()
+    expect(deleteMaintenanceNetwork).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove network' }))
+
+    await waitFor(() => expect(deleteMaintenanceNetwork).toHaveBeenCalledWith('external_shared'))
+    expect(refetch).toHaveBeenCalled()
   })
 
   it('shows empty state', () => {

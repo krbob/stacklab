@@ -4,6 +4,7 @@ import { getMaintenanceNetworks, createMaintenanceNetwork, deleteMaintenanceNetw
 import { useApi } from '@/hooks/use-api'
 import type { MaintenanceNetworkItem } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 
 type Usage = 'all' | 'used' | 'unused'
 type Origin = 'all' | 'stack_managed' | 'external'
@@ -30,6 +31,8 @@ export function MaintenanceNetworks() {
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<MaintenanceNetworkItem | null>(null)
+  const [deletingName, setDeletingName] = useState<string | null>(null)
 
   const { data, error, loading, refetch } = useApi(
     () => getMaintenanceNetworks({ usage: usage !== 'all' ? usage : undefined, origin: origin !== 'all' ? origin : undefined, q: search || undefined }),
@@ -56,13 +59,17 @@ export function MaintenanceNetworks() {
     }
   }, [createName, refetch])
 
-  const handleDelete = useCallback(async (name: string) => {
+  const handleDelete = useCallback(async (network: MaintenanceNetworkItem) => {
     setActionError(null)
+    setDeletingName(network.name)
     try {
-      await deleteMaintenanceNetwork(name)
+      await deleteMaintenanceNetwork(network.name)
+      setPendingDelete(null)
       refetch()
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Delete failed')
+    } finally {
+      setDeletingName(null)
     }
   }, [refetch])
 
@@ -133,7 +140,10 @@ export function MaintenanceNetworks() {
             </div>
             <span className="shrink-0" title={deleteBlockedReason(net) ?? undefined}>
               <button
-                onClick={() => handleDelete(net.name)}
+                onClick={() => {
+                  setActionError(null)
+                  setPendingDelete(net)
+                }}
                 disabled={!canDelete(net)}
                 aria-label={`Remove ${net.name}`}
                 className="rounded-md border border-[var(--danger)]/30 px-2 py-1 text-xs text-[var(--danger)] transition hover:bg-[var(--danger)]/10 disabled:opacity-30 disabled:hover:bg-transparent"
@@ -144,6 +154,22 @@ export function MaintenanceNetworks() {
           </div>
         ))}
       </div>
+
+      {pendingDelete && (
+        <ConfirmDialog
+          title={`Remove network "${pendingDelete.name}"?`}
+          message="This deletes the Docker network. Containers using this network will not be reconnected automatically."
+          items={[
+            `network: ${pendingDelete.name}`,
+            `driver: ${pendingDelete.driver}`,
+            pendingDelete.id ? `id: ${pendingDelete.id.slice(0, 12)}` : 'id: unavailable',
+          ]}
+          confirmLabel="Remove network"
+          confirming={deletingName === pendingDelete.name}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={() => handleDelete(pendingDelete)}
+        />
+      )}
     </section>
   )
 }

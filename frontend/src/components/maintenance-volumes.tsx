@@ -4,6 +4,7 @@ import { getMaintenanceVolumes, createMaintenanceVolume, deleteMaintenanceVolume
 import { useApi } from '@/hooks/use-api'
 import type { MaintenanceVolumeItem } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 
 type Usage = 'all' | 'used' | 'unused'
 type Origin = 'all' | 'stack_managed' | 'external'
@@ -27,6 +28,8 @@ export function MaintenanceVolumes() {
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<MaintenanceVolumeItem | null>(null)
+  const [deletingName, setDeletingName] = useState<string | null>(null)
 
   const { data, error, loading, refetch } = useApi(
     () => getMaintenanceVolumes({ usage: usage !== 'all' ? usage : undefined, origin: origin !== 'all' ? origin : undefined, q: search || undefined }),
@@ -53,13 +56,17 @@ export function MaintenanceVolumes() {
     }
   }, [createName, refetch])
 
-  const handleDelete = useCallback(async (name: string) => {
+  const handleDelete = useCallback(async (volume: MaintenanceVolumeItem) => {
     setActionError(null)
+    setDeletingName(volume.name)
     try {
-      await deleteMaintenanceVolume(name)
+      await deleteMaintenanceVolume(volume.name)
+      setPendingDelete(null)
       refetch()
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Delete failed')
+    } finally {
+      setDeletingName(null)
     }
   }, [refetch])
 
@@ -129,7 +136,10 @@ export function MaintenanceVolumes() {
             </div>
             <span className="shrink-0" title={deleteBlockedReason(vol) ?? undefined}>
               <button
-                onClick={() => handleDelete(vol.name)}
+                onClick={() => {
+                  setActionError(null)
+                  setPendingDelete(vol)
+                }}
                 disabled={!canDelete(vol)}
                 aria-label={`Remove ${vol.name}`}
                 className="rounded-md border border-[var(--danger)]/30 px-2 py-1 text-xs text-[var(--danger)] transition hover:bg-[var(--danger)]/10 disabled:opacity-30 disabled:hover:bg-transparent"
@@ -140,6 +150,22 @@ export function MaintenanceVolumes() {
           </div>
         ))}
       </div>
+
+      {pendingDelete && (
+        <ConfirmDialog
+          title={`Remove volume "${pendingDelete.name}"?`}
+          message="This deletes the Docker volume. Any data inside it is removed permanently."
+          items={[
+            `volume: ${pendingDelete.name}`,
+            pendingDelete.mountpoint ? `mountpoint: ${pendingDelete.mountpoint}` : 'mountpoint: unavailable',
+          ]}
+          requireText={pendingDelete.name}
+          confirmLabel="Remove volume"
+          confirming={deletingName === pendingDelete.name}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={() => handleDelete(pendingDelete)}
+        />
+      )}
     </section>
   )
 }

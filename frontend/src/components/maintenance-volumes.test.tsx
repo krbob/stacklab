@@ -1,8 +1,9 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MaintenanceVolumes } from './maintenance-volumes'
 import type { MaintenanceVolumesResponse } from '@/lib/api-types'
+import { deleteMaintenanceVolume } from '@/lib/api-client'
 
 const mockUseApi = vi.fn()
 
@@ -46,6 +47,8 @@ const volumesData: MaintenanceVolumesResponse = {
 describe('MaintenanceVolumes', () => {
   beforeEach(() => {
     mockUseApi.mockReset()
+    vi.mocked(deleteMaintenanceVolume).mockReset()
+    vi.mocked(deleteMaintenanceVolume).mockResolvedValue({ deleted: true, name: 'external_media' })
     mockUseApi.mockReturnValue({
       data: volumesData,
       error: null,
@@ -87,6 +90,36 @@ describe('MaintenanceVolumes', () => {
 
     expect(screen.getByRole('button', { name: 'Remove demo_data' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Remove external_media' })).toBeEnabled()
+  })
+
+  it('requires typed confirmation before removing an external volume', async () => {
+    const refetch = vi.fn()
+    mockUseApi.mockReturnValue({
+      data: volumesData,
+      error: null,
+      loading: false,
+      refetch,
+    })
+
+    render(
+      <MemoryRouter>
+        <MaintenanceVolumes />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove external_media' }))
+
+    expect(screen.getByRole('dialog', { name: 'Remove volume "external_media"?' })).toBeInTheDocument()
+    expect(deleteMaintenanceVolume).not.toHaveBeenCalled()
+
+    const confirm = screen.getByRole('button', { name: 'Remove volume' })
+    expect(confirm).toBeDisabled()
+
+    fireEvent.change(screen.getByLabelText('Type external_media to confirm'), { target: { value: 'external_media' } })
+    fireEvent.click(confirm)
+
+    await waitFor(() => expect(deleteMaintenanceVolume).toHaveBeenCalledWith('external_media'))
+    expect(refetch).toHaveBeenCalled()
   })
 
   it('shows empty state', () => {
