@@ -32,6 +32,7 @@ const (
 	stacklabJournalMaxBatchFetch = 5
 	runtimeLogTailLimit          = 200
 	runtimeLogErrorThreshold     = 3
+	runtimeLogReadTimeout        = 3 * time.Second
 )
 
 var ErrInvalidConfig = errors.New("invalid notification config")
@@ -261,6 +262,7 @@ type Service struct {
 	now            func() time.Time
 	pollInterval   time.Duration
 	alertCooldown  time.Duration
+	logReadTimeout time.Duration
 }
 
 func NewService(settingStore Store, logger *slog.Logger) *Service {
@@ -308,9 +310,10 @@ func NewService(settingStore Store, logger *slog.Logger) *Service {
 			}
 			return parseRuntimeContainerLogOutput(output, since), nil
 		},
-		now:           time.Now().UTC,
-		pollInterval:  30 * time.Second,
-		alertCooldown: 15 * time.Minute,
+		now:            time.Now().UTC,
+		pollInterval:   30 * time.Second,
+		alertCooldown:  15 * time.Minute,
+		logReadTimeout: runtimeLogReadTimeout,
 	}
 }
 
@@ -1345,7 +1348,9 @@ func (s *Service) inspectRuntimeLogFailures(ctx context.Context, since time.Time
 			if container.Status == "exited" || container.Status == "dead" {
 				continue
 			}
-			entries, err := s.readLogs(ctx, container.ID, since)
+			logCtx, cancel := context.WithTimeout(ctx, s.runtimeLogReadTimeout())
+			entries, err := s.readLogs(logCtx, container.ID, since)
+			cancel()
 			if err != nil {
 				continue
 			}
@@ -1377,6 +1382,13 @@ func (s *Service) inspectRuntimeLogFailures(ctx context.Context, since time.Time
 
 	sort.Slice(failures, func(i, j int) bool { return failures[i].StackID < failures[j].StackID })
 	return failures, nil
+}
+
+func (s *Service) runtimeLogReadTimeout() time.Duration {
+	if s.logReadTimeout <= 0 {
+		return runtimeLogReadTimeout
+	}
+	return s.logReadTimeout
 }
 
 func isRuntimeLogErrorMessage(message string) bool {

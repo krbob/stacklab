@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -536,6 +537,45 @@ func TestPollRuntimeLogAlertsSendsOnNewBurst(t *testing.T) {
 	}
 	if sent[0].RuntimeLog.AffectedStacks[0].MatchingEntryCount != 3 {
 		t.Fatalf("unexpected matching_entry_count: %#v", sent[0].RuntimeLog.AffectedStacks[0])
+	}
+}
+
+func TestInspectRuntimeLogFailuresTimesOutSingleContainerRead(t *testing.T) {
+	t.Parallel()
+
+	testStore := openNotificationTestStore(t)
+	service := NewService(testStore, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	service.logReadTimeout = 5 * time.Millisecond
+	now := time.Date(2026, 4, 10, 9, 10, 0, 0, time.UTC)
+	stack := runtimeHealthHealthyStack("demo")
+	stack.Stack.Containers = []stacks.Container{
+		{ID: "slow", Name: "demo-slow", Status: "running"},
+		{ID: "fast", Name: "demo-fast", Status: "running"},
+	}
+	service.SetStackInspector(fakeStackInspector{
+		items: map[string]stacks.StackDetailResponse{"demo": stack},
+	})
+	service.readLogs = func(ctx context.Context, containerID string, _ time.Time) ([]runtimeContainerLogEntry, error) {
+		if containerID == "slow" {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		return []runtimeContainerLogEntry{
+			{Timestamp: now.Add(-25 * time.Second), Message: "ERROR connection refused"},
+			{Timestamp: now.Add(-20 * time.Second), Message: "panic in worker"},
+			{Timestamp: now.Add(-15 * time.Second), Message: "fatal: task crashed"},
+		}, nil
+	}
+
+	failures, err := service.inspectRuntimeLogFailures(context.Background(), now.Add(-30*time.Second))
+	if err != nil {
+		t.Fatalf("inspectRuntimeLogFailures() error = %v", err)
+	}
+	if len(failures) != 1 {
+		t.Fatalf("len(failures) = %d, want 1: %#v", len(failures), failures)
+	}
+	if failures[0].MatchingEntryCount != 3 || !reflect.DeepEqual(failures[0].Containers, []string{"demo-fast"}) {
+		t.Fatalf("unexpected failure: %#v", failures[0])
 	}
 }
 
