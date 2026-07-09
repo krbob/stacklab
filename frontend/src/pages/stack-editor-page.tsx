@@ -5,6 +5,7 @@ import { getDefinition, getResolvedConfig, invokeAction, resolveConfigDraft, sav
 import { YamlEditor } from '@/components/yaml-editor'
 import { ProgressPanel } from '@/components/progress-panel'
 import { cn } from '@/lib/cn'
+import { UnsavedChangesGuard } from '@/components/unsaved-changes-guard'
 
 type ActiveTab = 'compose' | 'env'
 type DraftValidationState = 'valid' | 'invalid' | 'stale'
@@ -217,6 +218,8 @@ export function StackEditorPage() {
 
   return (
     <div className="flex flex-col gap-3">
+      <UnsavedChangesGuard when={isDirty && !saving} />
+
       {error && (
         <div className="rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">
           {error}

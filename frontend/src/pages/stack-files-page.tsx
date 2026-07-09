@@ -7,6 +7,7 @@ import { useApi } from '@/hooks/use-api'
 import { YamlEditor } from '@/components/yaml-editor'
 import { BlockedFileCard } from '@/components/blocked-file-card'
 import { cn } from '@/lib/cn'
+import { UnsavedChangesGuard } from '@/components/unsaved-changes-guard'
 
 const RESERVED_ROOT_FILES = ['compose.yaml', '.env']
 
@@ -106,6 +107,8 @@ export function StackFilesPage() {
 
   return (
     <div className="flex flex-col gap-4 lg:flex-row" style={{ minHeight: '400px' }}>
+      <UnsavedChangesGuard when={isDirty && !saving} />
+
       {/* Tree panel */}
       <div className="w-full shrink-0 overflow-y-auto lg:w-56">
         {treeLoading && (

@@ -9,6 +9,7 @@ import { GitCommitBar } from '@/components/git-commit-bar'
 import { BlockedFileCard } from '@/components/blocked-file-card'
 import { BottomSheet } from '@/components/bottom-sheet'
 import { cn } from '@/lib/cn'
+import { UnsavedChangesGuard } from '@/components/unsaved-changes-guard'
 
 type Mode = 'files' | 'changes'
 
@@ -258,6 +259,8 @@ export function ConfigPage() {
 
   return (
     <div className="flex flex-col gap-4 lg:flex-row" style={{ minHeight: 'calc(100vh - 120px)' }}>
+      <UnsavedChangesGuard when={isDirty && !saving} />
+
       {/* Workspace panel: desktop sidebar; on mobile a bottom sheet */}
       <div className="hidden w-64 shrink-0 flex-col rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-[var(--shadow)] lg:flex">
         <div className="mb-3 text-xs uppercase tracking-wider text-[var(--accent)]">Config workspace</div>
