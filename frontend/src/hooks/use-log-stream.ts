@@ -10,6 +10,8 @@ interface UseLogStreamOptions {
   enabled?: boolean
 }
 
+const MAX_LOG_ENTRIES = 5000
+
 export function useLogStream({ stackId, serviceNames = [], tail = 200, enabled = true }: UseLogStreamOptions) {
   const { connected, send, subscribe } = useWs()
   const serviceKey = serviceNames.join(',')
@@ -79,12 +81,12 @@ export function useLogStream({ stackId, serviceNames = [], tail = 200, enabled =
           if (bufferRef.current.streamKey !== streamKey) {
             bufferRef.current = { streamKey, entries: [] }
           }
-          bufferRef.current.entries.push(...newEntries)
+          bufferRef.current.entries = capLogEntries([...bufferRef.current.entries, ...newEntries])
         } else {
           setEntriesState((prev) => {
             const previousEntries = prev.streamKey === streamKey ? prev.entries : []
             const combined = [...previousEntries, ...newEntries]
-            return { streamKey, entries: combined.length > 5000 ? combined.slice(-5000) : combined }
+            return { streamKey, entries: capLogEntries(combined) }
           })
         }
       }
@@ -98,7 +100,7 @@ export function useLogStream({ stackId, serviceNames = [], tail = 200, enabled =
       const bufferedEntries = bufferRef.current.streamKey === streamKey ? bufferRef.current.entries : []
       const combined = [...previousEntries, ...bufferedEntries]
       bufferRef.current = { streamKey, entries: [] }
-      return { streamKey, entries: combined.length > 5000 ? combined.slice(-5000) : combined }
+      return { streamKey, entries: capLogEntries(combined) }
     })
   }, [streamKey])
 
@@ -115,4 +117,8 @@ export function useLogStream({ stackId, serviceNames = [], tail = 200, enabled =
       subscribedStreamKeyRef.current = null
     },
   }
+}
+
+function capLogEntries(entries: LogEntry[]): LogEntry[] {
+  return entries.length > MAX_LOG_ENTRIES ? entries.slice(-MAX_LOG_ENTRIES) : entries
 }

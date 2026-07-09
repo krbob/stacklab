@@ -210,6 +210,36 @@ describe('useLogStream', () => {
     expect(result.current.entries[0].line).toBe('Line 1')
   })
 
+  it('caps paused buffer at 5000 before resume', () => {
+    const { result } = renderHook(() => useLogStream({ stackId: 'test' }), {
+      wrapper: ({ children }) => <Provider>{children}</Provider>,
+    })
+
+    const streamId = 'logs_test_all'
+    act(() => { result.current.pause() })
+    act(() => {
+      const entries = Array.from({ length: 5001 }, (_, i) => ({
+        timestamp: '2026-01-01T00:00:00Z',
+        service_name: 'app',
+        container_id: 'abc',
+        stream: 'stdout',
+        line: `Buffered ${i}`,
+      }))
+      controls.emit(streamId, {
+        type: 'logs.event',
+        stream_id: streamId,
+        payload: { entries },
+      })
+    })
+
+    expect(result.current.entries).toHaveLength(0)
+
+    act(() => { result.current.resume() })
+
+    expect(result.current.entries).toHaveLength(5000)
+    expect(result.current.entries[0].line).toBe('Buffered 1')
+  })
+
   it('preserves existing entries after reconnect without duplicating', () => {
     const { result } = renderHook(
       () => useLogStream({ stackId: 'test', tail: 50 }),
