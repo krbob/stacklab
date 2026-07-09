@@ -5,6 +5,7 @@ import { StackOverviewPage } from './stack-overview-page'
 import type { StackDetailResponse } from '@/lib/api-types'
 
 const mockInvokeAction = vi.fn()
+const mockUpdateStacksMaintenance = vi.fn()
 const mockRefetch = vi.fn()
 const mockUseJobStream = vi.fn()
 let outletStack: StackDetailResponse['stack']
@@ -37,6 +38,7 @@ const baseStack: StackDetailResponse['stack'] = {
   containers: [],
   last_deployed_at: null,
   last_action: null,
+  updates: null,
 }
 
 vi.mock('react-router-dom', async () => {
@@ -52,6 +54,7 @@ vi.mock('react-router-dom', async () => {
 
 vi.mock('@/lib/api-client', () => ({
   invokeAction: (...args: unknown[]) => mockInvokeAction(...args),
+  updateStacksMaintenance: (...args: unknown[]) => mockUpdateStacksMaintenance(...args),
 }))
 
 vi.mock('@/hooks/use-job-stream', () => ({
@@ -62,6 +65,7 @@ describe('StackOverviewPage', () => {
   beforeEach(() => {
     outletStack = { ...baseStack }
     mockInvokeAction.mockReset()
+    mockUpdateStacksMaintenance.mockReset()
     mockRefetch.mockReset()
     mockUseJobStream.mockReset()
     mockUseJobStream.mockImplementation(({ jobId }: { jobId: string | null }) => ({
@@ -183,6 +187,42 @@ describe('StackOverviewPage', () => {
 
     expect(screen.getByRole('link', { name: 'Logs' })).toHaveAttribute('href', '/stacks/demo/logs?service=web')
     expect(screen.getByRole('link', { name: 'Shell' })).toHaveAttribute('href', '/stacks/demo/terminal?service=web')
+  })
+
+  it('starts update for this stack when updates are available', async () => {
+    outletStack = {
+      ...baseStack,
+      updates: {
+        state: 'available',
+        services_with_updates: 1,
+        checked_at: '2026-07-09T03:00:00Z',
+      },
+    }
+    mockUpdateStacksMaintenance.mockResolvedValue({
+      job: { id: 'job_update_1', stack_id: null, action: 'update_stacks', state: 'running' },
+    })
+
+    renderOverview()
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+
+    await waitFor(() => {
+      expect(mockUpdateStacksMaintenance).toHaveBeenCalledWith({
+        target: {
+          mode: 'selected',
+          stack_ids: ['demo'],
+        },
+        options: {
+          pull_images: true,
+          build_images: true,
+          remove_orphans: true,
+          prune_after: {
+            enabled: false,
+            include_volumes: false,
+          },
+        },
+      })
+    })
+    expect(await screen.findByText('Job started.')).toBeInTheDocument()
   })
 })
 

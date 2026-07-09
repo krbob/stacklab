@@ -356,6 +356,7 @@ export interface StackDetailResponse {
     containers: Container[]
     last_deployed_at: string | null
     last_action: LastAction | null
+    updates?: StackUpdates | null
   }
 }
 

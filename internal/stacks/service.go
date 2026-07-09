@@ -274,6 +274,10 @@ func (s *ServiceReader) Get(ctx context.Context, stackID string) (StackDetailRes
 	if err != nil {
 		return StackDetailResponse{}, err
 	}
+	var updateStatusByImage map[string]ImageUpdateState
+	if s.updateStatus != nil {
+		updateStatusByImage = s.updateStatus()
+	}
 
 	for _, stack := range allStacks {
 		if stack.ID != stackID {
@@ -294,6 +298,7 @@ func (s *ServiceReader) Get(ctx context.Context, stackID string) (StackDetailRes
 				Containers:       stack.Containers,
 				LastDeployedAt:   stack.LastDeployedAt,
 				LastAction:       nil,
+				Updates:          rollupUpdates(stack.Services, updateStatusByImage),
 			},
 		}, nil
 	}

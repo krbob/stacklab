@@ -129,6 +129,7 @@ type StackDetail struct {
 	Containers       []Container       `json:"containers"`
 	LastDeployedAt   *time.Time        `json:"last_deployed_at"`
 	LastAction       *LastAction       `json:"last_action"`
+	Updates          *StackUpdates     `json:"updates"`
 }
 
 type StackHeader struct {

@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
 import { FileText, Terminal } from 'lucide-react'
-import { invokeAction } from '@/lib/api-client'
+import { invokeAction, updateStacksMaintenance } from '@/lib/api-client'
 import { useJobStream } from '@/hooks/use-job-stream'
 import type { StackDetailResponse } from '@/lib/api-types'
 import { DeleteStackDialog } from '@/components/delete-stack-dialog'
@@ -178,6 +178,31 @@ function ActionBar({
     }
   }, [stack.id])
 
+  const handleUpdateStack = useCallback(async () => {
+    try {
+      setActionError(null)
+      const result = await updateStacksMaintenance({
+        target: {
+          mode: 'selected',
+          stack_ids: [stack.id],
+        },
+        options: {
+          pull_images: true,
+          build_images: true,
+          remove_orphans: true,
+          prune_after: {
+            enabled: false,
+            include_volumes: false,
+          },
+        },
+      })
+      setActiveJobId(result.job.id)
+    } catch (err) {
+      console.error('Update failed:', err)
+      setActionError(err instanceof Error ? err.message : 'Update failed')
+    }
+  }, [stack.id])
+
   // Refresh stack state but keep the output visible — closing here used to
   // unmount the panel the instant the replay reached the terminal event, so
   // build/pull logs flashed for a frame and vanished.
@@ -197,6 +222,16 @@ function ActionBar({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap justify-end gap-2">
+        {stack.updates?.state === 'available' && (
+          <button
+            disabled={locked}
+            onClick={handleUpdateStack}
+            className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1.5 text-xs font-medium text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40"
+          >
+            Update
+          </button>
+        )}
+
         {buttons.map((btn) => {
           if (!actions.includes(btn.action as typeof actions[number])) return null
           return (

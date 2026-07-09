@@ -625,6 +625,37 @@ func TestDeployBaselineDrivesConfigState(t *testing.T) {
 	}
 }
 
+func TestGetIncludesImageUpdateRollup(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	reader := newTestServiceReader(t)
+	stackID := uniqueTestStackID()
+	if err := reader.CreateStack(ctx, CreateStackRequest{
+		StackID:     stackID,
+		ComposeYAML: "services:\n  app:\n    image: example/app:latest\n",
+	}); err != nil {
+		t.Fatalf("CreateStack() error = %v", err)
+	}
+	checkedAt := time.Date(2026, 7, 9, 3, 0, 0, 0, time.UTC)
+	reader.AttachUpdateStatus(func() map[string]ImageUpdateState {
+		return map[string]ImageUpdateState{
+			"example/app:latest": {State: "available", CheckedAt: checkedAt},
+		}
+	})
+
+	detail, err := reader.Get(ctx, stackID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if detail.Stack.Updates == nil {
+		t.Fatal("Stack.Updates = nil, want rollup")
+	}
+	if detail.Stack.Updates.State != "available" || detail.Stack.Updates.ServicesWithUpdates != 1 || !detail.Stack.Updates.CheckedAt.Equal(checkedAt) {
+		t.Fatalf("Stack.Updates = %#v, want available rollup", detail.Stack.Updates)
+	}
+}
+
 func TestDeployBaselineUsesFreshDefinitionHashes(t *testing.T) {
 	t.Parallel()
 
