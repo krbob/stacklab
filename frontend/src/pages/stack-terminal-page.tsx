@@ -32,6 +32,7 @@ export function StackTerminalPage() {
     containerId: selectedContainerId,
     shell,
   })
+  const showTerminal = terminal.state === 'connected' || terminal.state === 'ended'
 
   // Ref that TerminalView will call to write WS output into XTerm.js
   const writeToXtermRef = useRef<((data: string) => void) | null>(null)
@@ -146,11 +147,12 @@ export function StackTerminalPage() {
       </div>
 
       {/* Terminal */}
-      {terminal.state === 'connected' && (
+      {showTerminal && (
         <TerminalView
           onData={handleUserInput}
           onResize={handleResize}
           writeRef={writeToXtermRef}
+          readOnly={terminal.state !== 'connected'}
         />
       )}
 

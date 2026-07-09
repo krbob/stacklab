@@ -7,17 +7,31 @@ interface TerminalViewProps {
   onData: (data: string) => void
   onResize: (cols: number, rows: number) => void
   writeRef: React.MutableRefObject<((data: string) => void) | null>
+  readOnly?: boolean
 }
 
-export function TerminalView({ onData, onResize, writeRef }: TerminalViewProps) {
+export function TerminalView({ onData, onResize, writeRef, readOnly = false }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
+  const onDataRef = useRef(onData)
+  const onResizeRef = useRef(onResize)
+  const readOnlyRef = useRef(readOnly)
+
+  useEffect(() => {
+    onDataRef.current = onData
+    onResizeRef.current = onResize
+    readOnlyRef.current = readOnly
+    if (termRef.current) {
+      termRef.current.options.disableStdin = readOnly
+    }
+  }, [onData, onResize, readOnly])
 
   useEffect(() => {
     if (!containerRef.current) return
 
     const term = new Terminal({
       cursorBlink: true,
+      disableStdin: readOnlyRef.current,
       fontSize: 14,
       fontFamily: 'var(--font-mono)',
       theme: {
@@ -35,11 +49,15 @@ export function TerminalView({ onData, onResize, writeRef }: TerminalViewProps) 
     // Initial fit
     requestAnimationFrame(() => {
       fitAddon.fit()
-      onResize(term.cols, term.rows)
+      onResizeRef.current(term.cols, term.rows)
     })
 
     // Forward user input
-    term.onData(onData)
+    term.onData((data) => {
+      if (!readOnlyRef.current) {
+        onDataRef.current(data)
+      }
+    })
 
     // Expose write function to parent
     writeRef.current = (data: string) => term.write(data)
@@ -49,7 +67,7 @@ export function TerminalView({ onData, onResize, writeRef }: TerminalViewProps) 
     // Resize observer
     const observer = new ResizeObserver(() => {
       fitAddon.fit()
-      onResize(term.cols, term.rows)
+      onResizeRef.current(term.cols, term.rows)
     })
     observer.observe(containerRef.current)
 
