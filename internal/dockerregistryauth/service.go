@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"stacklab/internal/config"
@@ -109,7 +111,8 @@ func (s *Service) Login(ctx context.Context, request LoginRequest) (string, erro
 		return "", err
 	}
 
-	output, err := s.runCommand(ctx, request.Password+"\n", s.commandEnv(), "docker", "login", request.Registry, "--username", request.Username, "--password-stdin")
+	registry := strings.TrimSpace(request.Registry)
+	output, err := s.runCommand(ctx, request.Password+"\n", s.commandEnv(), "docker", "login", "--username", request.Username, "--password-stdin", "--", registry)
 	return strings.TrimSpace(string(output)), err
 }
 
@@ -118,13 +121,14 @@ func (s *Service) Logout(ctx context.Context, request LogoutRequest) (string, er
 		return "", err
 	}
 
-	output, err := s.runCommand(ctx, "", s.commandEnv(), "docker", "logout", request.Registry)
+	registry := strings.TrimSpace(request.Registry)
+	output, err := s.runCommand(ctx, "", s.commandEnv(), "docker", "logout", "--", registry)
 	return strings.TrimSpace(string(output)), err
 }
 
 func validateLoginRequest(request LoginRequest) error {
-	if strings.TrimSpace(request.Registry) == "" {
-		return fmt.Errorf("%w: registry is required", ErrInvalidInput)
+	if err := validateRegistry(request.Registry); err != nil {
+		return err
 	}
 	if strings.TrimSpace(request.Username) == "" {
 		return fmt.Errorf("%w: username is required", ErrInvalidInput)
@@ -136,8 +140,35 @@ func validateLoginRequest(request LoginRequest) error {
 }
 
 func validateLogoutRequest(request LogoutRequest) error {
-	if strings.TrimSpace(request.Registry) == "" {
+	return validateRegistry(request.Registry)
+}
+
+func validateRegistry(registry string) error {
+	value := strings.TrimSpace(registry)
+	if value == "" {
 		return fmt.Errorf("%w: registry is required", ErrInvalidInput)
+	}
+	if strings.HasPrefix(value, "-") {
+		return fmt.Errorf("%w: registry is invalid", ErrInvalidInput)
+	}
+	if strings.ContainsAny(value, "/\\ \t\r\n") {
+		return fmt.Errorf("%w: registry is invalid", ErrInvalidInput)
+	}
+	host := value
+	if h, port, err := net.SplitHostPort(value); err == nil {
+		host = h
+		if port == "" {
+			return fmt.Errorf("%w: registry is invalid", ErrInvalidInput)
+		}
+		parsedPort, err := strconv.Atoi(port)
+		if err != nil || parsedPort < 1 || parsedPort > 65535 {
+			return fmt.Errorf("%w: registry is invalid", ErrInvalidInput)
+		}
+	} else if strings.Contains(value, ":") {
+		return fmt.Errorf("%w: registry is invalid", ErrInvalidInput)
+	}
+	if strings.Trim(host, "[]") == "" || strings.HasPrefix(host, "-") || strings.HasSuffix(host, ".") {
+		return fmt.Errorf("%w: registry is invalid", ErrInvalidInput)
 	}
 	return nil
 }

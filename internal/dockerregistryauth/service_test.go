@@ -126,7 +126,7 @@ func TestLoginUsesDockerConfigEnvAndPasswordStdin(t *testing.T) {
 	if gotStdin != "secret-token\n" {
 		t.Fatalf("stdin = %q, want password with newline", gotStdin)
 	}
-	if !reflect.DeepEqual(gotArgs, []string{"docker", "login", "ghcr.io", "--username", "bob", "--password-stdin"}) {
+	if !reflect.DeepEqual(gotArgs, []string{"docker", "login", "--username", "bob", "--password-stdin", "--", "ghcr.io"}) {
 		t.Fatalf("args = %#v", gotArgs)
 	}
 	if !containsEnv(gotEnv, "DOCKER_CONFIG="+configDir) || !containsEnv(gotEnv, "HOME="+filepath.Join(tempDir, "home")) {
@@ -134,13 +134,53 @@ func TestLoginUsesDockerConfigEnvAndPasswordStdin(t *testing.T) {
 	}
 }
 
-func TestLogoutValidatesRegistry(t *testing.T) {
+func TestLogoutUsesArgumentTerminator(t *testing.T) {
+	t.Parallel()
+
+	var gotArgs []string
+	service := NewService(config.Config{DataDir: t.TempDir()})
+	service.runCommand = func(ctx context.Context, stdin string, env []string, name string, args ...string) ([]byte, error) {
+		gotArgs = append([]string{name}, args...)
+		return []byte("Removed login credentials"), nil
+	}
+
+	if _, err := service.Logout(context.Background(), LogoutRequest{Registry: "registry.local:5000"}); err != nil {
+		t.Fatalf("Logout() error = %v", err)
+	}
+	if !reflect.DeepEqual(gotArgs, []string{"docker", "logout", "--", "registry.local:5000"}) {
+		t.Fatalf("args = %#v", gotArgs)
+	}
+}
+
+func TestValidateRegistryRejectsInvalidValues(t *testing.T) {
 	t.Parallel()
 
 	service := NewService(config.Config{DataDir: t.TempDir()})
-	_, err := service.Logout(context.Background(), LogoutRequest{})
-	if !errors.Is(err, ErrInvalidInput) {
-		t.Fatalf("Logout() error = %v, want ErrInvalidInput", err)
+	for _, registry := range []string{
+		"",
+		"--config=/tmp/docker",
+		"ghcr.io/path",
+		"ghcr.io user",
+		"ghcr.io:70000",
+	} {
+		t.Run(registry, func(t *testing.T) {
+			_, err := service.Logout(context.Background(), LogoutRequest{Registry: registry})
+			if !errors.Is(err, ErrInvalidInput) {
+				t.Fatalf("Logout() error = %v, want ErrInvalidInput", err)
+			}
+		})
+	}
+}
+
+func TestValidateRegistryAcceptsHostAndHostPort(t *testing.T) {
+	t.Parallel()
+
+	for _, registry := range []string{"ghcr.io", "registry.local:5000", "[2001:db8::1]:5000"} {
+		t.Run(registry, func(t *testing.T) {
+			if err := validateRegistry(registry); err != nil {
+				t.Fatalf("validateRegistry(%q) error = %v", registry, err)
+			}
+		})
 	}
 }
 
