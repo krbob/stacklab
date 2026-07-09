@@ -16,6 +16,7 @@ import (
 
 const (
 	defaultStacklabRoot = "/opt/stacklab"
+	defaultStacklabUnit = "stacklab"
 
 	repairStrategyOwnership = "ownership"
 	repairStrategyACL       = "acl"
@@ -25,6 +26,10 @@ var stacklabEnvFilePath = "/etc/stacklab/stacklab.env"
 
 var runACLCommand = func(name string, args ...string) ([]byte, error) {
 	return exec.Command(name, args...).CombinedOutput()
+}
+
+var runSystemctlShow = func(unit string) ([]byte, error) {
+	return exec.Command("systemctl", "show", unit, "--property=Environment", "--value").CombinedOutput()
 }
 
 type emittedError struct {
@@ -165,6 +170,7 @@ func normalizeRepairStrategy(value string) string {
 
 func loadStacklabRoot() (string, error) {
 	root := defaultStacklabRoot
+	loadedFromEnvFile := false
 
 	file, err := os.Open(stacklabEnvFilePath)
 	if err == nil {
@@ -183,6 +189,7 @@ func loadStacklabRoot() (string, error) {
 				parsed := strings.TrimSpace(value)
 				if parsed != "" {
 					root = parsed
+					loadedFromEnvFile = true
 				}
 				break
 			}
@@ -193,12 +200,38 @@ func loadStacklabRoot() (string, error) {
 	} else if !os.IsNotExist(err) {
 		return "", fmt.Errorf("open %s: %w", stacklabEnvFilePath, err)
 	}
+	if !loadedFromEnvFile {
+		if systemdRoot, err := loadStacklabRootFromSystemd(); err == nil && systemdRoot != "" {
+			root = systemdRoot
+		}
+	}
 
 	resolved, err := filepath.Abs(root)
 	if err != nil {
 		return "", fmt.Errorf("resolve stacklab root: %w", err)
 	}
 	return resolved, nil
+}
+
+func loadStacklabRootFromSystemd() (string, error) {
+	output, err := runSystemctlShow(defaultStacklabUnit)
+	if err != nil {
+		return "", err
+	}
+	return parseStacklabRootFromSystemdEnvironment(string(output)), nil
+}
+
+func parseStacklabRootFromSystemdEnvironment(output string) string {
+	for _, field := range strings.Fields(output) {
+		key, value, ok := strings.Cut(field, "=")
+		if !ok || key != "STACKLAB_ROOT" {
+			continue
+		}
+		if root := strings.TrimSpace(value); root != "" {
+			return root
+		}
+	}
+	return ""
 }
 
 func resolveManagedTarget(stacklabRoot, targetPath string) (string, string, error) {

@@ -159,6 +159,10 @@ Potential adjustments:
 - relax `ProtectSystem` only for a proven runtime need; Stacklab self-update must not require this because it runs the updater through a transient `systemd-run` unit
 - keep `NoNewPrivileges=false` if the Docker admin helper, workspace repair helper, or self-update helper is enabled through `sudo`
 - include `/etc/docker` in `ReadWritePaths` if the Docker admin helper is enabled
+- when the workspace repair helper runs through `sudo`, keep the canonical
+  `STACKLAB_ROOT` in `/etc/stacklab/stacklab.env` or in the root-owned
+  `stacklab.service` environment; the helper ignores caller-controlled sudo
+  environment overrides
 - prefer `Wants=docker.service` over `Requires=docker.service` so Stacklab survives a Docker daemon restart
 - do not enable sandboxing blindly before terminal and Docker access are verified end-to-end
 

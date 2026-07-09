@@ -47,6 +47,33 @@ func TestLoadStacklabRootIgnoresEnvironmentOverride(t *testing.T) {
 	}
 }
 
+func TestLoadStacklabRootFallsBackToSystemdEnvironment(t *testing.T) {
+	tempDir := t.TempDir()
+	root := filepath.Join(tempDir, "root")
+	t.Setenv("STACKLAB_ROOT", filepath.Join(tempDir, "evil"))
+	withStacklabEnv(t, "STACKLAB_DATA_DIR=/var/lib/stacklab\n")
+	restore := replaceSystemctlShow(func(unit string) ([]byte, error) {
+		if unit != defaultStacklabUnit {
+			t.Fatalf("systemctl unit = %q, want %q", unit, defaultStacklabUnit)
+		}
+		return []byte("STACKLAB_DATA_DIR=/var/lib/stacklab STACKLAB_ROOT=" + root + "\n"), nil
+	})
+	defer restore()
+
+	got, err := loadStacklabRoot()
+	if err != nil {
+		t.Fatalf("loadStacklabRoot() error = %v", err)
+	}
+
+	want, err := filepath.Abs(root)
+	if err != nil {
+		t.Fatalf("filepath.Abs(%q) error = %v", root, err)
+	}
+	if got != want {
+		t.Fatalf("loadStacklabRoot() = %q, want %q", got, want)
+	}
+}
+
 func TestRunProbeRejectsUnexpectedPositionalArguments(t *testing.T) {
 	err := runProbe([]string{"--strategy", "ownership", "extra"})
 	if err == nil || !strings.Contains(err.Error(), "unexpected positional") {
@@ -157,6 +184,14 @@ func replaceACLCommand(replacement func(string, ...string) ([]byte, error)) func
 	runACLCommand = replacement
 	return func() {
 		runACLCommand = original
+	}
+}
+
+func replaceSystemctlShow(replacement func(string) ([]byte, error)) func() {
+	original := runSystemctlShow
+	runSystemctlShow = replacement
+	return func() {
+		runSystemctlShow = original
 	}
 }
 
