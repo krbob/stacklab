@@ -1441,9 +1441,7 @@ func runtimeLogFingerprint(failures []RuntimeLogFailure) string {
 	}
 	parts := make([]string, 0, len(failures))
 	for _, failure := range failures {
-		samples := append([]string(nil), failure.SampleMessages...)
-		sort.Strings(samples)
-		parts = append(parts, fmt.Sprintf("%s|%d|%s", failure.StackID, failure.MatchingEntryCount, strings.Join(samples, ",")))
+		parts = append(parts, fmt.Sprintf("%s|runtime_log_error_burst", failure.StackID))
 	}
 	sort.Strings(parts)
 	return strings.Join(parts, ";")

@@ -552,8 +552,9 @@ func TestPollRuntimeLogAlertsDedupesDuringCooldown(t *testing.T) {
 	service.readLogs = func(_ context.Context, _ string, _ time.Time) ([]runtimeContainerLogEntry, error) {
 		return []runtimeContainerLogEntry{
 			{Timestamp: now.Add(-25 * time.Second), Message: "ERROR connection refused"},
-			{Timestamp: now.Add(-20 * time.Second), Message: "panic in worker"},
-			{Timestamp: now.Add(-15 * time.Second), Message: "fatal: task crashed"},
+			{Timestamp: now.Add(-20 * time.Second), Message: "ERROR retry exhausted"},
+			{Timestamp: now.Add(-15 * time.Second), Message: "panic in worker"},
+			{Timestamp: now.Add(-10 * time.Second), Message: "fatal: task crashed"},
 		}, nil
 	}
 
@@ -584,9 +585,9 @@ func TestPollRuntimeLogAlertsDedupesDuringCooldown(t *testing.T) {
 		ContainerCount:     1,
 		Containers:         []string{"demo-c1"},
 		SampleMessages: []string{
-			"ERROR connection refused",
-			"panic in worker",
-			"fatal: task crashed",
+			"ERROR previous window",
+			"panic in previous worker",
+			"fatal: previous task crashed",
 		},
 	}}
 	if err := service.saveRuntimeLogState(context.Background(), runtimeLogState{
