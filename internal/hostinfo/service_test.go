@@ -755,7 +755,55 @@ func TestMetricsCollectorDedupesSystemdBindMountFilesystems(t *testing.T) {
 	}
 }
 
-func TestMetricsCollectorSkipsFuseFilesystemsBeforeStatfs(t *testing.T) {
+func TestMetricsCollectorSkipsNetworkFuseFilesystemsBeforeStatfs(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	procDir := filepath.Join(tempDir, "proc")
+	if err := os.MkdirAll(filepath.Join(procDir, "self"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(proc/self) error = %v", err)
+	}
+
+	primaryMount := filepath.Join(tempDir, "root")
+	fuseMount := filepath.Join(tempDir, "storage")
+	for _, dir := range []string{primaryMount, fuseMount} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%s) error = %v", dir, err)
+		}
+	}
+
+	mountInfo := strings.Join([]string{
+		"26 23 8:2 / " + primaryMount + " rw,relatime - ext4 /dev/nvme0n1p2 rw",
+		"27 23 0:42 / " + fuseMount + " rw,relatime - fuse.sshfs sshfs#nas:/share rw",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(procDir, "self", "mountinfo"), []byte(mountInfo+"\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(mountinfo) error = %v", err)
+	}
+
+	var fuseStatfsCalls atomic.Int32
+	collector := newMetricsCollector(primaryMount, procDir)
+	collector.statfs = func(path string, stats *syscall.Statfs_t) error {
+		if path == fuseMount {
+			fuseStatfsCalls.Add(1)
+			return os.ErrInvalid
+		}
+		stats.Blocks = 100
+		stats.Bfree = 40
+		stats.Bavail = 35
+		stats.Bsize = 4096
+		return nil
+	}
+
+	filesystems := collector.readFilesystems()
+	if len(filesystems) != 1 || filesystems[0].MountPoint != primaryMount {
+		t.Fatalf("unexpected filesystems: %#v", filesystems)
+	}
+	if fuseStatfsCalls.Load() != 0 {
+		t.Fatalf("fuse statfs calls = %d, want 0", fuseStatfsCalls.Load())
+	}
+}
+
+func TestMetricsCollectorIncludesLocalFuseFilesystems(t *testing.T) {
 	t.Parallel()
 
 	tempDir := t.TempDir()
@@ -785,7 +833,6 @@ func TestMetricsCollectorSkipsFuseFilesystemsBeforeStatfs(t *testing.T) {
 	collector.statfs = func(path string, stats *syscall.Statfs_t) error {
 		if path == fuseMount {
 			fuseStatfsCalls.Add(1)
-			return os.ErrInvalid
 		}
 		stats.Blocks = 100
 		stats.Bfree = 40
@@ -795,11 +842,14 @@ func TestMetricsCollectorSkipsFuseFilesystemsBeforeStatfs(t *testing.T) {
 	}
 
 	filesystems := collector.readFilesystems()
-	if len(filesystems) != 1 || filesystems[0].MountPoint != primaryMount {
-		t.Fatalf("unexpected filesystems: %#v", filesystems)
+	if len(filesystems) != 2 {
+		t.Fatalf("len(filesystems) = %d, want 2: %#v", len(filesystems), filesystems)
 	}
-	if fuseStatfsCalls.Load() != 0 {
-		t.Fatalf("fuse statfs calls = %d, want 0", fuseStatfsCalls.Load())
+	if filesystems[1].MountPoint != fuseMount || filesystems[1].FSType != "fuse.mergerfs" {
+		t.Fatalf("local fuse filesystem missing: %#v", filesystems)
+	}
+	if fuseStatfsCalls.Load() != 1 {
+		t.Fatalf("fuse statfs calls = %d, want 1", fuseStatfsCalls.Load())
 	}
 }
 
@@ -848,6 +898,13 @@ func TestMetricsCollectorUsesCachedFilesystemUsageAfterStatfsTimeout(t *testing.
 	}
 	if second[0].TotalBytes != first[0].TotalBytes || second[0].UsedBytes != first[0].UsedBytes {
 		t.Fatalf("timeout did not use cached usage: first=%#v second=%#v", first[0], second[0])
+	}
+	third := collector.readFilesystems()
+	if len(third) != 1 {
+		t.Fatalf("third filesystems = %#v", third)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("statfs calls = %d, want 2 while timed-out call remains in flight", calls.Load())
 	}
 }
 

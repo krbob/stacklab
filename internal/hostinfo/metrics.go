@@ -77,6 +77,7 @@ type MetricsCollector struct {
 	lastProcessUsage      *ProcessUsage
 	lastProcessSampledAt  time.Time
 	statfsCache           map[string]syscall.Statfs_t
+	statfsInFlight        map[string]*statfsCall
 	processSampleInterval time.Duration
 	usernamesByUID        map[uint32]string
 	usernamesLoaded       bool
@@ -103,6 +104,16 @@ type diskIOCounter struct {
 type networkCounter struct {
 	rxBytes uint64
 	txBytes uint64
+}
+
+type statfsResult struct {
+	stats syscall.Statfs_t
+	err   error
+}
+
+type statfsCall struct {
+	done   chan struct{}
+	result statfsResult
 }
 
 type processCPUCounter struct {
@@ -160,6 +171,7 @@ func newMetricsCollector(rootDir, procRoot string) *MetricsCollector {
 		lastNetwork:           map[string]networkCounter{},
 		lastProcesses:         map[int]processCPUCounter{},
 		statfsCache:           map[string]syscall.Statfs_t{},
+		statfsInFlight:        map[string]*statfsCall{},
 		publicIPLookupEnabled: func() bool { return false },
 		publicIPResolver:      defaultPublicIPResolver,
 	}
@@ -1386,23 +1398,31 @@ func (c *MetricsCollector) statfsWithTimeout(mountPoint string) (syscall.Statfs_
 		return stats, err
 	}
 
-	type statfsResult struct {
-		stats syscall.Statfs_t
-		err   error
+	if existing := c.statfsInFlight[mountPoint]; existing != nil {
+		select {
+		case <-existing.done:
+			delete(c.statfsInFlight, mountPoint)
+			return existing.result.stats, existing.result.err
+		default:
+			return syscall.Statfs_t{}, errStatfsTimedOut
+		}
 	}
-	results := make(chan statfsResult, 1)
+
+	call := &statfsCall{done: make(chan struct{})}
+	c.statfsInFlight[mountPoint] = call
 	go func() {
 		var stats syscall.Statfs_t
-		err := c.statfs(mountPoint, &stats)
-		results <- statfsResult{stats: stats, err: err}
+		call.result = statfsResult{stats: stats, err: c.statfs(mountPoint, &stats)}
+		close(call.done)
 	}()
 
 	timer := time.NewTimer(c.statfsTimeout)
 	defer stopTimer(timer)
 
 	select {
-	case result := <-results:
-		return result.stats, result.err
+	case <-call.done:
+		delete(c.statfsInFlight, mountPoint)
+		return call.result.stats, call.result.err
 	case <-timer.C:
 		return syscall.Statfs_t{}, errStatfsTimedOut
 	}
@@ -1724,12 +1744,8 @@ func isVirtualFilesystem(fsType string) bool {
 }
 
 func isNetworkFilesystem(fsType string) bool {
-	if strings.HasPrefix(fsType, "fuse.") {
-		return true
-	}
-
 	switch fsType {
-	case "9p", "afs", "cifs", "davfs", "gfs", "gfs2", "glusterfs", "ncpfs", "nfs", "nfs4", "smb3", "smbfs", "sshfs":
+	case "9p", "afs", "cifs", "davfs", "fuse.rclone", "fuse.sshfs", "gfs", "gfs2", "glusterfs", "ncpfs", "nfs", "nfs4", "smb3", "smbfs", "sshfs":
 		return true
 	default:
 		return false
