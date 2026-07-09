@@ -72,6 +72,23 @@ const logsResponse: StacklabLogsResponse = {
   has_more: false,
 }
 
+function makeLogEntry(index: number) {
+  return {
+    timestamp: `2026-04-04T12:${String(Math.floor(index / 60)).padStart(2, '0')}:${String(index % 60).padStart(2, '0')}Z`,
+    level: 'info',
+    message: `log-entry-${index}`,
+    cursor: `cursor-${index}`,
+  } satisfies StacklabLogsResponse['items'][number]
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((res) => {
+    resolve = res
+  })
+  return { promise, resolve }
+}
+
 const metrics: HostMetricsResponse = {
   sample_interval_seconds: 1,
   background_sample_interval_seconds: 30,
@@ -431,6 +448,107 @@ describe('HostPage', () => {
     expect(mockGetHostMetrics).toHaveBeenNthCalledWith(1, undefined)
     expect(mockGetHostMetrics).toHaveBeenNthCalledWith(2, { since: '2026-04-04T12:00:10Z' })
     expect((await screen.findAllByText('3.2%')).length).toBeGreaterThan(0)
+
+    setIntervalSpy.mockRestore()
+    clearIntervalSpy.mockRestore()
+  })
+
+  it('does not overlap host metrics polling while a request is in flight', async () => {
+    const pendingMetrics = deferred<HostMetricsResponse>()
+    mockGetHostMetrics
+      .mockResolvedValueOnce(metrics)
+      .mockReturnValue(pendingMetrics.promise)
+    let metricsPoll: (() => void) | null = null
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval')
+    setIntervalSpy.mockImplementation((handler: TimerHandler, timeout?: number) => {
+      if (timeout === 1_000 && metricsPoll === null) {
+        metricsPoll = () => {
+          if (typeof handler === 'function') {
+            handler()
+          }
+        }
+      }
+      return 1 as unknown as ReturnType<typeof setInterval>
+    })
+    const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval')
+    clearIntervalSpy.mockImplementation(() => {})
+
+    render(<HostPage />)
+
+    expect(await screen.findByText('Host metrics')).toBeInTheDocument()
+    expect(mockGetHostMetrics).toHaveBeenCalledTimes(1)
+    expect(metricsPoll).not.toBeNull()
+
+    await act(async () => {
+      metricsPoll?.()
+      await Promise.resolve()
+    })
+    expect(mockGetHostMetrics).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      metricsPoll?.()
+      await Promise.resolve()
+    })
+    expect(mockGetHostMetrics).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      pendingMetrics.resolve({
+        ...metrics,
+        current: metrics.current && {
+          ...metrics.current,
+          sampled_at: '2026-04-04T12:00:11Z',
+        },
+      })
+      await pendingMetrics.promise
+    })
+
+    setIntervalSpy.mockRestore()
+    clearIntervalSpy.mockRestore()
+  })
+
+  it('keeps followed Stacklab logs bounded to the newest entries', async () => {
+    const initialLogs = Array.from({ length: 995 }, (_, index) => makeLogEntry(index))
+    const appendedLogs = Array.from({ length: 10 }, (_, index) => makeLogEntry(995 + index))
+    mockGetStacklabLogs
+      .mockResolvedValueOnce({
+        items: initialLogs,
+        next_cursor: 'cursor-994',
+        has_more: false,
+      })
+      .mockResolvedValueOnce({
+        items: appendedLogs,
+        next_cursor: 'cursor-1004',
+        has_more: false,
+      })
+    let logsPoll: (() => void) | null = null
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval')
+    setIntervalSpy.mockImplementation((handler: TimerHandler, timeout?: number) => {
+      if (timeout === 3_000 && logsPoll === null) {
+        logsPoll = () => {
+          if (typeof handler === 'function') {
+            handler()
+          }
+        }
+      }
+      return 1 as unknown as ReturnType<typeof setInterval>
+    })
+    const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval')
+    clearIntervalSpy.mockImplementation(() => {})
+
+    render(<HostPage />)
+
+    expect(await screen.findByText('log-entry-994')).toBeInTheDocument()
+    expect(logsPoll).not.toBeNull()
+
+    await act(async () => {
+      logsPoll?.()
+      await Promise.resolve()
+    })
+
+    expect(await screen.findByText('log-entry-1004')).toBeInTheDocument()
+    expect(screen.queryByText('log-entry-0')).not.toBeInTheDocument()
+    expect(screen.queryByText('log-entry-4')).not.toBeInTheDocument()
+    expect(screen.getByText('log-entry-5')).toBeInTheDocument()
 
     setIntervalSpy.mockRestore()
     clearIntervalSpy.mockRestore()

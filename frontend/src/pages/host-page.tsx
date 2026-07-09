@@ -9,6 +9,7 @@ import { formatBytes, formatUptime } from '@/pages/host-page-utils'
 
 const OVERVIEW_POLL_INTERVAL_MS = 5_000
 const METRICS_POLL_INTERVAL_MS = 1_000
+const MAX_STACKLAB_LOG_ENTRIES = 1_000
 type ProcessSortKey = 'cpu' | 'memory'
 
 function PercentBar({ value, color }: { value: number; color: string }) {
@@ -54,8 +55,13 @@ export function HostPage() {
   const initialOverviewLoadRef = useRef(true)
   const initialMetricsLoadRef = useRef(true)
   const metricsRef = useRef<HostMetricsResponse | null>(null)
+  const overviewInFlightRef = useRef(false)
+  const metricsInFlightRef = useRef(false)
 
   const loadOverview = useCallback(async () => {
+    if (overviewInFlightRef.current) return
+    overviewInFlightRef.current = true
+
     if (initialOverviewLoadRef.current) {
       setOverviewLoading(true)
     }
@@ -68,12 +74,16 @@ export function HostPage() {
     } catch (error) {
       setOverviewError(error instanceof Error ? error : new Error('Failed to load host overview'))
     } finally {
+      overviewInFlightRef.current = false
       initialOverviewLoadRef.current = false
       setOverviewLoading(false)
     }
   }, [])
 
   const loadMetrics = useCallback(async () => {
+    if (metricsInFlightRef.current) return
+    metricsInFlightRef.current = true
+
     if (initialMetricsLoadRef.current) {
       setMetricsLoading(true)
     }
@@ -90,6 +100,7 @@ export function HostPage() {
     } catch (error) {
       setMetricsError(error instanceof Error ? error : new Error('Failed to load host metrics'))
     } finally {
+      metricsInFlightRef.current = false
       initialMetricsLoadRef.current = false
       setMetricsLoading(false)
     }
@@ -893,10 +904,10 @@ function StacklabLogs() {
 
       if (append) {
         if (result.items.length > 0) {
-          setEntries((prev) => [...prev, ...result.items])
+          setEntries((prev) => trimLogEntries([...prev, ...result.items]))
         }
       } else {
-        setEntries(result.items)
+        setEntries(trimLogEntries(result.items))
       }
 
       if (result.next_cursor) {
@@ -1058,4 +1069,9 @@ function StacklabLogs() {
       </div>
     </div>
   )
+}
+
+function trimLogEntries(entries: StacklabLogEntry[]): StacklabLogEntry[] {
+  if (entries.length <= MAX_STACKLAB_LOG_ENTRIES) return entries
+  return entries.slice(entries.length - MAX_STACKLAB_LOG_ENTRIES)
 }
