@@ -37,6 +37,8 @@ import (
 	"time"
 )
 
+const imageUpdateCheckLockTarget = "__image_update_check__"
+
 type Handler struct {
 	appCtx          context.Context
 	cfg             config.Config
@@ -1013,9 +1015,14 @@ func (h *Handler) handleImageUpdatesCheck(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	job, err := h.jobs.Start(r.Context(), "", "check_image_updates", "local")
+	job, err := h.jobs.StartWithLocks(r.Context(), "", "check_image_updates", "local", []string{imageUpdateCheckLockTarget})
 	if err != nil {
-		writeError(w, http.StatusConflict, "conflict", err.Error(), nil)
+		if errors.Is(err, jobs.ErrStackLocked) {
+			writeError(w, http.StatusConflict, "conflict", "Another image update check is already running.", nil)
+			return
+		}
+		h.logger.Error("start image update check job failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create job.", nil)
 		return
 	}
 

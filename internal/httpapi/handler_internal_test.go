@@ -26,6 +26,7 @@ import (
 	"stacklab/internal/fsmeta"
 	"stacklab/internal/gitworkspace"
 	"stacklab/internal/hostinfo"
+	"stacklab/internal/imageupdates"
 	"stacklab/internal/jobs"
 	"stacklab/internal/maintenance"
 	"stacklab/internal/maintenancejobs"
@@ -1026,6 +1027,37 @@ func TestHandlerGetJobEvents(t *testing.T) {
 	}
 	if purgedPayload.Message != "Detailed output for this job is no longer retained." || len(purgedPayload.Items) != 0 {
 		t.Fatalf("unexpected purged payload body: %#v", purgedPayload)
+	}
+}
+
+func TestHandlerImageUpdateCheckRejectsConcurrentRun(t *testing.T) {
+	t.Parallel()
+
+	handler, served, _ := newInternalTestHandler(t)
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	lockingJob, err := handler.jobs.StartWithLocks(context.Background(), "", "check_image_updates", "local", []string{imageUpdateCheckLockTarget})
+	if err != nil {
+		t.Fatalf("StartWithLocks(locking image check) error = %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = handler.jobs.FinishSucceeded(context.Background(), lockingJob)
+	})
+
+	response := performInternalJSONRequest(t, served, http.MethodPost, "/api/maintenance/image-updates/check", map[string]any{}, cookies)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("POST /api/maintenance/image-updates/check status = %d, want %d; body=%s", response.Code, http.StatusConflict, response.Body.String())
+	}
+
+	var payload struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	decodeInternalResponse(t, response, &payload)
+	if payload.Error.Code != "conflict" || payload.Error.Message != "Another image update check is already running." {
+		t.Fatalf("unexpected error payload: %#v", payload)
 	}
 }
 
@@ -2045,6 +2077,7 @@ func newInternalTestHandler(t *testing.T) (*Handler, http.Handler, config.Config
 			DetachGracePeriod:   time.Minute,
 		}, func(event terminal.LifecycleEvent) {}),
 		stackReader:     stackReader,
+		imageUpdates:    imageupdates.NewService(logger, testStore),
 		hostInfo:        hostinfo.NewService(cfg, time.Unix(1_712_598_000, 0).UTC()),
 		dockerAdmin:     dockeradmin.NewService(cfg),
 		dockerRegistry:  dockerregistryauth.NewService(cfg),
