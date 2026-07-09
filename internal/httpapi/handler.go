@@ -891,6 +891,8 @@ func (h *Handler) handleGitWorkspaceCommit(w http.ResponseWriter, r *http.Reques
 			writeError(w, http.StatusNotFound, "not_found", "Selected changed file was not found.", nil)
 		case errors.Is(err, gitworkspace.ErrConflictedSelection):
 			writeError(w, http.StatusConflict, "conflicted_files_selected", "Resolve conflicted files before committing.", nil)
+		case errors.Is(err, gitworkspace.ErrOperationInProgress):
+			writeError(w, http.StatusConflict, "operation_in_progress", "Finish the current Git operation before committing.", nil)
 		case errors.Is(err, gitworkspace.ErrPermissionDenied):
 			writeError(w, http.StatusConflict, "permission_denied", "Selected files could not be staged due to permissions.", nil)
 		case errors.Is(err, gitworkspace.ErrNothingToCommit):

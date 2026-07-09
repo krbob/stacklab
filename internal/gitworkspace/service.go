@@ -28,6 +28,7 @@ var (
 	ErrValidation            = errors.New("git workspace validation failed")
 	ErrNothingToCommit       = errors.New("nothing to commit")
 	ErrConflictedSelection   = errors.New("conflicted files selected")
+	ErrOperationInProgress   = errors.New("git operation in progress")
 	ErrPermissionDenied      = errors.New("git workspace permission denied")
 	ErrUpstreamNotConfigured = errors.New("git upstream not configured")
 	ErrPushRejected          = errors.New("git push rejected")
@@ -189,6 +190,9 @@ func (s *Service) Commit(ctx context.Context, request CommitRequest) (CommitResp
 	}
 	if !status.Available {
 		return CommitResponse{}, ErrUnavailable
+	}
+	if s.hasOperationInProgress(ctx) {
+		return CommitResponse{}, ErrOperationInProgress
 	}
 	for _, item := range selectedItems {
 		if item.Status == FileStatusConflicted {
@@ -649,6 +653,26 @@ func (s *Service) removeIndexLock() error {
 
 func (s *Service) indexLockPath() string {
 	return filepath.Join(s.workspaceRoot, ".git", "index.lock")
+}
+
+func (s *Service) hasOperationInProgress(ctx context.Context) bool {
+	for _, gitPath := range []string{"MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply"} {
+		output, _, err := s.runGit(ctx, "rev-parse", "--git-path", gitPath)
+		if err != nil {
+			continue
+		}
+		path := strings.TrimSpace(string(output))
+		if path == "" {
+			continue
+		}
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(s.workspaceRoot, path)
+		}
+		if _, err := os.Stat(path); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func parseOrdinaryStatusRecord(record string) (*StatusItem, error) {

@@ -298,6 +298,28 @@ func TestServiceCommitRemovesStaleIndexLock(t *testing.T) {
 	}
 }
 
+func TestServiceCommitRejectsOperationInProgress(t *testing.T) {
+	t.Parallel()
+
+	service, root := newTestService(t)
+	runGit(t, root, "init", "-b", "main")
+	runGit(t, root, "config", "user.name", "Stacklab Test")
+	runGit(t, root, "config", "user.email", "stacklab@example.com")
+
+	mustWriteFile(t, filepath.Join(root, "config", "demo", "app.conf"), "server_name old.local;\n")
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "initial")
+	mustWriteFile(t, filepath.Join(root, "config", "demo", "app.conf"), "server_name new.local;\n")
+	mustWriteFile(t, filepath.Join(root, ".git", "MERGE_HEAD"), strings.Repeat("0", 40)+"\n")
+
+	if _, err := service.Commit(context.Background(), CommitRequest{
+		Message: "Update app config",
+		Paths:   []string{"config/demo/app.conf"},
+	}); err != ErrOperationInProgress {
+		t.Fatalf("Commit(operation in progress) error = %v, want %v", err, ErrOperationInProgress)
+	}
+}
+
 func TestServiceCommitAndPushValidation(t *testing.T) {
 	t.Parallel()
 
