@@ -38,6 +38,7 @@ var (
 const (
 	diffSizeLimit        = 256 * 1024
 	staleGitIndexLockAge = 15 * time.Minute
+	emptyTreeHash        = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 )
 
 type Service struct {
@@ -517,7 +518,11 @@ func (s *Service) isBinaryDiff(ctx context.Context, item StatusItem) (bool, erro
 		absolutePath := filepath.Join(s.workspaceRoot, filepath.FromSlash(item.Path))
 		args = []string{"diff", "--no-index", "--numstat", "--", "/dev/null", absolutePath}
 	} else {
-		args = []string{"diff", "--numstat", "HEAD", "--"}
+		base, err := s.diffBase(ctx)
+		if err != nil {
+			return false, err
+		}
+		args = []string{"diff", "--numstat", base, "--"}
 		if item.OldPath != nil {
 			args = append(args, *item.OldPath)
 		}
@@ -593,7 +598,11 @@ func (s *Service) diffText(ctx context.Context, item StatusItem) (string, error)
 		return diff, nil
 	}
 
-	args := []string{"diff", "--binary", "--find-renames", "HEAD", "--"}
+	base, err := s.diffBase(ctx)
+	if err != nil {
+		return "", err
+	}
+	args := []string{"diff", "--binary", "--find-renames", base, "--"}
 	if item.OldPath != nil {
 		args = append(args, *item.OldPath)
 	}
@@ -603,6 +612,20 @@ func (s *Service) diffText(ctx context.Context, item StatusItem) (string, error)
 		return "", err
 	}
 	return string(output), nil
+}
+
+func (s *Service) diffBase(ctx context.Context) (string, error) {
+	_, stderr, err := s.runGit(ctx, "rev-parse", "--verify", "HEAD^{commit}")
+	if err == nil {
+		return "HEAD", nil
+	}
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+	if isUnbornHead(stderr) {
+		return emptyTreeHash, nil
+	}
+	return "", err
 }
 
 func (s *Service) runGit(ctx context.Context, args ...string) ([]byte, []byte, error) {
@@ -842,6 +865,12 @@ func groupingKey(item StatusItem) string {
 func isNotGitRepository(stderr []byte) bool {
 	text := string(stderr)
 	return strings.Contains(text, "not a git repository")
+}
+
+func isUnbornHead(stderr []byte) bool {
+	text := string(stderr)
+	return strings.Contains(text, "Needed a single revision") ||
+		strings.Contains(text, "ambiguous argument 'HEAD")
 }
 
 func classifyGitMutationError(stderr []byte, err error) error {

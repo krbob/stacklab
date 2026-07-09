@@ -157,6 +157,23 @@ func TestServiceStatusAndDiffForManagedWorkspace(t *testing.T) {
 	}
 }
 
+func TestServiceDiffUsesEmptyTreeForUnbornHead(t *testing.T) {
+	t.Parallel()
+
+	service, root := newTestService(t)
+	runGit(t, root, "init", "-b", "main")
+	mustWriteFile(t, filepath.Join(root, "config", "demo", "app.conf"), "server_name demo.local;\n")
+	runGit(t, root, "add", ".")
+
+	diff, err := service.Diff(context.Background(), "config/demo/app.conf")
+	if err != nil {
+		t.Fatalf("Diff(unborn HEAD) error = %v", err)
+	}
+	if diff.IsBinary || diff.Diff == nil || !strings.Contains(*diff.Diff, "+server_name demo.local;") {
+		t.Fatalf("unexpected unborn HEAD diff payload: %#v", diff)
+	}
+}
+
 func TestServiceStatusDoesNotMutateWorkspaceRoot(t *testing.T) {
 	t.Parallel()
 
