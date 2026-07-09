@@ -255,8 +255,8 @@ func (s *Service) CreateNetwork(ctx context.Context, request CreateNetworkReques
 		}
 	}
 
-	if _, err := s.runCommand(ctx, "docker", "network", "create", name); err != nil {
-		return CreateNetworkResponse{}, dockerMutationError(err)
+	if output, err := s.runCommand(ctx, "docker", "network", "create", name); err != nil {
+		return CreateNetworkResponse{}, dockerMutationError(output, err)
 	}
 
 	return CreateNetworkResponse{
@@ -285,8 +285,8 @@ func (s *Service) DeleteNetwork(ctx context.Context, name string, managedStackID
 		return DeleteNetworkResponse{}, ErrObjectInUse
 	}
 
-	if _, err := s.runCommand(ctx, "docker", "network", "rm", name); err != nil {
-		return DeleteNetworkResponse{}, dockerMutationError(err)
+	if output, err := s.runCommand(ctx, "docker", "network", "rm", name); err != nil {
+		return DeleteNetworkResponse{}, dockerMutationError(output, err)
 	}
 
 	return DeleteNetworkResponse{
@@ -311,8 +311,8 @@ func (s *Service) CreateVolume(ctx context.Context, request CreateVolumeRequest)
 		}
 	}
 
-	if _, err := s.runCommand(ctx, "docker", "volume", "create", name); err != nil {
-		return CreateVolumeResponse{}, dockerMutationError(err)
+	if output, err := s.runCommand(ctx, "docker", "volume", "create", name); err != nil {
+		return CreateVolumeResponse{}, dockerMutationError(output, err)
 	}
 
 	return CreateVolumeResponse{
@@ -338,8 +338,8 @@ func (s *Service) DeleteVolume(ctx context.Context, name string, managedStackIDs
 		return DeleteVolumeResponse{}, ErrObjectInUse
 	}
 
-	if _, err := s.runCommand(ctx, "docker", "volume", "rm", name); err != nil {
-		return DeleteVolumeResponse{}, dockerMutationError(err)
+	if output, err := s.runCommand(ctx, "docker", "volume", "rm", name); err != nil {
+		return DeleteVolumeResponse{}, dockerMutationError(output, err)
 	}
 
 	return DeleteVolumeResponse{
@@ -472,22 +472,26 @@ func isValidMaintenanceObjectName(value string) bool {
 	return maintenanceNamePattern.MatchString(value)
 }
 
-func dockerMutationError(err error) error {
+func dockerMutationError(output []byte, err error) error {
 	if err == nil {
 		return nil
 	}
-	message := strings.ToLower(err.Error())
+	message := strings.TrimSpace(string(output))
+	if message == "" {
+		message = err.Error()
+	}
+	lowerMessage := strings.ToLower(message)
 	switch {
-	case strings.Contains(message, "executable file not found"), strings.Contains(message, "command not found"):
+	case strings.Contains(lowerMessage, "executable file not found"), strings.Contains(lowerMessage, "command not found"):
 		return dockerUnavailable(err)
-	case strings.Contains(message, "already exists"):
+	case strings.Contains(lowerMessage, "already exists"):
 		return ErrAlreadyExists
-	case strings.Contains(message, "not found"), strings.Contains(message, "no such network"), strings.Contains(message, "no such volume"):
+	case strings.Contains(lowerMessage, "not found"), strings.Contains(lowerMessage, "no such network"), strings.Contains(lowerMessage, "no such volume"):
 		return ErrNotFound
-	case strings.Contains(message, "is in use"), strings.Contains(message, "has active endpoints"), strings.Contains(message, "volume is in use"):
+	case strings.Contains(lowerMessage, "is in use"), strings.Contains(lowerMessage, "has active endpoints"), strings.Contains(lowerMessage, "volume is in use"):
 		return ErrObjectInUse
 	default:
-		return fmt.Errorf("docker mutation failed: %w", err)
+		return fmt.Errorf("docker mutation failed: %w: %s", err, message)
 	}
 }
 

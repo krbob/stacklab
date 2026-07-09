@@ -796,7 +796,7 @@ func classifyGitMutationError(stderr []byte, err error) error {
 	case strings.Contains(text, "permission denied"), strings.Contains(text, "operation not permitted"):
 		return ErrPermissionDenied
 	default:
-		return err
+		return gitCommandError(stderr, err)
 	}
 }
 
@@ -808,7 +808,7 @@ func classifyGitCommitError(stderr []byte, err error) error {
 	case strings.Contains(text, "permission denied"), strings.Contains(text, "operation not permitted"):
 		return ErrPermissionDenied
 	default:
-		return err
+		return gitCommandError(stderr, err)
 	}
 }
 
@@ -825,8 +825,16 @@ func classifyGitPushError(stdout, stderr []byte, err error) error {
 		strings.Contains(text, "failed to push some refs"):
 		return ErrPushRejected
 	default:
+		return gitCommandError(append(stdout, stderr...), err)
+	}
+}
+
+func gitCommandError(stderr []byte, err error) error {
+	message := strings.TrimSpace(string(stderr))
+	if message == "" {
 		return err
 	}
+	return fmt.Errorf("%w: %s", err, message)
 }
 
 func commitSummary(message string) string {

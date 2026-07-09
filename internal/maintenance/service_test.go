@@ -278,3 +278,29 @@ func TestServiceCreateAndDeleteExternalResources(t *testing.T) {
 		t.Fatalf("CreateNetwork(invalid) error = %v, want ErrInvalidName", err)
 	}
 }
+
+func TestDeleteNetworkClassifiesDaemonOutput(t *testing.T) {
+	service := NewService()
+	service.runCommand = func(_ context.Context, name string, args ...string) ([]byte, error) {
+		if name != "docker" {
+			return nil, errors.New("unexpected command")
+		}
+		switch strings.Join(args, " ") {
+		case "network ls --no-trunc --format {{json .}}":
+			return []byte(`{"ID":"network-unused","Name":"external_unused","Driver":"bridge","Scope":"local"}` + "\n"), nil
+		case "network inspect network-unused":
+			return []byte(`[{"Id":"network-unused","Name":"external_unused","Driver":"bridge","Scope":"local","Labels":{}}]`), nil
+		case "ps -aq":
+			return nil, nil
+		case "network rm external_unused":
+			return []byte("Error response from daemon: network external_unused has active endpoints"), errors.New("exit status 1")
+		default:
+			return nil, errors.New("unexpected args: " + strings.Join(args, " "))
+		}
+	}
+
+	_, err := service.DeleteNetwork(context.Background(), "external_unused", nil)
+	if !errors.Is(err, ErrObjectInUse) {
+		t.Fatalf("DeleteNetwork() error = %v, want ErrObjectInUse", err)
+	}
+}

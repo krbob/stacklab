@@ -2,6 +2,7 @@ package gitworkspace
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -323,6 +324,15 @@ func TestServiceCommitAndPushValidation(t *testing.T) {
 	}
 	if _, err := service.Push(context.Background()); err != ErrUpstreamNotConfigured {
 		t.Fatalf("Push(no upstream) error = %v, want %v", err, ErrUpstreamNotConfigured)
+	}
+}
+
+func TestClassifyGitCommitErrorPreservesStderr(t *testing.T) {
+	t.Parallel()
+
+	err := classifyGitCommitError([]byte("Author identity unknown\n\nRun git config user.name"), errors.New("exit status 128"))
+	if err == nil || !strings.Contains(err.Error(), "Author identity unknown") {
+		t.Fatalf("classifyGitCommitError() = %v, want stderr in error", err)
 	}
 }
 
