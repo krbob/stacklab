@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"path/filepath"
 	"testing"
 	"time"
@@ -149,6 +150,37 @@ func TestLoginReturnsTokenGenerationError(t *testing.T) {
 
 	if _, err := service.Login(ctx, "secret", "ua", "127.0.0.1"); !errors.Is(err, tokenErr) {
 		t.Fatalf("Login(token error) error = %v, want %v", err, tokenErr)
+	}
+}
+
+func TestServiceClientIPTrustsForwardedForOnlyFromConfiguredProxy(t *testing.T) {
+	t.Parallel()
+
+	cfg := testConfig("secret")
+	cfg.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
+	service := NewService(cfg, openTestStore(t))
+
+	trusted := httptest.NewRequest(http.MethodPost, "http://stacklab.test/api/auth/login", nil)
+	trusted.RemoteAddr = "10.1.2.3:4567"
+	trusted.Header.Set("X-Forwarded-For", "203.0.113.10, 10.1.2.3")
+	if got := service.ClientIP(trusted); got != "203.0.113.10" {
+		t.Fatalf("ClientIP(trusted proxy) = %q, want 203.0.113.10", got)
+	}
+
+	untrusted := httptest.NewRequest(http.MethodPost, "http://stacklab.test/api/auth/login", nil)
+	untrusted.RemoteAddr = "198.51.100.20:4567"
+	untrusted.Header.Set("X-Forwarded-For", "203.0.113.10")
+	if got := service.ClientIP(untrusted); got != "198.51.100.20" {
+		t.Fatalf("ClientIP(untrusted proxy) = %q, want 198.51.100.20", got)
+	}
+
+	cfg.TrustedProxies = []netip.Prefix{netip.PrefixFrom(netip.MustParseAddr("192.0.2.10"), 32)}
+	service = NewService(cfg, openTestStore(t))
+	singleIP := httptest.NewRequest(http.MethodPost, "http://stacklab.test/api/auth/login", nil)
+	singleIP.RemoteAddr = "192.0.2.10:4567"
+	singleIP.Header.Set("X-Forwarded-For", "2001:db8::42")
+	if got := service.ClientIP(singleIP); got != "2001:db8::42" {
+		t.Fatalf("ClientIP(single trusted proxy) = %q, want 2001:db8::42", got)
 	}
 }
 

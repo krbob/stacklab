@@ -61,6 +61,8 @@ Default thresholds:
 
 This protects the single local operator password against simple LAN brute-force attempts. It is intentionally process-local in v1; restarting Stacklab clears the attempt counters.
 
+When Stacklab runs behind a reverse proxy, set `STACKLAB_TRUSTED_PROXIES` to the proxy IP/CIDR list. Stacklab only uses `X-Forwarded-For` for login rate limiting when the direct peer is trusted; otherwise it rate-limits by `RemoteAddr`.
+
 ## Session Model
 
 Authenticated browser access uses a signed server-side session represented by a cookie.

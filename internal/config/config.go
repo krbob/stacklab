@@ -2,9 +2,11 @@ package config
 
 import (
 	"log/slog"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -34,6 +36,7 @@ type Config struct {
 	SessionIdleTimeout           time.Duration
 	SessionAbsoluteLifetime      time.Duration
 	CookieSecure                 bool
+	TrustedProxies               []netip.Prefix
 	LoginMaxFailures             int
 	LoginFailureWindow           time.Duration
 	LoginLockoutDuration         time.Duration
@@ -70,6 +73,7 @@ func Load() Config {
 		SessionIdleTimeout:           parseDuration(getenv("STACKLAB_SESSION_IDLE_TIMEOUT", "12h"), 12*time.Hour),
 		SessionAbsoluteLifetime:      parseDuration(getenv("STACKLAB_SESSION_ABSOLUTE_LIFETIME", "168h"), 7*24*time.Hour),
 		CookieSecure:                 parseBool(getenv("STACKLAB_COOKIE_SECURE", "false")),
+		TrustedProxies:               parseTrustedProxies(getenv("STACKLAB_TRUSTED_PROXIES", "")),
 		LoginMaxFailures:             parseInt(getenv("STACKLAB_LOGIN_MAX_FAILURES", "5"), 5),
 		LoginFailureWindow:           parseDuration(getenv("STACKLAB_LOGIN_FAILURE_WINDOW", "5m"), 5*time.Minute),
 		LoginLockoutDuration:         parseDuration(getenv("STACKLAB_LOGIN_LOCKOUT_DURATION", "5m"), 5*time.Minute),
@@ -126,4 +130,23 @@ func parseInt(value string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+func parseTrustedProxies(value string) []netip.Prefix {
+	parts := strings.Split(value, ",")
+	prefixes := make([]netip.Prefix, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+		if prefix, err := netip.ParsePrefix(trimmed); err == nil {
+			prefixes = append(prefixes, prefix.Masked())
+			continue
+		}
+		if addr, err := netip.ParseAddr(trimmed); err == nil {
+			prefixes = append(prefixes, netip.PrefixFrom(addr, addr.BitLen()))
+		}
+	}
+	return prefixes
 }

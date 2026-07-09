@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
 	"sync"
@@ -258,12 +259,49 @@ func (s *Service) ClearSessionCookie() *http.Cookie {
 	}
 }
 
+func (s *Service) ClientIP(r *http.Request) string {
+	return clientIP(r, s.cfg.TrustedProxies)
+}
+
 func ClientIP(r *http.Request) string {
+	return clientIP(r, nil)
+}
+
+func clientIP(r *http.Request, trustedProxies []netip.Prefix) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err == nil {
+		if trustedForwardedIP := trustedForwardedFor(host, r.Header.Get("X-Forwarded-For"), trustedProxies); trustedForwardedIP != "" {
+			return trustedForwardedIP
+		}
 		return host
 	}
 	return r.RemoteAddr
+}
+
+func trustedForwardedFor(remoteHost, headerValue string, trustedProxies []netip.Prefix) string {
+	if len(trustedProxies) == 0 || strings.TrimSpace(headerValue) == "" {
+		return ""
+	}
+	remoteAddr, err := netip.ParseAddr(strings.TrimSpace(remoteHost))
+	if err != nil || !isTrustedProxy(remoteAddr, trustedProxies) {
+		return ""
+	}
+	for _, part := range strings.Split(headerValue, ",") {
+		addr, err := netip.ParseAddr(strings.TrimSpace(part))
+		if err == nil {
+			return addr.String()
+		}
+	}
+	return ""
+}
+
+func isTrustedProxy(addr netip.Addr, trustedProxies []netip.Prefix) bool {
+	for _, prefix := range trustedProxies {
+		if prefix.Contains(addr) {
+			return true
+		}
+	}
+	return false
 }
 
 func SameOrigin(r *http.Request) bool {

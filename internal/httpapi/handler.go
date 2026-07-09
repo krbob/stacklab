@@ -314,7 +314,7 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, err := h.auth.Login(r.Context(), request.Password, r.UserAgent(), auth.ClientIP(r))
+	session, err := h.auth.Login(r.Context(), request.Password, r.UserAgent(), h.auth.ClientIP(r))
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrInvalidCredentials):
