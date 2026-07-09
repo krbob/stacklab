@@ -13,6 +13,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"stacklab/internal/atomicfile"
 	"stacklab/internal/config"
 	"stacklab/internal/fsmeta"
 	"stacklab/internal/stacks"
@@ -611,33 +612,5 @@ func parentRelativePath(relativePath string) string {
 }
 
 func writeFileAtomic(path, content string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-
-	tmpFile, err := os.CreateTemp(filepath.Dir(path), ".stacklab-config-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmpFile.Name()
-
-	if _, err := tmpFile.WriteString(content); err != nil {
-		_ = tmpFile.Close()
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := tmpFile.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := os.Chmod(tmpName, 0o644); err != nil {
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		_ = os.Remove(tmpName)
-		return err
-	}
-
-	return nil
+	return atomicfile.WriteString(path, content, ".stacklab-config-*")
 }

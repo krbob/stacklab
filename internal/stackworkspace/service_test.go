@@ -77,7 +77,11 @@ func TestServiceSaveFileCreatesUpdatesAndRejectsUnsafeWrites(t *testing.T) {
 
 	service, stackRoot := newTestService(t, "demo")
 	mustMkdirAll(t, filepath.Join(stackRoot, "app"))
-	mustWriteFile(t, filepath.Join(stackRoot, "app", "config.yaml"), "old: true\n")
+	configPath := filepath.Join(stackRoot, "app", "config.yaml")
+	mustWriteFile(t, configPath, "old: true\n")
+	if err := os.Chmod(configPath, 0o600); err != nil {
+		t.Fatalf("Chmod(config.yaml) error = %v", err)
+	}
 	mustWriteFile(t, filepath.Join(stackRoot, "compose.yaml"), "services: {}\n")
 	if err := os.WriteFile(filepath.Join(stackRoot, "blob.bin"), []byte{0x00, 0xFF}, 0o644); err != nil {
 		t.Fatalf("WriteFile(blob.bin) error = %v", err)
@@ -93,12 +97,15 @@ func TestServiceSaveFileCreatesUpdatesAndRejectsUnsafeWrites(t *testing.T) {
 	if !saved.Saved || saved.AuditAction != "save_stack_file" || saved.StackID != "demo" {
 		t.Fatalf("unexpected save response: %#v", saved)
 	}
-	content, err := os.ReadFile(filepath.Join(stackRoot, "app", "config.yaml"))
+	content, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("ReadFile(config.yaml) error = %v", err)
 	}
 	if string(content) != "old: false\n" {
 		t.Fatalf("saved content = %q, want %q", string(content), "old: false\n")
+	}
+	if info, err := os.Stat(configPath); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("config.yaml mode = %v, %v; want 0600", infoMode(info), err)
 	}
 
 	created, err := service.SaveFile(context.Background(), "demo", SaveFileRequest{
@@ -110,6 +117,9 @@ func TestServiceSaveFileCreatesUpdatesAndRejectsUnsafeWrites(t *testing.T) {
 	}
 	if created.Path != "app/new.conf" || created.ModifiedAt.Before(time.Now().Add(-time.Minute)) {
 		t.Fatalf("unexpected created file response: %#v", created)
+	}
+	if info, err := os.Stat(filepath.Join(stackRoot, "app", "new.conf")); err != nil || info.Mode().Perm() != 0o644 {
+		t.Fatalf("new.conf mode = %v, %v; want 0644", infoMode(info), err)
 	}
 
 	if _, err := service.SaveFile(context.Background(), "demo", SaveFileRequest{
@@ -247,4 +257,11 @@ func mustWriteFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile(%s) error = %v", path, err)
 	}
+}
+
+func infoMode(info os.FileInfo) os.FileMode {
+	if info == nil {
+		return 0
+	}
+	return info.Mode().Perm()
 }

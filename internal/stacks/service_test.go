@@ -339,6 +339,10 @@ func TestCreateListGetSaveAndDeleteStackFilesystemFlow(t *testing.T) {
 	if listItem.ServiceCount.Defined != 1 {
 		t.Fatalf("list service_count.defined = %d, want 1", listItem.ServiceCount.Defined)
 	}
+	composePath := filepath.Join(reader.cfg.RootDir, "stacks", stackID, "compose.yaml")
+	if info, err := os.Stat(composePath); err != nil || info.Mode().Perm() != 0o644 {
+		t.Fatalf("new compose.yaml mode = %v, %v; want 0644", infoMode(info), err)
+	}
 
 	detailResponse, err := reader.Get(ctx, stackID)
 	if err != nil {
@@ -349,6 +353,9 @@ func TestCreateListGetSaveAndDeleteStackFilesystemFlow(t *testing.T) {
 	}
 	if len(detailResponse.Stack.Services) != 1 || detailResponse.Stack.Services[0].Name != "app" {
 		t.Fatalf("unexpected services: %#v", detailResponse.Stack.Services)
+	}
+	if err := os.Chmod(composePath, 0o600); err != nil {
+		t.Fatalf("Chmod(compose.yaml) error = %v", err)
 	}
 
 	savePreview, err := reader.SaveDefinition(ctx, stackID, UpdateDefinitionRequest{
@@ -362,12 +369,15 @@ func TestCreateListGetSaveAndDeleteStackFilesystemFlow(t *testing.T) {
 	if !savePreview.Valid {
 		t.Fatalf("SaveDefinition() valid = false, want true")
 	}
-	composeBytes, err := os.ReadFile(filepath.Join(reader.cfg.RootDir, "stacks", stackID, "compose.yaml"))
+	composeBytes, err := os.ReadFile(composePath)
 	if err != nil {
 		t.Fatalf("ReadFile(compose.yaml) error = %v", err)
 	}
 	if !strings.Contains(string(composeBytes), "nginx:stable") {
 		t.Fatalf("compose.yaml does not contain updated image: %q", string(composeBytes))
+	}
+	if info, err := os.Stat(composePath); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("updated compose.yaml mode = %v, %v; want 0600", infoMode(info), err)
 	}
 	envBytes, err := os.ReadFile(filepath.Join(reader.cfg.RootDir, "stacks", stackID, ".env"))
 	if err != nil {
@@ -747,6 +757,13 @@ func assertExists(t *testing.T, path string) {
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("expected %q to exist, got err = %v", path, err)
 	}
+}
+
+func infoMode(info os.FileInfo) os.FileMode {
+	if info == nil {
+		return 0
+	}
+	return info.Mode().Perm()
 }
 
 func imageUpdateStatusByRef(t *testing.T, testStore *store.Store) map[string]store.ImageUpdateStatus {

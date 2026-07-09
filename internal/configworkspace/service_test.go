@@ -127,7 +127,11 @@ func TestServiceSaveFileCreatesUpdatesAndRejectsUnsafeWrites(t *testing.T) {
 
 	service, root := newTestService(t)
 	mustMkdirAll(t, filepath.Join(root, "nextcloud"))
-	mustWriteFile(t, filepath.Join(root, "nextcloud", "app.conf"), "OLD=1\n")
+	appPath := filepath.Join(root, "nextcloud", "app.conf")
+	mustWriteFile(t, appPath, "OLD=1\n")
+	if err := os.Chmod(appPath, 0o600); err != nil {
+		t.Fatalf("Chmod(app.conf) error = %v", err)
+	}
 	if err := os.WriteFile(filepath.Join(root, "nextcloud", "blob.bin"), []byte{0x00, 0xFF}, 0o644); err != nil {
 		t.Fatalf("WriteFile(blob.bin) error = %v", err)
 	}
@@ -142,12 +146,15 @@ func TestServiceSaveFileCreatesUpdatesAndRejectsUnsafeWrites(t *testing.T) {
 	if !saved.Saved || saved.AuditAction != "save_config_file" {
 		t.Fatalf("unexpected save response: %#v", saved)
 	}
-	content, err := os.ReadFile(filepath.Join(root, "nextcloud", "app.conf"))
+	content, err := os.ReadFile(appPath)
 	if err != nil {
 		t.Fatalf("ReadFile(app.conf) error = %v", err)
 	}
 	if string(content) != "NEW=2\n" {
 		t.Fatalf("saved content = %q, want %q", string(content), "NEW=2\n")
+	}
+	if info, err := os.Stat(appPath); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("app.conf mode = %v, %v; want 0600", infoMode(info), err)
 	}
 
 	created, err := service.SaveFile(context.Background(), SaveFileRequest{
@@ -159,6 +166,9 @@ func TestServiceSaveFileCreatesUpdatesAndRejectsUnsafeWrites(t *testing.T) {
 	}
 	if created.Path != "nextcloud/new.conf" || created.ModifiedAt.Before(time.Now().Add(-time.Minute)) {
 		t.Fatalf("unexpected created file response: %#v", created)
+	}
+	if info, err := os.Stat(filepath.Join(root, "nextcloud", "new.conf")); err != nil || info.Mode().Perm() != 0o644 {
+		t.Fatalf("new.conf mode = %v, %v; want 0644", infoMode(info), err)
 	}
 
 	_, err = service.SaveFile(context.Background(), SaveFileRequest{
@@ -320,6 +330,13 @@ func mustWriteFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile(%s) error = %v", path, err)
 	}
+}
+
+func infoMode(info os.FileInfo) os.FileMode {
+	if info == nil {
+		return 0
+	}
+	return info.Mode().Perm()
 }
 
 func runGit(t *testing.T, dir string, args ...string) {
