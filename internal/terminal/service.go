@@ -52,12 +52,13 @@ type LifecycleEvent struct {
 }
 
 type Service struct {
-	logger   *slog.Logger
-	cfg      Config
-	mu       sync.Mutex
-	sessions map[string]*session
-	owners   map[string]map[string]struct{}
-	hook     func(LifecycleEvent)
+	logger        *slog.Logger
+	cfg           Config
+	startTerminal func(*exec.Cmd, *pty.Winsize) (*os.File, error)
+	mu            sync.Mutex
+	sessions      map[string]*session
+	owners        map[string]map[string]struct{}
+	hook          func(LifecycleEvent)
 }
 
 type session struct {
@@ -95,11 +96,12 @@ func NewService(logger *slog.Logger, cfg Config, hook func(LifecycleEvent)) *Ser
 	}
 
 	return &Service{
-		logger:   logger,
-		cfg:      cfg,
-		sessions: map[string]*session{},
-		owners:   map[string]map[string]struct{}{},
-		hook:     hook,
+		logger:        logger,
+		cfg:           cfg,
+		startTerminal: pty.StartWithSize,
+		sessions:      map[string]*session{},
+		owners:        map[string]map[string]struct{}{},
+		hook:          hook,
 	}
 }
 
@@ -109,22 +111,7 @@ func (s *Service) Open(ownerID, stackID, containerID, shell string, cols, rows i
 		return SessionInfo{}, "", nil, err
 	}
 
-	s.mu.Lock()
-	if len(s.owners[ownerID]) >= s.cfg.MaxSessionsPerOwner {
-		s.mu.Unlock()
-		return SessionInfo{}, "", nil, ErrSessionLimitExceeded
-	}
-	s.mu.Unlock()
-
 	cmd := exec.Command("docker", "exec", "-it", containerID, normalizedShell)
-	ptyFile, err := pty.StartWithSize(cmd, &pty.Winsize{
-		Cols: uint16(normalizeCols(cols)),
-		Rows: uint16(normalizeRows(rows)),
-	})
-	if err != nil {
-		return SessionInfo{}, "", nil, err
-	}
-
 	now := time.Now().UTC()
 	info := SessionInfo{
 		ID:          "term_" + randomID(18),
@@ -132,6 +119,27 @@ func (s *Service) Open(ownerID, stackID, containerID, shell string, cols, rows i
 		ContainerID: containerID,
 		Shell:       normalizedShell,
 	}
+
+	s.mu.Lock()
+	if _, ok := s.owners[ownerID]; !ok {
+		s.owners[ownerID] = map[string]struct{}{}
+	}
+	if len(s.owners[ownerID]) >= s.cfg.MaxSessionsPerOwner {
+		s.mu.Unlock()
+		return SessionInfo{}, "", nil, ErrSessionLimitExceeded
+	}
+	s.owners[ownerID][info.ID] = struct{}{}
+	s.mu.Unlock()
+
+	ptyFile, err := s.startTerminal(cmd, &pty.Winsize{
+		Cols: uint16(normalizeCols(cols)),
+		Rows: uint16(normalizeRows(rows)),
+	})
+	if err != nil {
+		s.releaseOwnerSession(ownerID, info.ID)
+		return SessionInfo{}, "", nil, err
+	}
+
 	attachmentID := "attach_" + randomID(18)
 	events := make(chan Event, 256)
 
@@ -148,10 +156,6 @@ func (s *Service) Open(ownerID, stackID, containerID, shell string, cols, rows i
 	})
 
 	s.mu.Lock()
-	if _, ok := s.owners[ownerID]; !ok {
-		s.owners[ownerID] = map[string]struct{}{}
-	}
-	s.owners[ownerID][info.ID] = struct{}{}
 	s.sessions[info.ID] = terminalSession
 	s.mu.Unlock()
 
@@ -280,6 +284,18 @@ func (s *Service) lookupOwnedSession(ownerID, sessionID string) (*session, error
 		return nil, ErrSessionNotFound
 	}
 	return terminalSession, nil
+}
+
+func (s *Service) releaseOwnerSession(ownerID, sessionID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if owned := s.owners[ownerID]; owned != nil {
+		delete(owned, sessionID)
+		if len(owned) == 0 {
+			delete(s.owners, ownerID)
+		}
+	}
 }
 
 func (s *Service) forwardOutput(sessionID string) {

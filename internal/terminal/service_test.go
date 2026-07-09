@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -46,6 +47,51 @@ func TestNormalizeShell(t *testing.T) {
 				t.Fatalf("normalizeShell(%q) = %q, want %q", test.input, got, test.want)
 			}
 		})
+	}
+}
+
+func TestOpenReservesOwnerSlotBeforeStartingTerminal(t *testing.T) {
+	service := NewService(nil, Config{MaxSessionsPerOwner: 1, IdleTimeout: time.Minute}, nil)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var calls atomic.Int32
+	service.startTerminal = func(cmd *exec.Cmd, size *pty.Winsize) (*os.File, error) {
+		if calls.Add(1) != 1 {
+			t.Fatalf("startTerminal called after owner limit should have been reserved")
+		}
+		close(started)
+		<-release
+		_, writeEnd, err := os.Pipe()
+		if err != nil {
+			return nil, err
+		}
+		return writeEnd, nil
+	}
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, _, _, err := service.Open("owner_limit", "demo", "container_1", "/bin/sh", 80, 24, "conn_1")
+		firstDone <- err
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for first terminal start")
+	}
+
+	if _, _, _, err := service.Open("owner_limit", "demo", "container_2", "/bin/sh", 80, 24, "conn_2"); !errors.Is(err, ErrSessionLimitExceeded) {
+		t.Fatalf("Open(second) error = %v, want %v", err, ErrSessionLimitExceeded)
+	}
+
+	close(release)
+	select {
+	case err := <-firstDone:
+		if err != nil {
+			t.Fatalf("Open(first) error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for first Open")
 	}
 }
 
