@@ -2102,7 +2102,7 @@ func (h *Handler) handlePutDefinition(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = h.jobs.PublishEvent(r.Context(), job, "job_progress", "Saving stack definition.", "", nil)
-	preview, saveErr := h.stackReader.SaveDefinition(r.Context(), r.PathValue("stackId"), request)
+	preview, definition, saveErr := h.stackReader.SaveDefinition(r.Context(), r.PathValue("stackId"), request)
 	if saveErr != nil {
 		job, _ = h.jobs.FinishFailed(r.Context(), job, "save_definition_failed", saveErr.Error())
 		if err := h.audit.RecordStackJob(r.Context(), job); err != nil {
@@ -2138,12 +2138,7 @@ func (h *Handler) handlePutDefinition(w http.ResponseWriter, r *http.Request) {
 		h.logger.Warn("record save_definition audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
 	}
 
-	payload := map[string]any{"job": job}
-	if definition, err := h.stackReader.Definition(r.Context(), r.PathValue("stackId")); err != nil {
-		h.logger.Warn("load saved stack definition failed", slog.String("stack_id", r.PathValue("stackId")), slog.String("err", err.Error()))
-	} else {
-		payload["definition"] = definition
-	}
+	payload := map[string]any{"job": job, "definition": definition}
 	writeJSON(w, http.StatusOK, payload)
 }
 

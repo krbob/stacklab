@@ -315,6 +315,18 @@ func (s *ServiceReader) Definition(ctx context.Context, stackID string) (StackDe
 		return StackDefinitionResponse{}, ErrInvalidState
 	}
 
+	definition, err := s.definitionFromFiles(stack, stack.ConfigState)
+	if err != nil {
+		return StackDefinitionResponse{}, err
+	}
+	preview := s.resolveCurrent(ctx, stack)
+	if !preview.Valid {
+		definition.ConfigState = ConfigStateInvalid
+	}
+	return definition, nil
+}
+
+func (s *ServiceReader) definitionFromFiles(stack discoveredStack, configState ConfigState) (StackDefinitionResponse, error) {
 	composeInfo, err := os.Stat(stack.ComposeFilePath)
 	if err != nil {
 		return StackDefinitionResponse{}, fmt.Errorf("stat compose file: %w", err)
@@ -338,12 +350,6 @@ func (s *ServiceReader) Definition(ctx context.Context, stackID string) (StackDe
 		envContent = string(envBytes)
 	} else if !os.IsNotExist(err) {
 		return StackDefinitionResponse{}, fmt.Errorf("stat env file: %w", err)
-	}
-
-	configState := stack.ConfigState
-	preview := s.resolveCurrent(ctx, stack)
-	if !preview.Valid {
-		configState = ConfigStateInvalid
 	}
 
 	return StackDefinitionResponse{
@@ -455,41 +461,45 @@ func (s *ServiceReader) ResolvedConfigDraft(ctx context.Context, stackID string,
 	}, nil
 }
 
-func (s *ServiceReader) SaveDefinition(ctx context.Context, stackID string, request UpdateDefinitionRequest) (ResolvedConfigResponse, error) {
+func (s *ServiceReader) SaveDefinition(ctx context.Context, stackID string, request UpdateDefinitionRequest) (ResolvedConfigResponse, StackDefinitionResponse, error) {
 	stack, err := s.findStack(ctx, stackID)
 	if err != nil {
-		return ResolvedConfigResponse{}, err
+		return ResolvedConfigResponse{}, StackDefinitionResponse{}, err
 	}
 	if stack.RuntimeState == RuntimeStateOrphaned {
-		return ResolvedConfigResponse{}, ErrInvalidState
+		return ResolvedConfigResponse{}, StackDefinitionResponse{}, ErrInvalidState
 	}
 
 	if request.ExpectedRevision != nil {
 		if err := ensureDefinitionRevision(stack, *request.ExpectedRevision); err != nil {
-			return ResolvedConfigResponse{}, err
+			return ResolvedConfigResponse{}, StackDefinitionResponse{}, err
 		}
 	}
 
 	if err := writeFileAtomic(stack.ComposeFilePath, request.ComposeYAML); err != nil {
-		return ResolvedConfigResponse{}, fmt.Errorf("write compose file: %w", err)
+		return ResolvedConfigResponse{}, StackDefinitionResponse{}, fmt.Errorf("write compose file: %w", err)
 	}
 
 	if err := writeEnvFile(stack.EnvFilePath, request.Env); err != nil {
-		return ResolvedConfigResponse{}, fmt.Errorf("write env file: %w", err)
+		return ResolvedConfigResponse{}, StackDefinitionResponse{}, fmt.Errorf("write env file: %w", err)
 	}
 
-	if !request.ValidateAfterSave {
-		return ResolvedConfigResponse{
-			StackID: stack.ID,
-			Valid:   true,
-		}, nil
+	preview := ResolvedConfigResponse{
+		StackID: stack.ID,
+		Valid:   true,
 	}
-
-	refreshedStack, err := s.findStack(ctx, stackID)
+	configState := stack.ConfigState
+	if request.ValidateAfterSave {
+		preview = s.resolveCurrent(ctx, stack)
+		if !preview.Valid {
+			configState = ConfigStateInvalid
+		}
+	}
+	definition, err := s.definitionFromFiles(stack, configState)
 	if err != nil {
-		return ResolvedConfigResponse{}, err
+		return preview, StackDefinitionResponse{}, err
 	}
-	return s.resolveCurrent(ctx, refreshedStack), nil
+	return preview, definition, nil
 }
 
 func (s *ServiceReader) EnsureCreateStackAvailable(ctx context.Context, stackID string) error {

@@ -358,7 +358,7 @@ func TestCreateListGetSaveAndDeleteStackFilesystemFlow(t *testing.T) {
 		t.Fatalf("Chmod(compose.yaml) error = %v", err)
 	}
 
-	savePreview, err := reader.SaveDefinition(ctx, stackID, UpdateDefinitionRequest{
+	savePreview, _, err := reader.SaveDefinition(ctx, stackID, UpdateDefinitionRequest{
 		ComposeYAML:       "services:\n  app:\n    image: nginx:stable\n",
 		Env:               "PORT=9090\n",
 		ValidateAfterSave: false,
@@ -596,7 +596,7 @@ func TestDeployBaselineDrivesConfigState(t *testing.T) {
 		t.Fatalf("LastDeployedAt = %#v, want %v", inSync.Stack.LastDeployedAt, deployedAt)
 	}
 
-	if _, err := reader.SaveDefinition(ctx, stackID, UpdateDefinitionRequest{ComposeYAML: compose + "    restart: unless-stopped\n"}); err != nil {
+	if _, _, err := reader.SaveDefinition(ctx, stackID, UpdateDefinitionRequest{ComposeYAML: compose + "    restart: unless-stopped\n"}); err != nil {
 		t.Fatalf("SaveDefinition() error = %v", err)
 	}
 	drifted, err := reader.Get(ctx, stackID)
@@ -607,11 +607,19 @@ func TestDeployBaselineDrivesConfigState(t *testing.T) {
 		t.Fatalf("ConfigState after edit = %q, want %q", drifted.Stack.ConfigState, ConfigStateDrifted)
 	}
 
-	if _, err := reader.SaveDefinition(ctx, stackID, UpdateDefinitionRequest{
-		ComposeYAML:       "services:\n  app:\n    image: [\n",
-		ValidateAfterSave: false,
-	}); err != nil {
+	invalidCompose := "services:\n  app:\n    image: [\n"
+	invalidPreview, invalidDefinition, err := reader.SaveDefinition(ctx, stackID, UpdateDefinitionRequest{
+		ComposeYAML:       invalidCompose,
+		ValidateAfterSave: true,
+	})
+	if err != nil {
 		t.Fatalf("SaveDefinition(invalid) error = %v", err)
+	}
+	if invalidPreview.Valid {
+		t.Fatal("SaveDefinition(invalid) preview valid = true, want false")
+	}
+	if invalidDefinition.Files.ComposeYAML.Content != invalidCompose || invalidDefinition.ConfigState != ConfigStateInvalid {
+		t.Fatalf("unexpected returned invalid definition: %#v", invalidDefinition)
 	}
 	invalid, err := reader.Get(ctx, stackID)
 	if err != nil {
@@ -788,7 +796,7 @@ func TestSaveDefinitionEmptyEnvDoesNotCreateFileWhenMissing(t *testing.T) {
 	envPath := filepath.Join(reader.cfg.RootDir, "stacks", stackID, ".env")
 	assertMissing(t, envPath)
 
-	if _, err := reader.SaveDefinition(ctx, stackID, UpdateDefinitionRequest{
+	if _, _, err := reader.SaveDefinition(ctx, stackID, UpdateDefinitionRequest{
 		ComposeYAML:       "services:\n  app:\n    image: nginx:stable\n",
 		Env:               "",
 		ValidateAfterSave: false,
@@ -835,7 +843,7 @@ func TestSaveDefinitionRejectsStaleRevision(t *testing.T) {
 		t.Fatalf("Chtimes(compose.yaml) error = %v", err)
 	}
 
-	_, err = reader.SaveDefinition(ctx, stackID, UpdateDefinitionRequest{
+	_, _, err = reader.SaveDefinition(ctx, stackID, UpdateDefinitionRequest{
 		ComposeYAML:      "services:\n  app:\n    image: nginx:stable\n",
 		Env:              "",
 		ExpectedRevision: &revision,
