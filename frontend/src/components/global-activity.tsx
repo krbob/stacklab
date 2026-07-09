@@ -36,7 +36,7 @@ function toActiveJobItem(job: JobDetail): ActiveJobItem {
   }
 }
 
-export function GlobalActivity() {
+export function GlobalActivity({ variant = 'sidebar' }: { variant?: 'sidebar' | 'compact' }) {
   const response = useActivity()
   const [open, setOpen] = useState(false)
   const [recentlyCompleted, setRecentlyCompleted] = useState<ActiveJobItem[]>([])
@@ -121,13 +121,16 @@ export function GlobalActivity() {
       {/* Collapsed indicator */}
       <button
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs transition hover:bg-[rgba(255,255,255,0.05)]"
+        className={cn(
+          'flex items-center gap-2 rounded-lg text-xs transition hover:bg-[rgba(255,255,255,0.05)]',
+          variant === 'compact' ? 'max-w-[42vw] px-2 py-1.5' : 'w-full px-3 py-2',
+        )}
       >
         <span className={cn(
           'inline-block size-2 rounded-full',
           activeCount > 0 ? 'animate-pulse bg-[var(--run)]' : failedRecent ? 'bg-[var(--danger)]' : 'bg-[var(--ok)]',
         )} />
-        <span className="text-[var(--text)]">
+        <span className="min-w-0 truncate text-[var(--text)]">
           {activeCount > 0
             ? activeCount === 1
               ? jobLabel(primaryJob!)
@@ -136,14 +139,19 @@ export function GlobalActivity() {
               ? `Failed · ${jobLabel(failedRecent)}`
               : 'Done'}
         </span>
-        {primaryJob?.started_at && (
+        {primaryJob?.started_at && variant !== 'compact' && (
           <span className="ml-auto text-[var(--muted)]">{formatElapsed(primaryJob.started_at)}</span>
         )}
       </button>
 
       {/* Popover */}
       {open && (
-        <div className="absolute bottom-full left-0 mb-2 w-72 rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-3 shadow-lg">
+        <div
+          className={cn(
+            'absolute z-50 w-72 rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-3 shadow-lg',
+            variant === 'compact' ? 'right-0 top-full mt-2' : 'bottom-full left-0 mb-2',
+          )}
+        >
           <div className="mb-2 text-xs font-medium text-[var(--text)]">Activity</div>
 
           {activeItems.length === 0 && recentlyCompleted.length === 0 && (

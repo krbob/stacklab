@@ -109,10 +109,14 @@ export function RootLayout() {
         flow (the mobile bars are hidden anyway). */}
     <div className="flex h-[100dvh] flex-col overflow-hidden lg:block lg:h-auto lg:min-h-screen lg:overflow-visible">
       <header
-        className="flex shrink-0 items-center justify-center border-b border-[var(--panel-border)] bg-[var(--bg)] px-4 py-3 lg:hidden"
+        className="grid shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-[var(--panel-border)] bg-[var(--bg)] px-4 py-3 lg:hidden"
         style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
       >
+        <span aria-hidden />
         <div className="font-brand text-xs uppercase tracking-[0.32em] text-[var(--accent)]">Stacklab</div>
+        <div className="justify-self-end">
+          <GlobalActivity variant="compact" />
+        </div>
       </header>
 
       {mobileNavOpen && (

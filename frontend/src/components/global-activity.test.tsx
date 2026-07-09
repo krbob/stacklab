@@ -30,6 +30,18 @@ function renderActivity() {
   )
 }
 
+function renderCompactActivity() {
+  return render(
+    <MemoryRouter>
+      <JobDrawerProvider>
+        <ActivityProvider>
+          <GlobalActivity variant="compact" />
+        </ActivityProvider>
+      </JobDrawerProvider>
+    </MemoryRouter>,
+  )
+}
+
 const activeResponse: ActiveJobsResponse = {
   items: [
     {
@@ -122,6 +134,23 @@ describe('GlobalActivity', () => {
 
     expect(screen.getByText('Activity')).toBeInTheDocument()
     expect(screen.getByText('1/2')).toBeInTheDocument()
+  })
+
+  it('renders compact mobile chip with a downward popover', async () => {
+    mockGetActiveJobs.mockResolvedValue(activeResponse)
+
+    renderCompactActivity()
+
+    await act(async () => {
+      vi.advanceTimersByTime(0)
+      await Promise.resolve()
+    })
+
+    fireEvent.click(screen.getByRole('button'))
+
+    const popover = screen.getByText('Activity').parentElement
+    expect(popover).toHaveClass('top-full')
+    expect(screen.getAllByRole('button')[0]).toHaveClass('max-w-[42vw]')
   })
 
   it('opens drawer and closes popover when clicking a job row', async () => {
