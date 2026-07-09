@@ -311,13 +311,14 @@ describe('HostPage', () => {
     expect(screen.getByText('java -jar server.jar nogui')).toBeInTheDocument()
     expect(screen.getByText('1234')).toBeInTheDocument()
     expect(screen.getAllByText('12.5%').length).toBeGreaterThan(0)
-    expect(await screen.findByText('Started HTTP server')).toBeInTheDocument()
-    expect(screen.getByText('Failed to bind port')).toBeInTheDocument()
+	    expect(await screen.findByText('Started HTTP server')).toBeInTheDocument()
+	    expect(screen.getByText('Failed to bind port')).toBeInTheDocument()
 
-    expect(mockGetHostOverview).toHaveBeenCalledTimes(1)
-    expect(mockGetHostMetrics).toHaveBeenCalledTimes(1)
-    expect(mockGetStacklabLogs).toHaveBeenCalledWith({ limit: 200, cursor: undefined, level: undefined, includeHttpAccess: false })
-  })
+	    expect(mockGetHostOverview).toHaveBeenCalledTimes(1)
+	    expect(mockGetHostMetrics).toHaveBeenCalled()
+	    expect(mockGetHostMetrics).toHaveBeenNthCalledWith(1, undefined)
+	    expect(mockGetStacklabLogs).toHaveBeenCalledWith({ limit: 200, cursor: undefined, level: undefined, includeHttpAccess: false })
+	  })
 
   it('reloads logs when level filter changes', async () => {
     mockGetStacklabLogs
