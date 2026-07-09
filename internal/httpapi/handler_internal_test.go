@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -1109,6 +1110,33 @@ func TestHandlerConfigWorkspaceTreeFileAndSave(t *testing.T) {
 	}
 
 	_ = handler
+}
+
+func TestDecodeJSONRejectsOversizedBody(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/api/test", strings.NewReader(`{"content":"`+strings.Repeat("x", int(maxJSONBodyBytes))+`"}`))
+	recorder := httptest.NewRecorder()
+
+	var payload struct {
+		Content string `json:"content"`
+	}
+	err := decodeJSON(recorder, request, &payload)
+	if !errors.Is(err, errRequestBodyTooLarge) {
+		t.Fatalf("decodeJSON(oversized) error = %v, want %v", err, errRequestBodyTooLarge)
+	}
+
+	writeDecodeJSONError(recorder, err)
+	if recorder.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized response status = %d, want %d", recorder.Code, http.StatusRequestEntityTooLarge)
+	}
+	var errorPayload struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	decodeInternalResponse(t, recorder, &errorPayload)
+	if errorPayload.Error.Code != "request_too_large" {
+		t.Fatalf("oversized error code = %q, want request_too_large", errorPayload.Error.Code)
+	}
 }
 
 func TestHandlerConfigWorkspaceErrors(t *testing.T) {

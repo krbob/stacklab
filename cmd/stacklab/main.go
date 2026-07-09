@@ -100,6 +100,7 @@ func main() {
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           handler,
+		ReadTimeout:       30 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

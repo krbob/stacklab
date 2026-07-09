@@ -309,8 +309,8 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		Password string `json:"password"`
 	}
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDecodeJSONError(w, err)
 		return
 	}
 
@@ -465,8 +465,8 @@ func (h *Handler) handleDockerRegistryLogin(w http.ResponseWriter, r *http.Reque
 	}
 
 	var request dockerregistryauth.LoginRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDecodeJSONError(w, err)
 		return
 	}
 	if err := validateDockerRegistryLoginRequest(request); err != nil {
@@ -512,8 +512,8 @@ func (h *Handler) handleDockerRegistryLogout(w http.ResponseWriter, r *http.Requ
 	}
 
 	var request dockerregistryauth.LogoutRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDecodeJSONError(w, err)
 		return
 	}
 	if err := validateDockerRegistryLogoutRequest(request); err != nil {
@@ -602,8 +602,8 @@ func (h *Handler) handlePutConfigWorkspaceFile(w http.ResponseWriter, r *http.Re
 	}
 
 	var request configworkspace.SaveFileRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDecodeJSONError(w, err)
 		return
 	}
 
@@ -652,8 +652,8 @@ func (h *Handler) handleRepairConfigWorkspacePermissions(w http.ResponseWriter, 
 	}
 
 	var request configworkspace.RepairPermissionsRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDecodeJSONError(w, err)
 		return
 	}
 
@@ -741,8 +741,8 @@ func (h *Handler) handlePutStackWorkspaceFile(w http.ResponseWriter, r *http.Req
 	}
 
 	var request stackworkspace.SaveFileRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDecodeJSONError(w, err)
 		return
 	}
 
@@ -791,8 +791,8 @@ func (h *Handler) handleRepairStackWorkspacePermissions(w http.ResponseWriter, r
 	}
 
 	var request stackworkspace.RepairPermissionsRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDecodeJSONError(w, err)
 		return
 	}
 
@@ -868,8 +868,8 @@ func (h *Handler) handleGitWorkspaceCommit(w http.ResponseWriter, r *http.Reques
 	}
 
 	var request gitworkspace.CommitRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDecodeJSONError(w, err)
 		return
 	}
 
@@ -1075,8 +1075,8 @@ func (h *Handler) handleUpdateStacksMaintenance(w http.ResponseWriter, r *http.R
 	}
 
 	var request maintenanceUpdateStacksRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDecodeJSONError(w, err)
 		return
 	}
 
@@ -1198,8 +1198,8 @@ func (h *Handler) handleCreateMaintenanceNetwork(w http.ResponseWriter, r *http.
 	}
 
 	var request maintenance.CreateNetworkRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDecodeJSONError(w, err)
 		return
 	}
 
@@ -1306,8 +1306,8 @@ func (h *Handler) handleCreateMaintenanceVolume(w http.ResponseWriter, r *http.R
 	}
 
 	var request maintenance.CreateVolumeRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDecodeJSONError(w, err)
 		return
 	}
 
@@ -1439,8 +1439,8 @@ func (h *Handler) handleMaintenancePrune(w http.ResponseWriter, r *http.Request)
 	}
 
 	var request maintenancePruneRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDecodeJSONError(w, err)
 		return
 	}
 	if !request.Scope.Images && !request.Scope.BuildCache && !request.Scope.StoppedContainers && !request.Scope.Volumes {
@@ -1494,8 +1494,8 @@ func (h *Handler) handleDockerAdminValidateDaemonConfig(w http.ResponseWriter, r
 	}
 
 	var request dockerAdminValidateRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDecodeJSONError(w, err)
 		return
 	}
 
@@ -1528,8 +1528,8 @@ func (h *Handler) handleDockerAdminApplyDaemonConfig(w http.ResponseWriter, r *h
 	}
 
 	var request dockerAdminValidateRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDecodeJSONError(w, err)
 		return
 	}
 
@@ -1701,8 +1701,8 @@ func (h *Handler) handleStacklabUpdateApply(w http.ResponseWriter, r *http.Reque
 	}
 
 	var request selfupdate.ApplyRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDecodeJSONError(w, err)
 		return
 	}
 
@@ -1772,8 +1772,8 @@ func (h *Handler) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var request stacks.CreateStackRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDecodeJSONError(w, err)
 		return
 	}
 	if !stacks.IsValidStackID(request.StackID) {
@@ -1892,8 +1892,8 @@ func (h *Handler) handleDeleteStack(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var request stacks.DeleteStackRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDecodeJSONError(w, err)
 		return
 	}
 	if !request.RemoveRuntime && !request.RemoveDefinition && !request.RemoveConfig && !request.RemoveData {
@@ -1990,8 +1990,8 @@ func (h *Handler) handlePutDefinition(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var request stacks.UpdateDefinitionRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDecodeJSONError(w, err)
 		return
 	}
 
@@ -2083,8 +2083,8 @@ func (h *Handler) handleGetResolvedConfig(w http.ResponseWriter, r *http.Request
 
 func (h *Handler) handlePostResolvedConfig(w http.ResponseWriter, r *http.Request) {
 	var request stacks.ResolvedConfigRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDecodeJSONError(w, err)
 		return
 	}
 
@@ -2218,8 +2218,8 @@ func (h *Handler) handleUpdateNotificationSettings(w http.ResponseWriter, r *htt
 	}
 
 	var request notifications.UpdateSettingsRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDecodeJSONError(w, err)
 		return
 	}
 
@@ -2258,8 +2258,8 @@ func (h *Handler) handleSendNotificationTest(w http.ResponseWriter, r *http.Requ
 	}
 
 	var request notifications.TestRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDecodeJSONError(w, err)
 		return
 	}
 
@@ -2301,8 +2301,8 @@ func (h *Handler) handleUpdateHostSettings(w http.ResponseWriter, r *http.Reques
 	}
 
 	var request hostinfo.UpdateSettingsRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDecodeJSONError(w, err)
 		return
 	}
 
@@ -2341,8 +2341,8 @@ func (h *Handler) handleUpdateMaintenanceSchedules(w http.ResponseWriter, r *htt
 	}
 
 	var request scheduler.UpdateSettingsRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDecodeJSONError(w, err)
 		return
 	}
 
@@ -2371,8 +2371,8 @@ func (h *Handler) handleRunStackAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var request struct{}
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDecodeJSONError(w, err)
 		return
 	}
 
@@ -2438,8 +2438,8 @@ func (h *Handler) handleUpdatePassword(w http.ResponseWriter, r *http.Request) {
 		CurrentPassword string `json:"current_password"`
 		NewPassword     string `json:"new_password"`
 	}
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDecodeJSONError(w, err)
 		return
 	}
 
@@ -2530,6 +2530,10 @@ type statusRecorder struct {
 	status int
 }
 
+const maxJSONBodyBytes int64 = 16 << 20
+
+var errRequestBodyTooLarge = errors.New("request body too large")
+
 func (r *statusRecorder) WriteHeader(status int) {
 	r.status = status
 	r.ResponseWriter.WriteHeader(status)
@@ -2558,10 +2562,28 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	_ = encoder.Encode(payload)
 }
 
-func decodeJSON(r *http.Request, destination any) error {
-	decoder := json.NewDecoder(r.Body)
+func decodeJSON(w http.ResponseWriter, r *http.Request, destination any) error {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxJSONBodyBytes))
 	decoder.DisallowUnknownFields()
-	return decoder.Decode(destination)
+	err := decoder.Decode(destination)
+	if err == nil {
+		return nil
+	}
+	var maxBytesErr *http.MaxBytesError
+	if errors.As(err, &maxBytesErr) {
+		return errRequestBodyTooLarge
+	}
+	return err
+}
+
+func writeDecodeJSONError(w http.ResponseWriter, err error) {
+	if errors.Is(err, errRequestBodyTooLarge) {
+		writeError(w, http.StatusRequestEntityTooLarge, "request_too_large", "Request body is too large.", map[string]any{
+			"max_bytes": maxJSONBodyBytes,
+		})
+		return
+	}
+	writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string, details any) {
