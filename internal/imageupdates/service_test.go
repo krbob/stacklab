@@ -149,3 +149,45 @@ func TestCheckImageTreatsAnyMatchingLocalRepoDigestAsUpToDate(t *testing.T) {
 		t.Fatalf("remote digest = %q, want %q", status.RemoteDigest, currentDigest)
 	}
 }
+
+func TestCheckImagesDoesNotOverwriteStatusesAfterCancellation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	testStore, err := store.Open(filepath.Join(t.TempDir(), "stacklab.db"))
+	if err != nil {
+		t.Fatalf("store.Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = testStore.Close() })
+
+	checkedAt := time.Date(2026, 7, 6, 3, 17, 0, 0, time.UTC)
+	if err := testStore.UpsertImageUpdateStatus(ctx, store.ImageUpdateStatus{
+		ImageRef:  "nginx:latest",
+		State:     StateAvailable,
+		CheckedAt: checkedAt,
+	}); err != nil {
+		t.Fatalf("UpsertImageUpdateStatus(initial) error = %v", err)
+	}
+
+	service := NewService(nil, testStore)
+	if err := service.Load(ctx); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	results := service.CheckImages(cancelledCtx, []string{"nginx:latest"}, nil)
+	if len(results) != 0 {
+		t.Fatalf("len(results) = %d, want 0: %#v", len(results), results)
+	}
+	if got := service.StatusByImage()["nginx:latest"].State; got != StateAvailable {
+		t.Fatalf("cached state after cancellation = %q, want %q", got, StateAvailable)
+	}
+	items, err := testStore.ListImageUpdateStatus(context.Background())
+	if err != nil {
+		t.Fatalf("ListImageUpdateStatus() error = %v", err)
+	}
+	if len(items) != 1 || items[0].State != StateAvailable {
+		t.Fatalf("stored statuses after cancellation = %#v, want available", items)
+	}
+}

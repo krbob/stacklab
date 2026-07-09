@@ -102,7 +102,13 @@ func (s *Service) CheckImages(ctx context.Context, imageRefs []string, onProgres
 	results := make([]store.ImageUpdateStatus, 0, len(unique))
 
 	for index, ref := range unique {
+		if ctx.Err() != nil {
+			break
+		}
 		status := s.checkImage(ctx, ref)
+		if ctx.Err() != nil {
+			break
+		}
 		results = append(results, status)
 
 		if err := s.store.UpsertImageUpdateStatus(ctx, status); err != nil && s.logger != nil {
