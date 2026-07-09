@@ -1935,7 +1935,7 @@ func (s *ServiceReader) removeRuntimeOutput(ctx context.Context, stack discovere
 	if stack.RuntimeState == RuntimeStateOrphaned || stack.ConfigState == ConfigStateInvalid {
 		return s.runContainerActionOutput(ctx, stack, "rm", "-f")
 	}
-	return s.runComposeActionOutput(ctx, stack, "down")
+	return s.runComposeActionOutput(ctx, stack, "down", "--remove-orphans")
 }
 
 func (s *ServiceReader) runContainerActionOutput(ctx context.Context, stack discoveredStack, action string, extraArgs ...string) (string, error) {

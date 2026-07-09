@@ -437,6 +437,93 @@ func TestDeleteStackWithRuntimeStopsWhenDockerUnavailable(t *testing.T) {
 	assertExists(t, filepath.Join(reader.cfg.RootDir, "data", stackID))
 }
 
+func TestRunDownRemovesComposeOrphans(t *testing.T) {
+	ctx := context.Background()
+	reader := newTestServiceReader(t)
+	stackID := uniqueTestStackID()
+	logPath := filepath.Join(t.TempDir(), "docker.log")
+
+	if err := reader.CreateStack(ctx, CreateStackRequest{
+		StackID:     stackID,
+		ComposeYAML: "services:\n  app:\n    image: nginx:alpine\n",
+	}); err != nil {
+		t.Fatalf("CreateStack() error = %v", err)
+	}
+
+	shimDir := t.TempDir()
+	dockerPath := filepath.Join(shimDir, "docker")
+	script := `#!/bin/sh
+set -eu
+
+append_log() {
+  printf '%s\n' "$1" >> "$DOCKER_LOG"
+}
+
+if [ "$1" = "ps" ]; then
+  echo "container-demo"
+  exit 0
+fi
+
+if [ "$1" = "inspect" ]; then
+  cat <<JSON
+[{"Id":"container-demo","Name":"/demo-app-1","Image":"sha256:demo","Config":{"Image":"nginx:alpine","Labels":{"com.docker.compose.project":"` + stackID + `","com.docker.compose.service":"app"}},"State":{"Status":"running","StartedAt":"2026-07-09T10:00:00Z"},"NetworkSettings":{"Ports":{},"Networks":{"demo_default":{}}}}]
+JSON
+  exit 0
+fi
+
+if [ "$1" = "compose" ]; then
+  shift
+  if [ "$1" = "version" ]; then
+    echo "2.39.2"
+    exit 0
+  fi
+  sub=""
+  args=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --project-directory|-f|--env-file)
+        shift 2
+        ;;
+      down)
+        sub="$1"
+        shift
+        args="$*"
+        break
+        ;;
+      *)
+        shift
+        ;;
+    esac
+  done
+  append_log "compose $sub $args"
+  echo "OK"
+  exit 0
+fi
+
+echo "unsupported docker invocation: $*" >&2
+exit 1
+`
+	if err := os.WriteFile(dockerPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("WriteFile(docker shim) error = %v", err)
+	}
+	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("DOCKER_LOG", logPath)
+	ResetComposeCLICacheForTests()
+	t.Cleanup(ResetComposeCLICacheForTests)
+
+	if _, err := reader.RunActionWithOutput(ctx, stackID, "down"); err != nil {
+		t.Fatalf("RunActionWithOutput(down) error = %v", err)
+	}
+
+	logContent, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("ReadFile(docker log) error = %v", err)
+	}
+	if !strings.Contains(string(logContent), "compose down --remove-orphans") {
+		t.Fatalf("docker log = %q, want compose down --remove-orphans", string(logContent))
+	}
+}
+
 func TestDeployBaselineDrivesConfigState(t *testing.T) {
 	t.Parallel()
 
