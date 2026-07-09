@@ -88,7 +88,8 @@ Recommended environment variables:
 | `STACKLAB_HTTP_ADDR` | `127.0.0.1:8080` | Bind address |
 | `STACKLAB_LOG_LEVEL` | `info` | Log level |
 | `STACKLAB_HOST_PUBLIC_IP_LOOKUP_ENABLED` | `false` | Optional default for Host public IP lookup before the setting is saved in Stacklab |
-| `STACKLAB_TRUSTED_PROXIES` | `127.0.0.1/32` | Comma-separated proxy IP/CIDR list allowed to supply `X-Forwarded-For` for login rate limiting |
+| `STACKLAB_COOKIE_SECURE` | `true` | Set the session cookie `Secure` flag for HTTPS deployments; Debian package installs enable this by default |
+| `STACKLAB_TRUSTED_PROXIES` | `127.0.0.1/32` | Comma-separated proxy IP/CIDR list allowed to supply `X-Forwarded-For` and `X-Forwarded-Proto` |
 | `HOME` | `/var/lib/stacklab/home` | Stable writable home for Compose and service runtime |
 | `DOCKER_CONFIG` | `/var/lib/stacklab/docker` | Writable Docker config path when `ProtectHome=true` |
 

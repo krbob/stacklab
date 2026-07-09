@@ -263,6 +263,10 @@ func (s *Service) ClientIP(r *http.Request) string {
 	return clientIP(r, s.cfg.TrustedProxies)
 }
 
+func (s *Service) SecureRequest(r *http.Request) bool {
+	return secureRequest(r, s.cfg.TrustedProxies)
+}
+
 func ClientIP(r *http.Request) string {
 	return clientIP(r, nil)
 }
@@ -276,6 +280,17 @@ func clientIP(r *http.Request, trustedProxies []netip.Prefix) string {
 		return host
 	}
 	return r.RemoteAddr
+}
+
+func secureRequest(r *http.Request, trustedProxies []netip.Prefix) bool {
+	if r.TLS != nil {
+		return true
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	return trustedForwardedProto(host, r.Header.Get("X-Forwarded-Proto"), trustedProxies) == "https"
 }
 
 func trustedForwardedFor(remoteHost, headerValue string, trustedProxies []netip.Prefix) string {
@@ -293,6 +308,21 @@ func trustedForwardedFor(remoteHost, headerValue string, trustedProxies []netip.
 		}
 	}
 	return ""
+}
+
+func trustedForwardedProto(remoteHost, headerValue string, trustedProxies []netip.Prefix) string {
+	if len(trustedProxies) == 0 || strings.TrimSpace(headerValue) == "" {
+		return ""
+	}
+	remoteAddr, err := netip.ParseAddr(strings.TrimSpace(remoteHost))
+	if err != nil || !isTrustedProxy(remoteAddr, trustedProxies) {
+		return ""
+	}
+	parts := strings.Split(headerValue, ",")
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(parts[0]))
 }
 
 func isTrustedProxy(addr netip.Addr, trustedProxies []netip.Prefix) bool {

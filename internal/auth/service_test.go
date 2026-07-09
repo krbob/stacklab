@@ -184,6 +184,34 @@ func TestServiceClientIPTrustsForwardedForOnlyFromConfiguredProxy(t *testing.T) 
 	}
 }
 
+func TestServiceSecureRequestTrustsForwardedProtoOnlyFromConfiguredProxy(t *testing.T) {
+	t.Parallel()
+
+	cfg := testConfig("secret")
+	cfg.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
+	service := NewService(cfg, openTestStore(t))
+
+	trusted := httptest.NewRequest(http.MethodPost, "http://stacklab.test/api/auth/login", nil)
+	trusted.RemoteAddr = "10.1.2.3:4567"
+	trusted.Header.Set("X-Forwarded-Proto", "https")
+	if !service.SecureRequest(trusted) {
+		t.Fatal("SecureRequest(trusted proxy with https proto) = false, want true")
+	}
+
+	untrusted := httptest.NewRequest(http.MethodPost, "http://stacklab.test/api/auth/login", nil)
+	untrusted.RemoteAddr = "198.51.100.20:4567"
+	untrusted.Header.Set("X-Forwarded-Proto", "https")
+	if service.SecureRequest(untrusted) {
+		t.Fatal("SecureRequest(untrusted proxy with https proto) = true, want false")
+	}
+
+	directTLS := httptest.NewRequest(http.MethodPost, "https://stacklab.test/api/auth/login", nil)
+	directTLS.RemoteAddr = "198.51.100.20:4567"
+	if !service.SecureRequest(directTLS) {
+		t.Fatal("SecureRequest(direct TLS) = false, want true")
+	}
+}
+
 func openTestStore(t *testing.T) *store.Store {
 	t.Helper()
 

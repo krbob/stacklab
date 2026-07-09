@@ -61,7 +61,7 @@ Default thresholds:
 
 This protects the single local operator password against simple LAN brute-force attempts. It is intentionally process-local in v1; restarting Stacklab clears the attempt counters.
 
-When Stacklab runs behind a reverse proxy, set `STACKLAB_TRUSTED_PROXIES` to the proxy IP/CIDR list. Stacklab only uses `X-Forwarded-For` for login rate limiting when the direct peer is trusted; otherwise it rate-limits by `RemoteAddr`.
+When Stacklab runs behind a reverse proxy, set `STACKLAB_TRUSTED_PROXIES` to the proxy IP/CIDR list. Stacklab only uses `X-Forwarded-For` for login rate limiting when the direct peer is trusted; otherwise it rate-limits by `RemoteAddr`. The same trust boundary applies to `X-Forwarded-Proto`: Stacklab only treats a proxied request as HTTPS when the direct peer matches `STACKLAB_TRUSTED_PROXIES`.
 
 ## Session Model
 
@@ -73,6 +73,8 @@ Session cookie properties:
 - `SameSite=Strict`
 - `Path=/`
 - `Secure` when served over HTTPS
+
+`STACKLAB_COOKIE_SECURE=true` is recommended for every HTTPS deployment. The Debian package enables it by default. Manual plain-HTTP lab deployments may leave it disabled, but Stacklab logs a warning when a login request appears to arrive over HTTPS while the cookie `Secure` flag is disabled.
 
 Recommended v1 session limits:
 

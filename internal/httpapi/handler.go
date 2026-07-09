@@ -330,6 +330,9 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !h.cfg.CookieSecure && h.auth.SecureRequest(r) {
+		h.logger.Warn("session cookie secure flag is disabled while request appears to use HTTPS")
+	}
 	http.SetCookie(w, h.auth.SessionCookie(session))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"authenticated": true,
