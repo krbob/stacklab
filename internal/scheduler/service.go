@@ -23,7 +23,8 @@ const (
 	settingsKey = "maintenance_schedules_v1"
 	runtimeKey  = "maintenance_schedules_runtime_v1"
 
-	hostLocalTimezone = "host_local"
+	hostLocalTimezone   = "host_local"
+	finalizationTimeout = 10 * time.Second
 )
 
 type runner interface {
@@ -213,6 +214,9 @@ func (s *Service) evaluatePrune(ctx context.Context, config PruneScheduleConfig,
 }
 
 func (s *Service) finalizeScheduledRun(ctx context.Context, scheduleKey string, scheduledFor time.Time, job store.Job, runErr error) {
+	finalCtx, cancel := schedulerFinalizationContext(ctx)
+	defer cancel()
+
 	result := "succeeded"
 	message := ""
 	jobID := ""
@@ -234,14 +238,14 @@ func (s *Service) finalizeScheduledRun(ctx context.Context, scheduleKey string, 
 			message = runErr.Error()
 		}
 		finishedAt := s.now()
-		_ = s.audit.RecordSystemEvent(ctx, "run_maintenance_schedule", "scheduler", result, scheduledFor, &finishedAt, map[string]any{
+		_ = s.audit.RecordSystemEvent(finalCtx, "run_maintenance_schedule", "scheduler", result, scheduledFor, &finishedAt, map[string]any{
 			"schedule_key":  scheduleKey,
 			"scheduled_for": scheduledFor.UTC().Format(time.RFC3339),
 			"message":       message,
 		})
 	}
 
-	if err := s.updateRuntime(ctx, scheduleKey, func(state *scheduleRuntimeState) {
+	if err := s.updateRuntime(finalCtx, scheduleKey, func(state *scheduleRuntimeState) {
 		state.LastResult = result
 		state.LastMessage = message
 		state.LastJobID = jobID
@@ -251,8 +255,11 @@ func (s *Service) finalizeScheduledRun(ctx context.Context, scheduleKey string, 
 }
 
 func (s *Service) recordScheduleFailure(ctx context.Context, scheduleKey string, scheduledFor time.Time, err error) {
+	finalCtx, cancel := schedulerFinalizationContext(ctx)
+	defer cancel()
+
 	message := err.Error()
-	if persistErr := s.updateRuntime(ctx, scheduleKey, func(state *scheduleRuntimeState) {
+	if persistErr := s.updateRuntime(finalCtx, scheduleKey, func(state *scheduleRuntimeState) {
 		state.LastResult = "failed"
 		state.LastMessage = message
 		state.LastJobID = ""
@@ -260,7 +267,7 @@ func (s *Service) recordScheduleFailure(ctx context.Context, scheduleKey string,
 		s.logWarn("persist schedule failure failed", persistErr)
 	}
 	finishedAt := s.now()
-	_ = s.audit.RecordSystemEvent(ctx, "run_maintenance_schedule", "scheduler", "failed", scheduledFor, &finishedAt, map[string]any{
+	_ = s.audit.RecordSystemEvent(finalCtx, "run_maintenance_schedule", "scheduler", "failed", scheduledFor, &finishedAt, map[string]any{
 		"schedule_key":  scheduleKey,
 		"scheduled_for": scheduledFor.UTC().Format(time.RFC3339),
 		"message":       message,
@@ -731,6 +738,13 @@ func (s *Service) logWarn(message string, err error) {
 	if s.logger != nil {
 		s.logger.Warn(message, slog.String("err", err.Error()))
 	}
+}
+
+func schedulerFinalizationContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx.Err() == nil {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(context.Background(), finalizationTimeout)
 }
 
 func seededScheduleRuntimeState(enabled bool, frequency Frequency, timeOfDay string, weekdays []Weekday, now time.Time) scheduleRuntimeState {
