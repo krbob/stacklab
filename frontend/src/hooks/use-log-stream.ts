@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWs } from '@/hooks/use-ws'
 import { parseAnsi } from '@/lib/ansi'
 import type { LogEntry, WsServerFrame } from '@/lib/ws-types'
@@ -12,18 +12,25 @@ interface UseLogStreamOptions {
 
 export function useLogStream({ stackId, serviceNames = [], tail = 200, enabled = true }: UseLogStreamOptions) {
   const { connected, send, subscribe } = useWs()
-  const [entries, setEntries] = useState<LogEntry[]>([])
+  const serviceKey = serviceNames.join(',')
+  const streamKey = `${stackId}:${serviceKey}`
+  const selectedServiceNames = useMemo(() => (serviceKey ? serviceKey.split(',') : []), [serviceKey])
+  const streamId = `logs_${stackId}_${serviceKey || 'all'}`
+  const [entriesState, setEntriesState] = useState<{ streamKey: string; entries: LogEntry[] }>({ streamKey, entries: [] })
   const [paused, setPaused] = useState(false)
-  const bufferRef = useRef<LogEntry[]>([])
-  const streamId = `logs_${stackId}_${serviceNames.join(',') || 'all'}`
+  const bufferRef = useRef<{ streamKey: string; entries: LogEntry[] }>({ streamKey, entries: [] })
   const requestIdRef = useRef(0)
-  const hasSubscribedRef = useRef(false)
+  const subscribedStreamKeyRef = useRef<string | null>(null)
 
   const sub = useCallback(() => {
     if (!connected || !enabled) return
 
     const reqId = `req_logs_${++requestIdRef.current}`
-    const isResubscribe = hasSubscribedRef.current
+    const isResubscribe = subscribedStreamKeyRef.current === streamKey
+    if (!isResubscribe) {
+      bufferRef.current = { streamKey, entries: [] }
+      setEntriesState({ streamKey, entries: [] })
+    }
 
     send({
       type: 'logs.subscribe',
@@ -31,7 +38,7 @@ export function useLogStream({ stackId, serviceNames = [], tail = 200, enabled =
       stream_id: streamId,
       payload: {
         stack_id: stackId,
-        service_names: serviceNames,
+        service_names: selectedServiceNames,
         // Only request tail on first subscribe. After reconnect, we already
         // have lines in the buffer — requesting tail again would duplicate them.
         tail: isResubscribe ? 0 : tail,
@@ -39,8 +46,8 @@ export function useLogStream({ stackId, serviceNames = [], tail = 200, enabled =
       },
     })
 
-    hasSubscribedRef.current = true
-  }, [connected, enabled, send, streamId, stackId, serviceNames, tail])
+    subscribedStreamKeyRef.current = streamKey
+  }, [connected, enabled, send, streamId, stackId, streamKey, selectedServiceNames, tail])
 
   useEffect(() => {
     sub()
@@ -57,12 +64,6 @@ export function useLogStream({ stackId, serviceNames = [], tail = 200, enabled =
     }
   }, [sub, connected, send, streamId])
 
-  // Reset first-subscribe flag when stackId or serviceNames change
-  const serviceKey = serviceNames.join(',')
-  useEffect(() => {
-    hasSubscribedRef.current = false
-  }, [stackId, serviceKey])
-
   useEffect(() => {
     if (!enabled) return
 
@@ -75,31 +76,43 @@ export function useLogStream({ stackId, serviceNames = [], tail = 200, enabled =
           return { ...entry, line: spans.map((s) => s.text).join(''), spans }
         })
         if (paused) {
-          bufferRef.current.push(...newEntries)
+          if (bufferRef.current.streamKey !== streamKey) {
+            bufferRef.current = { streamKey, entries: [] }
+          }
+          bufferRef.current.entries.push(...newEntries)
         } else {
-          setEntries((prev) => {
-            const combined = [...prev, ...newEntries]
-            return combined.length > 5000 ? combined.slice(-5000) : combined
+          setEntriesState((prev) => {
+            const previousEntries = prev.streamKey === streamKey ? prev.entries : []
+            const combined = [...previousEntries, ...newEntries]
+            return { streamKey, entries: combined.length > 5000 ? combined.slice(-5000) : combined }
           })
         }
       }
     })
-  }, [subscribe, streamId, paused, enabled])
+  }, [subscribe, streamId, streamKey, paused, enabled])
 
   const resume = useCallback(() => {
     setPaused(false)
-    setEntries((prev) => {
-      const combined = [...prev, ...bufferRef.current]
-      bufferRef.current = []
-      return combined.length > 5000 ? combined.slice(-5000) : combined
+    setEntriesState((prev) => {
+      const previousEntries = prev.streamKey === streamKey ? prev.entries : []
+      const bufferedEntries = bufferRef.current.streamKey === streamKey ? bufferRef.current.entries : []
+      const combined = [...previousEntries, ...bufferedEntries]
+      bufferRef.current = { streamKey, entries: [] }
+      return { streamKey, entries: combined.length > 5000 ? combined.slice(-5000) : combined }
     })
-  }, [])
+  }, [streamKey])
+
+  const entries = entriesState.streamKey === streamKey ? entriesState.entries : []
 
   return {
     entries,
     paused,
     pause: () => setPaused(true),
     resume,
-    clear: () => { setEntries([]); bufferRef.current = []; hasSubscribedRef.current = false },
+    clear: () => {
+      setEntriesState({ streamKey, entries: [] })
+      bufferRef.current = { streamKey, entries: [] }
+      subscribedStreamKeyRef.current = null
+    },
   }
 }

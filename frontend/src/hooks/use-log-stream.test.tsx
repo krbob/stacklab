@@ -121,6 +121,45 @@ describe('useLogStream', () => {
     expect((allSubs[allSubs.length - 1].payload as Record<string, unknown>).tail).toBe(0)
   })
 
+  it('resets entries and requests tail when service filters change', () => {
+    const { result, rerender } = renderHook(
+      ({ services }) => useLogStream({ stackId: 'test', serviceNames: services, tail: 75 }),
+      {
+        initialProps: { services: [] as string[] },
+        wrapper: ({ children }) => <Provider>{children}</Provider>,
+      },
+    )
+
+    act(() => {
+      controls.emit('logs_test_all', logEvent('logs_test_all', 'web', 'Line from all'))
+    })
+    expect(result.current.entries).toHaveLength(1)
+
+    rerender({ services: ['api'] })
+
+    const subscribeFrames = controls.getSentFrames().filter((f) => f.type === 'logs.subscribe')
+    const latestSubscribe = subscribeFrames[subscribeFrames.length - 1]
+    expect(latestSubscribe).toMatchObject({
+      stream_id: 'logs_test_api',
+      payload: expect.objectContaining({
+        service_names: ['api'],
+        tail: 75,
+      }),
+    })
+    expect(result.current.entries).toHaveLength(0)
+
+    act(() => {
+      controls.emit('logs_test_all', logEvent('logs_test_all', 'web', 'Late old line'))
+    })
+    expect(result.current.entries).toHaveLength(0)
+
+    act(() => {
+      controls.emit('logs_test_api', logEvent('logs_test_api', 'api', 'Line from api'))
+    })
+    expect(result.current.entries).toHaveLength(1)
+    expect(result.current.entries[0].line).toBe('Line from api')
+  })
+
   it('clear resets entries and hasSubscribed flag', () => {
     const { result } = renderHook(() => useLogStream({ stackId: 'test' }), {
       wrapper: ({ children }) => <Provider>{children}</Provider>,
