@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"stacklab/internal/config"
 )
@@ -258,6 +259,41 @@ func TestServiceCommitAndPushSelectedPaths(t *testing.T) {
 	}
 	if pushResponse.AheadCount != 0 {
 		t.Fatalf("Push().AheadCount = %d, want 0", pushResponse.AheadCount)
+	}
+}
+
+func TestServiceCommitRemovesStaleIndexLock(t *testing.T) {
+	t.Parallel()
+
+	service, root := newTestService(t)
+	runGit(t, root, "init", "-b", "main")
+	runGit(t, root, "config", "user.name", "Stacklab Test")
+	runGit(t, root, "config", "user.email", "stacklab@example.com")
+
+	mustWriteFile(t, filepath.Join(root, "config", "demo", "app.conf"), "server_name old.local;\n")
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "initial")
+	mustWriteFile(t, filepath.Join(root, "config", "demo", "app.conf"), "server_name new.local;\n")
+
+	lockPath := filepath.Join(root, ".git", "index.lock")
+	mustWriteFile(t, lockPath, "stale lock\n")
+	staleTime := time.Now().Add(-(staleGitIndexLockAge + time.Minute))
+	if err := os.Chtimes(lockPath, staleTime, staleTime); err != nil {
+		t.Fatalf("Chtimes(index.lock) error = %v", err)
+	}
+
+	commitResponse, err := service.Commit(context.Background(), CommitRequest{
+		Message: "Update app config",
+		Paths:   []string{"config/demo/app.conf"},
+	})
+	if err != nil {
+		t.Fatalf("Commit() error = %v", err)
+	}
+	if !commitResponse.Committed {
+		t.Fatalf("Commit().Committed = false, want true")
+	}
+	if _, err := os.Stat(lockPath); !os.IsNotExist(err) {
+		t.Fatalf("index.lock still present after commit, err=%v", err)
 	}
 }
 

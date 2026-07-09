@@ -11,6 +11,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
+	"time"
 
 	"stacklab/internal/config"
 	"stacklab/internal/fsmeta"
@@ -31,11 +34,15 @@ var (
 	ErrAuthFailed            = errors.New("git auth failed")
 )
 
-const diffSizeLimit = 256 * 1024
+const (
+	diffSizeLimit        = 256 * 1024
+	staleGitIndexLockAge = 15 * time.Minute
+)
 
 type Service struct {
 	workspaceRoot string
 	gitBinary     string
+	mutationMu    sync.Mutex
 }
 
 func NewService(cfg config.Config) *Service {
@@ -165,9 +172,15 @@ func (s *Service) Diff(ctx context.Context, requestedPath string) (DiffResponse,
 }
 
 func (s *Service) Commit(ctx context.Context, request CommitRequest) (CommitResponse, error) {
+	s.mutationMu.Lock()
+	defer s.mutationMu.Unlock()
+
 	message := strings.TrimSpace(request.Message)
 	if message == "" {
 		return CommitResponse{}, ErrValidation
+	}
+	if err := s.removeStaleIndexLock(staleGitIndexLockAge); err != nil {
+		return CommitResponse{}, err
 	}
 
 	status, selectedItems, normalizedPaths, err := s.selectedItems(ctx, request.Paths)
@@ -225,6 +238,9 @@ func (s *Service) Commit(ctx context.Context, request CommitRequest) (CommitResp
 }
 
 func (s *Service) Push(ctx context.Context) (PushResponse, error) {
+	s.mutationMu.Lock()
+	defer s.mutationMu.Unlock()
+
 	status, err := s.Status(ctx)
 	if err != nil {
 		return PushResponse{}, err
@@ -557,17 +573,28 @@ func (s *Service) diffText(ctx context.Context, item StatusItem) (string, error)
 
 func (s *Service) runGit(ctx context.Context, args ...string) ([]byte, []byte, error) {
 	cmd := exec.CommandContext(ctx, s.gitBinary, append([]string{"-C", s.workspaceRoot}, args...)...)
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return nil
+		}
+		return cmd.Process.Signal(syscall.SIGTERM)
+	}
+	cmd.WaitDelay = 5 * time.Second
 	cmd.Env = append(cmd.Environ(),
 		"GIT_PAGER=cat",
 		"TERM=dumb",
 		"LC_ALL=C",
 		"LANG=C",
+		"GIT_OPTIONAL_LOCKS=0",
 	)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
+	if err != nil && ctx.Err() != nil && gitCommandMayLeaveIndexLock(args) {
+		_ = s.removeIndexLock()
+	}
 	return stdout.Bytes(), stderr.Bytes(), err
 }
 
@@ -581,6 +608,47 @@ func (s *Service) runGitAllowDiff(ctx context.Context, args ...string) ([]byte, 
 		return stdout, stderr, nil
 	}
 	return nil, nil, err
+}
+
+func gitCommandMayLeaveIndexLock(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch args[0] {
+	case "add", "commit":
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Service) removeStaleIndexLock(maxAge time.Duration) error {
+	lockPath := s.indexLockPath()
+	info, err := os.Stat(lockPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("stat git index lock: %w", err)
+	}
+	if time.Since(info.ModTime()) < maxAge {
+		return nil
+	}
+	if err := os.Remove(lockPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove stale git index lock: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) removeIndexLock() error {
+	if err := os.Remove(s.indexLockPath()); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+func (s *Service) indexLockPath() string {
+	return filepath.Join(s.workspaceRoot, ".git", "index.lock")
 }
 
 func parseOrdinaryStatusRecord(record string) (*StatusItem, error) {
