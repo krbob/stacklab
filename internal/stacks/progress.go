@@ -31,7 +31,10 @@ type composeProgressEvent struct {
 	Status string `json:"status"`
 }
 
-const progressEmitInterval = 500 * time.Millisecond
+const (
+	progressEmitInterval    = 500 * time.Millisecond
+	composeProgressMaxToken = 16 * 1024 * 1024
+)
 
 // RunMaintenanceStepStreaming behaves like RunMaintenanceStep but reports
 // structured progress while the compose command runs. onProgress may be nil.
@@ -151,20 +154,24 @@ func (s *ServiceReader) runComposeProgressMode(ctx context.Context, stack discov
 	}
 
 	var stderrText bytes.Buffer
+	var consumeErr error
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		if mode == "json" {
-			consumeComposeProgress(stderrPipe, &stderrText, onProgress, onLine)
+			consumeErr = consumeComposeProgress(stderrPipe, &stderrText, onProgress, onLine)
 		} else {
-			consumePlainProgress(stderrPipe, &stderrText, onProgress, onLine)
+			consumeErr = consumePlainProgress(stderrPipe, &stderrText, onProgress, onLine)
 		}
 	}()
 	wg.Wait()
 
 	runErr := cmd.Wait()
 	combined := strings.TrimSpace(strings.TrimSpace(stdout.String()) + "\n" + strings.TrimSpace(stderrText.String()))
+	if consumeErr != nil && runErr == nil {
+		return combined, &composeError{message: consumeErr.Error()}
+	}
 	if runErr != nil {
 		message := combined
 		if message == "" {
@@ -193,14 +200,14 @@ var plainDoneStatuses = map[string]bool{
 // consumePlainProgress derives coarse progress from --progress plain output:
 // pull layers and container lifecycle lines both follow a stable
 // "<id> <status>" shape. All lines are preserved as text.
-func consumePlainProgress(r interface{ Read([]byte) (int, error) }, text *bytes.Buffer, onProgress func(StepProgress), onLine func(string)) {
+func consumePlainProgress(r interface{ Read([]byte) (int, error) }, text *bytes.Buffer, onProgress func(StepProgress), onLine func(string)) error {
 	doneByID := map[string]bool{}
 	lastEmit := time.Time{}
 	lastCompleted := -1
 	lastDetail := ""
 
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 0, 64*1024), composeProgressMaxToken)
 	for scanner.Scan() {
 		line := strings.TrimRight(scanner.Text(), " ")
 		if strings.TrimSpace(line) == "" {
@@ -252,6 +259,7 @@ func consumePlainProgress(r interface{ Read([]byte) (int, error) }, text *bytes.
 		}
 		onProgress(StepProgress{Completed: completed, Total: len(doneByID), Detail: lastDetail})
 	}
+	return appendScannerError(text, onLine, scanner.Err())
 }
 
 type composeError struct{ message string }
@@ -261,14 +269,14 @@ func (e *composeError) Error() string { return e.message }
 // consumeComposeProgress reads compose's stderr line by line: JSON progress
 // events update the aggregate (throttled), everything else is kept as text so
 // error output is never lost.
-func consumeComposeProgress(r interface{ Read([]byte) (int, error) }, text *bytes.Buffer, onProgress func(StepProgress), onLine func(string)) {
+func consumeComposeProgress(r interface{ Read([]byte) (int, error) }, text *bytes.Buffer, onProgress func(StepProgress), onLine func(string)) error {
 	statusByID := map[string]string{}
 	lastDetail := ""
 	lastEmit := time.Time{}
 	lastCompleted := -1
 
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 0, 64*1024), composeProgressMaxToken)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -314,4 +322,18 @@ func consumeComposeProgress(r interface{ Read([]byte) (int, error) }, text *byte
 		}
 		onProgress(StepProgress{Completed: completed, Total: len(statusByID), Detail: lastDetail})
 	}
+	return appendScannerError(text, onLine, scanner.Err())
+}
+
+func appendScannerError(text *bytes.Buffer, onLine func(string), err error) error {
+	if err == nil {
+		return nil
+	}
+	line := "read compose progress: " + err.Error()
+	text.WriteString(line)
+	text.WriteString("\n")
+	if onLine != nil {
+		onLine(line)
+	}
+	return err
 }

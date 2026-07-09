@@ -2,6 +2,7 @@ package stacks
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -49,6 +50,18 @@ func TestConsumeComposeProgressPlainOutputOnly(t *testing.T) {
 	}
 }
 
+func TestConsumeComposeProgressReportsScannerError(t *testing.T) {
+	var text bytes.Buffer
+
+	err := consumeComposeProgress(errorReader{err: errors.New("boom")}, &text, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("consumeComposeProgress() error = %v, want boom", err)
+	}
+	if !strings.Contains(text.String(), "read compose progress: boom") {
+		t.Fatalf("text = %q, want scanner error line", text.String())
+	}
+}
+
 func TestConsumePlainProgressPull(t *testing.T) {
 	input := strings.Join([]string{
 		" adguardhome Pulling ",
@@ -75,6 +88,14 @@ func TestConsumePlainProgressPull(t *testing.T) {
 	if !strings.Contains(text.String(), "adguardhome Pulled") {
 		t.Fatalf("text lost lines: %q", text.String())
 	}
+}
+
+type errorReader struct {
+	err error
+}
+
+func (r errorReader) Read([]byte) (int, error) {
+	return 0, r.err
 }
 
 func TestConsumePlainProgressContainers(t *testing.T) {

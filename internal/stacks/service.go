@@ -1775,6 +1775,11 @@ func detectComposeCLI(ctx context.Context) composeCLI {
 		return *composeCLICached
 	}
 
+	fallback := composeCLI{command: "docker", prefix: []string{"compose"}}
+	if ctx.Err() != nil {
+		return fallback
+	}
+
 	candidates := []composeCLI{
 		{command: "docker", prefix: []string{"compose"}},
 		{command: "docker-compose"},
@@ -1788,9 +1793,11 @@ func detectComposeCLI(ctx context.Context) composeCLI {
 			composeCLICached = &resolved
 			return resolved
 		}
+		if ctx.Err() != nil {
+			return fallback
+		}
 	}
 
-	fallback := composeCLI{command: "docker", prefix: []string{"compose"}}
 	composeCLICached = &fallback
 	return fallback
 }

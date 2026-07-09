@@ -524,6 +524,37 @@ exit 1
 	}
 }
 
+func TestDetectComposeCLIDoesNotCacheCancelledFallback(t *testing.T) {
+	ResetComposeCLICacheForTests()
+	t.Cleanup(ResetComposeCLICacheForTests)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	got := detectComposeCLI(ctx)
+	if got.command != "docker" || !reflect.DeepEqual(got.prefix, []string{"compose"}) {
+		t.Fatalf("detectComposeCLI(cancelled) = %#v, want docker compose fallback", got)
+	}
+	if composeCLICached != nil {
+		t.Fatalf("composeCLICached = %#v, want nil after cancelled detection", composeCLICached)
+	}
+
+	shimDir := t.TempDir()
+	dockerPath := filepath.Join(shimDir, "docker")
+	script := "#!/bin/sh\nif [ \"$1\" = \"compose\" ] && [ \"$2\" = \"version\" ]; then exit 0; fi\necho unsupported >&2\nexit 1\n"
+	if err := os.WriteFile(dockerPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("WriteFile(docker shim) error = %v", err)
+	}
+	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	got = detectComposeCLI(context.Background())
+	if got.command != "docker" || !reflect.DeepEqual(got.prefix, []string{"compose"}) {
+		t.Fatalf("detectComposeCLI() = %#v, want docker compose", got)
+	}
+	if composeCLICached == nil {
+		t.Fatalf("composeCLICached = nil, want successful detection cached")
+	}
+}
+
 func TestDeployBaselineDrivesConfigState(t *testing.T) {
 	t.Parallel()
 
