@@ -467,21 +467,27 @@ func (s *Service) buildJobPayload(ctx context.Context, job store.Job, settings S
 	switch {
 	case job.State == "failed" && settings.Events.JobFailed:
 		eventType = "job_failed"
-	case job.State == "succeeded" && job.Action == "update_stacks" && settings.Events.PostUpdateRecoveryFailed:
-		failures, err := s.inspectPostUpdateFailures(ctx, job)
-		if err != nil {
-			return WebhookPayload{}, false, err
+	case job.State == "succeeded":
+		if job.Action == "update_stacks" && settings.Events.PostUpdateRecoveryFailed {
+			failures, err := s.inspectPostUpdateFailures(ctx, job)
+			if err != nil {
+				return WebhookPayload{}, false, err
+			}
+			if len(failures) > 0 {
+				eventType = "post_update_recovery_failed"
+				postUpdate = &PostUpdateSummary{FailedStacks: failures}
+				break
+			}
 		}
-		if len(failures) > 0 {
-			eventType = "post_update_recovery_failed"
-			postUpdate = &PostUpdateSummary{FailedStacks: failures}
+		if warningCount > 0 && settings.Events.JobSucceededWithWarnings {
+			eventType = "job_succeeded_with_warnings"
 			break
 		}
-		fallthrough
-	case job.State == "succeeded" && warningCount > 0 && settings.Events.JobSucceededWithWarnings:
-		eventType = "job_succeeded_with_warnings"
-	case job.State == "succeeded" && isMaintenanceAction(job.Action) && settings.Events.MaintenanceSucceeded:
-		eventType = "maintenance_succeeded"
+		if isMaintenanceAction(job.Action) && settings.Events.MaintenanceSucceeded {
+			eventType = "maintenance_succeeded"
+			break
+		}
+		return WebhookPayload{}, false, nil
 	default:
 		return WebhookPayload{}, false, nil
 	}

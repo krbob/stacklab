@@ -828,6 +828,70 @@ func TestDispatchJobPostUpdateRecoveryFailed(t *testing.T) {
 	}
 }
 
+func TestDispatchJobPostUpdateHealthyDoesNotFallThroughToWarning(t *testing.T) {
+	t.Parallel()
+
+	testStore := openNotificationTestStore(t)
+	service := NewService(testStore, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	var sent []WebhookPayload
+	service.sendWebhook = func(_ context.Context, _ string, payload WebhookPayload) error {
+		sent = append(sent, payload)
+		return nil
+	}
+	service.SetStackInspector(fakeStackInspector{
+		items: map[string]stacks.StackDetailResponse{
+			"demo": runtimeHealthHealthyStack("demo"),
+		},
+	})
+
+	_, err := service.UpdateSettings(context.Background(), UpdateSettingsRequest{
+		Channels: &ChannelsRequest{
+			Webhook: &WebhookRequest{
+				Enabled: true,
+				URL:     "https://hooks.example.test/stacklab",
+			},
+		},
+		Events: EventToggles{
+			JobFailed:                true,
+			JobSucceededWithWarnings: true,
+			MaintenanceSucceeded:     false,
+			PostUpdateRecoveryFailed: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateSettings() error = %v", err)
+	}
+
+	startedAt := time.Date(2026, 4, 9, 18, 59, 0, 0, time.UTC)
+	finishedAt := time.Date(2026, 4, 9, 19, 0, 0, 0, time.UTC)
+	job := store.Job{
+		ID:          "job_update_healthy",
+		Action:      "update_stacks",
+		State:       "succeeded",
+		RequestedBy: "local",
+		RequestedAt: startedAt,
+		StartedAt:   &startedAt,
+		FinishedAt:  &finishedAt,
+		Workflow: &store.JobWorkflow{
+			Steps: []store.JobWorkflowStep{
+				{Action: "pull", State: "succeeded", TargetStackID: "demo"},
+				{Action: "up", State: "succeeded", TargetStackID: "demo"},
+			},
+		},
+	}
+	if err := testStore.CreateJob(context.Background(), job); err != nil {
+		t.Fatalf("CreateJob() error = %v", err)
+	}
+
+	if err := service.DispatchJob(context.Background(), job); err != nil {
+		t.Fatalf("DispatchJob() error = %v", err)
+	}
+	if len(sent) != 0 {
+		t.Fatalf("sent payloads = %#v, want none", sent)
+	}
+}
+
 type fakeStackInspector struct {
 	items map[string]stacks.StackDetailResponse
 }
