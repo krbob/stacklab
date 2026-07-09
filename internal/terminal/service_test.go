@@ -414,6 +414,27 @@ func TestClosedAttachmentIgnoresFurtherEvents(t *testing.T) {
 	}
 }
 
+func TestSendAndCloseAttachmentPrioritizesTerminalEvent(t *testing.T) {
+	t.Parallel()
+
+	events := make(chan Event, 1)
+	events <- Event{Type: "output", Data: "buffered"}
+	attachment := &attachment{id: "attach_2", connectionID: "conn_2", events: events}
+
+	sendAndCloseAttachmentLocked(attachment, Event{Type: "exited", Reason: "client_close"})
+
+	event, ok := <-events
+	if !ok {
+		t.Fatalf("attachment channel closed before terminal event")
+	}
+	if event.Type != "exited" || event.Reason != "client_close" {
+		t.Fatalf("event = %#v, want terminal exit event", event)
+	}
+	if _, ok := <-events; ok {
+		t.Fatalf("attachment channel remains open after terminal event")
+	}
+}
+
 func TestExitCodeFromError(t *testing.T) {
 	t.Parallel()
 

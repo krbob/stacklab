@@ -439,6 +439,14 @@ func sendAndCloseAttachmentLocked(attachment *attachment, event Event) {
 	select {
 	case attachment.events <- event:
 	default:
+		select {
+		case <-attachment.events:
+		default:
+		}
+		select {
+		case attachment.events <- event:
+		default:
+		}
 	}
 	closeAttachmentLocked(attachment)
 }
