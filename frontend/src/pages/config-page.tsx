@@ -693,7 +693,7 @@ export function ConfigPage() {
                     <div className="mt-1 flex items-center gap-3 text-xs text-[var(--muted)]">
                       <span>{selectedDiff.path}</span>
                       {selectedDiff.stack_id && <Link to={`/stacks/${selectedDiff.stack_id}`} className="text-[var(--accent)] hover:underline">{selectedDiff.stack_id}</Link>}
-                      <span className="text-stone-600">{selectedDiff.scope}</span>
+                      <span className="text-[var(--muted)]">{selectedDiff.scope}</span>
                     </div>
                   </div>
                   {selectedDiff.status !== 'deleted' && selectedDiff.scope === 'config' && !selectedDiff.blocked_reason && (

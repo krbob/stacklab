@@ -135,7 +135,7 @@ export function MaintenanceNetworks() {
                     ))}
                   </span>
                 )}
-                <span className="text-stone-600">{net.id.slice(0, 12)}</span>
+                <span className="text-[var(--muted)]">{net.id.slice(0, 12)}</span>
               </div>
             </div>
             <span className="shrink-0" title={deleteBlockedReason(net) ?? undefined}>

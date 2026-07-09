@@ -167,7 +167,7 @@ function OverviewCards({ overview }: { overview: DockerAdminOverviewResponse }) 
               {daemon_config.summary.live_restore != null && (
                 <div>Live restore: {daemon_config.summary.live_restore ? 'yes' : 'no'}</div>
               )}
-              <div className="mt-1 text-stone-600">{daemon_config.configured_keys.length} keys configured</div>
+              <div className="mt-1 text-[var(--muted)]">{daemon_config.configured_keys.length} keys configured</div>
             </div>
           </>
         ) : (

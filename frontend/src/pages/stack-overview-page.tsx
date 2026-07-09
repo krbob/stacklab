@@ -103,7 +103,7 @@ export function StackOverviewPage() {
                     )}
 
                     {!container && (
-                      <div className="text-stone-600">Not created</div>
+                      <div className="text-[var(--muted)]">Not created</div>
                     )}
 
                     {svc.volumes.length > 0 && (

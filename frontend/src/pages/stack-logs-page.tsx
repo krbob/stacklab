@@ -171,7 +171,7 @@ export function StackLogsPage() {
                 message below can use the full width instead of a cramped
                 right-hand column. Inline on sm+ (tablet/desktop). */}
             <div className="flex shrink-0 gap-2">
-              <span className="shrink-0 text-stone-600">
+              <span className="shrink-0 text-[var(--muted)]">
                 {new Date(entry.timestamp).toLocaleTimeString()}
               </span>
               <span className={cn('shrink-0 w-24 truncate', colorMap.get(entry.service_name))}>

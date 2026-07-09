@@ -1057,7 +1057,7 @@ function StacklabLogs() {
 
         {filteredEntries.map((entry) => (
           <div key={entry.cursor || `${entry.timestamp}-${entry.message}`} className="flex gap-2 hover:bg-[rgba(255,255,255,0.02)]">
-            <span className="shrink-0 text-stone-600">
+            <span className="shrink-0 text-[var(--muted)]">
               {new Date(entry.timestamp).toLocaleTimeString()}
             </span>
             <span className={cn('shrink-0 w-12', levelColor[entry.level] ?? 'text-[var(--muted)]')}>

@@ -233,7 +233,7 @@ function TreeRow({ entry, isRoot, isSelected, onOpenFile, onNavigateDir, onGoToE
       <button
         onClick={onGoToEditor}
         title="Edit in the Editor tab"
-        className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-stone-600 transition hover:text-[var(--muted)]"
+        className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-[var(--muted)] transition hover:text-[var(--text)]"
       >
         <Icon className="size-3.5" />
         <span className="truncate">{entry.name}</span>

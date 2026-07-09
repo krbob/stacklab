@@ -252,7 +252,7 @@ function StackCheckbox({ stack, checked, onChange, disabled }: {
     stopped: 'text-stone-500',
     partial: 'text-[var(--warning)]',
     error: 'text-[var(--danger)]',
-    defined: 'text-stone-600',
+    defined: 'text-[var(--muted)]',
   }
 
   return (
@@ -264,4 +264,3 @@ function StackCheckbox({ stack, checked, onChange, disabled }: {
     </label>
   )
 }
-

@@ -78,7 +78,7 @@ export function StackLayout() {
                 <span
                   key={label}
                   title={`${label} is not available for this stack`}
-                  className="cursor-not-allowed rounded-md border border-[var(--panel-border)] px-4 py-2 text-sm text-stone-600"
+                  className="cursor-not-allowed rounded-md border border-[var(--panel-border)] px-4 py-2 text-sm text-[var(--muted)]"
                 >
                   {label}
                 </span>

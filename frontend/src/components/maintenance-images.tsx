@@ -119,7 +119,7 @@ function ImageRow({ image }: { image: MaintenanceImageItem }) {
               ))}
             </span>
           )}
-          <span className="font-mono text-stone-600">{image.id.slice(0, 12)}</span>
+          <span className="font-mono text-[var(--muted)]">{image.id.slice(0, 12)}</span>
         </div>
       </div>
     </div>
