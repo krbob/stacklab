@@ -7,6 +7,7 @@ import { JobDetailDrawer } from '@/components/job-detail-drawer'
 import { HostStrip } from '@/components/host-strip'
 import { ActivityProvider } from '@/contexts/activity-context'
 import { CommandPalette } from '@/components/command-palette'
+import { hasActiveModal } from '@/lib/modal-state'
 
 const links = [
   { to: '/stacks', label: 'Stacks', icon: FolderKanban },
@@ -74,6 +75,7 @@ export function RootLayout() {
       if (e.metaKey || e.ctrlKey || e.altKey) return
       const target = e.target as HTMLElement | null
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
+      if (hasActiveModal()) return
       const index = Number.parseInt(e.key, 10) - 1
       if (Number.isNaN(index) || index < 0 || index >= links.length) return
       e.preventDefault()

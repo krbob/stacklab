@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getStacks } from '@/lib/api-client'
 import { cn } from '@/lib/cn'
+import { hasActiveModal } from '@/lib/modal-state'
 
 interface PaletteEntry {
   kind: 'section' | 'stack'
@@ -33,6 +34,7 @@ export function CommandPalette() {
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        if (!open && hasActiveModal()) return
         e.preventDefault()
         setOpen((current) => !current)
       }
@@ -40,7 +42,7 @@ export function CommandPalette() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [open])
 
   useEffect(() => {
     if (!open) return
