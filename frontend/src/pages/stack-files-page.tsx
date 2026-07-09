@@ -8,6 +8,7 @@ import { YamlEditor } from '@/components/yaml-editor'
 import { BlockedFileCard } from '@/components/blocked-file-card'
 import { cn } from '@/lib/cn'
 import { UnsavedChangesGuard } from '@/components/unsaved-changes-guard'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 
 const RESERVED_ROOT_FILES = ['compose.yaml', '.env']
 
@@ -35,6 +36,7 @@ export function StackFilesPage() {
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [creatingFile, setCreatingFile] = useState(false)
   const [newFileName, setNewFileName] = useState('')
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
 
   const { data: treeData, loading: treeLoading, error: treeError, refetch: refetchTree } = useApi(
     () => getStackWorkspaceTree(stack.id, treePath || undefined),
@@ -175,7 +177,7 @@ export function StackFilesPage() {
               {selectedFile.type === 'text_file' && selectedFile.writable && !selectedFile.blocked_reason && (
                 <div className="flex items-center gap-2">
                   {isDirty && <span className="text-xs text-[var(--warning)]">Unsaved changes</span>}
-                  {isDirty && <button onClick={() => setEditContent(selectedFile.content ?? '')} className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]">Discard</button>}
+                  {isDirty && <button onClick={() => setConfirmDiscard(true)} className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]">Discard</button>}
                   <button onClick={handleSave} disabled={saving || !isDirty} className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40">
                     {saving ? 'Saving...' : 'Save'}
                   </button>
@@ -212,6 +214,20 @@ export function StackFilesPage() {
           </>
         )}
       </div>
+
+      {confirmDiscard && selectedFile && (
+        <ConfirmDialog
+          title={`Discard changes to "${selectedFile.name}"?`}
+          message="This reverts the editor to the last loaded file content."
+          items={[selectedFile.path]}
+          confirmLabel="Discard changes"
+          onCancel={() => setConfirmDiscard(false)}
+          onConfirm={() => {
+            setEditContent(selectedFile.content ?? '')
+            setConfirmDiscard(false)
+          }}
+        />
+      )}
     </div>
   )
 }

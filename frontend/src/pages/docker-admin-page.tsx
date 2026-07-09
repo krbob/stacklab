@@ -11,6 +11,7 @@ import {
 import { useApi } from '@/hooks/use-api'
 import { useJobStream } from '@/hooks/use-job-stream'
 import { StepCards } from '@/components/step-cards'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import type {
   DockerAdminOverviewResponse,
   DockerDaemonConfigResponse,
@@ -246,6 +247,7 @@ function ManagedSettingsForm({ currentSummary, writeCapability, onApplyDone }: {
   const [applyJobId, setApplyJobId] = useState<string | null>(null)
   const [applying, setApplying] = useState(false)
   const [applyError, setApplyError] = useState<string | null>(null)
+  const [confirmApply, setConfirmApply] = useState(false)
 
   const { events: applyEvents, state: applyJobState } = useJobStream({ jobId: applyJobId })
   const applyTerminal = applyJobState === 'succeeded' || applyJobState === 'failed' || applyJobState === 'cancelled' || applyJobState === 'timed_out'
@@ -404,7 +406,7 @@ function ManagedSettingsForm({ currentSummary, writeCapability, onApplyDone }: {
           </button>
 
           <button
-            onClick={handleApply}
+            onClick={() => setConfirmApply(true)}
             disabled={!canApply}
             title={!writeCapability.supported ? 'Apply is not available yet' : !validateResult ? 'Validate first' : 'Apply changes and restart Docker'}
             className={cn(
@@ -418,6 +420,25 @@ function ManagedSettingsForm({ currentSummary, writeCapability, onApplyDone }: {
           </button>
         </div>
       </div>
+
+      {confirmApply && validateResult && (
+        <ConfirmDialog
+          title="Apply Docker daemon settings?"
+          message="This writes daemon.json and restarts Docker. Running containers may be interrupted."
+          items={[
+            'action: restart Docker',
+            validateResult.changed_keys.length > 0 ? `changed keys: ${validateResult.changed_keys.join(', ')}` : 'changed keys: none',
+            ...validateResult.warnings,
+          ]}
+          confirmLabel="Apply & Restart"
+          confirmingLabel="Applying..."
+          confirming={applying}
+          onCancel={() => setConfirmApply(false)}
+          onConfirm={() => {
+            void handleApply().then(() => setConfirmApply(false))
+          }}
+        />
+      )}
 
       {/* Validate error */}
       {validateError && (
@@ -543,6 +564,7 @@ function RegistryAuthSection({
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [activeAction, setActiveAction] = useState<'login' | 'logout' | null>(null)
+  const [pendingLogoutRegistry, setPendingLogoutRegistry] = useState<string | null>(null)
 
   const { events, state } = useJobStream({ jobId: activeJobId })
   const terminal = state === 'succeeded' || state === 'failed' || state === 'cancelled' || state === 'timed_out'
@@ -665,7 +687,7 @@ function RegistryAuthSection({
                       )}
                     </div>
                     <button
-                      onClick={() => handleLogout(item.registry)}
+                      onClick={() => setPendingLogoutRegistry(item.registry)}
                       disabled={submitting || actionInProgress}
                       className="rounded-md border border-[var(--danger)]/30 px-3 py-1.5 text-xs text-[var(--danger)] transition hover:bg-[var(--danger)]/10 disabled:opacity-40"
                     >
@@ -769,6 +791,21 @@ function RegistryAuthSection({
             </div>
           )}
         </div>
+      )}
+
+      {pendingLogoutRegistry && (
+        <ConfirmDialog
+          title={`Logout from "${pendingLogoutRegistry}"?`}
+          message="This removes stored Docker credentials for this registry. Future pulls may fail until you log in again."
+          items={[`registry: ${pendingLogoutRegistry}`]}
+          confirmLabel="Logout"
+          confirmingLabel="Logging out..."
+          confirming={submitting && activeAction === 'logout'}
+          onCancel={() => setPendingLogoutRegistry(null)}
+          onConfirm={() => {
+            void handleLogout(pendingLogoutRegistry).then(() => setPendingLogoutRegistry(null))
+          }}
+        />
       )}
     </div>
   )

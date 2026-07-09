@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DockerAdminPage } from './docker-admin-page'
 import type { DockerAdminOverviewResponse, DockerDaemonConfigResponse, DockerRegistryStatusResponse } from '@/lib/api-types'
@@ -525,6 +525,9 @@ describe('DockerAdminPage', () => {
     await screen.findByText(/Validation passed/i)
 
     fireEvent.click(screen.getByRole('button', { name: 'Apply & Restart' }))
+    const applyDialog = screen.getByRole('dialog', { name: 'Apply Docker daemon settings?' })
+    expect(mockApplyDockerDaemonConfig).not.toHaveBeenCalled()
+    fireEvent.click(within(applyDialog).getByRole('button', { name: 'Apply & Restart' }))
 
     expect(await screen.findByText(/A rollback was attempted/i)).toBeInTheDocument()
     expect(screen.getAllByText(/daemon-20260409T100001Z\.json/).length).toBeGreaterThanOrEqual(1)
@@ -643,6 +646,9 @@ describe('DockerAdminPage', () => {
 
     render(<DockerAdminPage />)
     fireEvent.click(screen.getByRole('button', { name: 'Logout' }))
+    const logoutDialog = screen.getByRole('dialog', { name: 'Logout from "ghcr.io"?' })
+    expect(mockLogoutDockerRegistry).not.toHaveBeenCalled()
+    fireEvent.click(within(logoutDialog).getByRole('button', { name: 'Logout' }))
 
     await waitFor(() => {
       expect(mockLogoutDockerRegistry).toHaveBeenCalledWith({ registry: 'ghcr.io' })

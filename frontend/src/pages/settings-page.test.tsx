@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsPage } from "./settings-page";
 
@@ -402,6 +402,9 @@ describe("SettingsPage", () => {
 
     expect(await screen.findByText("Update available: 2026.04.1")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Update Stacklab"));
+    const dialog = screen.getByRole("dialog", { name: "Update Stacklab?" });
+    expect(mockApplyStacklabUpdate).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Update Stacklab" }));
 
     await waitFor(() => {
       expect(mockApplyStacklabUpdate).toHaveBeenCalledWith({

@@ -8,6 +8,7 @@ import { MaintenanceNetworks } from '@/components/maintenance-networks'
 import { MaintenanceVolumes } from '@/components/maintenance-volumes'
 import { StepCards } from '@/components/step-cards'
 import { PageHeader } from '@/components/page-header'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import type { StackListItem } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
 
@@ -34,6 +35,7 @@ export function MaintenancePage() {
 
   const [jobId, setJobId] = useState<string | null>(null)
   const [startPending, setStartPending] = useState(false)
+  const [confirmDangerousUpdate, setConfirmDangerousUpdate] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const { events, state: jobState } = useJobStream({ jobId })
@@ -87,6 +89,14 @@ export function MaintenancePage() {
       setStartPending(false)
     }
   }, [targetMode, selectedIds, pullImages, buildImages, removeOrphans, pruneAfter, pruneVolumes])
+
+  const requestStart = useCallback(() => {
+    if (pruneAfter && pruneVolumes) {
+      setConfirmDangerousUpdate(true)
+      return
+    }
+    void handleStart()
+  }, [handleStart, pruneAfter, pruneVolumes])
 
   const [activeTab, setActiveTab] = useState<MaintenanceTab>('update')
 
@@ -200,7 +210,7 @@ export function MaintenancePage() {
         {/* Start button */}
         <button
           data-testid="maintenance-start"
-          onClick={handleStart}
+          onClick={requestStart}
           disabled={running || !canStart}
           className="mt-5 w-full rounded-lg bg-[var(--accent)] px-4 py-3 text-sm font-medium text-black transition hover:brightness-105 disabled:opacity-40"
         >
@@ -209,6 +219,25 @@ export function MaintenancePage() {
 
         {error && <p className="mt-2 text-xs text-[var(--danger)]">{error}</p>}
       </div>
+
+      {confirmDangerousUpdate && (
+        <ConfirmDialog
+          title="Start update and prune volumes?"
+          message="This will update the selected stack scope and then remove unused Docker volumes. Volume removal is irreversible."
+          items={[
+            targetMode === 'all' ? 'target: all stacks' : `target: ${selectedIds.size} selected stack(s)`,
+            'after update: prune unused volumes',
+            removeOrphans ? 'remove orphans: enabled' : 'remove orphans: disabled',
+          ]}
+          confirmLabel="Start update"
+          confirmingLabel="Starting..."
+          confirming={startPending}
+          onCancel={() => setConfirmDangerousUpdate(false)}
+          onConfirm={() => {
+            void handleStart().then(() => setConfirmDangerousUpdate(false))
+          }}
+        />
+      )}
 
       {/* Right: progress */}
       <div className="flex min-w-0 flex-1 flex-col rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">

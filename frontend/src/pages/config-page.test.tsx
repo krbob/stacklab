@@ -353,6 +353,29 @@ describe('ConfigPage', () => {
     expect(mockGetConfigFile).toHaveBeenLastCalledWith('demo/app.conf')
   })
 
+  it('requires confirmation before discarding config file changes', async () => {
+    mockGetConfigTree
+      .mockResolvedValueOnce(rootTree)
+      .mockResolvedValueOnce(demoTree)
+    mockGetConfigFile.mockResolvedValue(fileBefore)
+
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'demo' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'app.conf' }))
+
+    const editor = await screen.findByLabelText('yaml-editor')
+    fireEvent.change(editor, { target: { value: 'server_name new.local;\n' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+    expect(screen.getByRole('dialog', { name: 'Discard changes to "app.conf"?' })).toBeInTheDocument()
+    expect(editor).toHaveValue('server_name new.local;\n')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
+
+    expect(editor).toHaveValue('server_name old.local;\n')
+  })
+
   it('marks git-ignored config entries and selected files', async () => {
     mockGetConfigTree.mockResolvedValue({
       ...rootTree,

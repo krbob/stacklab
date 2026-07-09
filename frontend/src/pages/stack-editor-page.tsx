@@ -6,6 +6,7 @@ import { YamlEditor } from '@/components/yaml-editor'
 import { ProgressPanel } from '@/components/progress-panel'
 import { cn } from '@/lib/cn'
 import { UnsavedChangesGuard } from '@/components/unsaved-changes-guard'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 
 type ActiveTab = 'compose' | 'env'
 type DraftValidationState = 'valid' | 'invalid' | 'stale'
@@ -47,6 +48,7 @@ export function StackEditorPage() {
   const [pendingDeploy, setPendingDeploy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loadingDef, setLoadingDef] = useState(true)
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
 
   const isDirty = composeYaml !== savedCompose || envContent !== savedEnv
 
@@ -311,7 +313,7 @@ export function StackEditorPage() {
           </button>
           {isDirty && (
             <button
-              onClick={handleDiscard}
+              onClick={() => setConfirmDiscard(true)}
               className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]"
             >
               Discard
@@ -335,6 +337,20 @@ export function StackEditorPage() {
           </button>
         </div>
       </div>
+
+      {confirmDiscard && (
+        <ConfirmDialog
+          title="Discard unsaved changes?"
+          message="This reverts compose.yaml and .env to the last loaded version."
+          items={['compose.yaml', '.env']}
+          confirmLabel="Discard changes"
+          onCancel={() => setConfirmDiscard(false)}
+          onConfirm={() => {
+            handleDiscard()
+            setConfirmDiscard(false)
+          }}
+        />
+      )}
 
       {/* Validation status */}
       <div className="flex items-center gap-2 text-xs">

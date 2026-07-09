@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MaintenancePage } from './maintenance-page'
 import type { StackListResponse } from '@/lib/api-types'
@@ -221,6 +221,35 @@ describe('MaintenancePage', () => {
     await waitFor(() => {
       expect(mockUpdateStacksMaintenance).toHaveBeenCalledWith(expect.objectContaining({
         target: { mode: 'all', stack_ids: undefined },
+      }))
+    })
+  })
+
+  it('requires confirmation before update prunes Docker volumes', async () => {
+    mockUpdateStacksMaintenance.mockResolvedValue({
+      job: { id: 'job_prune_after', stack_id: null, action: 'update_stacks', state: 'running' },
+    })
+
+    render(<MaintenancePage />)
+
+    fireEvent.click(screen.getByText('Run prune after update'))
+    fireEvent.click(screen.getByText('Include volumes in prune'))
+    fireEvent.click(screen.getByTestId('maintenance-start'))
+
+    expect(mockUpdateStacksMaintenance).not.toHaveBeenCalled()
+    const dialog = screen.getByRole('dialog', { name: 'Start update and prune volumes?' })
+    expect(within(dialog).getByText('after update: prune unused volumes')).toBeInTheDocument()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Start update' }))
+
+    await waitFor(() => {
+      expect(mockUpdateStacksMaintenance).toHaveBeenCalledWith(expect.objectContaining({
+        options: expect.objectContaining({
+          prune_after: {
+            enabled: true,
+            include_volumes: true,
+          },
+        }),
       }))
     })
   })

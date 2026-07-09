@@ -228,4 +228,23 @@ describe('StackFilesPage', () => {
     })
     expect(await screen.findByText('Saved')).toBeInTheDocument()
   })
+
+  it('requires confirmation before discarding stack file changes', async () => {
+    mockGetStackWorkspaceTree.mockResolvedValue(rootTree)
+    mockGetStackWorkspaceFile.mockResolvedValue(dockerfileBefore)
+
+    render(<StackFilesPage />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /Dockerfile/i }))
+    const editor = await screen.findByLabelText('stack-file-editor')
+    fireEvent.change(editor, { target: { value: 'FROM alpine:3.21\n' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+    expect(screen.getByRole('dialog', { name: 'Discard changes to "Dockerfile"?' })).toBeInTheDocument()
+    expect(editor).toHaveValue('FROM alpine:3.21\n')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
+
+    expect(editor).toHaveValue('FROM alpine:3.20\n')
+  })
 })

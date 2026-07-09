@@ -10,6 +10,7 @@ import { BlockedFileCard } from '@/components/blocked-file-card'
 import { BottomSheet } from '@/components/bottom-sheet'
 import { cn } from '@/lib/cn'
 import { UnsavedChangesGuard } from '@/components/unsaved-changes-guard'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 
 type Mode = 'files' | 'changes'
 
@@ -48,6 +49,7 @@ export function ConfigPage() {
   const [editContent, setEditContent] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
 
   const [creatingFile, setCreatingFile] = useState(false)
   const [newFileName, setNewFileName] = useState('')
@@ -626,7 +628,7 @@ export function ConfigPage() {
                   {selectedFile.type === 'text_file' && selectedFile.writable && (
                     <div className="flex items-center gap-2">
                       {isDirty && <span className="text-xs text-[var(--warning)]">Unsaved changes</span>}
-                      {isDirty && <button onClick={handleDiscard} className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]">Discard</button>}
+                      {isDirty && <button onClick={() => setConfirmDiscard(true)} className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]">Discard</button>}
                       <button data-testid="config-save" onClick={handleSave} disabled={saving || !isDirty} className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40">
                         {saving ? 'Saving...' : 'Save'}
                       </button>
@@ -741,6 +743,20 @@ export function ConfigPage() {
           </>
         )}
       </div>
+
+      {confirmDiscard && selectedFile && (
+        <ConfirmDialog
+          title={`Discard changes to "${selectedFile.name}"?`}
+          message="This reverts the editor to the last loaded file content."
+          items={[selectedFile.path]}
+          confirmLabel="Discard changes"
+          onCancel={() => setConfirmDiscard(false)}
+          onConfirm={() => {
+            handleDiscard()
+            setConfirmDiscard(false)
+          }}
+        />
+      )}
     </div>
   )
 }

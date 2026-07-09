@@ -9,6 +9,7 @@ interface ConfirmDialogProps {
   requireText?: string
   requireTextLabel?: string
   confirming?: boolean
+  confirmingLabel?: string
   onConfirm: () => void
   onCancel: () => void
 }
@@ -22,6 +23,7 @@ export function ConfirmDialog({
   requireText,
   requireTextLabel,
   confirming = false,
+  confirmingLabel = 'Working...',
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -116,7 +118,7 @@ export function ConfirmDialog({
             disabled={confirming || !confirmed}
             className="rounded-md border border-[var(--danger)]/30 bg-[var(--danger)]/10 px-3 py-1.5 text-xs text-[var(--danger)] transition hover:bg-[var(--danger)]/20 disabled:opacity-40"
           >
-            {confirming ? 'Removing...' : confirmLabel}
+            {confirming ? confirmingLabel : confirmLabel}
           </button>
         </div>
       </div>

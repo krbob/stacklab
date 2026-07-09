@@ -198,4 +198,22 @@ describe('StackEditorPage', () => {
       }))
     })
   })
+
+  it('requires confirmation before discarding editor changes', async () => {
+    render(<StackEditorPage />)
+
+    await screen.findByText('✓ Config valid')
+    const editor = screen.getByLabelText('yaml-editor')
+    fireEvent.change(editor, {
+      target: { value: 'services:\n  app:\n    image: nginx:edited\n' },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+    expect(screen.getByRole('dialog', { name: 'Discard unsaved changes?' })).toBeInTheDocument()
+    expect(editor).toHaveValue('services:\n  app:\n    image: nginx:edited\n')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
+
+    expect(editor).toHaveValue('services:\n  app:\n    image: nginx:alpine\n')
+  })
 })

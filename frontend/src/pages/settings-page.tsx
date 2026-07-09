@@ -4,6 +4,7 @@ import { useJobDrawer } from '@/hooks/use-job-drawer'
 import type { MetaResponse, MaintenanceSchedulesResponse, ScheduleFrequency, ScheduleWeekday, StackListItem, StacklabUpdateOverviewResponse } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
 import { PageHeader } from '@/components/page-header'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 
 export function SettingsPage() {
   const [meta, setMeta] = useState<MetaResponse | null>(null)
@@ -950,6 +951,7 @@ function StacklabUpdateSection() {
   const [error, setError] = useState<string | null>(null)
   const [applying, setApplying] = useState(false)
   const [applyError, setApplyError] = useState<string | null>(null)
+  const [confirmUpdate, setConfirmUpdate] = useState(false)
 
   const loadOverview = useCallback(async () => {
     try {
@@ -1081,7 +1083,7 @@ function StacklabUpdateSection() {
         {/* Action */}
         {pkg.supported && cap.supported && (
           <button
-            onClick={handleApply}
+            onClick={() => setConfirmUpdate(true)}
             disabled={isRunning || !pkg.update_available}
             className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-xs text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40"
           >
@@ -1089,6 +1091,25 @@ function StacklabUpdateSection() {
           </button>
         )}
       </div>
+
+      {confirmUpdate && (
+        <ConfirmDialog
+          title="Update Stacklab?"
+          message="This installs the selected Stacklab package and restarts the Stacklab service. The UI may disconnect briefly."
+          items={[
+            `current: ${overview.current_version}`,
+            `candidate: ${pkg.candidate_version || 'unknown'}`,
+            `channel: ${pkg.configured_channel || 'unknown'}`,
+          ]}
+          confirmLabel="Update Stacklab"
+          confirmingLabel="Updating..."
+          confirming={applying}
+          onCancel={() => setConfirmUpdate(false)}
+          onConfirm={() => {
+            void handleApply().then(() => setConfirmUpdate(false))
+          }}
+        />
+      )}
     </div>
   )
 }
