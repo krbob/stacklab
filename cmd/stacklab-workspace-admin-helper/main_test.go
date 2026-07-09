@@ -7,18 +7,40 @@ import (
 	"testing"
 )
 
-func TestLoadStacklabRootUsesEnvironmentOverride(t *testing.T) {
+func TestLoadStacklabRootReadsRootOwnedEnvFile(t *testing.T) {
 	tempDir := t.TempDir()
-	t.Setenv("STACKLAB_ROOT", tempDir)
+	root := filepath.Join(tempDir, "root")
+	withStacklabEnv(t, "STACKLAB_ROOT="+root+"\n")
 
 	got, err := loadStacklabRoot()
 	if err != nil {
 		t.Fatalf("loadStacklabRoot() error = %v", err)
 	}
 
-	want, err := filepath.Abs(tempDir)
+	want, err := filepath.Abs(root)
 	if err != nil {
-		t.Fatalf("filepath.Abs(%q) error = %v", tempDir, err)
+		t.Fatalf("filepath.Abs(%q) error = %v", root, err)
+	}
+	if got != want {
+		t.Fatalf("loadStacklabRoot() = %q, want %q", got, want)
+	}
+}
+
+func TestLoadStacklabRootIgnoresEnvironmentOverride(t *testing.T) {
+	tempDir := t.TempDir()
+	root := filepath.Join(tempDir, "root")
+	evilRoot := filepath.Join(tempDir, "evil")
+	t.Setenv("STACKLAB_ROOT", evilRoot)
+	withStacklabEnv(t, "STACKLAB_ROOT="+root+"\n")
+
+	got, err := loadStacklabRoot()
+	if err != nil {
+		t.Fatalf("loadStacklabRoot() error = %v", err)
+	}
+
+	want, err := filepath.Abs(root)
+	if err != nil {
+		t.Fatalf("filepath.Abs(%q) error = %v", root, err)
 	}
 	if got != want {
 		t.Fatalf("loadStacklabRoot() = %q, want %q", got, want)
@@ -41,7 +63,7 @@ func TestRunRepairACLGrantsAccessWithoutChangingMode(t *testing.T) {
 		t.Fatalf("Stat(target before) error = %v", err)
 	}
 
-	t.Setenv("STACKLAB_ROOT", root)
+	withStacklabEnv(t, "STACKLAB_ROOT="+root+"\n")
 	var calls [][]string
 	restore := replaceACLCommand(func(name string, args ...string) ([]byte, error) {
 		if name != "setfacl" {
@@ -87,7 +109,7 @@ func TestRunRepairACLRecursiveAddsDefaultACLForDirectories(t *testing.T) {
 		t.Fatalf("WriteFile(app.conf) error = %v", err)
 	}
 
-	t.Setenv("STACKLAB_ROOT", root)
+	withStacklabEnv(t, "STACKLAB_ROOT="+root+"\n")
 	var calls [][]string
 	restore := replaceACLCommand(func(name string, args ...string) ([]byte, error) {
 		calls = append(calls, append([]string(nil), args...))
@@ -122,6 +144,22 @@ func replaceACLCommand(replacement func(string, ...string) ([]byte, error)) func
 	return func() {
 		runACLCommand = original
 	}
+}
+
+func withStacklabEnv(t *testing.T, content string) {
+	t.Helper()
+
+	tempDir := t.TempDir()
+	envPath := filepath.Join(tempDir, "stacklab.env")
+	if err := os.WriteFile(envPath, []byte(content), 0o600); err != nil {
+		t.Fatalf("WriteFile(stacklab.env) error = %v", err)
+	}
+
+	original := stacklabEnvFilePath
+	stacklabEnvFilePath = envPath
+	t.Cleanup(func() {
+		stacklabEnvFilePath = original
+	})
 }
 
 func hasDefaultACL(args []string) bool {

@@ -122,8 +122,9 @@ flow instead:
   - install the system `acl` package when using the ACL strategy, so
     `setfacl` is available to the helper
   - install a narrow `sudoers` rule for the helper
-  - keep `STACKLAB_ROOT` in the helper sudo environment, as shown in the
-    packaged `stacklab-workspace-admin.sudoers.example`
+  - keep `/etc/stacklab/stacklab.env` root-owned; the helper reads
+    `STACKLAB_ROOT` from that file and deliberately ignores sudo environment
+    overrides
   - keep `NoNewPrivileges=false` in `stacklab.service`
 - Stacklab self-update also remains opt-in:
   - set `STACKLAB_SELF_UPDATE_HELPER_PATH`

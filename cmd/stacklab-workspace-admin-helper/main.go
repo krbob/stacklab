@@ -16,11 +16,12 @@ import (
 
 const (
 	defaultStacklabRoot = "/opt/stacklab"
-	envFilePath         = "/etc/stacklab/stacklab.env"
 
 	repairStrategyOwnership = "ownership"
 	repairStrategyACL       = "acl"
 )
+
+var stacklabEnvFilePath = "/etc/stacklab/stacklab.env"
 
 var runACLCommand = func(name string, args ...string) ([]byte, error) {
 	return exec.Command(name, args...).CombinedOutput()
@@ -159,16 +160,7 @@ func normalizeRepairStrategy(value string) string {
 func loadStacklabRoot() (string, error) {
 	root := defaultStacklabRoot
 
-	if override := strings.TrimSpace(os.Getenv("STACKLAB_ROOT")); override != "" {
-		root = override
-		resolved, err := filepath.Abs(root)
-		if err != nil {
-			return "", fmt.Errorf("resolve stacklab root: %w", err)
-		}
-		return resolved, nil
-	}
-
-	file, err := os.Open(envFilePath)
+	file, err := os.Open(stacklabEnvFilePath)
 	if err == nil {
 		defer file.Close()
 		scanner := bufio.NewScanner(file)
@@ -190,10 +182,10 @@ func loadStacklabRoot() (string, error) {
 			}
 		}
 		if err := scanner.Err(); err != nil {
-			return "", fmt.Errorf("read %s: %w", envFilePath, err)
+			return "", fmt.Errorf("read %s: %w", stacklabEnvFilePath, err)
 		}
 	} else if !os.IsNotExist(err) {
-		return "", fmt.Errorf("open %s: %w", envFilePath, err)
+		return "", fmt.Errorf("open %s: %w", stacklabEnvFilePath, err)
 	}
 
 	resolved, err := filepath.Abs(root)

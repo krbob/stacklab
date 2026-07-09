@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -12,6 +13,15 @@ import (
 	"time"
 )
 
+const (
+	defaultDockerDaemonConfig = "/etc/docker/daemon.json"
+	defaultDockerUnitName     = "docker.service"
+	defaultDockerAdminBackup  = "/var/lib/stacklab/docker-admin"
+	defaultStacklabDataDir    = "/var/lib/stacklab"
+)
+
+var stacklabEnvFilePath = "/etc/stacklab/stacklab.env"
+
 type emittedError struct {
 	error
 }
@@ -22,6 +32,12 @@ type applyResult struct {
 	RollbackSucceeded  bool     `json:"rollback_succeeded"`
 	ServiceActiveState string   `json:"service_active_state,omitempty"`
 	Warnings           []string `json:"warnings,omitempty"`
+}
+
+type dockerAdminPolicy struct {
+	ConfigPath string
+	BackupDir  string
+	UnitName   string
 }
 
 func main() {
@@ -65,6 +81,9 @@ func runApply(args []string) error {
 	if strings.TrimSpace(inputPath) == "" {
 		return errors.New("input is required")
 	}
+	if err := validateApplyPolicy(configPath, backupDir, unitName); err != nil {
+		return err
+	}
 
 	content, err := os.ReadFile(inputPath)
 	if err != nil {
@@ -103,6 +122,116 @@ func runApply(args []string) error {
 
 	emitResult(result)
 	return nil
+}
+
+func validateApplyPolicy(configPath, backupDir, unitName string) error {
+	policy, err := loadDockerAdminPolicy()
+	if err != nil {
+		return err
+	}
+
+	cleanConfig, err := cleanAbsolutePath(configPath)
+	if err != nil {
+		return fmt.Errorf("config-path is invalid: %w", err)
+	}
+	cleanBackup, err := cleanAbsolutePath(backupDir)
+	if err != nil {
+		return fmt.Errorf("backup-dir is invalid: %w", err)
+	}
+	if cleanConfig != policy.ConfigPath {
+		return fmt.Errorf("config-path %q is not allowed", configPath)
+	}
+	if cleanBackup != policy.BackupDir {
+		return fmt.Errorf("backup-dir %q is not allowed", backupDir)
+	}
+	if strings.TrimSpace(unitName) != policy.UnitName {
+		return fmt.Errorf("unit %q is not allowed", unitName)
+	}
+	return nil
+}
+
+func loadDockerAdminPolicy() (dockerAdminPolicy, error) {
+	values, err := loadStacklabEnvValues(stacklabEnvFilePath)
+	if err != nil {
+		return dockerAdminPolicy{}, err
+	}
+
+	backupDir := strings.TrimSpace(values["STACKLAB_DOCKER_ADMIN_BACKUP_DIR"])
+	if backupDir == "" {
+		dataDir := strings.TrimSpace(values["STACKLAB_DATA_DIR"])
+		if dataDir == "" {
+			dataDir = defaultStacklabDataDir
+		}
+		backupDir = filepath.Join(dataDir, "docker-admin")
+	}
+
+	configPath, err := cleanAbsolutePath(valueOrDefault(values["STACKLAB_DOCKER_DAEMON_CONFIG_PATH"], defaultDockerDaemonConfig))
+	if err != nil {
+		return dockerAdminPolicy{}, fmt.Errorf("configured Docker daemon config path is invalid: %w", err)
+	}
+	cleanBackup, err := cleanAbsolutePath(backupDir)
+	if err != nil {
+		return dockerAdminPolicy{}, fmt.Errorf("configured Docker admin backup directory is invalid: %w", err)
+	}
+	unitName := strings.TrimSpace(valueOrDefault(values["STACKLAB_DOCKER_SYSTEMD_UNIT"], defaultDockerUnitName))
+	if unitName == "" || strings.ContainsAny(unitName, "/\x00") {
+		return dockerAdminPolicy{}, fmt.Errorf("configured Docker unit %q is invalid", unitName)
+	}
+
+	return dockerAdminPolicy{
+		ConfigPath: configPath,
+		BackupDir:  cleanBackup,
+		UnitName:   unitName,
+	}, nil
+}
+
+func loadStacklabEnvValues(path string) (map[string]string, error) {
+	values := map[string]string{}
+	file, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return values, nil
+		}
+		return nil, fmt.Errorf("open %s: %w", path, err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, found := strings.Cut(line, "=")
+		if !found {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		values[key] = strings.TrimSpace(value)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	return values, nil
+}
+
+func valueOrDefault(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func cleanAbsolutePath(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if !filepath.IsAbs(path) {
+		return "", errors.New("path must be absolute")
+	}
+	return filepath.Clean(path), nil
 }
 
 func backupExistingConfig(configPath, backupDir string, result *applyResult) ([]byte, bool, error) {

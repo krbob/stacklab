@@ -41,8 +41,13 @@ func TestCapabilityWithSudoProbeSuccess(t *testing.T) {
 		if name != "sudo" {
 			t.Fatalf("runCommand name = %q, want sudo", name)
 		}
-		if len(args) < 4 || args[1] != "--preserve-env=STACKLAB_ROOT" || args[3] != helperPath {
+		if len(args) < 4 || args[0] != "-n" || args[1] != "--" || args[2] != helperPath {
 			t.Fatalf("unexpected sudo args: %#v", args)
+		}
+		for _, arg := range args {
+			if strings.Contains(arg, "STACKLAB_ROOT") {
+				t.Fatalf("sudo args must not preserve STACKLAB_ROOT: %#v", args)
+			}
 		}
 		return []byte(`{"changed_items":0}`), nil
 	}
@@ -77,10 +82,10 @@ func TestCapabilityCachesSudoProbeAcrossRepairFlow(t *testing.T) {
 		if name != "sudo" {
 			t.Fatalf("runCommand name = %q, want sudo", name)
 		}
-		if len(args) < 5 {
+		if len(args) < 4 {
 			t.Fatalf("unexpected sudo args: %#v", args)
 		}
-		switch args[4] {
+		switch args[3] {
 		case "probe":
 			probes++
 			return []byte(`{"changed_items":0}`), nil
@@ -155,7 +160,7 @@ func TestRepairReturnsBeforeAndAfterPermissions(t *testing.T) {
 		WorkspaceAdminUseSudo:    true,
 	})
 	service.runCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
-		if len(args) >= 5 && args[4] == "probe" {
+		if len(args) >= 4 && args[3] == "probe" {
 			return []byte(`{"changed_items":0}`), nil
 		}
 		if err := os.Chmod(targetPath, 0o644); err != nil {
@@ -195,7 +200,7 @@ func TestRepairPassesACLStrategyToHelper(t *testing.T) {
 		WorkspaceAdminRepairStrategy: "acl",
 	})
 	service.runCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
-		if len(args) >= 5 && args[4] == "probe" {
+		if len(args) >= 4 && args[3] == "probe" {
 			return []byte(`{"changed_items":0}`), nil
 		}
 		joined := strings.Join(args, " ")
