@@ -80,6 +80,8 @@ type MetricsCollector struct {
 	processSampleInterval time.Duration
 	usernamesByUID        map[uint32]string
 	usernamesLoaded       bool
+
+	containerMetadataMu   sync.Mutex
 	containerMetadataByID map[string]ProcessContainerInfo
 	containerMetadataAt   time.Time
 	containerMetadataTTL  time.Duration
@@ -270,10 +272,12 @@ func (c *MetricsCollector) shouldSample(maxAge time.Duration) bool {
 }
 
 func (c *MetricsCollector) sampleAndStore() {
+	containerMetadata := c.processContainerMetadata()
+
 	c.sampleMu.Lock()
 	defer c.sampleMu.Unlock()
 
-	sample := c.readSample()
+	sample := c.readSample(containerMetadata)
 	processes := sample.Processes
 	sample.Processes = nil
 
@@ -298,7 +302,7 @@ func (c *MetricsCollector) pruneSamplesLocked(now time.Time) {
 	}
 }
 
-func (c *MetricsCollector) readSample() HostMetricSample {
+func (c *MetricsCollector) readSample(containerMetadata map[string]ProcessContainerInfo) HostMetricSample {
 	now := c.now().UTC()
 	memInfo := readProcMemInfoValues(c.procRoot)
 	return HostMetricSample{
@@ -310,7 +314,7 @@ func (c *MetricsCollector) readSample() HostMetricSample {
 		Filesystems:  c.readFilesystems(),
 		DiskIO:       c.readDiskIOUsage(now),
 		Network:      c.readNetworkUsage(now),
-		Processes:    c.readProcessUsageForSample(now, memInfo),
+		Processes:    c.readProcessUsageForSample(now, memInfo, containerMetadata),
 	}
 }
 
@@ -369,17 +373,17 @@ func cloneProcessUsage(usage *ProcessUsage) *ProcessUsage {
 	return &cloned
 }
 
-func (c *MetricsCollector) readProcessUsageForSample(now time.Time, memInfo map[string]uint64) *ProcessUsage {
+func (c *MetricsCollector) readProcessUsageForSample(now time.Time, memInfo map[string]uint64, containerMetadata map[string]ProcessContainerInfo) *ProcessUsage {
 	if c.lastProcessUsage != nil && now.Sub(c.lastProcessSampledAt) < c.processSampleInterval {
 		return cloneProcessUsage(c.lastProcessUsage)
 	}
-	usage := c.readProcessUsage(memInfo)
+	usage := c.readProcessUsage(memInfo, containerMetadata)
 	c.lastProcessUsage = cloneProcessUsage(usage)
 	c.lastProcessSampledAt = now
 	return usage
 }
 
-func (c *MetricsCollector) readProcessUsage(memInfo map[string]uint64) *ProcessUsage {
+func (c *MetricsCollector) readProcessUsage(memInfo map[string]uint64, containerMetadata map[string]ProcessContainerInfo) *ProcessUsage {
 	entries, err := os.ReadDir(c.procRoot)
 	if err != nil {
 		return &ProcessUsage{Items: []ProcessInfo{}}
@@ -395,7 +399,6 @@ func (c *MetricsCollector) readProcessUsage(memInfo map[string]uint64) *ProcessU
 	pageSize := os.Getpagesize()
 	currentCounters := map[int]processCPUCounter{}
 	userCache := map[uint32]string{}
-	containerMetadata := c.processContainerMetadata()
 	processes := []ProcessInfo{}
 
 	for _, entry := range entries {
@@ -461,6 +464,9 @@ func (c *MetricsCollector) readProcessStat(pid int, pageSize int) (processStatSa
 
 func (c *MetricsCollector) processContainerMetadata() map[string]ProcessContainerInfo {
 	now := c.now().UTC()
+	c.containerMetadataMu.Lock()
+	defer c.containerMetadataMu.Unlock()
+
 	if c.containerMetadataByID != nil && c.containerMetadataTTL > 0 && now.Sub(c.containerMetadataAt) < c.containerMetadataTTL {
 		return c.containerMetadataByID
 	}

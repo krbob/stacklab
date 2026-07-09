@@ -444,7 +444,7 @@ func TestMetricsCollectorReadsTopProcesses(t *testing.T) {
 	writeProcessFixture(t, procDir, 101, "stacklab", "S", 10, 5, 1000)
 	writeProcessFixture(t, procDir, 202, "busy worker", "R", 20, 10, 2000)
 
-	first := collector.readProcessUsage(map[string]uint64{"MemTotal": memTotal})
+	first := collector.readProcessUsage(map[string]uint64{"MemTotal": memTotal}, map[string]ProcessContainerInfo{})
 	if first.Total != 2 {
 		t.Fatalf("first.Total = %d, want 2", first.Total)
 	}
@@ -461,7 +461,7 @@ func TestMetricsCollectorReadsTopProcesses(t *testing.T) {
 	writeProcessFixture(t, procDir, 101, "stacklab", "S", 20, 15, 1000)
 	writeProcessFixture(t, procDir, 202, "busy worker", "R", 80, 60, 2000)
 
-	second := collector.readProcessUsage(map[string]uint64{"MemTotal": memTotal})
+	second := collector.readProcessUsage(map[string]uint64{"MemTotal": memTotal}, map[string]ProcessContainerInfo{})
 	if len(second.Items) != 2 {
 		t.Fatalf("len(second.Items) = %d, want 2: %#v", len(second.Items), second.Items)
 	}
@@ -509,7 +509,7 @@ func TestMetricsCollectorLabelsContainerProcesses(t *testing.T) {
 	writeProcessFixture(t, procDir, 303, "java", "S", 10, 5, 1000)
 	writeProcessCgroupFixture(t, procDir, 303, "0::/system.slice/docker-"+containerID+".scope\n")
 
-	usage := collector.readProcessUsage(map[string]uint64{"MemTotal": uint64(os.Getpagesize() * 4000)})
+	usage := collector.readProcessUsage(map[string]uint64{"MemTotal": uint64(os.Getpagesize() * 4000)}, collector.processContainerMetadata())
 	if len(usage.Items) != 1 {
 		t.Fatalf("len(usage.Items) = %d, want 1: %#v", len(usage.Items), usage.Items)
 	}
@@ -519,6 +519,38 @@ func TestMetricsCollectorLabelsContainerProcesses(t *testing.T) {
 	}
 	if container.StackID != "minecraft" || container.ServiceName != "server" || container.Name != "minecraft-server-1" {
 		t.Fatalf("unexpected container metadata: %#v", container)
+	}
+}
+
+func TestMetricsCollectorResolvesContainersOutsideSampleLock(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	procDir := filepath.Join(tempDir, "proc")
+	if err := os.MkdirAll(procDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(proc) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(procDir, "stat"), []byte("cpu  100 0 0 100 0 0 0 0 0 0\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(stat) error = %v", err)
+	}
+
+	collector := newMetricsCollector(t.TempDir(), procDir)
+	collector.containerResolver = func() map[string]ProcessContainerInfo {
+		collector.sampleMu.Lock()
+		defer collector.sampleMu.Unlock()
+		return map[string]ProcessContainerInfo{}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		collector.sampleAndStore()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("sampleAndStore blocked while resolving container metadata")
 	}
 }
 
@@ -546,7 +578,7 @@ func TestMetricsCollectorReadsProcessDisplayCommandFromCmdline(t *testing.T) {
 		"nogui",
 	})
 
-	usage := collector.readProcessUsage(map[string]uint64{"MemTotal": memTotal})
+	usage := collector.readProcessUsage(map[string]uint64{"MemTotal": memTotal}, map[string]ProcessContainerInfo{})
 	if len(usage.Items) != 1 {
 		t.Fatalf("len(usage.Items) = %d, want 1: %#v", len(usage.Items), usage.Items)
 	}
@@ -591,18 +623,18 @@ func TestMetricsCollectorThrottlesProcessSampling(t *testing.T) {
 	}
 	writeProcessFixture(t, procDir, 101, "stacklab", "S", 10, 5, 1000)
 
-	first := collector.readProcessUsageForSample(base, memInfo)
+	first := collector.readProcessUsageForSample(base, memInfo, map[string]ProcessContainerInfo{})
 	if first.Total != 1 {
 		t.Fatalf("first.Total = %d, want 1", first.Total)
 	}
 
 	writeProcessFixture(t, procDir, 202, "new worker", "R", 20, 10, 2000)
-	cached := collector.readProcessUsageForSample(base.Add(time.Second), memInfo)
+	cached := collector.readProcessUsageForSample(base.Add(time.Second), memInfo, map[string]ProcessContainerInfo{})
 	if cached.Total != 1 {
 		t.Fatalf("cached.Total = %d, want 1 while process cache is fresh", cached.Total)
 	}
 
-	refreshed := collector.readProcessUsageForSample(base.Add(6*time.Second), memInfo)
+	refreshed := collector.readProcessUsageForSample(base.Add(6*time.Second), memInfo, map[string]ProcessContainerInfo{})
 	if refreshed.Total != 2 {
 		t.Fatalf("refreshed.Total = %d, want 2 after process cache expires", refreshed.Total)
 	}
