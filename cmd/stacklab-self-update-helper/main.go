@@ -1,19 +1,33 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"stacklab/internal/store"
 )
+
+const (
+	defaultDataDir      = "/var/lib/stacklab"
+	defaultPackageName  = "stacklab"
+	defaultHealthURL    = "http://127.0.0.1:8080/api/health"
+	defaultSystemdUnit  = "stacklab"
+	defaultRuntimeKey   = "self_update_runtime_v1"
+	defaultDatabaseName = "stacklab.db"
+)
+
+var stacklabEnvFilePath = "/etc/stacklab/stacklab.env"
 
 type emittedError struct {
 	error
@@ -72,11 +86,11 @@ func run(args []string) error {
 	flags.SetOutput(os.Stderr)
 	flags.StringVar(&dbPath, "db-path", "", "absolute path to sqlite database")
 	flags.StringVar(&jobID, "job-id", "", "job id to update")
-	flags.StringVar(&packageName, "package-name", "stacklab", "APT package name")
+	flags.StringVar(&packageName, "package-name", defaultPackageName, "APT package name")
 	flags.StringVar(&requestedVersion, "requested-version", "", "candidate version requested by the UI")
-	flags.StringVar(&healthURL, "health-url", "http://127.0.0.1:8080/api/health", "health endpoint to verify after upgrade")
-	flags.StringVar(&serviceUnit, "service-unit", "stacklab", "systemd unit name")
-	flags.StringVar(&runtimeKey, "runtime-key", "self_update_runtime_v1", "app_settings runtime key")
+	flags.StringVar(&healthURL, "health-url", defaultHealthURL, "health endpoint to verify after upgrade")
+	flags.StringVar(&serviceUnit, "service-unit", defaultSystemdUnit, "systemd unit name")
+	flags.StringVar(&runtimeKey, "runtime-key", defaultRuntimeKey, "app_settings runtime key")
 	flags.BoolVar(&skipAPTUpdate, "skip-apt-update", false, "skip apt-get update before install")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -84,6 +98,12 @@ func run(args []string) error {
 
 	if strings.TrimSpace(dbPath) == "" || strings.TrimSpace(jobID) == "" {
 		return errors.New("db-path and job-id are required")
+	}
+	if err := validateRequestedVersion(requestedVersion); err != nil {
+		return err
+	}
+	if err := validateRunPolicy(dbPath, packageName, healthURL, serviceUnit, runtimeKey); err != nil {
+		return err
 	}
 
 	appStore, err := store.Open(dbPath)
@@ -168,6 +188,163 @@ func run(args []string) error {
 		PendingFinalize:  true,
 	})
 	return nil
+}
+
+type selfUpdatePolicy struct {
+	DBPath      string
+	PackageName string
+	HealthURL   string
+	ServiceUnit string
+	RuntimeKey  string
+}
+
+func validateRunPolicy(dbPath, packageName, healthURL, serviceUnit, runtimeKey string) error {
+	policy, err := loadSelfUpdatePolicy()
+	if err != nil {
+		return err
+	}
+
+	cleanDBPath, err := cleanAbsolutePath(dbPath)
+	if err != nil {
+		return fmt.Errorf("db-path is invalid: %w", err)
+	}
+	if cleanDBPath != policy.DBPath {
+		return fmt.Errorf("db-path %q is not allowed", dbPath)
+	}
+	if strings.TrimSpace(packageName) != policy.PackageName {
+		return fmt.Errorf("package-name %q is not allowed", packageName)
+	}
+	if strings.TrimSpace(healthURL) != policy.HealthURL {
+		return fmt.Errorf("health-url %q is not allowed", healthURL)
+	}
+	if strings.TrimSpace(serviceUnit) != policy.ServiceUnit {
+		return fmt.Errorf("service-unit %q is not allowed", serviceUnit)
+	}
+	if strings.TrimSpace(runtimeKey) != policy.RuntimeKey {
+		return fmt.Errorf("runtime-key %q is not allowed", runtimeKey)
+	}
+	return nil
+}
+
+func loadSelfUpdatePolicy() (selfUpdatePolicy, error) {
+	values, err := loadStacklabEnvValues(stacklabEnvFilePath)
+	if err != nil {
+		return selfUpdatePolicy{}, err
+	}
+
+	dataDir := valueOrDefault(values["STACKLAB_DATA_DIR"], defaultDataDir)
+	dbPath := valueOrDefault(values["STACKLAB_DATABASE_PATH"], filepath.Join(dataDir, defaultDatabaseName))
+	cleanDBPath, err := cleanAbsolutePath(dbPath)
+	if err != nil {
+		return selfUpdatePolicy{}, fmt.Errorf("configured database path is invalid: %w", err)
+	}
+
+	packageName := valueOrDefault(values["STACKLAB_SELF_UPDATE_PACKAGE_NAME"], defaultPackageName)
+	if !safeAPTToken(packageName) {
+		return selfUpdatePolicy{}, fmt.Errorf("configured package name %q is invalid", packageName)
+	}
+
+	healthURL := valueOrDefault(values["STACKLAB_SELF_UPDATE_HEALTH_URL"], defaultHealthURL)
+	if err := validateHealthURL(healthURL); err != nil {
+		return selfUpdatePolicy{}, fmt.Errorf("configured health URL is invalid: %w", err)
+	}
+
+	serviceUnit := valueOrDefault(values["STACKLAB_SYSTEMD_UNIT"], defaultSystemdUnit)
+	if !safeSystemdUnit(serviceUnit) {
+		return selfUpdatePolicy{}, fmt.Errorf("configured service unit %q is invalid", serviceUnit)
+	}
+
+	return selfUpdatePolicy{
+		DBPath:      cleanDBPath,
+		PackageName: packageName,
+		HealthURL:   healthURL,
+		ServiceUnit: serviceUnit,
+		RuntimeKey:  defaultRuntimeKey,
+	}, nil
+}
+
+func validateRequestedVersion(version string) error {
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return nil
+	}
+	if !safeAPTToken(version) {
+		return fmt.Errorf("requested-version %q is invalid", version)
+	}
+	return nil
+}
+
+func validateHealthURL(value string) error {
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return err
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return errors.New("URL must use http or https")
+	}
+	if parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" {
+		return errors.New("URL must be absolute and must not include userinfo or fragments")
+	}
+	return nil
+}
+
+func safeAPTToken(value string) bool {
+	value = strings.TrimSpace(value)
+	return value != "" && !strings.HasPrefix(value, "-") && !strings.ContainsAny(value, "/\\ \t\r\n\x00")
+}
+
+func safeSystemdUnit(value string) bool {
+	value = strings.TrimSpace(value)
+	return value != "" && !strings.HasPrefix(value, "-") && !strings.ContainsAny(value, "/\\ \t\r\n\x00")
+}
+
+func loadStacklabEnvValues(path string) (map[string]string, error) {
+	values := map[string]string{}
+	file, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return values, nil
+		}
+		return nil, fmt.Errorf("open %s: %w", path, err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, found := strings.Cut(line, "=")
+		if !found {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		values[key] = strings.TrimSpace(value)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	return values, nil
+}
+
+func valueOrDefault(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func cleanAbsolutePath(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if !filepath.IsAbs(path) {
+		return "", errors.New("path must be absolute")
+	}
+	return filepath.Clean(path), nil
 }
 
 func runStep(appStore *store.Store, job *store.Job, index int, message string, run func() (string, error)) error {
