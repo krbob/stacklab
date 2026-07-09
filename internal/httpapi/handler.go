@@ -248,6 +248,7 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("POST /api/maintenance/prune", h.withAuth(h.handleMaintenancePrune))
 	h.mux.HandleFunc("GET /api/jobs/active", h.withAuth(h.handleListActiveJobs))
 	h.mux.HandleFunc("GET /api/jobs/{jobId}/events", h.withAuth(h.handleListJobEvents))
+	h.mux.HandleFunc("POST /api/jobs/{jobId}/cancel", h.withAuth(h.handleCancelJob))
 	h.mux.HandleFunc("GET /api/stacks", h.withAuth(h.handleListStacks))
 	h.mux.HandleFunc("POST /api/stacks", h.withAuth(h.handleCreateStack))
 	h.mux.HandleFunc("GET /api/stacks/{stackId}", h.withAuth(h.handleGetStack))
@@ -1039,6 +1040,8 @@ func (h *Handler) handleImageUpdatesCheck(w http.ResponseWriter, r *http.Request
 func (h *Handler) runImageUpdateCheckJob(job store.Job, refs []string) {
 	runCtx, cancel := h.stackActionContext()
 	defer cancel()
+	unregisterCancel := h.jobs.RegisterCancel(job.ID, cancel)
+	defer unregisterCancel()
 
 	results := h.imageUpdates.CheckImages(runCtx, refs, func(done, total int, detail string) {
 		_ = h.jobs.PublishEventWithProgress(runCtx, job, "job_progress", "Checking image updates.", "", nil, &store.JobProgress{
@@ -1054,7 +1057,13 @@ func (h *Handler) runImageUpdateCheckJob(job store.Job, refs []string) {
 	defer finishCancel()
 
 	if runCtx.Err() != nil {
-		if _, err := h.jobs.FinishTimedOut(ctx, job, "check_image_updates_timeout", "Image update check timed out."); err != nil {
+		var err error
+		if errors.Is(runCtx.Err(), context.Canceled) {
+			_, err = h.jobs.FinishCancelled(ctx, job, "check_image_updates_cancelled", "Image update check was cancelled.")
+		} else {
+			_, err = h.jobs.FinishTimedOut(ctx, job, "check_image_updates_timeout", "Image update check timed out.")
+		}
+		if err != nil {
 			h.logger.Error("finish image update check failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
 		}
 		return
@@ -1623,7 +1632,11 @@ func (h *Handler) handleDockerAdminApplyDaemonConfig(w http.ResponseWriter, r *h
 }
 
 func (h *Handler) runDockerDaemonApplyJob(job store.Job, workflow []store.JobWorkflowStep, request dockerAdminValidateRequest) {
-	ctx := h.appContext()
+	ctx, cancel := context.WithCancel(h.appContext())
+	defer cancel()
+	unregisterCancel := h.jobs.RegisterCancel(job.ID, cancel)
+	defer unregisterCancel()
+
 	applyResult, err := h.dockerAdmin.ApplyManagedConfig(ctx, dockeradmin.ApplyManagedConfigRequest{
 		Settings:   request.Settings,
 		RemoveKeys: request.RemoveKeys,
@@ -1635,7 +1648,11 @@ func (h *Handler) runDockerDaemonApplyJob(job store.Job, workflow []store.JobWor
 		_ = h.jobs.PublishEvent(ctx, job, "job_warning", warning, "", workflowStepRef(workflow, 1))
 	}
 	if err != nil {
-		workflow = markWorkflowFailed(workflow, 1)
+		terminalState := "failed"
+		if errors.Is(ctx.Err(), context.Canceled) || errors.Is(err, context.Canceled) {
+			terminalState = "cancelled"
+		}
+		workflow = markWorkflowState(workflow, 1, terminalState)
 		if updatedJob, updateErr := h.jobs.UpdateWorkflow(ctx, job, workflow); updateErr == nil {
 			job = updatedJob
 		}
@@ -1644,8 +1661,11 @@ func (h *Handler) runDockerDaemonApplyJob(job store.Job, workflow []store.JobWor
 		if errors.Is(err, dockeradmin.ErrApplyUnsupported) {
 			errorCode = "not_implemented"
 			message = "Docker daemon apply is not configured yet."
+		} else if terminalState == "cancelled" {
+			errorCode = "docker_daemon_apply_cancelled"
+			message = "Docker daemon apply was cancelled."
 		}
-		failedJob, finishErr := h.jobs.FinishFailed(ctx, job, errorCode, message)
+		failedJob, finishErr := h.finishTerminalJob(ctx, job, terminalState, errorCode, message)
 		if finishErr != nil {
 			h.logger.Error("finish docker daemon apply job failed", slog.String("job_id", job.ID), slog.String("err", finishErr.Error()))
 			return
@@ -1885,6 +1905,8 @@ func (h *Handler) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) runCreateStackDeployJob(job store.Job, workflow []store.JobWorkflowStep, stackID string) {
 	runCtx, cancel := h.stackActionContext()
 	defer cancel()
+	unregisterCancel := h.jobs.RegisterCancel(job.ID, cancel)
+	defer unregisterCancel()
 
 	upErr := h.stackReader.RunAction(runCtx, stackID, "up")
 
@@ -2212,6 +2234,29 @@ func (h *Handler) handleListJobEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) handleCancelJob(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+
+	job, err := h.jobs.Cancel(r.Context(), r.PathValue("jobId"))
+	if err != nil {
+		switch {
+		case errors.Is(err, jobs.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Job was not found.", nil)
+		case errors.Is(err, jobs.ErrNotCancellable):
+			writeError(w, http.StatusConflict, "invalid_state", "Job cannot be cancelled.", nil)
+		default:
+			h.logger.Error("cancel job failed", slog.String("job_id", r.PathValue("jobId")), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to cancel job.", nil)
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"job": job})
 }
 
 func (h *Handler) handleListStackAudit(w http.ResponseWriter, r *http.Request) {
@@ -2934,6 +2979,8 @@ var stackActionProgressUnits = map[string]string{
 func (h *Handler) runStackActionJob(job store.Job, workflow []store.JobWorkflowStep) {
 	runCtx, cancel := h.stackActionContext()
 	defer cancel()
+	unregisterCancel := h.jobs.RegisterCancel(job.ID, cancel)
+	defer unregisterCancel()
 
 	step := workflowStepRef(workflow, 0)
 
@@ -3088,6 +3135,8 @@ func validateDockerRegistryLogoutRequest(request dockerregistryauth.LogoutReques
 func (h *Handler) runDockerRegistryLoginJob(job store.Job, workflow []store.JobWorkflowStep, request dockerregistryauth.LoginRequest) {
 	runCtx, cancel := h.dockerRegistryAuthContext()
 	defer cancel()
+	unregisterCancel := h.jobs.RegisterCancel(job.ID, cancel)
+	defer unregisterCancel()
 
 	step := workflowStepRef(workflow, 0)
 	output, runErr := h.dockerRegistry.Login(runCtx, request)
@@ -3116,6 +3165,8 @@ func (h *Handler) runDockerRegistryLoginJob(job store.Job, workflow []store.JobW
 func (h *Handler) runDockerRegistryLogoutJob(job store.Job, workflow []store.JobWorkflowStep, request dockerregistryauth.LogoutRequest) {
 	runCtx, cancel := h.dockerRegistryAuthContext()
 	defer cancel()
+	unregisterCancel := h.jobs.RegisterCancel(job.ID, cancel)
+	defer unregisterCancel()
 
 	step := workflowStepRef(workflow, 0)
 	output, runErr := h.dockerRegistry.Logout(runCtx, request)
@@ -3201,7 +3252,7 @@ func stackActionFailure(ctx context.Context, timeout time.Duration, err error) (
 	case errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded):
 		return "timed_out", "stack_action_timed_out", "Stack action timed out after " + timeout.String() + ".", "Stack action timed out."
 	case errors.Is(ctx.Err(), context.Canceled) || errors.Is(err, context.Canceled):
-		return "cancelled", "stack_action_cancelled", "Stack action was cancelled because Stacklab is shutting down.", "Stack action cancelled."
+		return "cancelled", "stack_action_cancelled", "Stack action was cancelled.", "Stack action cancelled."
 	default:
 		return "failed", "stack_action_failed", err.Error(), "Stack action failed."
 	}
@@ -3212,7 +3263,7 @@ func dockerRegistryFailure(ctx context.Context, timeout time.Duration, action st
 	case errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded):
 		return "timed_out", action + "_timed_out", "Docker registry auth timed out after " + timeout.String() + ".", "Docker registry auth step timed out."
 	case errors.Is(ctx.Err(), context.Canceled) || errors.Is(err, context.Canceled):
-		return "cancelled", action + "_cancelled", "Docker registry auth was cancelled because Stacklab is shutting down.", "Docker registry auth step cancelled."
+		return "cancelled", action + "_cancelled", "Docker registry auth was cancelled.", "Docker registry auth step cancelled."
 	default:
 		return "failed", action + "_failed", err.Error(), "Docker registry auth step failed."
 	}

@@ -14,6 +14,7 @@ import (
 
 var ErrNotFound = errors.New("job not found")
 var ErrStackLocked = errors.New("stack locked")
+var ErrNotCancellable = errors.New("job is not cancellable")
 
 const selfUpdateReconcileGracePeriod = 2 * time.Hour
 
@@ -22,6 +23,7 @@ type Service struct {
 	mu           sync.Mutex
 	lockedByID   map[string]string
 	locksByJob   map[string][]string
+	cancelByJob  map[string]context.CancelFunc
 	subsByJob    map[string]map[chan store.JobEvent]struct{}
 	activitySubs map[chan struct{}]struct{}
 	onTerminal   func(store.Job)
@@ -32,6 +34,7 @@ func NewService(jobStore *store.Store) *Service {
 		store:        jobStore,
 		lockedByID:   map[string]string{},
 		locksByJob:   map[string][]string{},
+		cancelByJob:  map[string]context.CancelFunc{},
 		subsByJob:    map[string]map[chan store.JobEvent]struct{}{},
 		activitySubs: map[chan struct{}]struct{}{},
 	}
@@ -79,6 +82,21 @@ func (s *Service) Store() *store.Store {
 
 func (s *Service) SetTerminalHook(hook func(store.Job)) {
 	s.onTerminal = hook
+}
+
+func (s *Service) RegisterCancel(jobID string, cancel context.CancelFunc) func() {
+	if jobID == "" || cancel == nil {
+		return func() {}
+	}
+	s.mu.Lock()
+	s.cancelByJob[jobID] = cancel
+	s.mu.Unlock()
+
+	return func() {
+		s.mu.Lock()
+		delete(s.cancelByJob, jobID)
+		s.mu.Unlock()
+	}
 }
 
 func (s *Service) Start(ctx context.Context, stackID, action, requestedBy string) (store.Job, error) {
@@ -315,6 +333,41 @@ func (s *Service) Events(ctx context.Context, id string) (EventsResponse, error)
 	return response, nil
 }
 
+func (s *Service) Cancel(ctx context.Context, id string) (store.Job, error) {
+	job, err := s.Get(ctx, id)
+	if err != nil {
+		return store.Job{}, err
+	}
+	switch job.State {
+	case "cancel_requested":
+		return job, nil
+	case "queued", "running":
+	default:
+		return store.Job{}, ErrNotCancellable
+	}
+
+	s.mu.Lock()
+	cancel := s.cancelByJob[id]
+	s.mu.Unlock()
+	if cancel == nil {
+		return store.Job{}, ErrNotCancellable
+	}
+
+	job.State = "cancel_requested"
+	if job.Workflow != nil {
+		job.Workflow = &store.JobWorkflow{Steps: markWorkflowCancelRequested(job.Workflow.Steps)}
+	}
+	if err := s.store.UpdateJob(ctx, job); err != nil {
+		return store.Job{}, err
+	}
+
+	cancel()
+	if err := s.PublishEvent(ctx, job, "job_cancel_requested", "Cancellation requested.", "", nil); err != nil {
+		return job, err
+	}
+	return job, nil
+}
+
 func (s *Service) ListActive(ctx context.Context) (ActiveJobsResponse, error) {
 	storedJobs, err := s.store.ListActiveJobs(ctx)
 	if err != nil {
@@ -495,6 +548,17 @@ func interruptedWorkflow(steps []store.JobWorkflowStep) ([]store.JobWorkflowStep
 		Action:        cloned[index].Action,
 		TargetStackID: cloned[index].TargetStackID,
 	}
+}
+
+func markWorkflowCancelRequested(steps []store.JobWorkflowStep) []store.JobWorkflowStep {
+	cloned := append([]store.JobWorkflowStep(nil), steps...)
+	for i, step := range cloned {
+		if step.State == "running" || step.State == "queued" {
+			cloned[i].State = "cancel_requested"
+			break
+		}
+	}
+	return cloned
 }
 
 func normalizeLockTargets(primaryStackID string, additional []string) []string {

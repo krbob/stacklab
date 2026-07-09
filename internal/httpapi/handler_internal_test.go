@@ -941,6 +941,49 @@ func TestHandlerListActiveJobs(t *testing.T) {
 	}
 }
 
+func TestHandlerCancelJob(t *testing.T) {
+	t.Parallel()
+
+	handler, served, _ := newInternalTestHandler(t)
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	job, err := handler.jobs.Start(context.Background(), "demo", "pull", "local")
+	if err != nil {
+		t.Fatalf("jobs.Start() error = %v", err)
+	}
+	runCtx, cancel := context.WithCancel(context.Background())
+	unregister := handler.jobs.RegisterCancel(job.ID, cancel)
+	defer unregister()
+
+	response := performInternalJSONRequest(t, served, http.MethodPost, "/api/jobs/"+job.ID+"/cancel", nil, cookies)
+	if response.Code != http.StatusOK {
+		t.Fatalf("POST /api/jobs/%s/cancel status = %d, want %d; body=%s", job.ID, response.Code, http.StatusOK, response.Body.String())
+	}
+	if runCtx.Err() != context.Canceled {
+		t.Fatalf("run context error = %v, want context.Canceled", runCtx.Err())
+	}
+
+	var payload struct {
+		Job struct {
+			ID    string `json:"id"`
+			State string `json:"state"`
+		} `json:"job"`
+	}
+	decodeInternalResponse(t, response, &payload)
+	if payload.Job.ID != job.ID || payload.Job.State != "cancel_requested" {
+		t.Fatalf("unexpected cancel payload: %#v", payload.Job)
+	}
+
+	uncancellable, err := handler.jobs.Start(context.Background(), "other", "pull", "local")
+	if err != nil {
+		t.Fatalf("jobs.Start(uncancellable) error = %v", err)
+	}
+	conflictResponse := performInternalJSONRequest(t, served, http.MethodPost, "/api/jobs/"+uncancellable.ID+"/cancel", nil, cookies)
+	if conflictResponse.Code != http.StatusConflict {
+		t.Fatalf("POST /api/jobs/%s/cancel status = %d, want %d; body=%s", uncancellable.ID, conflictResponse.Code, http.StatusConflict, conflictResponse.Body.String())
+	}
+}
+
 func TestHandlerGetJobEvents(t *testing.T) {
 	t.Parallel()
 

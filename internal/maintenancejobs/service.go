@@ -237,6 +237,12 @@ func (s *Service) StartUpdate(ctx context.Context, request UpdateRequest, reques
 }
 
 func (s *Service) ExecuteUpdate(ctx context.Context, job store.Job, run UpdateRun) (store.Job, error) {
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	unregisterCancel := s.jobs.RegisterCancel(job.ID, cancel)
+	defer unregisterCancel()
+	ctx = runCtx
+
 	workflow := append([]store.JobWorkflowStep(nil), run.Workflow...)
 	var err error
 
@@ -249,7 +255,8 @@ func (s *Service) ExecuteUpdate(ctx context.Context, job store.Job, run UpdateRu
 		}
 		if runErr != nil {
 			finishCtx, cancel := jobFinalizationContext()
-			finishedJob, finishErr := s.finishUpdateFailure(finishCtx, job, workflow, index, "update_stacks_failed", runErr.Error(), run)
+			terminalState, errorCode, errorMessage := maintenanceFailure(ctx, "update_stacks_failed", runErr, s.jobCancelRequested(job.ID))
+			finishedJob, finishErr := s.finishUpdateFailure(finishCtx, job, workflow, index, terminalState, errorCode, errorMessage, run)
 			cancel()
 			if finishErr != nil {
 				return finishedJob, finishErr
@@ -278,7 +285,8 @@ func (s *Service) ExecuteUpdate(ctx context.Context, job store.Job, run UpdateRu
 		updatedJob, updateErr := s.jobs.UpdateWorkflow(ctx, job, workflow)
 		if updateErr != nil {
 			finishCtx, cancel := jobFinalizationContext()
-			finishedJob, finishErr := s.finishUpdateFailure(finishCtx, job, workflow, index, "update_stacks_failed", updateErr.Error(), run)
+			terminalState, errorCode, errorMessage := maintenanceFailure(ctx, "update_stacks_failed", updateErr, s.jobCancelRequested(job.ID))
+			finishedJob, finishErr := s.finishUpdateFailure(finishCtx, job, workflow, index, terminalState, errorCode, errorMessage, run)
 			cancel()
 			return finishedJob, errors.Join(updateErr, finishErr)
 		}
@@ -337,6 +345,12 @@ func (s *Service) StartPrune(ctx context.Context, request PruneRequest, requeste
 }
 
 func (s *Service) ExecutePrune(ctx context.Context, job store.Job, run PruneRun) (store.Job, error) {
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	unregisterCancel := s.jobs.RegisterCancel(job.ID, cancel)
+	defer unregisterCancel()
+	ctx = runCtx
+
 	workflow := append([]store.JobWorkflowStep(nil), run.Workflow...)
 	var err error
 
@@ -347,7 +361,8 @@ func (s *Service) ExecutePrune(ctx context.Context, job store.Job, run PruneRun)
 		}
 		if runErr != nil {
 			finishCtx, cancel := jobFinalizationContext()
-			finishedJob, finishErr := s.finishPruneFailure(finishCtx, job, workflow, index, "prune_failed", runErr.Error(), run)
+			terminalState, errorCode, errorMessage := maintenanceFailure(ctx, "prune_failed", runErr, s.jobCancelRequested(job.ID))
+			finishedJob, finishErr := s.finishPruneFailure(finishCtx, job, workflow, index, terminalState, errorCode, errorMessage, run)
 			cancel()
 			if finishErr != nil {
 				return finishedJob, finishErr
@@ -364,7 +379,8 @@ func (s *Service) ExecutePrune(ctx context.Context, job store.Job, run PruneRun)
 		updatedJob, updateErr := s.jobs.UpdateWorkflow(ctx, job, workflow)
 		if updateErr != nil {
 			finishCtx, cancel := jobFinalizationContext()
-			finishedJob, finishErr := s.finishPruneFailure(finishCtx, job, workflow, index, "prune_failed", updateErr.Error(), run)
+			terminalState, errorCode, errorMessage := maintenanceFailure(ctx, "prune_failed", updateErr, s.jobCancelRequested(job.ID))
+			finishedJob, finishErr := s.finishPruneFailure(finishCtx, job, workflow, index, terminalState, errorCode, errorMessage, run)
 			cancel()
 			return finishedJob, errors.Join(updateErr, finishErr)
 		}
@@ -383,8 +399,8 @@ func (s *Service) ExecutePrune(ctx context.Context, job store.Job, run PruneRun)
 	return job, nil
 }
 
-func (s *Service) finishUpdateFailure(ctx context.Context, job store.Job, workflow []store.JobWorkflowStep, index int, errorCode, errorMessage string, run UpdateRun) (store.Job, error) {
-	workflow = markWorkflowFailed(workflow, index)
+func (s *Service) finishUpdateFailure(ctx context.Context, job store.Job, workflow []store.JobWorkflowStep, index int, terminalState, errorCode, errorMessage string, run UpdateRun) (store.Job, error) {
+	workflow = markWorkflowState(workflow, index, terminalState)
 	if updatedJob, updateErr := s.jobs.UpdateWorkflow(ctx, job, workflow); updateErr == nil {
 		job = updatedJob
 	} else if s.logger != nil {
@@ -393,9 +409,9 @@ func (s *Service) finishUpdateFailure(ctx context.Context, job store.Job, workfl
 	// Mark the failing step before the terminal transition so live consumers
 	// never see a finished job with a step still running.
 	failingJob := job
-	failingJob.State = "failed"
-	_ = s.jobs.PublishEvent(ctx, failingJob, "job_step_finished", updateStepMessage("Failed", workflow[index]), "", workflowStepRef(workflow, index))
-	finishedJob, err := s.jobs.FinishFailed(ctx, job, errorCode, errorMessage)
+	failingJob.State = terminalState
+	_ = s.jobs.PublishEvent(ctx, failingJob, "job_step_finished", updateStepMessage(terminalStepVerb(terminalState), workflow[index]), "", workflowStepRef(workflow, index))
+	finishedJob, err := finishMaintenanceJob(ctx, s.jobs, job, terminalState, errorCode, errorMessage)
 	if err != nil {
 		return finishedJob, err
 	}
@@ -405,17 +421,17 @@ func (s *Service) finishUpdateFailure(ctx context.Context, job store.Job, workfl
 	return finishedJob, nil
 }
 
-func (s *Service) finishPruneFailure(ctx context.Context, job store.Job, workflow []store.JobWorkflowStep, index int, errorCode, errorMessage string, run PruneRun) (store.Job, error) {
-	workflow = markWorkflowFailed(workflow, index)
+func (s *Service) finishPruneFailure(ctx context.Context, job store.Job, workflow []store.JobWorkflowStep, index int, terminalState, errorCode, errorMessage string, run PruneRun) (store.Job, error) {
+	workflow = markWorkflowState(workflow, index, terminalState)
 	if updatedJob, updateErr := s.jobs.UpdateWorkflow(ctx, job, workflow); updateErr == nil {
 		job = updatedJob
 	} else if s.logger != nil {
 		s.logger.Warn("update failed prune workflow failed", slog.String("job_id", job.ID), slog.String("err", updateErr.Error()))
 	}
 	failingJob := job
-	failingJob.State = "failed"
-	_ = s.jobs.PublishEvent(ctx, failingJob, "job_step_finished", pruneStepMessage("Failed", workflow[index]), "", workflowStepRef(workflow, index))
-	finishedJob, err := s.jobs.FinishFailed(ctx, job, errorCode, errorMessage)
+	failingJob.State = terminalState
+	_ = s.jobs.PublishEvent(ctx, failingJob, "job_step_finished", pruneStepMessage(terminalStepVerb(terminalState), workflow[index]), "", workflowStepRef(workflow, index))
+	finishedJob, err := finishMaintenanceJob(ctx, s.jobs, job, terminalState, errorCode, errorMessage)
 	if err != nil {
 		return finishedJob, err
 	}
@@ -423,6 +439,46 @@ func (s *Service) finishPruneFailure(ctx context.Context, job store.Job, workflo
 		s.logger.Warn("record prune audit failed", slog.String("job_id", finishedJob.ID), slog.String("err", err.Error()))
 	}
 	return finishedJob, nil
+}
+
+func (s *Service) jobCancelRequested(jobID string) bool {
+	ctx, cancel := jobFinalizationContext()
+	defer cancel()
+	job, err := s.jobs.Get(ctx, jobID)
+	return err == nil && job.State == "cancel_requested"
+}
+
+func maintenanceFailure(ctx context.Context, defaultCode string, err error, cancelRequested bool) (terminalState, errorCode, errorMessage string) {
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded):
+		return "timed_out", strings.TrimSuffix(defaultCode, "_failed") + "_timed_out", "Maintenance job timed out."
+	case cancelRequested && (errors.Is(ctx.Err(), context.Canceled) || errors.Is(err, context.Canceled)):
+		return "cancelled", strings.TrimSuffix(defaultCode, "_failed") + "_cancelled", "Maintenance job was cancelled."
+	default:
+		return "failed", defaultCode, err.Error()
+	}
+}
+
+func finishMaintenanceJob(ctx context.Context, jobService *jobs.Service, job store.Job, terminalState, errorCode, errorMessage string) (store.Job, error) {
+	switch terminalState {
+	case "timed_out":
+		return jobService.FinishTimedOut(ctx, job, errorCode, errorMessage)
+	case "cancelled":
+		return jobService.FinishCancelled(ctx, job, errorCode, errorMessage)
+	default:
+		return jobService.FinishFailed(ctx, job, errorCode, errorMessage)
+	}
+}
+
+func terminalStepVerb(terminalState string) string {
+	switch terminalState {
+	case "cancelled":
+		return "Cancelled"
+	case "timed_out":
+		return "Timed out"
+	default:
+		return "Failed"
+	}
 }
 
 func jobFinalizationContext() (context.Context, context.CancelFunc) {
@@ -511,8 +567,12 @@ func markWorkflowSucceeded(steps []store.JobWorkflowStep, index int) []store.Job
 }
 
 func markWorkflowFailed(steps []store.JobWorkflowStep, index int) []store.JobWorkflowStep {
+	return markWorkflowState(steps, index, "failed")
+}
+
+func markWorkflowState(steps []store.JobWorkflowStep, index int, state string) []store.JobWorkflowStep {
 	if index >= 0 && index < len(steps) {
-		steps[index].State = "failed"
+		steps[index].State = state
 	}
 	return steps
 }

@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -74,6 +75,65 @@ func TestFinishTimedOutMarksTerminalState(t *testing.T) {
 	}
 	if events[2].Event != "job_finished" || events[2].State != "timed_out" {
 		t.Fatalf("job finished event = %#v, want timed_out job_finished", events[2])
+	}
+}
+
+func TestCancelRequestsCancellableJob(t *testing.T) {
+	t.Parallel()
+
+	jobStore := openJobsTestStore(t)
+	service := NewService(jobStore)
+
+	job, err := service.Start(context.Background(), "demo", "pull", "local")
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	workflow := []store.JobWorkflowStep{{Action: "pull", State: "running", TargetStackID: "demo"}}
+	job, err = service.UpdateWorkflow(context.Background(), job, workflow)
+	if err != nil {
+		t.Fatalf("UpdateWorkflow() error = %v", err)
+	}
+
+	runCtx, cancel := context.WithCancel(context.Background())
+	unregister := service.RegisterCancel(job.ID, cancel)
+	defer unregister()
+
+	cancelledJob, err := service.Cancel(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("Cancel() error = %v", err)
+	}
+	if cancelledJob.State != "cancel_requested" {
+		t.Fatalf("cancelled job state = %q, want cancel_requested", cancelledJob.State)
+	}
+	if cancelledJob.Workflow == nil || cancelledJob.Workflow.Steps[0].State != "cancel_requested" {
+		t.Fatalf("cancelled job workflow = %#v", cancelledJob.Workflow)
+	}
+	if runCtx.Err() != context.Canceled {
+		t.Fatalf("run context error = %v, want context.Canceled", runCtx.Err())
+	}
+
+	events, err := jobStore.ListJobEvents(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("ListJobEvents() error = %v", err)
+	}
+	if events[len(events)-1].Event != "job_cancel_requested" || events[len(events)-1].State != "cancel_requested" {
+		t.Fatalf("last event = %#v, want cancel_requested event", events[len(events)-1])
+	}
+}
+
+func TestCancelRejectsUnregisteredJob(t *testing.T) {
+	t.Parallel()
+
+	jobStore := openJobsTestStore(t)
+	service := NewService(jobStore)
+
+	job, err := service.Start(context.Background(), "demo", "pull", "local")
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	if _, err := service.Cancel(context.Background(), job.ID); !errors.Is(err, ErrNotCancellable) {
+		t.Fatalf("Cancel() error = %v, want ErrNotCancellable", err)
 	}
 }
 
