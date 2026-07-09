@@ -38,6 +38,27 @@ func TestParseJournalEntries(t *testing.T) {
 	}
 }
 
+func TestParseJournalEntriesSkipsNonJSONLines(t *testing.T) {
+	t.Parallel()
+
+	output := strings.Join([]string{
+		`{"__REALTIME_TIMESTAMP":"1712336000000000","PRIORITY":"6","MESSAGE":"Started","__CURSOR":"s=cursor-1"}`,
+		`journalctl: warning: output may be incomplete`,
+		`{"__REALTIME_TIMESTAMP":"1712336010000000","PRIORITY":"3","MESSAGE":"Failed to bind","__CURSOR":"s=cursor-2"}`,
+	}, "\n")
+
+	entries, err := parseJournalEntries([]byte(output))
+	if err != nil {
+		t.Fatalf("parseJournalEntries() error = %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("len(entries) = %d, want 2: %#v", len(entries), entries)
+	}
+	if entries[0].Cursor != "s=cursor-1" || entries[1].Cursor != "s=cursor-2" {
+		t.Fatalf("unexpected entries: %#v", entries)
+	}
+}
+
 func TestFilterLogEntries(t *testing.T) {
 	t.Parallel()
 

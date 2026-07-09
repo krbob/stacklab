@@ -81,7 +81,7 @@ func NewServiceWithStore(cfg config.Config, startedAt time.Time, appStore settin
 }
 
 func defaultCommandRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
-	return exec.CommandContext(ctx, name, args...).CombinedOutput()
+	return exec.CommandContext(ctx, name, args...).Output()
 }
 
 func (s *Service) Overview(ctx context.Context) (OverviewResponse, error) {
@@ -283,7 +283,7 @@ func parseJournalEntries(output []byte) ([]StacklabLogEntry, error) {
 
 		var raw map[string]any
 		if err := json.Unmarshal(line, &raw); err != nil {
-			return nil, err
+			continue
 		}
 
 		entry := StacklabLogEntry{
