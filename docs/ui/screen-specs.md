@@ -102,7 +102,8 @@ Purpose: Detailed view of a single stack with service breakdown.
 │ Stacks │                                                            │
 │ Audit  │  ● Running (2/2)                     ✎ Drifted             │
 │ Settin │                                                            │
-│        │  [Overview] [Editor] [Logs] [Stats] [Terminal] [History]   │
+│        │  [Overview] [Editor] [Files] [Logs] [Stats] [Terminal]     │
+│        │  [History]                                                 │
 │        │─────────────────────────────────────────────────────────────│
 │        │                                                            │
 │        │  Actions: [▶ Deploy] [↻ Restart] [⏹ Stop] [⬇ Down] [⬆ Pull]
@@ -162,6 +163,7 @@ When `display_state = orphaned`, the stack has runtime containers but no canonic
 |---|---|---|
 | Overview | Available | Shows runtime containers, ports, states. Displays a warning banner: "Stack definition missing — runtime containers exist without compose.yaml." |
 | Editor | **Disabled** | Tooltip: "No compose.yaml found for this stack." |
+| Files | Available | Stack-scoped workspace files can still be inspected when present. |
 | Logs | Available | Runtime containers produce logs. |
 | Stats | Available | Runtime containers produce stats. |
 | Terminal | Available | Container exec works on running containers. |
@@ -195,7 +197,7 @@ Purpose: Edit `compose.yaml` and `.env`, validate, preview resolved config, depl
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │  ← Stacks / nextcloud                                               │
-│  [Overview] [Editor] [Logs] [Stats] [Terminal] [History]            │
+│  [Overview] [Editor] [Files] [Logs] [Stats] [Terminal] [History]    │
 ├─────────────────────────────────┬────────────────────────────────────┤
 │                                 │                                    │
 │  [compose.yaml ▾] [.env]       │  Resolved config                   │
@@ -246,7 +248,7 @@ Purpose: Edit `compose.yaml` and `.env`, validate, preview resolved config, depl
 - `.env` — shown if file exists or user creates one
 - future: additional compose override files
 
-## 7. Config Workspace
+## 5. Config Workspace
 
 Route: `/config`
 
@@ -272,7 +274,7 @@ When a changed file has:
 
 The row should still stay visible in the normal stack grouping so the operator understands that Git sees the change even though Stacklab cannot safely act on it.
 
-## 5. Log Viewer
+## 6. Log Viewer
 
 Route: `/stacks/:stackId/logs`
 
@@ -281,7 +283,7 @@ Purpose: Live-streamed logs from stack services.
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │  ← Stacks / nextcloud                                               │
-│  [Overview] [Editor] [Logs] [Stats] [Terminal] [History]            │
+│  [Overview] [Editor] [Files] [Logs] [Stats] [Terminal] [History]    │
 ├──────────────────────────────────────────────────────────────────────┤
 │                                                                      │
 │  Services: [All ▾]  [app] [db]        🔍 Filter...    [⏸ Pause]    │
@@ -315,7 +317,7 @@ Purpose: Live-streamed logs from stack services.
 - configurable buffer limit (default: 5000 lines, older lines dropped)
 - WebSocket stream with backpressure handling
 
-## 6. Stats Dashboard
+## 7. Stats Dashboard
 
 Route: `/stacks/:stackId/stats`
 
@@ -324,7 +326,7 @@ Purpose: Real-time resource usage per container and aggregated per stack.
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │  ← Stacks / nextcloud                                               │
-│  [Overview] [Editor] [Logs] [Stats] [Terminal] [History]            │
+│  [Overview] [Editor] [Files] [Logs] [Stats] [Terminal] [History]    │
 ├──────────────────────────────────────────────────────────────────────┤
 │                                                                      │
 │  Session history: last ~5 min, collected while this view is open     │
@@ -379,7 +381,7 @@ History rules:
 
 Show empty state (see states-and-empty-cases.md).
 
-## 7. Terminal
+## 8. Terminal
 
 Route: `/stacks/:stackId/terminal`
 
@@ -388,12 +390,11 @@ Purpose: Container shell sessions via `docker exec`.
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │  ← Stacks / nextcloud                                               │
-│  [Overview] [Editor] [Logs] [Stats] [Terminal] [History]            │
+│  [Overview] [Editor] [Files] [Logs] [Stats] [Terminal] [History]    │
 ├──────────────────────────────────────────────────────────────────────┤
 │                                                                      │
-│  Container: [app ▾]    Shell: [/bin/sh ▾]    [+ New session]        │
+│  Container: [app ▾]    Shell: [/bin/sh ▾]    [Connect]             │
 │                                                                      │
-│  Sessions: [app #1] [app #2] [db #1]                        [×]    │
 │  ┌──────────────────────────────────────────────────────────────┐   │
 │  │ root@abc123:/app# ls -la                                     │   │
 │  │ total 48                                                     │   │
@@ -407,7 +408,7 @@ Purpose: Container shell sessions via `docker exec`.
 │  │                                                              │   │
 │  └──────────────────────────────────────────────────────────────┘   │
 │                                                                      │
-│  Connected ●                                         Resize: auto   │
+│  Connected ●                              [Disconnect] Resize: auto │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -415,8 +416,8 @@ Purpose: Container shell sessions via `docker exec`.
 
 - **Container selector**: dropdown listing running containers in the stack
 - **Shell selector**: defaults to `/bin/sh`, option for `/bin/bash` if available
-- **Multiple sessions**: tab bar for parallel sessions to different (or same) containers
-- **Close session**: per-tab close button. Confirmation if session is active.
+- **Single active session**: one container/shell session per terminal view. Starting another session happens after the previous one ends or is disconnected.
+- **Disconnect**: closes the current session; scrollback remains visible after exit.
 - **Connection indicator**: green dot when connected, red when disconnected. On disconnect: UI attempts WebSocket reconnect with backoff. If the backend PTY session is still alive, the stream resumes. If the PTY was terminated (idle timeout, cleanup), UI shows "Session ended. Start a new session?" — it does not silently pretend the old session continues. Scrollback buffer is preserved client-side in both cases.
 - **Auto-resize**: XTerm.js fit addon syncs terminal size with browser viewport
 
@@ -440,11 +441,11 @@ Both modes use the same XTerm.js wrapper and WebSocket transport. The mode selec
 
 ### Tablet / responsive
 
-- terminal is usable on tablet but shows a hint: "Best experience on desktop"
-- minimum usable width: 768px (80 columns at standard font size)
-- below 768px: terminal view shows "Open on desktop for terminal access"
+- terminal is usable on tablet and mobile, with controls wrapping above the XTerm surface
+- tablet shows a "Best experience on desktop" hint
+- narrow mobile widths are supported for emergency use, but dense shell work remains better on desktop
 
-## 8. Stack History (Per-Stack Audit)
+## 9. Stack History (Per-Stack Audit)
 
 Route: `/stacks/:stackId/audit`
 
@@ -453,7 +454,7 @@ Purpose: Chronological log of mutating operations on this stack.
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │  ← Stacks / nextcloud                                               │
-│  [Overview] [Editor] [Logs] [Stats] [Terminal] [History]            │
+│  [Overview] [Editor] [Files] [Logs] [Stats] [Terminal] [History]    │
 ├──────────────────────────────────────────────────────────────────────┤
 │                                                                      │
 │  Stack history                                          [Export]     │
@@ -489,7 +490,7 @@ All field names and values use the domain vocabulary from `docs/domain/operation
 - load 50 entries at a time
 - "Load more" button (no infinite scroll — explicit control)
 
-## 9. Global Audit
+## 10. Global Audit
 
 Route: `/audit`
 
@@ -503,7 +504,7 @@ Same layout as stack history but with an additional "Stack" column and a stack f
 │  2026-04-03 10:00  monitoring  up       ✗ failed        8s  [Log]  │
 ```
 
-## 10. Create Stack
+## 11. Create Stack
 
 Route: `/stacks/new`
 
@@ -540,7 +541,7 @@ Purpose: Create a new stack with directory scaffolding.
 - check for name collision with existing stacks
 - initial compose.yaml must pass `docker compose config` for "Create & Deploy"
 
-## 11. Host
+## 12. Host
 
 Route: `/host`
 
@@ -582,7 +583,7 @@ Notes:
 - Stacklab logs are stacked under the overview, not a separate tab
 - logs use polling follow mode in the first version
 
-## 12. Settings
+## 13. Settings
 
 Route: `/settings`
 
@@ -621,7 +622,7 @@ Purpose: Application configuration.
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-## 13. Operation Progress Panel
+## 14. Operation Progress Panel
 
 Not a standalone screen but an inline/overlay panel shown during mutating operations.
 
@@ -641,5 +642,5 @@ Not a standalone screen but an inline/overlay panel shown during mutating operat
 
 - appears below the action bar on stack overview
 - streamed via WebSocket in real time
-- cancellable where Docker supports it (SIGINT)
-- on completion: auto-collapses after 3 seconds if success, stays open if failure
+- cancellable for queued/running jobs through the shared cancel endpoint
+- terminal states remain visible; owners may provide an explicit close control after completion

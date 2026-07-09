@@ -41,11 +41,11 @@ There is no deeper nesting. Every screen is reachable in at most two clicks from
 
 The sidebar is collapsible on tablet widths (below 1024px) to a narrow icon bar.
 
-Future global chrome note:
+Global activity is part of the app chrome:
 
-- long-running jobs should later surface in a persistent global activity affordance in the app chrome
-- this is intended for background job visibility, not as a replacement for audit or page-local progress panels
-- the first milestone is backed by `GET /api/jobs/active`, with final chrome placement left to UI design
+- active and recently completed jobs are visible in the sidebar and mobile header
+- the activity affordance opens the shared job drawer for live job detail
+- page-local progress panels remain the primary context for a workflow that was just started
 
 ## Stack Context Navigation
 
@@ -54,6 +54,7 @@ Entering a stack opens a detail view with tabbed sub-navigation:
 ```
 /stacks/:stackId
 /stacks/:stackId/editor
+/stacks/:stackId/files
 /stacks/:stackId/logs
 /stacks/:stackId/stats
 /stacks/:stackId/terminal
@@ -66,6 +67,7 @@ Entering a stack opens a detail view with tabbed sub-navigation:
 |---|---|---|
 | **Overview** | `/stacks/:id` | Services, containers, ports, state, health |
 | **Editor** | `/stacks/:id/editor` | Edit `compose.yaml` and `.env` with validation |
+| **Files** | `/stacks/:id/files` | Browse and edit stack-scoped workspace files |
 | **Logs** | `/stacks/:id/logs` | Live log streaming, filterable by service |
 | **Stats** | `/stacks/:id/stats` | CPU, memory, network per container and aggregated |
 | **Terminal** | `/stacks/:id/terminal` | Container shell sessions (host shell post-MVP) |
@@ -79,7 +81,7 @@ Entering a stack opens a detail view with tabbed sub-navigation:
 |---|---|---|
 | Stack List | Dashboard with all stacks, their states, quick actions | Yes |
 | Host | Host overview, Stacklab version/build info, Stacklab service logs | Yes |
-| Docker Admin | Read-only Docker daemon status and `daemon.json` visibility | Post-MVP / Next milestone |
+| Docker Admin | Docker daemon status, Engine metadata, `daemon.json` visibility, and managed daemon settings apply where configured | Yes |
 | Config Workspace | Browse, edit, diff, commit, and push managed config files | Yes |
 | Maintenance | Bulk stack update, image inventory, and cleanup | Yes |
 | Global Audit | Chronological log of all mutating operations | Yes |
@@ -92,6 +94,7 @@ Entering a stack opens a detail view with tabbed sub-navigation:
 |---|---|---|
 | Stack Overview | Service list, container states, ports, mounts, image/build mode | Yes |
 | Compose Editor | CodeMirror editor for `compose.yaml` and `.env`, validation, resolved preview | Yes |
+| Stack Files | Stack-scoped file browser/editor for non-definition files | Yes |
 | Log Viewer | Live log stream with service filter and search | Yes |
 | Stats Dashboard | Real-time CPU/mem/net charts per container and aggregated | Yes |
 | Terminal | Container exec shell sessions via XTerm.js | Yes |
@@ -153,7 +156,7 @@ Stacks → Docker → inspect daemon status → inspect daemon.json
 |---|---|---|
 | >= 1280px | Desktop | Full layout: sidebar + content + optional side panel |
 | 768px - 1279px | Tablet | Collapsed sidebar (icons only), full content area. Terminal and editor show a "best on desktop" hint but remain usable. |
-| < 768px | Mobile | Not a target. Basic stack list readable, but editor and terminal are not formally supported. |
+| < 768px | Mobile | Fixed app shell with top header, bottom primary navigation, and a "More" drawer. Core read/operate flows are supported; dense tools such as editor and terminal remain usable but are optimized for larger screens. |
 
 ## URL Structure
 
@@ -169,6 +172,7 @@ All routes are client-side (SPA with history mode):
 /stacks/new
 /stacks/:stackId
 /stacks/:stackId/editor
+/stacks/:stackId/files
 /stacks/:stackId/logs
 /stacks/:stackId/stats
 /stacks/:stackId/terminal
