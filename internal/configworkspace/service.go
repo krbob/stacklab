@@ -35,15 +35,22 @@ var (
 type Service struct {
 	repoRoot      string
 	workspaceRoot string
-	repairer      permissionRepairer
+	repairer      PermissionRepairer
 }
 
-type permissionRepairer interface {
+type PermissionRepairer interface {
 	Capability(ctx context.Context) workspacerepair.Capability
 	Repair(ctx context.Context, targetPath string, recursive bool) (workspacerepair.Result, error)
 }
 
 func NewService(cfg config.Config) *Service {
+	return NewServiceWithRepairer(cfg, workspacerepair.NewService(cfg))
+}
+
+func NewServiceWithRepairer(cfg config.Config, repairer PermissionRepairer) *Service {
+	if repairer == nil {
+		repairer = workspacerepair.NewService(cfg)
+	}
 	repoRoot := cfg.RootDir
 	if absolute, err := filepath.Abs(repoRoot); err == nil {
 		repoRoot = absolute
@@ -55,7 +62,7 @@ func NewService(cfg config.Config) *Service {
 	return &Service{
 		repoRoot:      repoRoot,
 		workspaceRoot: root,
-		repairer:      workspacerepair.NewService(cfg),
+		repairer:      repairer,
 	}
 }
 

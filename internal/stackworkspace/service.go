@@ -34,22 +34,29 @@ var (
 
 type Service struct {
 	rootDir  string
-	repairer permissionRepairer
+	repairer PermissionRepairer
 }
 
-type permissionRepairer interface {
+type PermissionRepairer interface {
 	Capability(ctx context.Context) workspacerepair.Capability
 	Repair(ctx context.Context, targetPath string, recursive bool) (workspacerepair.Result, error)
 }
 
 func NewService(cfg config.Config) *Service {
+	return NewServiceWithRepairer(cfg, workspacerepair.NewService(cfg))
+}
+
+func NewServiceWithRepairer(cfg config.Config, repairer PermissionRepairer) *Service {
+	if repairer == nil {
+		repairer = workspacerepair.NewService(cfg)
+	}
 	root := filepath.Join(cfg.RootDir, "stacks")
 	if absolute, err := filepath.Abs(root); err == nil {
 		root = absolute
 	}
 	return &Service{
 		rootDir:  root,
-		repairer: workspacerepair.NewService(cfg),
+		repairer: repairer,
 	}
 }
 

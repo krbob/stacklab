@@ -162,6 +162,7 @@ func NewHandlerWithContext(appCtx context.Context, cfg config.Config, logger *sl
 	maintenanceService := maintenance.NewService()
 	hostInfoService := hostinfo.NewServiceWithStore(cfg, time.Now().UTC(), jobService.Store())
 	hostInfoService.StartMetrics(appCtx)
+	workspaceRepairer := workspacerepair.NewService(cfg)
 	handler := &Handler{
 		appCtx:        appCtx,
 		cfg:           cfg,
@@ -191,8 +192,8 @@ func NewHandlerWithContext(appCtx context.Context, cfg config.Config, logger *sl
 		hostInfo:        hostInfoService,
 		dockerAdmin:     dockeradmin.NewService(cfg),
 		dockerRegistry:  dockerregistryauth.NewService(cfg),
-		configFiles:     configworkspace.NewService(cfg),
-		stackFiles:      stackworkspace.NewService(cfg),
+		configFiles:     configworkspace.NewServiceWithRepairer(cfg, workspaceRepairer),
+		stackFiles:      stackworkspace.NewServiceWithRepairer(cfg, workspaceRepairer),
 		gitStatus:       gitworkspace.NewService(cfg),
 		maintenance:     maintenanceService,
 		maintenanceJobs: maintenancejobs.NewService(logger, jobService, auditService, stackReader, maintenanceService),

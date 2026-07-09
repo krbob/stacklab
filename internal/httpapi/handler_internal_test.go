@@ -2062,6 +2062,7 @@ func newInternalTestHandler(t *testing.T) (*Handler, http.Handler, config.Config
 	maintenanceService := maintenance.NewService()
 	maintenanceRunner := maintenancejobs.NewService(logger, jobService, auditService, stackReader, maintenanceService)
 	schedulerService := scheduler.NewService(testStore, auditService, maintenanceRunner, stackReader, logger)
+	workspaceRepairer := workspacerepair.NewService(cfg)
 	jobService.SetTerminalHook(notificationService.DispatchJobAsync)
 
 	handler := &Handler{
@@ -2081,7 +2082,8 @@ func newInternalTestHandler(t *testing.T) (*Handler, http.Handler, config.Config
 		hostInfo:        hostinfo.NewService(cfg, time.Unix(1_712_598_000, 0).UTC()),
 		dockerAdmin:     dockeradmin.NewService(cfg),
 		dockerRegistry:  dockerregistryauth.NewService(cfg),
-		configFiles:     configworkspace.NewService(cfg),
+		configFiles:     configworkspace.NewServiceWithRepairer(cfg, workspaceRepairer),
+		stackFiles:      stackworkspace.NewServiceWithRepairer(cfg, workspaceRepairer),
 		gitStatus:       gitworkspace.NewService(cfg),
 		maintenance:     maintenanceService,
 		maintenanceJobs: maintenanceRunner,

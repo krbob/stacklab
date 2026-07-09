@@ -269,6 +269,22 @@ func TestServiceRepairPermissionsUsesRepairerAndReturnsCapability(t *testing.T) 
 	}
 }
 
+func TestNewServiceWithRepairerUsesProvidedRepairer(t *testing.T) {
+	t.Parallel()
+
+	repairer := &fakePermissionRepairer{
+		capability: workspacerepair.Capability{Supported: true, Recursive: true},
+		repair: func(ctx context.Context, targetPath string, recursive bool) (workspacerepair.Result, error) {
+			return workspacerepair.Result{}, nil
+		},
+	}
+	service := NewServiceWithRepairer(config.Config{RootDir: t.TempDir()}, repairer)
+
+	if service.repairer != repairer {
+		t.Fatalf("NewServiceWithRepairer did not use provided repairer")
+	}
+}
+
 type fakePermissionRepairer struct {
 	capability workspacerepair.Capability
 	repair     func(ctx context.Context, targetPath string, recursive bool) (workspacerepair.Result, error)
