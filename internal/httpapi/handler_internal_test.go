@@ -1679,6 +1679,36 @@ func TestHandlerMaintenanceUpdateStacksWorkflow(t *testing.T) {
 	}
 }
 
+func TestHandlerMaintenanceUpdateDoesNotExposeInternalStartError(t *testing.T) {
+	t.Parallel()
+
+	_, served, _ := newInternalTestHandler(t)
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	response := performInternalJSONRequest(t, served, http.MethodPost, "/api/maintenance/update-stacks", map[string]any{
+		"target": map[string]any{
+			"mode": "unsupported",
+		},
+	}, cookies)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("POST /api/maintenance/update-stacks status = %d, want %d; body=%s", response.Code, http.StatusBadRequest, response.Body.String())
+	}
+
+	var payload struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	decodeInternalResponse(t, response, &payload)
+	if payload.Error.Code != "validation_failed" || payload.Error.Message != "Failed to start maintenance update." {
+		t.Fatalf("unexpected error payload: %#v", payload)
+	}
+	if strings.Contains(response.Body.String(), "target.mode") {
+		t.Fatalf("response leaked internal error: %s", response.Body.String())
+	}
+}
+
 func TestHandlerMaintenanceUpdateWithServiceExclusionsDefaultsRemoveOrphansOff(t *testing.T) {
 	stacks.ResetComposeCLICacheForTests()
 	t.Cleanup(stacks.ResetComposeCLICacheForTests)

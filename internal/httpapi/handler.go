@@ -1120,7 +1120,7 @@ func (h *Handler) handleUpdateStacksMaintenance(w http.ResponseWriter, r *http.R
 			writeError(w, http.StatusConflict, "stack_locked", "Another job is already mutating one of the selected stacks.", nil)
 		default:
 			h.logger.Error("run maintenance job failed", slog.String("err", err.Error()))
-			writeError(w, http.StatusBadRequest, "validation_failed", err.Error(), nil)
+			writeError(w, http.StatusBadRequest, "validation_failed", "Failed to start maintenance update.", nil)
 		}
 		return
 	}
@@ -1468,7 +1468,7 @@ func (h *Handler) handleMaintenancePrune(w http.ResponseWriter, r *http.Request)
 			writeError(w, http.StatusConflict, "conflict", "Another global or stack maintenance job is already running.", nil)
 		default:
 			h.logger.Error("run prune job failed", slog.String("err", err.Error()))
-			writeError(w, http.StatusBadRequest, "validation_failed", err.Error(), nil)
+			writeError(w, http.StatusBadRequest, "validation_failed", "Failed to start maintenance prune.", nil)
 		}
 		return
 	}
