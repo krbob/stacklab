@@ -263,6 +263,48 @@ func TestServiceCommitAndPushSelectedPaths(t *testing.T) {
 	}
 }
 
+func TestServiceCommitRenamedFileIncludesOldPath(t *testing.T) {
+	t.Parallel()
+
+	service, root := newTestService(t)
+	runGit(t, root, "init", "-b", "main")
+	runGit(t, root, "config", "user.name", "Stacklab Test")
+	runGit(t, root, "config", "user.email", "stacklab@example.com")
+
+	mustWriteFile(t, filepath.Join(root, "config", "demo", "old.conf"), "server_name demo.local;\n")
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "initial")
+	mustRename(t, filepath.Join(root, "config", "demo", "old.conf"), filepath.Join(root, "config", "demo", "new.conf"))
+	runGit(t, root, "add", "-A", "config/demo")
+
+	status, err := service.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status() error = %v", err)
+	}
+	if len(status.Items) != 1 || status.Items[0].Status != FileStatusRenamed || status.Items[0].OldPath == nil || *status.Items[0].OldPath != "config/demo/old.conf" {
+		t.Fatalf("unexpected rename status: %#v", status.Items)
+	}
+
+	commitResponse, err := service.Commit(context.Background(), CommitRequest{
+		Message: "Rename app config",
+		Paths:   []string{"config/demo/new.conf"},
+	})
+	if err != nil {
+		t.Fatalf("Commit(rename) error = %v", err)
+	}
+	if !commitResponse.Committed || commitResponse.RemainingChanges != 0 {
+		t.Fatalf("unexpected Commit(rename) payload: %#v", commitResponse)
+	}
+
+	status, err = service.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status() after rename commit error = %v", err)
+	}
+	if !status.Clean || len(status.Items) != 0 {
+		t.Fatalf("unexpected status after rename commit: %#v", status)
+	}
+}
+
 func TestServiceCommitRemovesStaleIndexLock(t *testing.T) {
 	t.Parallel()
 

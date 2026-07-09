@@ -208,11 +208,12 @@ func (s *Service) Commit(ctx context.Context, request CommitRequest) (CommitResp
 		return CommitResponse{}, classifyGitMutationError(stderr, err)
 	}
 
-	diffArgs := append([]string{"diff", "--cached", "--quiet", "--"}, normalizedPaths...)
+	commitPaths := commitPathspecs(selectedItems, normalizedPaths)
+	diffArgs := append([]string{"diff", "--cached", "--quiet", "--"}, commitPaths...)
 	if _, stderr, err := s.runGit(ctx, diffArgs...); err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
-			commitArgs := append([]string{"commit", "-m", message, "--only", "--"}, normalizedPaths...)
+			commitArgs := append([]string{"commit", "-m", message, "--only", "--"}, commitPaths...)
 			if _, stderr, err := s.runGit(ctx, commitArgs...); err != nil {
 				return CommitResponse{}, classifyGitCommitError(stderr, err)
 			}
@@ -405,6 +406,28 @@ func (s *Service) selectedItems(ctx context.Context, requestedPaths []string) (S
 	})
 
 	return status, selectedItems, normalizedPaths, nil
+}
+
+func commitPathspecs(items []StatusItem, selectedPaths []string) []string {
+	seen := make(map[string]struct{}, len(selectedPaths)+len(items))
+	paths := make([]string, 0, len(selectedPaths)+len(items))
+	add := func(path string) {
+		if _, ok := seen[path]; ok {
+			return
+		}
+		seen[path] = struct{}{}
+		paths = append(paths, path)
+	}
+	for _, path := range selectedPaths {
+		add(path)
+	}
+	for _, item := range items {
+		if item.OldPath != nil {
+			add(*item.OldPath)
+		}
+	}
+	sort.Strings(paths)
+	return paths
 }
 
 func (s *Service) repoRoot(ctx context.Context) (string, bool, string, error) {
