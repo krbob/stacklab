@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useOutletContext } from 'react-router-dom'
+import { useOutletContext, useSearchParams } from 'react-router-dom'
 import type { StackDetailResponse } from '@/lib/api-types'
 import { useTerminal } from '@/hooks/use-terminal'
 import { useWs } from '@/hooks/use-ws'
@@ -17,10 +17,14 @@ const EXIT_REASONS: Record<string, string> = {
 export function StackTerminalPage() {
   const { stack } = useOutletContext<{ stack: StackDetailResponse['stack'] }>()
   const { connected } = useWs()
+  const [searchParams] = useSearchParams()
 
   const runningContainers = stack.containers.filter((c) => c.status === 'running')
+  const requestedService = searchParams.get('service')?.trim() ?? ''
+  const requestedContainerId = runningContainers.find((c) => c.service_name === requestedService)?.id
+  const runningContainerKey = runningContainers.map((c) => `${c.service_name}:${c.id}`).join(',')
 
-  const [selectedContainerId, setSelectedContainerId] = useState(runningContainers[0]?.id ?? '')
+  const [selectedContainerId, setSelectedContainerId] = useState(requestedContainerId ?? runningContainers[0]?.id ?? '')
   const [shell, setShell] = useState('/bin/sh')
 
   const terminal = useTerminal({
@@ -38,6 +42,16 @@ export function StackTerminalPage() {
       writeToXtermRef.current?.(data)
     })
   }, [terminal])
+
+  useEffect(() => {
+    if (terminal.state === 'connected' || terminal.state === 'connecting') return
+    if (requestedContainerId) {
+      setSelectedContainerId(requestedContainerId)
+    } else if (!selectedContainerId && runningContainers[0]) {
+      setSelectedContainerId(runningContainers[0].id)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedContainerId, runningContainerKey, terminal.state])
 
   // XTerm.js user input → WS
   const handleUserInput = useCallback((data: string) => {

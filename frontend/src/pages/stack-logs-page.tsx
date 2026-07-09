@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useOutletContext } from 'react-router-dom'
+import { useOutletContext, useSearchParams } from 'react-router-dom'
 import type { StackDetailResponse } from '@/lib/api-types'
 import { useLogStream } from '@/hooks/use-log-stream'
 import { useWs } from '@/hooks/use-ws'
@@ -20,8 +20,11 @@ const SERVICE_COLORS = [
 export function StackLogsPage() {
   const { stack } = useOutletContext<{ stack: StackDetailResponse['stack'] }>()
   const { connected } = useWs()
+  const [searchParams] = useSearchParams()
 
   const serviceNames = stack.services.map((s) => s.name)
+  const serviceKey = serviceNames.join(',')
+  const requestedService = searchParams.get('service')?.trim() ?? ''
   const [selectedServices, setSelectedServices] = useState<string[]>([])
   const [filter, setFilter] = useState('')
   const [autoScroll, setAutoScroll] = useState(true)
@@ -34,7 +37,6 @@ export function StackLogsPage() {
 
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  const serviceKey = serviceNames.join(',')
   const colorMap = useMemo(() => {
     const map = new Map<string, string>()
     serviceNames.forEach((name, i) => {
@@ -43,6 +45,13 @@ export function StackLogsPage() {
     return map
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serviceKey])
+
+  useEffect(() => {
+    if (requestedService && serviceNames.includes(requestedService)) {
+      setSelectedServices([requestedService])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedService, serviceKey])
 
   // Auto-scroll to bottom
   useEffect(() => {

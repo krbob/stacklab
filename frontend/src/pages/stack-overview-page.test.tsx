@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { StackOverviewPage } from './stack-overview-page'
 import type { StackDetailResponse } from '@/lib/api-types'
@@ -85,7 +86,7 @@ describe('StackOverviewPage', () => {
       job: { id: 'job_pull_1', stack_id: 'demo', action: 'pull', state: 'running' },
     })
 
-    render(<StackOverviewPage />)
+    renderOverview()
 
     fireEvent.click(screen.getByRole('button', { name: 'Pull' }))
 
@@ -119,7 +120,7 @@ describe('StackOverviewPage', () => {
       clear: vi.fn(),
     }))
 
-    const { rerender } = render(<StackOverviewPage />)
+    const { rerender } = renderOverview()
 
     fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
 
@@ -129,7 +130,7 @@ describe('StackOverviewPage', () => {
     expect(mockRefetch).not.toHaveBeenCalled()
 
     jobState = 'succeeded'
-    rerender(<StackOverviewPage />)
+    rerender(wrapOverview())
 
     await waitFor(() => {
       expect(mockRefetch).toHaveBeenCalledTimes(1)
@@ -144,9 +145,55 @@ describe('StackOverviewPage', () => {
       available_actions: ['up', 'down', 'pull', 'build', 'save_definition', 'remove_stack_definition'],
     }
 
-    render(<StackOverviewPage />)
+    renderOverview()
 
     expect(screen.queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Down' })).toBeInTheDocument()
   })
+
+  it('links service cards to filtered logs and shell views', () => {
+    outletStack = {
+      ...baseStack,
+      services: [{
+        name: 'web',
+        mode: 'image',
+        image_ref: 'nginx:alpine',
+        build_context: null,
+        dockerfile_path: null,
+        ports: [],
+        volumes: [],
+        depends_on: [],
+        healthcheck_present: true,
+      }],
+      containers: [{
+        id: 'abc123',
+        name: 'demo-web-1',
+        service_name: 'web',
+        image_id: 'sha256:abc',
+        image_ref: 'nginx:alpine',
+        status: 'running',
+        health_status: null,
+        started_at: '2026-01-01T00:00:00Z',
+        ports: [],
+        networks: [],
+      }],
+    }
+
+    renderOverview()
+
+    expect(screen.getByRole('link', { name: 'Logs' })).toHaveAttribute('href', '/stacks/demo/logs?service=web')
+    expect(screen.getByRole('link', { name: 'Shell' })).toHaveAttribute('href', '/stacks/demo/terminal?service=web')
+  })
 })
+
+function wrapOverview() {
+  return (
+    <MemoryRouter initialEntries={['/stacks/demo']}>
+      <StackOverviewPage />
+    </MemoryRouter>
+  )
+}
+
+function renderOverview() {
+  return render(wrapOverview())
+}

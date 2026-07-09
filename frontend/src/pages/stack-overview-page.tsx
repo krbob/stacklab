@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react'
-import { useOutletContext } from 'react-router-dom'
+import { Link, useOutletContext } from 'react-router-dom'
+import { FileText, Terminal } from 'lucide-react'
 import { invokeAction } from '@/lib/api-client'
 import { useJobStream } from '@/hooks/use-job-stream'
 import type { StackDetailResponse } from '@/lib/api-types'
@@ -111,6 +112,26 @@ export function StackOverviewPage() {
                       </div>
                     )}
                   </div>
+                </div>
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  {stack.capabilities.can_view_logs && (
+                    <Link
+                      to={`/stacks/${stack.id}/logs?service=${encodeURIComponent(svc.name)}`}
+                      className="inline-flex items-center gap-1 rounded-md border border-[var(--panel-border)] px-2 py-1 text-xs text-[var(--muted)] transition hover:text-[var(--text)]"
+                    >
+                      <FileText className="size-3.5" />
+                      Logs
+                    </Link>
+                  )}
+                  {stack.capabilities.can_open_terminal && container?.status === 'running' && (
+                    <Link
+                      to={`/stacks/${stack.id}/terminal?service=${encodeURIComponent(svc.name)}`}
+                      className="inline-flex items-center gap-1 rounded-md border border-[var(--panel-border)] px-2 py-1 text-xs text-[var(--muted)] transition hover:text-[var(--text)]"
+                    >
+                      <Terminal className="size-3.5" />
+                      Shell
+                    </Link>
+                  )}
                 </div>
               </div>
             </div>
