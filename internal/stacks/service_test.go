@@ -650,6 +650,59 @@ func TestSaveDefinitionEmptyEnvDoesNotCreateFileWhenMissing(t *testing.T) {
 	assertMissing(t, envPath)
 }
 
+func TestSaveDefinitionRejectsStaleRevision(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	reader := newTestServiceReader(t)
+	stackID := uniqueTestStackID()
+
+	if err := reader.CreateStack(ctx, CreateStackRequest{
+		StackID:           stackID,
+		ComposeYAML:       "services:\n  app:\n    image: nginx:alpine\n",
+		Env:               "",
+		CreateConfigDir:   false,
+		CreateDataDir:     false,
+		DeployAfterCreate: false,
+	}); err != nil {
+		t.Fatalf("CreateStack() error = %v", err)
+	}
+
+	definition, err := reader.Definition(ctx, stackID)
+	if err != nil {
+		t.Fatalf("Definition() error = %v", err)
+	}
+	revision := DefinitionRevision{
+		ComposeModifiedAt: definition.Files.ComposeYAML.ModifiedAt,
+		EnvModifiedAt:     definition.Files.Env.ModifiedAt,
+	}
+
+	composePath := filepath.Join(reader.cfg.RootDir, "stacks", stackID, "compose.yaml")
+	if err := os.WriteFile(composePath, []byte("services:\n  app:\n    image: caddy:2\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(compose.yaml) error = %v", err)
+	}
+	newTime := revision.ComposeModifiedAt.Add(2 * time.Second)
+	if err := os.Chtimes(composePath, newTime, newTime); err != nil {
+		t.Fatalf("Chtimes(compose.yaml) error = %v", err)
+	}
+
+	_, err = reader.SaveDefinition(ctx, stackID, UpdateDefinitionRequest{
+		ComposeYAML:      "services:\n  app:\n    image: nginx:stable\n",
+		Env:              "",
+		ExpectedRevision: &revision,
+	})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("SaveDefinition(stale revision) error = %v, want %v", err, ErrConflict)
+	}
+	composeBytes, err := os.ReadFile(composePath)
+	if err != nil {
+		t.Fatalf("ReadFile(compose.yaml) error = %v", err)
+	}
+	if !strings.Contains(string(composeBytes), "caddy:2") {
+		t.Fatalf("stale save overwrote compose.yaml: %q", string(composeBytes))
+	}
+}
+
 func TestRenderTemplateAppliesVariables(t *testing.T) {
 	t.Parallel()
 

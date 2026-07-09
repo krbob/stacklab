@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"stacklab/internal/atomicfile"
@@ -27,6 +28,7 @@ var (
 	ErrBinaryNotEditable    = errors.New("binary file is not editable")
 	ErrPermissionDenied     = errors.New("stack workspace permission denied")
 	ErrReservedPath         = errors.New("reserved stack definition path")
+	ErrConflict             = errors.New("stack workspace file changed")
 )
 
 type Service struct {
@@ -247,6 +249,10 @@ func (s *Service) SaveFile(ctx context.Context, stackID string, request SaveFile
 
 	targetPath, err := s.resolveSaveTarget(stackRoot, normalized, request.CreateParentDirectories)
 	if err != nil {
+		return SaveFileResponse{}, err
+	}
+
+	if err := ensureExpectedModifiedAt(targetPath, request.ExpectedModifiedAt); err != nil {
 		return SaveFileResponse{}, err
 	}
 
@@ -560,6 +566,24 @@ func parentRelativePath(relativePath string) string {
 
 func writeFileAtomic(path, content, pattern string) error {
 	return atomicfile.WriteString(path, content, pattern)
+}
+
+func ensureExpectedModifiedAt(targetPath string, expected *time.Time) error {
+	if expected == nil {
+		return nil
+	}
+
+	info, err := os.Stat(targetPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ErrConflict
+		}
+		return fmt.Errorf("stat stack workspace file before save: %w", err)
+	}
+	if !info.ModTime().UTC().Equal(expected.UTC()) {
+		return ErrConflict
+	}
+	return nil
 }
 
 func isReservedDefinitionPath(relativePath string) bool {

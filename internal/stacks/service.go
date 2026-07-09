@@ -310,6 +310,10 @@ func (s *ServiceReader) Definition(ctx context.Context, stackID string) (StackDe
 		return StackDefinitionResponse{}, ErrInvalidState
 	}
 
+	composeInfo, err := os.Stat(stack.ComposeFilePath)
+	if err != nil {
+		return StackDefinitionResponse{}, fmt.Errorf("stat compose file: %w", err)
+	}
 	composeContent, err := os.ReadFile(stack.ComposeFilePath)
 	if err != nil {
 		return StackDefinitionResponse{}, fmt.Errorf("read compose file: %w", err)
@@ -317,11 +321,18 @@ func (s *ServiceReader) Definition(ctx context.Context, stackID string) (StackDe
 
 	envContent := ""
 	envExists := false
-	if envBytes, err := os.ReadFile(stack.EnvFilePath); err == nil {
+	var envModifiedAt *time.Time
+	if envInfo, err := os.Stat(stack.EnvFilePath); err == nil {
 		envExists = true
+		modifiedAt := envInfo.ModTime().UTC()
+		envModifiedAt = &modifiedAt
+		envBytes, err := os.ReadFile(stack.EnvFilePath)
+		if err != nil {
+			return StackDefinitionResponse{}, fmt.Errorf("read env file: %w", err)
+		}
 		envContent = string(envBytes)
 	} else if !os.IsNotExist(err) {
-		return StackDefinitionResponse{}, fmt.Errorf("read env file: %w", err)
+		return StackDefinitionResponse{}, fmt.Errorf("stat env file: %w", err)
 	}
 
 	configState := stack.ConfigState
@@ -334,13 +345,15 @@ func (s *ServiceReader) Definition(ctx context.Context, stackID string) (StackDe
 		StackID: stack.ID,
 		Files: StackDefinitionFiles{
 			ComposeYAML: ComposeYAMLFile{
-				Path:    stack.ComposeFilePath,
-				Content: string(composeContent),
+				Path:       stack.ComposeFilePath,
+				Content:    string(composeContent),
+				ModifiedAt: composeInfo.ModTime().UTC(),
 			},
 			Env: EnvFile{
-				Path:    stack.EnvFilePath,
-				Content: envContent,
-				Exists:  envExists,
+				Path:       stack.EnvFilePath,
+				Content:    envContent,
+				Exists:     envExists,
+				ModifiedAt: envModifiedAt,
 			},
 		},
 		ConfigState: configState,
@@ -444,6 +457,12 @@ func (s *ServiceReader) SaveDefinition(ctx context.Context, stackID string, requ
 	}
 	if stack.RuntimeState == RuntimeStateOrphaned {
 		return ResolvedConfigResponse{}, ErrInvalidState
+	}
+
+	if request.ExpectedRevision != nil {
+		if err := ensureDefinitionRevision(stack, *request.ExpectedRevision); err != nil {
+			return ResolvedConfigResponse{}, err
+		}
 	}
 
 	if err := writeFileAtomic(stack.ComposeFilePath, request.ComposeYAML); err != nil {
@@ -1812,6 +1831,40 @@ func writeTempEnvFile(dataDir, content string) (string, func(), error) {
 
 func writeFileAtomic(path, content string) error {
 	return atomicfile.WriteString(path, content, ".stacklab-*")
+}
+
+func ensureDefinitionRevision(stack discoveredStack, expected DefinitionRevision) error {
+	composeInfo, err := os.Stat(stack.ComposeFilePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ErrConflict
+		}
+		return fmt.Errorf("stat compose file before save: %w", err)
+	}
+	if !composeInfo.ModTime().UTC().Equal(expected.ComposeModifiedAt.UTC()) {
+		return ErrConflict
+	}
+
+	envInfo, err := os.Stat(stack.EnvFilePath)
+	if expected.EnvModifiedAt == nil {
+		if err == nil {
+			return ErrConflict
+		}
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("stat env file before save: %w", err)
+	}
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ErrConflict
+		}
+		return fmt.Errorf("stat env file before save: %w", err)
+	}
+	if !envInfo.ModTime().UTC().Equal(expected.EnvModifiedAt.UTC()) {
+		return ErrConflict
+	}
+	return nil
 }
 
 func writeEnvFile(path, content string) error {

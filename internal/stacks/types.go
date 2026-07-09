@@ -238,14 +238,16 @@ type StackDefinitionFiles struct {
 }
 
 type ComposeYAMLFile struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
+	Path       string    `json:"path"`
+	Content    string    `json:"content"`
+	ModifiedAt time.Time `json:"modified_at"`
 }
 
 type EnvFile struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
-	Exists  bool   `json:"exists"`
+	Path       string     `json:"path"`
+	Content    string     `json:"content"`
+	Exists     bool       `json:"exists"`
+	ModifiedAt *time.Time `json:"modified_at"`
 }
 
 type ResolvedConfigRequest struct {
@@ -265,9 +267,15 @@ type CreateStackRequest struct {
 }
 
 type UpdateDefinitionRequest struct {
-	ComposeYAML       string `json:"compose_yaml"`
-	Env               string `json:"env"`
-	ValidateAfterSave bool   `json:"validate_after_save"`
+	ComposeYAML       string              `json:"compose_yaml"`
+	Env               string              `json:"env"`
+	ValidateAfterSave bool                `json:"validate_after_save"`
+	ExpectedRevision  *DefinitionRevision `json:"expected_revision,omitempty"`
+}
+
+type DefinitionRevision struct {
+	ComposeModifiedAt time.Time  `json:"compose_modified_at"`
+	EnvModifiedAt     *time.Time `json:"env_modified_at"`
 }
 
 type DeleteStackRequest struct {

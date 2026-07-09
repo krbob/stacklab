@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"stacklab/internal/atomicfile"
@@ -27,6 +28,7 @@ var (
 	ErrPathNotFile          = errors.New("path is not a file")
 	ErrBinaryNotEditable    = errors.New("binary file is not editable")
 	ErrPermissionDenied     = errors.New("config workspace permission denied")
+	ErrConflict             = errors.New("config workspace file changed")
 )
 
 type Service struct {
@@ -306,6 +308,10 @@ func (s *Service) SaveFile(ctx context.Context, request SaveFileRequest) (SaveFi
 
 	targetPath, err := s.resolveSaveTarget(normalized, request.CreateParentDirectories)
 	if err != nil {
+		return SaveFileResponse{}, err
+	}
+
+	if err := ensureExpectedModifiedAt(targetPath, request.ExpectedModifiedAt); err != nil {
 		return SaveFileResponse{}, err
 	}
 
@@ -613,4 +619,22 @@ func parentRelativePath(relativePath string) string {
 
 func writeFileAtomic(path, content string) error {
 	return atomicfile.WriteString(path, content, ".stacklab-config-*")
+}
+
+func ensureExpectedModifiedAt(targetPath string, expected *time.Time) error {
+	if expected == nil {
+		return nil
+	}
+
+	info, err := os.Stat(targetPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ErrConflict
+		}
+		return fmt.Errorf("stat config workspace file before save: %w", err)
+	}
+	if !info.ModTime().UTC().Equal(expected.UTC()) {
+		return ErrConflict
+	}
+	return nil
 }

@@ -622,6 +622,8 @@ func (h *Handler) handlePutConfigWorkspaceFile(w http.ResponseWriter, r *http.Re
 			writeError(w, http.StatusConflict, "binary_not_editable", "Binary files cannot be edited in the browser.", nil)
 		case errors.Is(err, configworkspace.ErrPermissionDenied):
 			writeError(w, http.StatusConflict, "permission_denied", "Config workspace file cannot be edited due to file permissions.", nil)
+		case errors.Is(err, configworkspace.ErrConflict):
+			writeError(w, http.StatusConflict, "edit_conflict", "File changed on disk. Reload it before saving again.", nil)
 		default:
 			h.logger.Error("save config workspace file failed", slog.String("err", err.Error()))
 			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to save config workspace file.", nil)
@@ -762,6 +764,8 @@ func (h *Handler) handlePutStackWorkspaceFile(w http.ResponseWriter, r *http.Req
 			writeError(w, http.StatusConflict, "binary_not_editable", "Binary files cannot be edited in the browser.", nil)
 		case errors.Is(err, stackworkspace.ErrPermissionDenied):
 			writeError(w, http.StatusConflict, "permission_denied", "Stack workspace file cannot be edited due to file permissions.", nil)
+		case errors.Is(err, stackworkspace.ErrConflict):
+			writeError(w, http.StatusConflict, "edit_conflict", "File changed on disk. Reload it before saving again.", nil)
 		default:
 			h.logger.Error("save stack workspace file failed", slog.String("stack_id", stackID), slog.String("err", err.Error()))
 			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to save stack workspace file.", nil)
@@ -2015,6 +2019,8 @@ func (h *Handler) handlePutDefinition(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "not_found", "Stack was not found.", nil)
 		case errors.Is(saveErr, stacks.ErrInvalidState):
 			writeError(w, http.StatusConflict, "invalid_state", "Stack definition cannot be updated in this state.", nil)
+		case errors.Is(saveErr, stacks.ErrConflict):
+			writeError(w, http.StatusConflict, "edit_conflict", "Stack definition changed on disk. Reload it before saving again.", nil)
 		default:
 			h.logger.Error("save definition failed", slog.String("stack_id", r.PathValue("stackId")), slog.String("err", saveErr.Error()))
 			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to save stack definition.", nil)
@@ -2038,7 +2044,13 @@ func (h *Handler) handlePutDefinition(w http.ResponseWriter, r *http.Request) {
 		h.logger.Warn("record save_definition audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"job": job})
+	payload := map[string]any{"job": job}
+	if definition, err := h.stackReader.Definition(r.Context(), r.PathValue("stackId")); err != nil {
+		h.logger.Warn("load saved stack definition failed", slog.String("stack_id", r.PathValue("stackId")), slog.String("err", err.Error()))
+	} else {
+		payload["definition"] = definition
+	}
+	writeJSON(w, http.StatusOK, payload)
 }
 
 func (h *Handler) handleGetResolvedConfig(w http.ResponseWriter, r *http.Request) {

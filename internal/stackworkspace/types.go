@@ -50,9 +50,10 @@ type FileResponse struct {
 }
 
 type SaveFileRequest struct {
-	Path                    string `json:"path"`
-	Content                 string `json:"content"`
-	CreateParentDirectories bool   `json:"create_parent_directories"`
+	Path                    string     `json:"path"`
+	Content                 string     `json:"content"`
+	CreateParentDirectories bool       `json:"create_parent_directories"`
+	ExpectedModifiedAt      *time.Time `json:"expected_modified_at,omitempty"`
 }
 
 type SaveFileResponse struct {

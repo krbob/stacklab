@@ -73,7 +73,7 @@ export function StackFilesPage() {
     setSaving(true)
     setSaveMessage(null)
     try {
-      await saveStackWorkspaceFile(stack.id, selectedFile.path, editContent)
+      await saveStackWorkspaceFile(stack.id, selectedFile.path, editContent, false, selectedFile.modified_at)
       setSaveMessage({ type: 'success', text: 'Saved' })
       const updated = await getStackWorkspaceFile(stack.id, selectedFile.path)
       setSelectedFile(updated)

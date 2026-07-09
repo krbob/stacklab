@@ -128,7 +128,7 @@ export function ConfigPage() {
     setSaving(true)
     setSaveMessage(null)
     try {
-      await saveConfigFile(selectedFile.path, editContent)
+      await saveConfigFile(selectedFile.path, editContent, false, selectedFile.modified_at)
       setSaveMessage({ type: 'success', text: 'Saved' })
       const updated = await getConfigFile(selectedFile.path)
       setSelectedFile(updated)

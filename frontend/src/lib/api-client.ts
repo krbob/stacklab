@@ -280,10 +280,10 @@ export function getConfigFile(path: string): Promise<ConfigFileResponse> {
   return request(`/api/config/workspace/file?path=${encodeURIComponent(path)}`)
 }
 
-export function saveConfigFile(path: string, content: string, createParentDirectories = false): Promise<ConfigFileSaveResponse> {
+export function saveConfigFile(path: string, content: string, createParentDirectories = false, expectedModifiedAt?: string): Promise<ConfigFileSaveResponse> {
   return request('/api/config/workspace/file', {
     method: 'PUT',
-    body: JSON.stringify({ path, content, create_parent_directories: createParentDirectories }),
+    body: JSON.stringify({ path, content, create_parent_directories: createParentDirectories, expected_modified_at: expectedModifiedAt }),
   })
 }
 
@@ -340,10 +340,11 @@ export function saveStackWorkspaceFile(
   path: string,
   content: string,
   createParentDirectories = false,
+  expectedModifiedAt?: string,
 ): Promise<StackWorkspaceFileSaveResponse> {
   return request(`/api/stacks/${encodeURIComponent(stackId)}/workspace/file`, {
     method: 'PUT',
-    body: JSON.stringify({ path, content, create_parent_directories: createParentDirectories }),
+    body: JSON.stringify({ path, content, create_parent_directories: createParentDirectories, expected_modified_at: expectedModifiedAt }),
   })
 }
 
@@ -426,7 +427,11 @@ export function saveDefinition(stackId: string, payload: {
   compose_yaml: string
   env: string
   validate_after_save: boolean
-}): Promise<{ job: JobRef }> {
+  expected_revision?: {
+    compose_modified_at: string
+    env_modified_at: string | null
+  }
+}): Promise<{ job: JobRef; definition?: DefinitionResponse }> {
   return request(`/api/stacks/${encodeURIComponent(stackId)}/definition`, {
     method: 'PUT',
     body: JSON.stringify(payload),

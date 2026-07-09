@@ -134,6 +134,28 @@ const blockedFile: StackWorkspaceFileResponse = {
   repair_capability: unsupportedRepairCapability,
 }
 
+const dockerfileBefore: StackWorkspaceFileResponse = {
+  stack_id: 'demo',
+  path: 'Dockerfile',
+  name: 'Dockerfile',
+  type: 'text_file',
+  content: 'FROM alpine:3.20\n',
+  encoding: 'utf-8',
+  size_bytes: 17,
+  modified_at: '2026-04-09T10:00:00Z',
+  readable: true,
+  writable: true,
+  blocked_reason: null,
+  permissions: rootTree.items[2].permissions,
+  repair_capability: unsupportedRepairCapability,
+}
+
+const dockerfileAfter: StackWorkspaceFileResponse = {
+  ...dockerfileBefore,
+  content: 'FROM alpine:3.21\n',
+  modified_at: '2026-04-09T10:01:00Z',
+}
+
 describe('StackFilesPage', () => {
   beforeEach(() => {
     mockNavigate.mockReset()
@@ -179,5 +201,31 @@ describe('StackFilesPage', () => {
     })
     expect(screen.getAllByText('root')).toHaveLength(2)
     expect(screen.getByText('0600')).toBeInTheDocument()
+  })
+
+  it('saves stack workspace files with the loaded modified_at', async () => {
+    mockGetStackWorkspaceTree.mockResolvedValue(rootTree)
+    mockGetStackWorkspaceFile
+      .mockResolvedValueOnce(dockerfileBefore)
+      .mockResolvedValueOnce(dockerfileAfter)
+    mockSaveStackWorkspaceFile.mockResolvedValue({
+      saved: true,
+      stack_id: 'demo',
+      path: 'Dockerfile',
+      modified_at: '2026-04-09T10:01:00Z',
+      audit_action: 'save_stack_file',
+    })
+
+    render(<StackFilesPage />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /Dockerfile/i }))
+    const editor = await screen.findByLabelText('stack-file-editor')
+    fireEvent.change(editor, { target: { value: 'FROM alpine:3.21\n' } })
+    fireEvent.click(screen.getByText('Save'))
+
+    await waitFor(() => {
+      expect(mockSaveStackWorkspaceFile).toHaveBeenCalledWith('demo', 'Dockerfile', 'FROM alpine:3.21\n', false, '2026-04-09T10:00:00Z')
+    })
+    expect(await screen.findByText('Saved')).toBeInTheDocument()
   })
 })

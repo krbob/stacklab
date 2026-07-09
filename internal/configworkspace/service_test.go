@@ -203,6 +203,43 @@ func TestServiceTreeAndFileRejectTypeMismatches(t *testing.T) {
 	}
 }
 
+func TestServiceSaveFileRejectsStaleModifiedAt(t *testing.T) {
+	t.Parallel()
+
+	service, root := newTestService(t)
+	mustMkdirAll(t, filepath.Join(root, "nextcloud"))
+	appPath := filepath.Join(root, "nextcloud", "app.conf")
+	mustWriteFile(t, appPath, "OLD=1\n")
+
+	loaded, err := service.File(context.Background(), "nextcloud/app.conf")
+	if err != nil {
+		t.Fatalf("File(app.conf) error = %v", err)
+	}
+	expected := loaded.ModifiedAt
+
+	mustWriteFile(t, appPath, "EXTERNAL=1\n")
+	newTime := expected.Add(2 * time.Second)
+	if err := os.Chtimes(appPath, newTime, newTime); err != nil {
+		t.Fatalf("Chtimes(app.conf) error = %v", err)
+	}
+
+	_, err = service.SaveFile(context.Background(), SaveFileRequest{
+		Path:               "nextcloud/app.conf",
+		Content:            "NEW=2\n",
+		ExpectedModifiedAt: &expected,
+	})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("SaveFile(stale modified_at) error = %v, want %v", err, ErrConflict)
+	}
+	content, err := os.ReadFile(appPath)
+	if err != nil {
+		t.Fatalf("ReadFile(app.conf) error = %v", err)
+	}
+	if string(content) != "EXTERNAL=1\n" {
+		t.Fatalf("stale save overwrote content: %q", string(content))
+	}
+}
+
 func TestServicePermissionDiagnostics(t *testing.T) {
 	t.Parallel()
 

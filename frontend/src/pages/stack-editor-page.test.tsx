@@ -74,11 +74,13 @@ describe('StackEditorPage', () => {
         compose_yaml: {
           path: '/srv/stacklab/stacks/demo/compose.yaml',
           content: 'services:\n  app:\n    image: nginx:alpine\n',
+          modified_at: '2026-07-09T08:00:00Z',
         },
         env: {
           path: '/srv/stacklab/stacks/demo/.env',
           content: '',
           exists: false,
+          modified_at: null,
         },
       },
       config_state: 'in_sync',
@@ -114,5 +116,29 @@ describe('StackEditorPage', () => {
     expect(screen.getByText('Preview current changes before deploy')).toBeInTheDocument()
     expect(saveDeploy).toBeDisabled()
     expect(mockResolveConfigDraft).not.toHaveBeenCalled()
+  })
+
+  it('saves with the loaded definition revision', async () => {
+    mockSaveDefinition.mockResolvedValue({
+      job: { id: 'job-save', stack_id: 'demo', action: 'save_definition', state: 'succeeded' },
+    })
+
+    render(<StackEditorPage />)
+
+    await screen.findByText('✓ Config valid')
+    fireEvent.change(screen.getByLabelText('yaml-editor'), {
+      target: { value: 'services:\n  app:\n    image: nginx:stable\n' },
+    })
+    fireEvent.click(screen.getByTestId('editor-save'))
+
+    await waitFor(() => {
+      expect(mockSaveDefinition).toHaveBeenCalledWith('demo', expect.objectContaining({
+        compose_yaml: 'services:\n  app:\n    image: nginx:stable\n',
+        expected_revision: {
+          compose_modified_at: '2026-07-09T08:00:00Z',
+          env_modified_at: null,
+        },
+      }))
+    })
   })
 })

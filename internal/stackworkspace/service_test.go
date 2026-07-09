@@ -144,6 +144,43 @@ func TestServiceSaveFileCreatesUpdatesAndRejectsUnsafeWrites(t *testing.T) {
 	}
 }
 
+func TestServiceSaveFileRejectsStaleModifiedAt(t *testing.T) {
+	t.Parallel()
+
+	service, stackRoot := newTestService(t, "demo")
+	mustMkdirAll(t, filepath.Join(stackRoot, "app"))
+	configPath := filepath.Join(stackRoot, "app", "config.yaml")
+	mustWriteFile(t, configPath, "old: true\n")
+
+	loaded, err := service.File(context.Background(), "demo", "app/config.yaml")
+	if err != nil {
+		t.Fatalf("File(config.yaml) error = %v", err)
+	}
+	expected := loaded.ModifiedAt
+
+	mustWriteFile(t, configPath, "external: true\n")
+	newTime := expected.Add(2 * time.Second)
+	if err := os.Chtimes(configPath, newTime, newTime); err != nil {
+		t.Fatalf("Chtimes(config.yaml) error = %v", err)
+	}
+
+	_, err = service.SaveFile(context.Background(), "demo", SaveFileRequest{
+		Path:               "app/config.yaml",
+		Content:            "old: false\n",
+		ExpectedModifiedAt: &expected,
+	})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("SaveFile(stale modified_at) error = %v, want %v", err, ErrConflict)
+	}
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile(config.yaml) error = %v", err)
+	}
+	if string(content) != "external: true\n" {
+		t.Fatalf("stale save overwrote content: %q", string(content))
+	}
+}
+
 func TestServicePermissionDiagnostics(t *testing.T) {
 	t.Parallel()
 

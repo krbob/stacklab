@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
-import type { StackDetailResponse } from '@/lib/api-types'
+import type { DefinitionResponse, StackDetailResponse } from '@/lib/api-types'
 import { getDefinition, getResolvedConfig, invokeAction, resolveConfigDraft, saveDefinition } from '@/lib/api-client'
 import { YamlEditor } from '@/components/yaml-editor'
 import { ProgressPanel } from '@/components/progress-panel'
@@ -9,6 +9,17 @@ import { UnsavedChangesGuard } from '@/components/unsaved-changes-guard'
 
 type ActiveTab = 'compose' | 'env'
 type DraftValidationState = 'valid' | 'invalid' | 'stale'
+type DefinitionRevision = {
+  compose_modified_at: string
+  env_modified_at: string | null
+}
+
+function revisionFromDefinition(definition: DefinitionResponse): DefinitionRevision {
+  return {
+    compose_modified_at: definition.files.compose_yaml.modified_at,
+    env_modified_at: definition.files.env.modified_at,
+  }
+}
 
 export function StackEditorPage() {
   const { stack, refetch } = useOutletContext<{
@@ -22,6 +33,7 @@ export function StackEditorPage() {
   const [envExists, setEnvExists] = useState(false)
   const [savedCompose, setSavedCompose] = useState('')
   const [savedEnv, setSavedEnv] = useState('')
+  const [definitionRevision, setDefinitionRevision] = useState<DefinitionRevision | null>(null)
 
   const [resolvedContent, setResolvedContent] = useState('')
   const [resolvedSource, setResolvedSource] = useState<'current' | 'draft' | 'last_valid'>('current')
@@ -68,6 +80,7 @@ export function StackEditorPage() {
       setEnvContent(def.files.env.content)
       setSavedEnv(def.files.env.content)
       setEnvExists(def.files.env.exists)
+      setDefinitionRevision(revisionFromDefinition(def))
       if (resolved.valid && resolved.content) {
         setResolvedContent(resolved.content)
         setResolvedSource('current')
@@ -148,13 +161,25 @@ export function StackEditorPage() {
     setActiveJobId(null)
     setPendingDeploy(deploy)
     try {
+      const submittedCompose = composeYaml
+      const submittedEnv = envContent
       const result = await saveDefinition(stack.id, {
-        compose_yaml: composeYaml,
-        env: envContent,
+        compose_yaml: submittedCompose,
+        env: submittedEnv,
         validate_after_save: true,
+        expected_revision: definitionRevision ?? undefined,
       })
-      setSavedCompose(composeYaml)
-      setSavedEnv(envContent)
+      if (result.definition) {
+        setSavedCompose(result.definition.files.compose_yaml.content)
+        setSavedEnv(result.definition.files.env.content)
+        setEnvExists(result.definition.files.env.exists)
+        setDefinitionRevision(revisionFromDefinition(result.definition))
+        setComposeYaml((current) => current === submittedCompose ? result.definition!.files.compose_yaml.content : current)
+        setEnvContent((current) => current === submittedEnv ? result.definition!.files.env.content : current)
+      } else {
+        setSavedCompose(submittedCompose)
+        setSavedEnv(submittedEnv)
+      }
       setActiveJobId(result.job.id)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed')
@@ -162,7 +187,7 @@ export function StackEditorPage() {
     } finally {
       setSaving(false)
     }
-  }, [stack.id, composeYaml, envContent])
+  }, [stack.id, composeYaml, envContent, definitionRevision])
 
   const handleDiscard = useCallback(() => {
     setComposeYaml(savedCompose)

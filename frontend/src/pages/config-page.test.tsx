@@ -347,7 +347,7 @@ describe('ConfigPage', () => {
     fireEvent.click(screen.getByTestId('config-save'))
 
     await waitFor(() => {
-      expect(mockSaveConfigFile).toHaveBeenCalledWith('demo/app.conf', 'server_name new.local;\n')
+      expect(mockSaveConfigFile).toHaveBeenCalledWith('demo/app.conf', 'server_name new.local;\n', false, '2026-04-04T12:00:00Z')
     })
     expect(await screen.findByText('Saved')).toBeInTheDocument()
     expect(mockGetConfigFile).toHaveBeenLastCalledWith('demo/app.conf')

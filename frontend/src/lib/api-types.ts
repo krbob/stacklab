@@ -365,11 +365,13 @@ export interface DefinitionResponse {
     compose_yaml: {
       path: string
       content: string
+      modified_at: string
     }
     env: {
       path: string
       content: string
       exists: boolean
+      modified_at: string | null
     }
   }
   config_state: ConfigState
