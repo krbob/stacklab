@@ -251,6 +251,7 @@ func TestIntegrationMaintenanceUpdateStacksWithRealDocker(t *testing.T) {
 
 	var payload struct {
 		Job struct {
+			ID       string  `json:"id"`
 			StackID  *string `json:"stack_id"`
 			Action   string  `json:"action"`
 			State    string  `json:"state"`
@@ -263,8 +264,11 @@ func TestIntegrationMaintenanceUpdateStacksWithRealDocker(t *testing.T) {
 		} `json:"job"`
 	}
 	decodeResponse(t, maintenanceResponse, &payload)
-	if payload.Job.StackID != nil || payload.Job.Action != "update_stacks" || payload.Job.State != "succeeded" {
+	if payload.Job.ID == "" || payload.Job.StackID != nil || payload.Job.Action != "update_stacks" {
 		t.Fatalf("unexpected maintenance job payload: %#v", payload.Job)
+	}
+	if payload.Job.State != "queued" && payload.Job.State != "running" && payload.Job.State != "succeeded" {
+		t.Fatalf("unexpected maintenance job state: %q", payload.Job.State)
 	}
 	if payload.Job.Workflow == nil || len(payload.Job.Workflow.Steps) != 2 {
 		t.Fatalf("unexpected maintenance workflow: %#v", payload.Job.Workflow)
@@ -272,6 +276,7 @@ func TestIntegrationMaintenanceUpdateStacksWithRealDocker(t *testing.T) {
 	if payload.Job.Workflow.Steps[0].Action != "pull" || payload.Job.Workflow.Steps[0].TargetStackID != stackID {
 		t.Fatalf("unexpected first maintenance step: %#v", payload.Job.Workflow.Steps[0])
 	}
+	waitForIntegrationJobSucceeded(t, handler, cookies, payload.Job.ID)
 	waitForIntegrationStackRuntimeState(t, handler, cookies, stackID, "running")
 }
 

@@ -20,6 +20,7 @@ http_addr="${STACKLAB_HTTP_ADDR:-127.0.0.1:18081}"
 bootstrap_password="${STACKLAB_BOOTSTRAP_PASSWORD:-stacklab-e2e}"
 enable_workspace_repair="${STACKLAB_E2E_ENABLE_WORKSPACE_REPAIR:-0}"
 workspace_helper_path="${STACKLAB_WORKSPACE_ADMIN_HELPER_PATH:-${workdir}/bin/stacklab-workspace-admin-helper}"
+workspace_helper_env_path="${STACKLAB_E2E_WORKSPACE_HELPER_ENV_PATH:-${workdir}/stacklab.env}"
 
 mkdir -p "${root_dir}" "${data_dir}"
 rm -rf "${root_dir}"
@@ -32,9 +33,10 @@ chmod 000 "${root_dir}/config/blocked-fixture/blocked.env"
 
 if [[ "${enable_workspace_repair}" == "1" ]]; then
   mkdir -p "$(dirname "${workspace_helper_path}")"
+  printf 'STACKLAB_ROOT=%s\n' "${root_dir}" > "${workspace_helper_env_path}"
   (
     cd "${repo_root}"
-    go build -o "${workspace_helper_path}" ./cmd/stacklab-workspace-admin-helper
+    go build -ldflags "-X main.stacklabEnvFilePath=${workspace_helper_env_path}" -o "${workspace_helper_path}" ./cmd/stacklab-workspace-admin-helper
   )
   export STACKLAB_WORKSPACE_ADMIN_HELPER_PATH="${workspace_helper_path}"
   export STACKLAB_WORKSPACE_ADMIN_USE_SUDO="true"
@@ -61,6 +63,7 @@ Starting Stacklab E2E backend
   STACKLAB_E2E_ENABLE_WORKSPACE_REPAIR: ${enable_workspace_repair}
   STACKLAB_WORKSPACE_ADMIN_HELPER_PATH: ${STACKLAB_WORKSPACE_ADMIN_HELPER_PATH:-}
   STACKLAB_WORKSPACE_ADMIN_USE_SUDO: ${STACKLAB_WORKSPACE_ADMIN_USE_SUDO:-false}
+  STACKLAB_E2E_WORKSPACE_HELPER_ENV_PATH: ${workspace_helper_env_path}
 EOF
 
 cd "${repo_root}"

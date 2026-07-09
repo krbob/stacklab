@@ -566,10 +566,6 @@ func markWorkflowSucceeded(steps []store.JobWorkflowStep, index int) []store.Job
 	return steps
 }
 
-func markWorkflowFailed(steps []store.JobWorkflowStep, index int) []store.JobWorkflowStep {
-	return markWorkflowState(steps, index, "failed")
-}
-
 func markWorkflowState(steps []store.JobWorkflowStep, index int, state string) []store.JobWorkflowStep {
 	if index >= 0 && index < len(steps) {
 		steps[index].State = state
