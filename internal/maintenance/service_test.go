@@ -248,10 +248,11 @@ func TestParseDockerSize(t *testing.T) {
 		want  int64
 	}{
 		{"0B", 0},
-		{"12kB", 12 * 1024},
-		{"5MB", 5 * 1024 * 1024},
-		{"92.82MB", 97328824},
-		{"1.5GB", 1610612736},
+		{"12kB", 12 * 1000},
+		{"5MB", 5 * 1000 * 1000},
+		{"92.82MB", 92820000},
+		{"1.5GB", 1500000000},
+		{"1.5GiB", 1610612736},
 	}
 	for _, tc := range cases {
 		got, err := parseDockerSize(tc.input)

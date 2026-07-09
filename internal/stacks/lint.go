@@ -69,15 +69,14 @@ func LintCompose(content []byte) []ComposeWarning {
 	return warnings
 }
 
-// publicPortBind reports whether a port entry binds to all interfaces —
+// publicPortBind reports whether a port entry publishes on all interfaces —
 // short syntax without a host IP, an explicit 0.0.0.0, or long syntax
 // without host_ip.
 func publicPortBind(entry any) bool {
 	switch value := entry.(type) {
 	case string:
 		if !strings.Contains(value, ":") {
-			// container-only port, not published
-			return false
+			return true // container port published on a random host port
 		}
 		parts := strings.Split(value, ":")
 		if len(parts) == 2 {
@@ -86,7 +85,7 @@ func publicPortBind(entry any) bool {
 		host := strings.Trim(strings.Join(parts[:len(parts)-2], ":"), "[]")
 		return host == "0.0.0.0" || host == "::"
 	case int:
-		return false
+		return true
 	case map[string]any:
 		if _, published := value["published"]; !published {
 			return false

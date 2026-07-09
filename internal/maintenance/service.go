@@ -1198,14 +1198,19 @@ func parseDockerSize(value string) (int64, error) {
 		return 0, nil
 	}
 	upper := strings.ToUpper(trimmed)
-	units := []string{"KB", "MB", "GB", "TB", "PB", "B"}
+	units := []string{"KIB", "MIB", "GIB", "TIB", "PIB", "KB", "MB", "GB", "TB", "PB", "B"}
 	multipliers := map[string]float64{
-		"B":  1,
-		"KB": 1024,
-		"MB": 1024 * 1024,
-		"GB": 1024 * 1024 * 1024,
-		"TB": 1024 * 1024 * 1024 * 1024,
-		"PB": 1024 * 1024 * 1024 * 1024 * 1024,
+		"B":   1,
+		"KB":  1000,
+		"MB":  1000 * 1000,
+		"GB":  1000 * 1000 * 1000,
+		"TB":  1000 * 1000 * 1000 * 1000,
+		"PB":  1000 * 1000 * 1000 * 1000 * 1000,
+		"KIB": 1024,
+		"MIB": 1024 * 1024,
+		"GIB": 1024 * 1024 * 1024,
+		"TIB": 1024 * 1024 * 1024 * 1024,
+		"PIB": 1024 * 1024 * 1024 * 1024 * 1024,
 	}
 	for _, unit := range units {
 		if strings.HasSuffix(upper, unit) {
