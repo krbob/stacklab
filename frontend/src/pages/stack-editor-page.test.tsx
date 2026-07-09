@@ -114,8 +114,65 @@ describe('StackEditorPage', () => {
 
     expect(screen.queryByText('✓ Config valid')).not.toBeInTheDocument()
     expect(screen.getByText('Preview current changes before deploy')).toBeInTheDocument()
-    expect(saveDeploy).toBeDisabled()
+    expect(saveDeploy).not.toBeDisabled()
     expect(mockResolveConfigDraft).not.toHaveBeenCalled()
+  })
+
+  it('previews a stale draft before save and deploy', async () => {
+    mockResolveConfigDraft.mockResolvedValue({
+      stack_id: 'demo',
+      valid: true,
+      content: 'services:\n  app:\n    image: nginx:stable\n',
+      warnings: [],
+    })
+    mockSaveDefinition.mockResolvedValue({
+      job: { id: 'job-save-deploy', stack_id: 'demo', action: 'save_definition', state: 'running' },
+    })
+
+    render(<StackEditorPage />)
+
+    await screen.findByText('✓ Config valid')
+    fireEvent.change(screen.getByLabelText('yaml-editor'), {
+      target: { value: 'services:\n  app:\n    image: nginx:stable\n' },
+    })
+    fireEvent.click(screen.getByTestId('editor-save-deploy'))
+
+    await waitFor(() => {
+      expect(mockResolveConfigDraft).toHaveBeenCalledWith('demo', {
+        compose_yaml: 'services:\n  app:\n    image: nginx:stable\n',
+        env: '',
+      })
+    })
+    await waitFor(() => {
+      expect(mockSaveDefinition).toHaveBeenCalledWith('demo', expect.objectContaining({
+        compose_yaml: 'services:\n  app:\n    image: nginx:stable\n',
+      }))
+    })
+  })
+
+  it('does not save and deploy when automatic preview fails', async () => {
+    mockResolveConfigDraft.mockResolvedValue({
+      stack_id: 'demo',
+      valid: false,
+      error: {
+        code: 'validation_failed',
+        message: 'compose is invalid',
+      },
+    })
+
+    render(<StackEditorPage />)
+
+    await screen.findByText('✓ Config valid')
+    fireEvent.change(screen.getByLabelText('yaml-editor'), {
+      target: { value: 'services:\n  app:\n    image: [\n' },
+    })
+    fireEvent.click(screen.getByTestId('editor-save-deploy'))
+
+    await waitFor(() => {
+      expect(mockResolveConfigDraft).toHaveBeenCalled()
+    })
+    expect(mockSaveDefinition).not.toHaveBeenCalled()
+    expect(await screen.findByText('✗ compose is invalid')).toBeInTheDocument()
   })
 
   it('saves with the loaded definition revision', async () => {

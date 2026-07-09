@@ -49,7 +49,6 @@ export function StackEditorPage() {
   const [loadingDef, setLoadingDef] = useState(true)
 
   const isDirty = composeYaml !== savedCompose || envContent !== savedEnv
-  const canDeployDraft = draftValidationState === 'valid'
 
   const markDraftStale = useCallback(() => {
     setDraftValidationState('stale')
@@ -104,8 +103,7 @@ export function StackEditorPage() {
     return () => { cancelled = true }
   }, [stack.id])
 
-  // Preview draft
-  const handlePreview = useCallback(async () => {
+  const previewDraft = useCallback(async () => {
     try {
       const result = await resolveConfigDraft(stack.id, {
         compose_yaml: composeYaml,
@@ -118,12 +116,14 @@ export function StackEditorPage() {
         setWarnings(result.warnings ?? [])
         setDraftValidationState('valid')
         setDraftValidationMessage('')
+        return true
       } else if (result.error) {
         setResolvedContent('')
         setResolvedSource('draft')
         setResolvedError(result.error.message)
         setDraftValidationState('invalid')
         setDraftValidationMessage(result.error.message)
+        return false
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Preview failed'
@@ -131,8 +131,15 @@ export function StackEditorPage() {
       setResolvedSource('draft')
       setDraftValidationState('invalid')
       setDraftValidationMessage(message)
+      return false
     }
+    return false
   }, [stack.id, composeYaml, envContent])
+
+  // Preview draft
+  const handlePreview = useCallback(async () => {
+    await previewDraft()
+  }, [previewDraft])
 
   const handleLastValid = useCallback(async () => {
     try {
@@ -188,6 +195,16 @@ export function StackEditorPage() {
       setSaving(false)
     }
   }, [stack.id, composeYaml, envContent, definitionRevision])
+
+  const handleSaveAndDeploy = useCallback(async () => {
+    if (draftValidationState !== 'valid') {
+      setSaving(true)
+      const valid = await previewDraft()
+      setSaving(false)
+      if (!valid) return
+    }
+    await handleSave(true)
+  }, [draftValidationState, previewDraft, handleSave])
 
   const handleDiscard = useCallback(() => {
     setComposeYaml(savedCompose)
@@ -310,8 +327,8 @@ export function StackEditorPage() {
           </button>
           <button
             data-testid="editor-save-deploy"
-            onClick={() => handleSave(true)}
-            disabled={saving || !canDeployDraft || stack.activity_state === 'locked'}
+            onClick={handleSaveAndDeploy}
+            disabled={saving || stack.activity_state === 'locked'}
             className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40"
           >
             Save & Deploy
