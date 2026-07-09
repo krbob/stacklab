@@ -33,6 +33,7 @@ type Service struct {
 	cfg           config.Config
 	store         *store.Store
 	now           func() time.Time
+	newSessionID  func() (string, error)
 	loginAttempts map[string]loginAttemptState
 	loginMu       sync.Mutex
 }
@@ -55,6 +56,7 @@ func NewService(cfg config.Config, authStore *store.Store) *Service {
 		cfg:           cfg,
 		store:         authStore,
 		now:           func() time.Time { return time.Now().UTC() },
+		newSessionID:  func() (string, error) { return randomToken(32) },
 		loginAttempts: make(map[string]loginAttemptState),
 	}
 }
@@ -100,9 +102,13 @@ func (s *Service) Login(ctx context.Context, password, userAgent, ipAddress stri
 	absoluteDeadline := now.Add(s.cfg.SessionAbsoluteLifetime)
 	idleDeadline := now.Add(s.cfg.SessionIdleTimeout)
 	expiresAt := minTime(idleDeadline, absoluteDeadline)
+	sessionID, err := s.newSessionID()
+	if err != nil {
+		return Session{}, err
+	}
 
 	session := Session{
-		ID:        randomToken(32),
+		ID:        sessionID,
 		UserID:    localUserID,
 		CreatedAt: now,
 		ExpiresAt: expiresAt,
@@ -359,10 +365,12 @@ func verifyPassword(encodedHash, password string) error {
 	return nil
 }
 
-func randomToken(length int) string {
+func randomToken(length int) (string, error) {
 	bytes := make([]byte, length)
-	_, _ = rand.Read(bytes)
-	return base64.RawURLEncoding.EncodeToString(bytes)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", fmt.Errorf("generate session token: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(bytes), nil
 }
 
 func minTime(left, right time.Time) time.Time {

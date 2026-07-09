@@ -134,6 +134,24 @@ func TestLoginLocksClientAfterRepeatedFailures(t *testing.T) {
 	}
 }
 
+func TestLoginReturnsTokenGenerationError(t *testing.T) {
+	ctx := context.Background()
+	authStore := openTestStore(t)
+	service := NewService(testConfig("secret"), authStore)
+	tokenErr := errors.New("entropy unavailable")
+	service.newSessionID = func() (string, error) {
+		return "", tokenErr
+	}
+
+	if err := service.Bootstrap(ctx); err != nil {
+		t.Fatalf("Bootstrap() error = %v", err)
+	}
+
+	if _, err := service.Login(ctx, "secret", "ua", "127.0.0.1"); !errors.Is(err, tokenErr) {
+		t.Fatalf("Login(token error) error = %v, want %v", err, tokenErr)
+	}
+}
+
 func openTestStore(t *testing.T) *store.Store {
 	t.Helper()
 
