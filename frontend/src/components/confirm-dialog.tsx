@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 interface ConfirmDialogProps {
   title: string
@@ -26,22 +26,58 @@ export function ConfirmDialog({
   onCancel,
 }: ConfirmDialogProps) {
   const [typedText, setTypedText] = useState('')
+  const dialogRef = useRef<HTMLDivElement>(null)
   const confirmed = !requireText || typedText === requireText
 
   useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const focusable = getFocusableElements(dialogRef.current)
+    ;(focusable[0] ?? dialogRef.current)?.focus()
+
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !confirming) onCancel()
+      if (event.key === 'Escape' && !confirming) {
+        onCancel()
+        return
+      }
+      if (event.key !== 'Tab') return
+
+      const currentFocusable = getFocusableElements(dialogRef.current)
+      if (currentFocusable.length === 0) {
+        event.preventDefault()
+        dialogRef.current?.focus()
+        return
+      }
+
+      const first = currentFocusable[0]
+      const last = currentFocusable[currentFocusable.length - 1]
+      const active = document.activeElement
+      if (event.shiftKey) {
+        if (active === first || !dialogRef.current?.contains(active)) {
+          event.preventDefault()
+          last.focus()
+        }
+        return
+      }
+      if (active === last || !dialogRef.current?.contains(active)) {
+        event.preventDefault()
+        first.focus()
+      }
     }
     window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      previouslyFocused?.focus()
+    }
   }, [confirming, onCancel])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" onClick={() => { if (!confirming) onCancel() }}>
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"
+        tabIndex={-1}
         className="w-full max-w-md rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]"
         onClick={(event) => event.stopPropagation()}
       >
@@ -86,4 +122,11 @@ export function ConfirmDialog({
       </div>
     </div>
   )
+}
+
+function getFocusableElements(root: HTMLElement | null): HTMLElement[] {
+  if (!root) return []
+  return Array.from(root.querySelectorAll<HTMLElement>(
+    'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  )).filter((element) => !element.hasAttribute('disabled') && element.tabIndex !== -1)
 }
