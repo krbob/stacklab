@@ -1853,21 +1853,9 @@ func (h *Handler) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 	job, _ = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
 
 	if request.DeployAfterCreate {
-		upErr := h.stackReader.RunAction(r.Context(), request.StackID, "up")
-		if upErr != nil {
-			workflow = markWorkflowFailed(workflow, 1)
-			job, _ = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
-			job, _ = h.jobs.FinishFailed(r.Context(), job, "create_stack_failed", upErr.Error())
-			_ = h.audit.RecordStackJob(r.Context(), job)
-			writeJSON(w, http.StatusOK, map[string]any{"job": job})
-			return
-		}
-		if err := h.stackReader.RecordDeployBaseline(r.Context(), request.StackID, job.ID, time.Now().UTC()); err != nil {
-			h.logger.Warn("record deploy baseline failed", slog.String("stack_id", request.StackID), slog.String("job_id", job.ID), slog.String("err", err.Error()))
-		}
-		workflow = markWorkflowSucceeded(workflow, 1)
-		job, _ = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
-		_ = h.jobs.PublishEvent(r.Context(), job, "job_step_finished", "Started stack runtime.", "", workflowStepRef(workflow, 1))
+		go h.runCreateStackDeployJob(job, workflow, request.StackID)
+		writeJSON(w, http.StatusOK, map[string]any{"job": job})
+		return
 	}
 
 	job, err = h.jobs.FinishSucceeded(r.Context(), job)
@@ -1882,6 +1870,57 @@ func (h *Handler) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"job": job})
+}
+
+func (h *Handler) runCreateStackDeployJob(job store.Job, workflow []store.JobWorkflowStep, stackID string) {
+	runCtx, cancel := h.stackActionContext()
+	defer cancel()
+
+	upErr := h.stackReader.RunAction(runCtx, stackID, "up")
+
+	ctx, finishCancel := h.jobFinalizationContext()
+	defer finishCancel()
+	step := workflowStepRef(workflow, 1)
+
+	if upErr != nil {
+		workflow = markWorkflowFailed(workflow, 1)
+		if updatedJob, err := h.jobs.UpdateWorkflow(ctx, job, workflow); err == nil {
+			job = updatedJob
+		} else {
+			h.logger.Warn("update failed create stack workflow failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+		}
+		_ = h.jobs.PublishEvent(ctx, job, "job_step_finished", "Failed to start stack runtime.", "", step)
+		failedJob, finishErr := h.jobs.FinishFailed(ctx, job, "create_stack_failed", upErr.Error())
+		if finishErr != nil {
+			h.logger.Error("finish create stack job failed", slog.String("job_id", job.ID), slog.String("err", finishErr.Error()))
+			return
+		}
+		if err := h.audit.RecordStackJob(ctx, failedJob); err != nil {
+			h.logger.Warn("record create stack audit failed", slog.String("job_id", failedJob.ID), slog.String("err", err.Error()))
+		}
+		return
+	}
+
+	deployedAt := time.Now().UTC()
+	if err := h.stackReader.RecordDeployBaseline(ctx, stackID, job.ID, deployedAt); err != nil {
+		h.logger.Warn("record deploy baseline failed", slog.String("stack_id", stackID), slog.String("job_id", job.ID), slog.String("err", err.Error()))
+	}
+	workflow = markWorkflowSucceeded(workflow, 1)
+	if updatedJob, err := h.jobs.UpdateWorkflow(ctx, job, workflow); err == nil {
+		job = updatedJob
+	} else {
+		h.logger.Warn("update successful create stack workflow failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+	}
+	_ = h.jobs.PublishEvent(ctx, job, "job_step_finished", "Started stack runtime.", "", step)
+
+	finishedJob, err := h.jobs.FinishSucceeded(ctx, job)
+	if err != nil {
+		h.logger.Error("finish create stack job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+		return
+	}
+	if err := h.audit.RecordStackJob(ctx, finishedJob); err != nil {
+		h.logger.Warn("record create stack audit failed", slog.String("job_id", finishedJob.ID), slog.String("err", err.Error()))
+	}
 }
 
 func (h *Handler) handleGetDefinition(w http.ResponseWriter, r *http.Request) {

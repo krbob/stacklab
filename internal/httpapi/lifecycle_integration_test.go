@@ -304,6 +304,7 @@ func TestIntegrationCreateDeployAndOrphanedLifecycleWithRealDocker(t *testing.T)
 	}
 	var createPayload struct {
 		Job struct {
+			ID       string `json:"id"`
 			Action   string `json:"action"`
 			State    string `json:"state"`
 			Workflow *struct {
@@ -315,13 +316,14 @@ func TestIntegrationCreateDeployAndOrphanedLifecycleWithRealDocker(t *testing.T)
 		} `json:"job"`
 	}
 	decodeResponse(t, createResponse, &createPayload)
-	if createPayload.Job.Action != "create_stack" || createPayload.Job.State != "succeeded" {
+	if createPayload.Job.Action != "create_stack" || createPayload.Job.State != "running" || createPayload.Job.ID == "" {
 		t.Fatalf("unexpected create job payload: %#v", createPayload.Job)
 	}
 	if createPayload.Job.Workflow == nil || len(createPayload.Job.Workflow.Steps) != 2 {
 		t.Fatalf("expected two-step create workflow, got %#v", createPayload.Job.Workflow)
 	}
 	waitForIntegrationStackRuntimeState(t, handler, cookies, stackID, "running")
+	waitForIntegrationJobSucceeded(t, handler, cookies, createPayload.Job.ID)
 
 	removeDefinitionResponse := performJSONRequest(t, handler, http.MethodDelete, "/api/stacks/"+stackID, map[string]any{
 		"remove_runtime":    false,
