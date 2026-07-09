@@ -291,30 +291,7 @@ func NewService(settingStore Store, logger *slog.Logger) *Service {
 			return nil
 		},
 		sendTelegram: func(ctx context.Context, botToken, chatID, text string) error {
-			body, err := json.Marshal(map[string]any{
-				"chat_id":                  chatID,
-				"text":                     text,
-				"disable_web_page_preview": true,
-			})
-			if err != nil {
-				return fmt.Errorf("marshal telegram payload: %w", err)
-			}
-			endpoint := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
-			req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
-			if err != nil {
-				return fmt.Errorf("build telegram request: %w", err)
-			}
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("User-Agent", "Stacklab-Notifications/1")
-			resp, err := client.Do(req)
-			if err != nil {
-				return fmt.Errorf("send telegram request: %w", err)
-			}
-			defer resp.Body.Close()
-			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-				return fmt.Errorf("telegram returned status %d", resp.StatusCode)
-			}
-			return nil
+			return sendTelegramMessage(ctx, client, botToken, chatID, text)
 		},
 		readLogs: func(ctx context.Context, containerID string, since time.Time) ([]runtimeContainerLogEntry, error) {
 			args := []string{
@@ -335,6 +312,40 @@ func NewService(settingStore Store, logger *slog.Logger) *Service {
 		pollInterval:  30 * time.Second,
 		alertCooldown: 15 * time.Minute,
 	}
+}
+
+func sendTelegramMessage(ctx context.Context, client *http.Client, botToken, chatID, text string) error {
+	body, err := json.Marshal(map[string]any{
+		"chat_id":                  chatID,
+		"text":                     text,
+		"disable_web_page_preview": true,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal telegram payload: %w", err)
+	}
+	endpoint := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build telegram request: %w", redactTelegramError(err, botToken))
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Stacklab-Notifications/1")
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("send telegram request: %w", redactTelegramError(err, botToken))
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("telegram returned status %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func redactTelegramError(err error, botToken string) error {
+	if err == nil || botToken == "" {
+		return err
+	}
+	return errors.New(strings.ReplaceAll(err.Error(), botToken, "<redacted>"))
 }
 
 func (s *Service) SetStackInspector(inspector StackInspector) {

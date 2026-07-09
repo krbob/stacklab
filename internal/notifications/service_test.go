@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -749,6 +751,34 @@ func TestSendTelegramTestNotification(t *testing.T) {
 	if gotToken != "bot:token" || gotChatID != "-100123" || gotText == "" {
 		t.Fatalf("unexpected telegram send args: token=%q chat=%q text=%q", gotToken, gotChatID, gotText)
 	}
+}
+
+func TestSendTelegramMessageRedactsBotTokenFromTransportErrors(t *testing.T) {
+	t.Parallel()
+
+	token := "123456:secret-token"
+	client := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return nil, fmt.Errorf("dial %s: network unavailable", req.URL.String())
+		}),
+	}
+
+	err := sendTelegramMessage(context.Background(), client, token, "-100123", "hello")
+	if err == nil {
+		t.Fatal("sendTelegramMessage() error = nil, want transport error")
+	}
+	if strings.Contains(err.Error(), token) {
+		t.Fatalf("telegram error leaked bot token: %v", err)
+	}
+	if !strings.Contains(err.Error(), "<redacted>") {
+		t.Fatalf("telegram error did not include redaction marker: %v", err)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
 
 func TestDispatchJobPostUpdateRecoveryFailed(t *testing.T) {
