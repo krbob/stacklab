@@ -32,6 +32,7 @@ var (
 	ErrInvalidState      = errors.New("invalid state")
 	ErrConflict          = errors.New("conflict")
 	ErrUnsupportedAction = errors.New("unsupported action")
+	ErrDockerUnavailable = errors.New("docker unavailable")
 	stackIDRegexp        = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 	composeCLIMu         sync.Mutex
 	composeCLICached     *composeCLI
@@ -555,6 +556,9 @@ func (s *ServiceReader) DeleteStack(ctx context.Context, stackID string, request
 func (s *ServiceReader) RemoveRuntime(ctx context.Context, stackID string) error {
 	stack, err := s.findStack(ctx, stackID)
 	if err != nil {
+		return err
+	}
+	if err := ensureDockerRuntimeAvailable(ctx); err != nil {
 		return err
 	}
 	return s.removeRuntime(ctx, stack)
@@ -1084,7 +1088,13 @@ func (s *ServiceReader) clearDefinitionWarning(stackID, kind string) {
 
 func (s *ServiceReader) scanRuntime(ctx context.Context) map[string][]Container {
 	result := make(map[string][]Container)
-	ids := listDockerContainerIDs(ctx)
+	ids, err := listDockerContainerIDs(ctx)
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("failed to list docker containers", slog.String("err", err.Error()))
+		}
+		return result
+	}
 	if len(ids) == 0 {
 		return result
 	}
@@ -1173,18 +1183,27 @@ func (s *ServiceReader) scanRuntime(ctx context.Context) map[string][]Container 
 	return result
 }
 
-func listDockerContainerIDs(ctx context.Context) []string {
+func ensureDockerRuntimeAvailable(ctx context.Context) error {
+	_, err := listDockerContainerIDs(ctx)
+	return err
+}
+
+func listDockerContainerIDs(ctx context.Context) ([]string, error) {
 	cmd := exec.CommandContext(ctx, "docker", "ps", "-aq", "--filter", "label=com.docker.compose.project")
-	output, err := cmd.Output()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil
+		message := strings.TrimSpace(string(output))
+		if message == "" {
+			message = err.Error()
+		}
+		return nil, fmt.Errorf("%w: %s", ErrDockerUnavailable, message)
 	}
 
 	ids := strings.Fields(strings.TrimSpace(string(output)))
 	if len(ids) == 0 {
-		return nil
+		return nil, nil
 	}
-	return ids
+	return ids, nil
 }
 
 func inspectDockerContainers(ctx context.Context, ids []string) ([]dockerInspectContainer, error) {

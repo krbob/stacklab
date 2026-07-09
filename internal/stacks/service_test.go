@@ -391,6 +391,42 @@ func TestCreateListGetSaveAndDeleteStackFilesystemFlow(t *testing.T) {
 	assertMissing(t, filepath.Join(reader.cfg.RootDir, "data", stackID))
 }
 
+func TestDeleteStackWithRuntimeStopsWhenDockerUnavailable(t *testing.T) {
+	ctx := context.Background()
+	reader := newTestServiceReader(t)
+	stackID := uniqueTestStackID()
+
+	shimDir := t.TempDir()
+	dockerPath := filepath.Join(shimDir, "docker")
+	if err := os.WriteFile(dockerPath, []byte("#!/bin/sh\necho docker unavailable >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile(docker shim) error = %v", err)
+	}
+	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	if err := reader.CreateStack(ctx, CreateStackRequest{
+		StackID:         stackID,
+		ComposeYAML:     "services:\n  app:\n    image: nginx:alpine\n",
+		CreateConfigDir: true,
+		CreateDataDir:   true,
+	}); err != nil {
+		t.Fatalf("CreateStack() error = %v", err)
+	}
+
+	err := reader.DeleteStack(ctx, stackID, DeleteStackRequest{
+		RemoveRuntime:    true,
+		RemoveDefinition: true,
+		RemoveConfig:     true,
+		RemoveData:       true,
+	})
+	if !errors.Is(err, ErrDockerUnavailable) {
+		t.Fatalf("DeleteStack() error = %v, want ErrDockerUnavailable", err)
+	}
+
+	assertExists(t, filepath.Join(reader.cfg.RootDir, "stacks", stackID, "compose.yaml"))
+	assertExists(t, filepath.Join(reader.cfg.RootDir, "config", stackID))
+	assertExists(t, filepath.Join(reader.cfg.RootDir, "data", stackID))
+}
+
 func TestDeployBaselineDrivesConfigState(t *testing.T) {
 	t.Parallel()
 
@@ -702,6 +738,14 @@ func assertMissing(t *testing.T, path string) {
 
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("expected %q to be missing, got err = %v", path, err)
+	}
+}
+
+func assertExists(t *testing.T, path string) {
+	t.Helper()
+
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected %q to exist, got err = %v", path, err)
 	}
 }
 
