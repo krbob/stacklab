@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/creack/pty"
@@ -19,6 +20,8 @@ var (
 	ErrSessionLimitExceeded = errors.New("terminal session limit exceeded")
 	ErrInvalidShell         = errors.New("invalid shell")
 )
+
+const terminalProcessKillDelay = 2 * time.Second
 
 type Config struct {
 	MaxSessionsPerOwner int
@@ -367,10 +370,8 @@ func (s *Service) endSessionWithCode(sessionID string, exitCode *int, reason str
 		}
 		terminalSession.mu.Unlock()
 
-		if terminalSession.process != nil && terminalSession.process.Process != nil {
-			_ = terminalSession.process.Process.Kill()
-		}
 		_ = terminalSession.ptyFile.Close()
+		terminateTerminalProcess(terminalSession.process)
 
 		s.mu.Lock()
 		delete(s.sessions, sessionID)
@@ -390,6 +391,17 @@ func (s *Service) endSessionWithCode(sessionID string, exitCode *int, reason str
 			Reason:      reason,
 		})
 	})
+}
+
+func terminateTerminalProcess(cmd *exec.Cmd) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	_ = cmd.Process.Signal(syscall.SIGTERM)
+	go func() {
+		time.Sleep(terminalProcessKillDelay)
+		_ = cmd.Process.Kill()
+	}()
 }
 
 func (s *Service) emitLifecycle(event LifecycleEvent) {

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -258,6 +260,90 @@ func TestCloseSendsExitEventAndCleansUp(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		t.Fatalf("timed out waiting for lifecycle closed event")
 	}
+}
+
+func TestCloseClosesPTYBeforeTerminatingProcess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell signal behavior is POSIX-specific")
+	}
+
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe() error = %v", err)
+	}
+	defer readEnd.Close()
+
+	tempDir := t.TempDir()
+	markerPath := filepath.Join(tempDir, "eof-marker")
+	readyPath := filepath.Join(tempDir, "ready")
+	cmd := exec.Command("/bin/sh", "-c", "trap '' TERM; printf ready > \"$2\"; cat >/dev/null; printf eof > \"$1\"", "sh", markerPath, readyPath)
+	cmd.Stdin = readEnd
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("cmd.Start() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+	})
+	waitForFile(t, readyPath, time.Second)
+
+	service := NewService(nil, Config{IdleTimeout: time.Minute}, nil)
+	terminalSession := &session{
+		info: SessionInfo{
+			ID:          "term_pty_close",
+			StackID:     "demo",
+			ContainerID: "container_pty_close",
+			Shell:       "/bin/sh",
+		},
+		ownerID:   "owner_pty_close",
+		process:   cmd,
+		ptyFile:   writeEnd,
+		idleTimer: time.NewTimer(time.Minute),
+	}
+	defer terminalSession.idleTimer.Stop()
+
+	service.sessions["term_pty_close"] = terminalSession
+	service.owners["owner_pty_close"] = map[string]struct{}{"term_pty_close": {}}
+
+	if err := service.Close("owner_pty_close", "term_pty_close", "client_close"); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("command exited with error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for process to exit after PTY close")
+	}
+
+	content, err := os.ReadFile(markerPath)
+	if err != nil {
+		t.Fatalf("ReadFile(marker) error = %v", err)
+	}
+	if string(content) != "eof" {
+		t.Fatalf("marker content = %q, want eof", string(content))
+	}
+}
+
+func waitForFile(t *testing.T, path string, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", path)
 }
 
 func TestClosedAttachmentIgnoresFurtherEvents(t *testing.T) {
