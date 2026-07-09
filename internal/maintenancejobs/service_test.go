@@ -93,11 +93,11 @@ func (f *fakeMaintenanceStackReader) InvalidateImageUpdateStatus(ctx context.Con
 
 type fakeMaintenancePruneRunner struct{}
 
-func (f *fakeMaintenancePruneRunner) RunPruneStep(ctx context.Context, action string) (string, error) {
+func (f *fakeMaintenancePruneRunner) RunPruneStep(ctx context.Context, action string, managedStackIDs []string) (string, error) {
 	return "", nil
 }
 
-func (f *fakeMaintenancePruneRunner) RunSystemPrune(ctx context.Context, includeVolumes bool) (string, error) {
+func (f *fakeMaintenancePruneRunner) RunSystemPrune(ctx context.Context, includeVolumes bool, managedStackIDs []string) (string, error) {
 	return "", nil
 }
 

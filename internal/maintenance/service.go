@@ -380,7 +380,15 @@ func (s *Service) PrunePreview(ctx context.Context, query PrunePreviewQuery) (Pr
 		preview.StoppedContainers = containersPreview
 	}
 	if query.Volumes {
-		preview.Volumes = previewFromSystemDF(systemDF["local volumes"])
+		volumes, err := s.Volumes(ctx, VolumesQuery{
+			Usage:           ImageUsageUnused,
+			Origin:          ImageOriginExternal,
+			ManagedStackIDs: query.ManagedStackIDs,
+		})
+		if err != nil {
+			return PrunePreviewResponse{}, err
+		}
+		preview.Volumes = buildVolumePrunePreview(volumes.Items)
 	}
 
 	preview.TotalReclaimableBytes =
@@ -392,7 +400,7 @@ func (s *Service) PrunePreview(ctx context.Context, query PrunePreviewQuery) (Pr
 	return PrunePreviewResponse{Preview: preview}, nil
 }
 
-func (s *Service) RunPruneStep(ctx context.Context, action string) (string, error) {
+func (s *Service) RunPruneStep(ctx context.Context, action string, managedStackIDs []string) (string, error) {
 	var args []string
 	switch action {
 	case "prune_images":
@@ -402,7 +410,7 @@ func (s *Service) RunPruneStep(ctx context.Context, action string) (string, erro
 	case "prune_stopped_containers":
 		args = []string{"container", "prune", "-f"}
 	case "prune_volumes":
-		args = []string{"volume", "prune", "-f"}
+		return s.pruneExternalVolumes(ctx, managedStackIDs)
 	default:
 		return "", fmt.Errorf("unsupported prune action: %s", action)
 	}
@@ -418,11 +426,8 @@ func (s *Service) RunPruneStep(ctx context.Context, action string) (string, erro
 	return trimmed, nil
 }
 
-func (s *Service) RunSystemPrune(ctx context.Context, includeVolumes bool) (string, error) {
+func (s *Service) RunSystemPrune(ctx context.Context, includeVolumes bool, managedStackIDs []string) (string, error) {
 	args := []string{"system", "prune", "-af"}
-	if includeVolumes {
-		args = append(args, "--volumes")
-	}
 	output, err := s.runCommand(ctx, "docker", args...)
 	trimmed := strings.TrimSpace(string(output))
 	if err != nil {
@@ -431,7 +436,51 @@ func (s *Service) RunSystemPrune(ctx context.Context, includeVolumes bool) (stri
 		}
 		return trimmed, errors.New(trimmed)
 	}
-	return trimmed, nil
+	if !includeVolumes {
+		return trimmed, nil
+	}
+
+	volumeOutput, err := s.pruneExternalVolumes(ctx, managedStackIDs)
+	combined := strings.TrimSpace(strings.Join(nonEmptyStrings(trimmed, volumeOutput), "\n"))
+	if err != nil {
+		if combined == "" {
+			combined = err.Error()
+		}
+		return combined, err
+	}
+	return combined, nil
+}
+
+func (s *Service) pruneExternalVolumes(ctx context.Context, managedStackIDs []string) (string, error) {
+	volumes, err := s.Volumes(ctx, VolumesQuery{
+		Usage:           ImageUsageUnused,
+		Origin:          ImageOriginExternal,
+		ManagedStackIDs: managedStackIDs,
+	})
+	if err != nil {
+		return "", err
+	}
+	if len(volumes.Items) == 0 {
+		return "No unused external volumes to remove.", nil
+	}
+
+	outputs := make([]string, 0, len(volumes.Items))
+	for _, volume := range volumes.Items {
+		output, err := s.runCommand(ctx, "docker", "volume", "rm", volume.Name)
+		trimmed := strings.TrimSpace(string(output))
+		if err != nil {
+			if trimmed == "" {
+				trimmed = err.Error()
+			}
+			outputs = append(outputs, trimmed)
+			return strings.Join(outputs, "\n"), errors.New(trimmed)
+		}
+		if trimmed == "" {
+			trimmed = volume.Name
+		}
+		outputs = append(outputs, trimmed)
+	}
+	return strings.Join(outputs, "\n"), nil
 }
 
 func (s *Service) networkByName(ctx context.Context, name string, managedStackIDs []string) (NetworkItem, error) {
@@ -1062,6 +1111,36 @@ func buildImagePrunePreview(items []ImageItem) PruneCategoryPreview {
 		ReclaimableBytes: total,
 		Items:            previewItems,
 	}
+}
+
+func buildVolumePrunePreview(items []VolumeItem) PruneCategoryPreview {
+	seen := map[string]struct{}{}
+	previewItems := make([]PrunePreviewItem, 0, len(items))
+	for _, item := range items {
+		if _, ok := seen[item.Name]; ok {
+			continue
+		}
+		seen[item.Name] = struct{}{}
+		previewItems = append(previewItems, PrunePreviewItem{
+			Reference: item.Name,
+			Reason:    "unused_external_volume",
+		})
+	}
+	sort.Slice(previewItems, func(i, j int) bool { return previewItems[i].Reference < previewItems[j].Reference })
+	return PruneCategoryPreview{
+		Count: len(previewItems),
+		Items: previewItems,
+	}
+}
+
+func nonEmptyStrings(values ...string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 func (s *Service) systemDF(ctx context.Context) (map[string]systemDFSummary, error) {

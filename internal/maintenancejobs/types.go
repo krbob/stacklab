@@ -39,6 +39,7 @@ type PruneRequest struct {
 }
 
 type PruneRun struct {
-	Request  PruneRequest
-	Workflow []store.JobWorkflowStep
+	Request        PruneRequest
+	TargetStackIDs []string
+	Workflow       []store.JobWorkflowStep
 }

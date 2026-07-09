@@ -150,8 +150,95 @@ func TestServiceImagesAndPreview(t *testing.T) {
 	if preview.Preview.StoppedContainers.Count != 0 {
 		t.Fatalf("unexpected stopped container preview: %#v", preview.Preview.StoppedContainers)
 	}
+	if preview.Preview.Volumes.Count != 1 || len(preview.Preview.Volumes.Items) != 1 || preview.Preview.Volumes.Items[0].Reference != "external_media" {
+		t.Fatalf("unexpected volume preview: %#v", preview.Preview.Volumes)
+	}
 	if preview.Preview.TotalReclaimableBytes == 0 {
 		t.Fatalf("expected non-zero total reclaimable bytes")
+	}
+}
+
+func TestServicePrunesOnlyUnusedExternalVolumes(t *testing.T) {
+	var commands []string
+	service := NewService()
+	service.runCommand = func(_ context.Context, name string, args ...string) ([]byte, error) {
+		if name != "docker" {
+			return nil, errors.New("unexpected command")
+		}
+		command := strings.Join(args, " ")
+		commands = append(commands, command)
+		switch command {
+		case "volume ls --format {{json .}}":
+			return []byte(strings.Join([]string{
+				`{"Name":"demo_data","Driver":"local"}`,
+				`{"Name":"external_media","Driver":"local"}`,
+			}, "\n")), nil
+		case "volume inspect demo_data external_media":
+			return []byte(`[
+				{"Name":"demo_data","Driver":"local","Mountpoint":"/var/lib/docker/volumes/demo_data/_data","Scope":"local","Labels":{"com.docker.compose.project":"demo"},"Options":{}},
+				{"Name":"external_media","Driver":"local","Mountpoint":"/var/lib/docker/volumes/external_media/_data","Scope":"local","Labels":{},"Options":{}}
+			]`), nil
+		case "ps -aq":
+			return []byte(""), nil
+		case "volume rm external_media":
+			return []byte("external_media\n"), nil
+		default:
+			return nil, errors.New("unexpected args: " + command)
+		}
+	}
+
+	output, err := service.RunPruneStep(context.Background(), "prune_volumes", []string{"demo"})
+	if err != nil {
+		t.Fatalf("RunPruneStep(prune_volumes) error = %v", err)
+	}
+	if strings.TrimSpace(output) != "external_media" {
+		t.Fatalf("RunPruneStep output = %q, want external_media", output)
+	}
+	for _, command := range commands {
+		if command == "volume prune -f" || command == "volume rm demo_data" {
+			t.Fatalf("unsafe prune command executed: %s; all commands=%#v", command, commands)
+		}
+	}
+}
+
+func TestServiceSystemPruneWithVolumesDoesNotUseDockerVolumesFlag(t *testing.T) {
+	var commands []string
+	service := NewService()
+	service.runCommand = func(_ context.Context, name string, args ...string) ([]byte, error) {
+		if name != "docker" {
+			return nil, errors.New("unexpected command")
+		}
+		command := strings.Join(args, " ")
+		commands = append(commands, command)
+		switch command {
+		case "system prune -af":
+			return []byte("Deleted build cache\n"), nil
+		case "volume ls --format {{json .}}":
+			return []byte(`{"Name":"external_media","Driver":"local"}` + "\n"), nil
+		case "volume inspect external_media":
+			return []byte(`[
+				{"Name":"external_media","Driver":"local","Mountpoint":"/var/lib/docker/volumes/external_media/_data","Scope":"local","Labels":{},"Options":{}}
+			]`), nil
+		case "ps -aq":
+			return []byte(""), nil
+		case "volume rm external_media":
+			return []byte("external_media\n"), nil
+		default:
+			return nil, errors.New("unexpected args: " + command)
+		}
+	}
+
+	output, err := service.RunSystemPrune(context.Background(), true, []string{"demo"})
+	if err != nil {
+		t.Fatalf("RunSystemPrune(include volumes) error = %v", err)
+	}
+	if !strings.Contains(output, "Deleted build cache") || !strings.Contains(output, "external_media") {
+		t.Fatalf("RunSystemPrune output missing expected parts: %q", output)
+	}
+	for _, command := range commands {
+		if strings.Contains(command, "--volumes") {
+			t.Fatalf("system prune used --volumes: %#v", commands)
+		}
 	}
 }
 

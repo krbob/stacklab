@@ -112,7 +112,7 @@ type maintenanceReader interface {
 	CreateVolume(ctx context.Context, request maintenance.CreateVolumeRequest) (maintenance.CreateVolumeResponse, error)
 	DeleteVolume(ctx context.Context, name string, managedStackIDs []string) (maintenance.DeleteVolumeResponse, error)
 	PrunePreview(ctx context.Context, query maintenance.PrunePreviewQuery) (maintenance.PrunePreviewResponse, error)
-	RunPruneStep(ctx context.Context, action string) (string, error)
+	RunPruneStep(ctx context.Context, action string, managedStackIDs []string) (string, error)
 }
 
 type notificationsManager interface {

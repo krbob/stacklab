@@ -1639,11 +1639,15 @@ func TestHandlerMaintenanceUpdateStacksWorkflow(t *testing.T) {
 		"compose pull",
 		"compose build",
 		"compose up -d --remove-orphans",
-		"docker system prune -af --volumes",
+		"docker system prune -af",
+		"docker volume rm external_media",
 	} {
 		if !strings.Contains(recordedText, expected) {
 			t.Fatalf("expected docker log to contain %q, got %q", expected, recordedText)
 		}
+	}
+	if strings.Contains(recordedText, "--volumes") {
+		t.Fatalf("docker log used unsafe --volumes prune: %q", recordedText)
 	}
 }
 

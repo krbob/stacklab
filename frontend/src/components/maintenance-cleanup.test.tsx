@@ -35,7 +35,7 @@ describe('MaintenanceCleanup', () => {
           images: { count: 2, reclaimable_bytes: 1024 },
           build_cache: { count: 1, reclaimable_bytes: 2048 },
           stopped_containers: { count: 0, reclaimable_bytes: 0 },
-          volumes: { count: 0, reclaimable_bytes: 0 },
+          volumes: { count: 1, reclaimable_bytes: 0, items: [{ reference: 'external_media', size_bytes: 0, reason: 'unused_external_volume' }] },
           total_reclaimable_bytes: 3072,
         },
       },
@@ -93,6 +93,15 @@ describe('MaintenanceCleanup', () => {
     expect(screen.getByText('Unused volumes')).toBeInTheDocument()
   })
 
+  it('shows volume names when volume cleanup is selected', () => {
+    render(<MaintenanceCleanup />)
+
+    fireEvent.click(screen.getAllByRole('checkbox')[3])
+
+    expect(screen.getByText('Volumes selected for removal')).toBeInTheDocument()
+    expect(screen.getByText('external_media')).toBeInTheDocument()
+  })
+
   it('disables prune button when nothing is selected', () => {
     render(<MaintenanceCleanup />)
 
@@ -125,6 +134,10 @@ describe('MaintenanceCleanup', () => {
     fireEvent.click(checkboxes[2])
     fireEvent.click(checkboxes[3])
     fireEvent.click(screen.getByTestId('maintenance-prune'))
+
+    expect(mockRunMaintenancePrune).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: 'Run cleanup with volume removal?' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm cleanup' }))
 
     await waitFor(() => {
       expect(mockRunMaintenancePrune).toHaveBeenCalledWith({

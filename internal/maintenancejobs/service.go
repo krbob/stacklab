@@ -27,8 +27,8 @@ type stackReader interface {
 }
 
 type pruneRunner interface {
-	RunPruneStep(ctx context.Context, action string) (string, error)
-	RunSystemPrune(ctx context.Context, includeVolumes bool) (string, error)
+	RunPruneStep(ctx context.Context, action string, managedStackIDs []string) (string, error)
+	RunSystemPrune(ctx context.Context, includeVolumes bool, managedStackIDs []string) (string, error)
 }
 
 type Service struct {
@@ -243,7 +243,7 @@ func (s *Service) ExecuteUpdate(ctx context.Context, job store.Job, run UpdateRu
 	for index, step := range workflow {
 		stepRef := workflowStepRef(workflow, index)
 		onProgress := s.progressPublisher(ctx, job, step, stepRef)
-		output, runErr := s.runUpdateWorkflowStep(ctx, step, run.Request.Options, onProgress)
+		output, runErr := s.runUpdateWorkflowStep(ctx, step, run.Request.Options, run.TargetStackIDs, onProgress)
 		if trimmed := strings.TrimSpace(output); trimmed != "" {
 			_ = s.jobs.PublishEvent(ctx, job, "job_log", updateStepMessage("Output", step), trimmed, workflowStepRef(workflow, index))
 		}
@@ -330,8 +330,9 @@ func (s *Service) StartPrune(ctx context.Context, request PruneRequest, requeste
 	}
 
 	return job, PruneRun{
-		Request:  request,
-		Workflow: append([]store.JobWorkflowStep(nil), workflow...),
+		Request:        request,
+		TargetStackIDs: append([]string(nil), lockStackIDs...),
+		Workflow:       append([]store.JobWorkflowStep(nil), workflow...),
 	}, nil
 }
 
@@ -340,7 +341,7 @@ func (s *Service) ExecutePrune(ctx context.Context, job store.Job, run PruneRun)
 	var err error
 
 	for index, step := range workflow {
-		output, runErr := s.maintenance.RunPruneStep(ctx, step.Action)
+		output, runErr := s.maintenance.RunPruneStep(ctx, step.Action, run.TargetStackIDs)
 		if trimmed := strings.TrimSpace(output); trimmed != "" {
 			_ = s.jobs.PublishEvent(ctx, job, "job_log", pruneStepMessage("Output", step), trimmed, workflowStepRef(workflow, index))
 		}
@@ -456,9 +457,9 @@ func (s *Service) buildUpdateWorkflow(ctx context.Context, stackIDs []string, se
 	return steps, nil
 }
 
-func (s *Service) runUpdateWorkflowStep(ctx context.Context, step store.JobWorkflowStep, options UpdateOptions, onProgress func(stacks.StepProgress)) (string, error) {
+func (s *Service) runUpdateWorkflowStep(ctx context.Context, step store.JobWorkflowStep, options UpdateOptions, targetStackIDs []string, onProgress func(stacks.StepProgress)) (string, error) {
 	if step.Action == "prune" {
-		return s.maintenance.RunSystemPrune(ctx, options.IncludeVolumes)
+		return s.maintenance.RunSystemPrune(ctx, options.IncludeVolumes, targetStackIDs)
 	}
 	if step.Action == "skip" {
 		return "Skipped " + step.TargetStackID + " because all services are excluded.", nil

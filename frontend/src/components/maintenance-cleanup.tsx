@@ -4,6 +4,7 @@ import { useApi } from '@/hooks/use-api'
 import { useJobStream } from '@/hooks/use-job-stream'
 import { StepCards } from '@/components/step-cards'
 import { cn } from '@/lib/cn'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
@@ -27,6 +28,7 @@ export function MaintenanceCleanup() {
   const [jobId, setJobId] = useState<string | null>(null)
   const [startPending, setStartPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [confirmCleanup, setConfirmCleanup] = useState(false)
 
   const { data: preview, loading: previewLoading, refetch: refetchPreview } = useApi(
     () => getMaintenancePrunePreview({ images: true, build_cache: true, stopped_containers: true, volumes: true }),
@@ -38,6 +40,7 @@ export function MaintenanceCleanup() {
   const running = startPending || (jobId !== null && !isTerminal)
 
   const handlePrune = useCallback(async () => {
+    setConfirmCleanup(false)
     setStartPending(true)
     setError(null)
     setJobId(null)
@@ -65,6 +68,17 @@ export function MaintenanceCleanup() {
   }, [jobId, jobState, refetchPreview])
 
   const p = preview?.preview
+  const volumePreviewItems = p?.volumes.items ?? []
+  const volumeConfirmItems = volumePreviewItems.length > 0
+    ? volumePreviewItems.slice(0, 8).map((item) => item.reference).concat(volumePreviewItems.length > 8 ? [`+${volumePreviewItems.length - 8} more`] : [])
+    : ['No unused external volumes in preview.']
+  const requestPrune = useCallback(() => {
+    if (pruneVolumes) {
+      setConfirmCleanup(true)
+      return
+    }
+    handlePrune()
+  }, [handlePrune, pruneVolumes])
 
   return (
     <div className="flex flex-col gap-4 lg:flex-row" style={{ minHeight: '400px' }}>
@@ -81,6 +95,18 @@ export function MaintenanceCleanup() {
           <ScopeCheckbox label="Unused volumes" checked={pruneVolumes} onChange={setPruneVolumes} disabled={running} count={p?.volumes.count} bytes={p?.volumes.reclaimable_bytes} color="text-[var(--danger)]" />
         </div>
 
+        {pruneVolumes && volumePreviewItems.length > 0 && (
+          <div className="mt-3 rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-3 py-2">
+            <p className="text-xs font-medium text-[var(--danger)]">Volumes selected for removal</p>
+            <ul className="mt-2 space-y-1 text-xs text-[var(--text)]">
+              {volumePreviewItems.slice(0, 5).map((item) => (
+                <li key={item.reference} className="break-all font-mono">{item.reference}</li>
+              ))}
+            </ul>
+            {volumePreviewItems.length > 5 && <p className="mt-1 text-xs text-[var(--muted)]">+{volumePreviewItems.length - 5} more</p>}
+          </div>
+        )}
+
         {/* Total reclaimable */}
         {p && (
           <div className="mt-4 border-t border-[var(--panel-border)] pt-3 text-xs text-[var(--muted)]">
@@ -93,7 +119,7 @@ export function MaintenanceCleanup() {
         {/* Prune button */}
         <button
           data-testid="maintenance-prune"
-          onClick={handlePrune}
+          onClick={requestPrune}
           disabled={running || (!pruneImages && !pruneBuildCache && !pruneStopped && !pruneVolumes)}
           className="mt-4 w-full rounded-lg border border-[var(--danger)]/30 bg-[var(--danger)]/10 px-4 py-3 text-sm font-medium text-[var(--danger)] transition hover:bg-[var(--danger)]/20 disabled:opacity-40"
         >
@@ -126,6 +152,18 @@ export function MaintenanceCleanup() {
           </div>
         )}
       </div>
+
+      {confirmCleanup && (
+        <ConfirmDialog
+          title="Run cleanup with volume removal?"
+          message="This cleanup includes Docker volumes. Listed unused external volumes will be removed permanently."
+          items={volumeConfirmItems}
+          confirmLabel="Confirm cleanup"
+          confirming={running}
+          onCancel={() => setConfirmCleanup(false)}
+          onConfirm={handlePrune}
+        />
+      )}
     </div>
   )
 }
