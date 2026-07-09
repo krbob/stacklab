@@ -6,6 +6,7 @@ import type { ActiveJobItem, JobDetail } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
 
 const COMPLETED_LINGER_MS = 5_000
+const FAILED_LINGER_MS = 30_000
 
 function formatElapsed(startedAt: string): string {
   const seconds = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000)
@@ -42,6 +43,14 @@ export function GlobalActivity({ variant = 'sidebar' }: { variant?: 'sidebar' | 
   const [recentlyCompleted, setRecentlyCompleted] = useState<ActiveJobItem[]>([])
   const prevIdsRef = useRef<Set<string>>(new Set())
   const popoverRef = useRef<HTMLDivElement>(null)
+  const removalTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+
+  useEffect(() => {
+    return () => {
+      removalTimersRef.current.forEach((timer) => clearTimeout(timer))
+      removalTimersRef.current.clear()
+    }
+  }, [])
 
   // Detect jobs that disappeared from the live feed (completed) and let them
   // linger briefly so the outcome is visible.
@@ -75,13 +84,15 @@ export function GlobalActivity({ variant = 'sidebar' }: { variant?: 'sidebar' | 
         return Array.from(merged.values())
       })
 
-      const transientIds = completed
-        .filter((job) => ['succeeded', 'cancelled'].includes(job.state))
-        .map((job) => job.id)
-      if (transientIds.length > 0) {
-        setTimeout(() => {
-          setRecentlyCompleted((prev) => prev.filter((job) => !transientIds.includes(job.id)))
-        }, COMPLETED_LINGER_MS)
+      for (const job of completed) {
+        const lingerMs = ['failed', 'timed_out'].includes(job.state) ? FAILED_LINGER_MS : COMPLETED_LINGER_MS
+        const existingTimer = removalTimersRef.current.get(job.id)
+        if (existingTimer) clearTimeout(existingTimer)
+        const timer = setTimeout(() => {
+          removalTimersRef.current.delete(job.id)
+          setRecentlyCompleted((prev) => prev.filter((candidate) => candidate.id !== job.id))
+        }, lingerMs)
+        removalTimersRef.current.set(job.id, timer)
       }
     })
     return () => {

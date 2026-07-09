@@ -246,7 +246,7 @@ describe('GlobalActivity', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 
-  it('keeps failed recent job visible', async () => {
+  it('keeps failed recent job visible longer before auto-removing it', async () => {
     mockGetActiveJobs
       .mockResolvedValueOnce(activeResponse)
       .mockResolvedValue({
@@ -294,5 +294,12 @@ describe('GlobalActivity', () => {
     })
 
     expect(screen.getByText('Failed · pull · demo')).toBeInTheDocument()
+
+    await act(async () => {
+      vi.advanceTimersByTime(25000)
+      await Promise.resolve()
+    })
+
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 })

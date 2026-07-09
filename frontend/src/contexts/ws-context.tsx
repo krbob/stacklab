@@ -20,7 +20,6 @@ export function WsProvider({ children, authenticated = false }: { children: Reac
   const handlersRef = useRef<Map<string, Set<FrameHandler>>>(new Map())
   const reconnectAttemptRef = useRef(0)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
   const authFailedRef = useRef(false)
   const connectRef = useRef<(() => void) | undefined>(undefined)
 
@@ -74,12 +73,6 @@ export function WsProvider({ children, authenticated = false }: { children: Reac
       setConnected(false)
       wsRef.current = null
 
-      const timer = heartbeatTimerRef.current
-      if (timer) {
-        clearInterval(timer)
-        heartbeatTimerRef.current = undefined
-      }
-
       if (event.code === 1008 || event.code === 4401 || event.code === 1006) {
         fetch('/api/session', { credentials: 'same-origin' })
           .then((res) => {
@@ -115,8 +108,6 @@ export function WsProvider({ children, authenticated = false }: { children: Reac
       authFailedRef.current = true
       const reconnectTimer = reconnectTimerRef.current
       if (reconnectTimer) clearTimeout(reconnectTimer)
-      const hbTimer = heartbeatTimerRef.current
-      if (hbTimer) clearInterval(hbTimer)
       wsRef.current?.close()
     }
   }, [connect, authenticated])
