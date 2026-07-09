@@ -33,11 +33,17 @@ func WriteString(path, content, pattern string) error {
 		_ = os.Remove(tmpName)
 		return err
 	}
-	if err := tmpFile.Close(); err != nil {
+	if err := tmpFile.Chmod(mode); err != nil {
+		_ = tmpFile.Close()
 		_ = os.Remove(tmpName)
 		return err
 	}
-	if err := os.Chmod(tmpName, mode); err != nil {
+	if err := tmpFile.Sync(); err != nil {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
 		_ = os.Remove(tmpName)
 		return err
 	}
@@ -45,6 +51,18 @@ func WriteString(path, content, pattern string) error {
 		_ = os.Remove(tmpName)
 		return err
 	}
+	if err := syncDir(filepath.Dir(path)); err != nil {
+		return err
+	}
 
 	return nil
+}
+
+func syncDir(path string) error {
+	dir, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
 }

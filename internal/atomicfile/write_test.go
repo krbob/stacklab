@@ -1,0 +1,54 @@
+package atomicfile
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestWriteStringCreatesAndReplacesFile(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "app.conf")
+
+	if err := WriteString(path, "initial\n", ".stacklab-test-*"); err != nil {
+		t.Fatalf("WriteString(new) error = %v", err)
+	}
+	assertFile(t, path, "initial\n", 0o644)
+
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatalf("Chmod(app.conf) error = %v", err)
+	}
+	if err := WriteString(path, "updated\n", ".stacklab-test-*"); err != nil {
+		t.Fatalf("WriteString(replace) error = %v", err)
+	}
+	assertFile(t, path, "updated\n", 0o600)
+
+	matches, err := filepath.Glob(filepath.Join(dir, ".stacklab-test-*"))
+	if err != nil {
+		t.Fatalf("Glob(temp files) error = %v", err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("temporary files left behind: %#v", matches)
+	}
+}
+
+func assertFile(t *testing.T, path, wantContent string, wantMode os.FileMode) {
+	t.Helper()
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%s) error = %v", path, err)
+	}
+	if string(content) != wantContent {
+		t.Fatalf("ReadFile(%s) = %q, want %q", path, string(content), wantContent)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat(%s) error = %v", path, err)
+	}
+	if info.Mode().Perm() != wantMode {
+		t.Fatalf("mode(%s) = %04o, want %04o", path, info.Mode().Perm(), wantMode)
+	}
+}
