@@ -149,6 +149,17 @@ describe("SettingsPage", () => {
     expect(screen.getByText("Succeeded with warnings")).toBeInTheDocument();
   });
 
+  it("blocks notification edits when loading settings fails", async () => {
+    mockGetNotificationSettings.mockRejectedValue(new Error("notification load failed"));
+
+    render(<SettingsPage />);
+
+    expect(await screen.findByText("notification load failed")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Enable notifications")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("https://hooks.example.com/stacklab")).not.toBeInTheDocument();
+    expect(mockUpdateNotificationSettings).not.toHaveBeenCalled();
+  });
+
   it("saves notification settings", async () => {
     mockUpdateNotificationSettings.mockResolvedValue({
       enabled: true,
@@ -288,6 +299,17 @@ describe("SettingsPage", () => {
     });
   });
 
+  it("blocks maintenance schedule edits when loading schedules fails", async () => {
+    mockGetMaintenanceSchedules.mockRejectedValue(new Error("schedule load failed"));
+
+    render(<SettingsPage />);
+
+    expect(await screen.findByText("schedule load failed")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Scheduled stack update")).not.toBeInTheDocument();
+    expect(screen.queryByText("Save schedules")).not.toBeInTheDocument();
+    expect(mockUpdateMaintenanceSchedules).not.toHaveBeenCalled();
+  });
+
   it("saves host observability settings", async () => {
     render(<SettingsPage />);
 
@@ -301,6 +323,17 @@ describe("SettingsPage", () => {
       });
     });
     expect(await screen.findByText("Saved")).toBeInTheDocument();
+  });
+
+  it("blocks host observability edits when loading settings fails", async () => {
+    mockGetHostSettings.mockRejectedValue(new Error("host load failed"));
+
+    render(<SettingsPage />);
+
+    expect(await screen.findByText("host load failed")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Enable public IP lookup")).not.toBeInTheDocument();
+    expect(screen.queryByText("Save host settings")).not.toBeInTheDocument();
+    expect(mockUpdateHostSettings).not.toHaveBeenCalled();
   });
 
   it("lazy-loads stack services only after expanding skip services", async () => {

@@ -117,8 +117,21 @@ function SettingsCard({ children }: { children: ReactNode }) {
   )
 }
 
+function SettingsLoadError({ title, message, onRetry }: { title: string; message: string; onRetry: () => void }) {
+  return (
+    <div>
+      <h3 className="text-sm font-medium text-[var(--text)]">{title}</h3>
+      <p className="mt-2 text-xs text-[var(--danger)]">{message}</p>
+      <button type="button" onClick={onRetry} className="mt-3 rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]">
+        Retry
+      </button>
+    </div>
+  )
+}
+
 function HostSettingsSection() {
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [publicIPLookupEnabled, setPublicIPLookupEnabled] = useState(false)
   const [savedState, setSavedState] = useState('')
   const [savingHost, setSavingHost] = useState(false)
@@ -127,17 +140,26 @@ function HostSettingsSection() {
   const currentState = JSON.stringify({ publicIPLookupEnabled })
   const isDirty = currentState !== savedState
 
-  useEffect(() => {
+  const loadSettings = useCallback(() => {
+    setLoading(true)
+    setLoadError(null)
+    setSaveResult(null)
     getHostSettings()
       .then((settings) => {
         setPublicIPLookupEnabled(settings.public_ip_lookup_enabled)
         setSavedState(JSON.stringify({ publicIPLookupEnabled: settings.public_ip_lookup_enabled }))
       })
-      .catch(() => {})
+      .catch((err) => {
+        setSavedState('')
+        setLoadError(err instanceof Error ? err.message : 'Failed to load host observability settings')
+      })
       .finally(() => setLoading(false))
   }, [])
 
+  useEffect(() => { loadSettings() }, [loadSettings])
+
   const handleSave = useCallback(async () => {
+    if (loadError) return
     setSavingHost(true)
     setSaveResult(null)
     try {
@@ -150,7 +172,11 @@ function HostSettingsSection() {
     } finally {
       setSavingHost(false)
     }
-  }, [publicIPLookupEnabled])
+  }, [loadError, publicIPLookupEnabled])
+
+  if (loadError) {
+    return <SettingsLoadError title="Host observability" message={loadError} onRetry={loadSettings} />
+  }
 
   return (
     <div>
@@ -186,6 +212,7 @@ function HostSettingsSection() {
 
 function NotificationsSection() {
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [enabled, setEnabled] = useState(false)
 
   // Webhook
@@ -220,7 +247,12 @@ function NotificationsSection() {
   const currentState = JSON.stringify({ enabled, webhookEnabled, webhookUrl, telegramEnabled, telegramBotToken, telegramChatId, jobFailed, jobWarnings, maintenanceSucceeded, recoveryFailed, serviceError, runtimeHealthDegraded, runtimeLogErrorBurst })
   const isDirty = currentState !== savedState
 
-  useEffect(() => {
+  const loadSettings = useCallback(() => {
+    setLoading(true)
+    setLoadError(null)
+    setSaveResult(null)
+    setWebhookTestResult(null)
+    setTelegramTestResult(null)
     getNotificationSettings()
       .then((s) => {
         setEnabled(s.enabled)
@@ -253,9 +285,14 @@ function NotificationsSection() {
         })
         setSavedState(state)
       })
-      .catch(() => {})
+      .catch((err) => {
+        setSavedState('')
+        setLoadError(err instanceof Error ? err.message : 'Failed to load notification settings')
+      })
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => { loadSettings() }, [loadSettings])
 
   const buildRequest = useCallback(() => ({
     enabled,
@@ -276,6 +313,7 @@ function NotificationsSection() {
   }), [enabled, webhookEnabled, webhookUrl, telegramEnabled, telegramBotToken, telegramChatId, jobFailed, jobWarnings, maintenanceSucceeded, recoveryFailed, serviceError, runtimeHealthDegraded, runtimeLogErrorBurst])
 
   const handleSave = useCallback(async () => {
+    if (loadError) return
     setSavingNotif(true)
     setSaveResult(null)
     try {
@@ -287,9 +325,10 @@ function NotificationsSection() {
     } finally {
       setSavingNotif(false)
     }
-  }, [buildRequest, currentState])
+  }, [buildRequest, currentState, loadError])
 
   const handleTestWebhook = useCallback(async () => {
+    if (loadError) return
     setTestingWebhook(true)
     setWebhookTestResult(null)
     try {
@@ -300,9 +339,10 @@ function NotificationsSection() {
     } finally {
       setTestingWebhook(false)
     }
-  }, [buildRequest])
+  }, [buildRequest, loadError])
 
   const handleTestTelegram = useCallback(async () => {
+    if (loadError) return
     setTestingTelegram(true)
     setTelegramTestResult(null)
     try {
@@ -313,7 +353,7 @@ function NotificationsSection() {
     } finally {
       setTestingTelegram(false)
     }
-  }, [buildRequest])
+  }, [buildRequest, loadError])
 
   if (loading) {
     return (
@@ -322,6 +362,10 @@ function NotificationsSection() {
         <div className="mt-3 h-20 animate-pulse rounded-md bg-[rgba(255,255,255,0.03)]" />
       </div>
     )
+  }
+
+  if (loadError) {
+    return <SettingsLoadError title="Notifications" message={loadError} onRetry={loadSettings} />
   }
 
   return (
@@ -476,6 +520,7 @@ function hasExcludedServices(excluded: Record<string, string[]>): boolean {
 function SchedulesSection() {
   const { openJob } = useJobDrawer()
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [data, setData] = useState<MaintenanceSchedulesResponse | null>(null)
   const [stackOptions, setStackOptions] = useState<StackListItem[]>([])
   const [serviceOptions, setServiceOptions] = useState<Record<string, string[]>>({})
@@ -508,7 +553,10 @@ function SchedulesSection() {
   const [pruneStopped, setPruneStopped] = useState(true)
   const [pruneVolumes, setPruneVolumes] = useState(false)
 
-  useEffect(() => {
+  const loadSchedules = useCallback(() => {
+    setLoading(true)
+    setLoadError(null)
+    setSaveResult(null)
     Promise.allSettled([getMaintenanceSchedules(), getStacks()])
       .then(([schedulesResult, stacksResult]) => {
         if (schedulesResult.status === 'fulfilled') {
@@ -534,14 +582,21 @@ function SchedulesSection() {
           setPruneBuildCache(s.prune.scope.build_cache)
           setPruneStopped(s.prune.scope.stopped_containers)
           setPruneVolumes(s.prune.scope.volumes)
+        } else {
+          setData(null)
+          setLoadError(schedulesResult.reason instanceof Error ? schedulesResult.reason.message : 'Failed to load maintenance schedules')
         }
         if (stacksResult.status === 'fulfilled') {
           setStackOptions(stacksResult.value.items)
+        } else {
+          setStackOptions([])
+          setLoadError(stacksResult.reason instanceof Error ? stacksResult.reason.message : 'Failed to load stack list')
         }
       })
-      .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => { loadSchedules() }, [loadSchedules])
 
   const visibleUpdateStackIds = useMemo(() => (
     updateTargetMode === 'selected'
@@ -620,6 +675,7 @@ function SchedulesSection() {
   }, [])
 
   const handleSave = useCallback(async () => {
+    if (loadError) return
     if (updateTargetMode === 'selected' && updateTargetStacks.length === 0) {
       setSaveResult({ type: 'error', text: 'Select at least one stack for scheduled updates' })
       return
@@ -666,7 +722,7 @@ function SchedulesSection() {
     } finally {
       setSavingSchedules(false)
     }
-  }, [updateEnabled, updateFreq, updateTime, updateWeekdays, updateTargetMode, updateTargetStacks, visibleUpdateStackIds, updateExcludedServices, updatePull, updateBuild, updateOrphans, updatePrune, updatePruneVol, pruneEnabled, pruneFreq, pruneTime, pruneWeekdays, pruneImages, pruneBuildCache, pruneStopped, pruneVolumes])
+  }, [loadError, updateEnabled, updateFreq, updateTime, updateWeekdays, updateTargetMode, updateTargetStacks, visibleUpdateStackIds, updateExcludedServices, updatePull, updateBuild, updateOrphans, updatePrune, updatePruneVol, pruneEnabled, pruneFreq, pruneTime, pruneWeekdays, pruneImages, pruneBuildCache, pruneStopped, pruneVolumes])
 
   if (loading) {
     return (
@@ -675,6 +731,10 @@ function SchedulesSection() {
         <div className="mt-3 h-24 animate-pulse rounded-md bg-[rgba(255,255,255,0.03)]" />
       </div>
     )
+  }
+
+  if (loadError) {
+    return <SettingsLoadError title="Maintenance schedules" message={loadError} onRetry={loadSchedules} />
   }
 
   return (
