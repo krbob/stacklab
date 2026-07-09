@@ -252,7 +252,7 @@ func (s *Service) ExecuteUpdate(ctx context.Context, job store.Job, run UpdateRu
 			finishedJob, finishErr := s.finishUpdateFailure(finishCtx, job, workflow, index, "update_stacks_failed", runErr.Error(), run)
 			cancel()
 			if finishErr != nil {
-				return store.Job{}, finishErr
+				return finishedJob, finishErr
 			}
 			return finishedJob, nil
 		}
@@ -289,7 +289,7 @@ func (s *Service) ExecuteUpdate(ctx context.Context, job store.Job, run UpdateRu
 	defer cancel()
 	job, err = s.jobs.FinishSucceeded(finishCtx, job)
 	if err != nil {
-		return store.Job{}, err
+		return job, err
 	}
 	if err := s.audit.RecordJob(finishCtx, job, updateAuditDetails(run.Request, run.TargetStackIDs)); err != nil && s.logger != nil {
 		s.logger.Warn("record maintenance audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
@@ -350,7 +350,7 @@ func (s *Service) ExecutePrune(ctx context.Context, job store.Job, run PruneRun)
 			finishedJob, finishErr := s.finishPruneFailure(finishCtx, job, workflow, index, "prune_failed", runErr.Error(), run)
 			cancel()
 			if finishErr != nil {
-				return store.Job{}, finishErr
+				return finishedJob, finishErr
 			}
 			return finishedJob, nil
 		}
@@ -375,7 +375,7 @@ func (s *Service) ExecutePrune(ctx context.Context, job store.Job, run PruneRun)
 	defer cancel()
 	job, err = s.jobs.FinishSucceeded(finishCtx, job)
 	if err != nil {
-		return store.Job{}, err
+		return job, err
 	}
 	if err := s.audit.RecordJob(finishCtx, job, pruneAuditDetails(run.Request)); err != nil && s.logger != nil {
 		s.logger.Warn("record prune audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
@@ -397,7 +397,7 @@ func (s *Service) finishUpdateFailure(ctx context.Context, job store.Job, workfl
 	_ = s.jobs.PublishEvent(ctx, failingJob, "job_step_finished", updateStepMessage("Failed", workflow[index]), "", workflowStepRef(workflow, index))
 	finishedJob, err := s.jobs.FinishFailed(ctx, job, errorCode, errorMessage)
 	if err != nil {
-		return store.Job{}, err
+		return finishedJob, err
 	}
 	if err := s.audit.RecordJob(ctx, finishedJob, updateAuditDetails(run.Request, run.TargetStackIDs)); err != nil && s.logger != nil {
 		s.logger.Warn("record maintenance audit failed", slog.String("job_id", finishedJob.ID), slog.String("err", err.Error()))
@@ -417,7 +417,7 @@ func (s *Service) finishPruneFailure(ctx context.Context, job store.Job, workflo
 	_ = s.jobs.PublishEvent(ctx, failingJob, "job_step_finished", pruneStepMessage("Failed", workflow[index]), "", workflowStepRef(workflow, index))
 	finishedJob, err := s.jobs.FinishFailed(ctx, job, errorCode, errorMessage)
 	if err != nil {
-		return store.Job{}, err
+		return finishedJob, err
 	}
 	if err := s.audit.RecordJob(ctx, finishedJob, pruneAuditDetails(run.Request)); err != nil && s.logger != nil {
 		s.logger.Warn("record prune audit failed", slog.String("job_id", finishedJob.ID), slog.String("err", err.Error()))

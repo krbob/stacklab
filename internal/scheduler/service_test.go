@@ -320,6 +320,29 @@ func TestRunDueSchedulesDispatchesPruneWithManagedLocks(t *testing.T) {
 	}
 }
 
+func TestFinalizeScheduledRunTreatsMissingJobAsFailure(t *testing.T) {
+	testStore := openSchedulerTestStore(t)
+	service := NewService(testStore, audit.NewService(testStore), &fakeRunner{}, &fakeStackLister{}, nil)
+	service.now = func() time.Time { return time.Date(2026, 4, 10, 6, 0, 0, 0, time.UTC) }
+
+	scheduledFor := time.Date(2026, 4, 10, 5, 30, 0, 0, time.UTC)
+	service.finalizeScheduledRun(context.Background(), "update", scheduledFor, store.Job{}, nil)
+
+	runtimeState, err := service.loadRuntimeState(context.Background())
+	if err != nil {
+		t.Fatalf("loadRuntimeState() error = %v", err)
+	}
+	if runtimeState.Update.LastResult != "failed" {
+		t.Fatalf("LastResult = %q, want failed", runtimeState.Update.LastResult)
+	}
+	if runtimeState.Update.LastMessage != "maintenance runner did not return a job" {
+		t.Fatalf("LastMessage = %q", runtimeState.Update.LastMessage)
+	}
+	if runtimeState.Update.LastJobID != "" {
+		t.Fatalf("LastJobID = %q, want empty", runtimeState.Update.LastJobID)
+	}
+}
+
 func TestUpdateSettingsSeedsRuntimeToAvoidImmediateCatchUp(t *testing.T) {
 	previousLocal := time.Local
 	time.Local = time.FixedZone("UTC", 0)

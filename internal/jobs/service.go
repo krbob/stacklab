@@ -124,7 +124,7 @@ func (s *Service) FinishSucceeded(ctx context.Context, job store.Job) (store.Job
 		return store.Job{}, err
 	}
 	if err := s.PublishEvent(ctx, job, "job_finished", "Job finished successfully.", "", nil); err != nil {
-		return store.Job{}, err
+		return job, err
 	}
 	if s.onTerminal != nil {
 		s.onTerminal(job)
@@ -156,10 +156,10 @@ func (s *Service) finishTerminal(ctx context.Context, job store.Job, state, erro
 		return store.Job{}, err
 	}
 	if err := s.PublishEvent(ctx, job, "job_error", errorMessage, "", nil); err != nil {
-		return store.Job{}, err
+		return job, err
 	}
 	if err := s.PublishEvent(ctx, job, "job_finished", finishMessage, "", nil); err != nil {
-		return store.Job{}, err
+		return job, err
 	}
 	if s.onTerminal != nil {
 		s.onTerminal(job)

@@ -221,6 +221,9 @@ func (s *Service) finalizeScheduledRun(ctx context.Context, scheduleKey string, 
 		result = job.State
 		message = job.ErrorMessage
 	}
+	if job.ID == "" && runErr == nil {
+		runErr = errors.New("maintenance runner did not return a job")
+	}
 	if runErr != nil {
 		switch {
 		case errors.Is(runErr, jobs.ErrStackLocked):
