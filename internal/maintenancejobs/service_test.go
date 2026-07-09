@@ -307,6 +307,15 @@ func TestRunUpdatePruneAfterWithVolumesUsesAllManagedStacks(t *testing.T) {
 			},
 		},
 	}
+	reader.details["invalid"] = stacks.StackDetailResponse{
+		Stack: stacks.StackDetail{
+			StackHeader:      stacks.StackHeader{ID: "invalid"},
+			AvailableActions: []string{"validate"},
+			Services: []stacks.Service{
+				{Name: "db", Mode: stacks.ServiceModeImage},
+			},
+		},
+	}
 	pruner := &fakeMaintenancePruneRunner{}
 	service := newMaintenanceTestServiceWithPruner(t, reader, pruner)
 
@@ -335,7 +344,7 @@ func TestRunUpdatePruneAfterWithVolumesUsesAllManagedStacks(t *testing.T) {
 	if !call.IncludeVolumes {
 		t.Fatalf("IncludeVolumes = false, want true")
 	}
-	wantIDs := []string{"demo", "stopped"}
+	wantIDs := []string{"demo", "invalid", "stopped"}
 	if !reflect.DeepEqual(call.ManagedStackIDs, wantIDs) {
 		t.Fatalf("ManagedStackIDs = %#v, want %#v", call.ManagedStackIDs, wantIDs)
 	}

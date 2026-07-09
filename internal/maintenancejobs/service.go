@@ -94,6 +94,19 @@ func (s *Service) ResolveTargetStacks(ctx context.Context, mode string, stackIDs
 	}
 }
 
+func (s *Service) listManagedStackIDs(ctx context.Context) ([]string, error) {
+	list, err := s.stackReader.List(ctx, stacks.ListQuery{})
+	if err != nil {
+		return nil, err
+	}
+	result := make([]string, 0, len(list.Items))
+	for _, item := range list.Items {
+		result = append(result, item.ID)
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
 func (s *Service) resolveUpdateServiceTargets(ctx context.Context, stackIDs []string, excluded map[string][]string) (map[string][]string, error) {
 	result := map[string][]string{}
 	if !hasServiceExclusions(excluded) {
@@ -204,7 +217,7 @@ func (s *Service) StartUpdate(ctx context.Context, request UpdateRequest, reques
 	managedStackIDs := append([]string(nil), targetStackIDs...)
 	lockStackIDs := targetStackIDs
 	if request.Options.PruneAfter && request.Options.IncludeVolumes {
-		managedStackIDs, err = s.ResolveTargetStacks(ctx, "all", nil)
+		managedStackIDs, err = s.listManagedStackIDs(ctx)
 		if err != nil {
 			return store.Job{}, UpdateRun{}, err
 		}
