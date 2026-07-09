@@ -532,6 +532,13 @@ func (s *Service) enrichStatusItem(item StatusItem) (StatusItem, error) {
 		if os.IsNotExist(err) {
 			return item, nil
 		}
+		if os.IsPermission(err) {
+			item.DiffAvailable = false
+			item.CommitAllowed = false
+			reason := "not_readable"
+			item.BlockedReason = &reason
+			return item, nil
+		}
 		return StatusItem{}, fmt.Errorf("stat git workspace item: %w", err)
 	}
 

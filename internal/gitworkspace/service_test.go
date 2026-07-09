@@ -413,6 +413,53 @@ func TestServiceStatusDiffAndCommitDetectUnreadableFile(t *testing.T) {
 	}
 }
 
+func TestServiceStatusMarksPermissionDeniedStatItemBlocked(t *testing.T) {
+	t.Parallel()
+
+	if os.Geteuid() == 0 {
+		t.Skip("permission diagnostics test requires non-root user")
+	}
+
+	service, root := newTestService(t)
+	runGit(t, root, "init", "-b", "main")
+	runGit(t, root, "config", "user.name", "Stacklab Test")
+	runGit(t, root, "config", "user.email", "stacklab@example.com")
+
+	mustWriteFile(t, filepath.Join(root, "config", "demo", "app.conf"), "server_name old.local;\n")
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "initial")
+
+	protectedDir := filepath.Join(root, "private")
+	if err := os.MkdirAll(protectedDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll(private) error = %v", err)
+	}
+	mustWriteFile(t, filepath.Join(protectedDir, "secret.conf"), "token=secret\n")
+	if err := os.Symlink("../../private/secret.conf", filepath.Join(root, "config", "demo", "secret-link.conf")); err != nil {
+		t.Fatalf("Symlink(secret-link.conf) error = %v", err)
+	}
+	if err := os.Chmod(protectedDir, 0o000); err != nil {
+		t.Fatalf("Chmod(private) error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chmod(protectedDir, 0o700)
+	})
+
+	status, err := service.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status() error = %v", err)
+	}
+	if len(status.Items) != 1 {
+		t.Fatalf("Status().Items = %d, want 1; items=%#v", len(status.Items), status.Items)
+	}
+	item := status.Items[0]
+	if item.Path != "config/demo/secret-link.conf" || item.DiffAvailable || item.CommitAllowed {
+		t.Fatalf("unexpected blocked status item: %#v", item)
+	}
+	if item.BlockedReason == nil || *item.BlockedReason != "not_readable" {
+		t.Fatalf("unexpected blocked reason: %#v", item.BlockedReason)
+	}
+}
+
 func newTestService(t *testing.T) (*Service, string) {
 	t.Helper()
 
