@@ -1,21 +1,4 @@
 Package: stacklab
-Version: 2026.08.0~nightly20260706+ged0f5c5
-Architecture: arm64
-Maintainer: Stacklab Maintainers <maintainers@stacklab.invalid>
-Depends: adduser, systemd, docker.io | docker-ce | moby-engine, docker-cli | docker-ce-cli | moby-cli | docker.io (<< 26.0), docker-compose | docker-compose-plugin, git
-Recommends: ca-certificates
-Filename: pool/nightly/main/s/stacklab/stacklab_2026.08.0~nightly20260706+ged0f5c5_arm64.deb
-Size: 8657010
-MD5sum: ae6c8250594c80ce51f4d8346db75bce
-SHA1: 60702477cb6d4565a4e93d9353f591c5ef7c1901
-SHA256: f66cfdfab0fed9e026d1f037fb93319d4bf342b49716334691933a39dace0977
-Section: admin
-Priority: optional
-Description: Compose-first control panel for Docker Compose homelabs
- Stacklab is a host-native, filesystem-first control panel for Docker Compose
- homelabs running on a single Linux host.
-
-Package: stacklab
 Version: 2026.08.0~nightly20260707+g0f60ce5
 Architecture: arm64
 Maintainer: Stacklab Maintainers <maintainers@stacklab.invalid>
@@ -111,6 +94,23 @@ Size: 8702482
 MD5sum: 326daae15084e5c5386e87ed233bbef5
 SHA1: 034982766c7532d40ff264a5602da5b03e203d1d
 SHA256: 02e459b7fee7f5dd14bb09576ae0da6f532a4d87a2cb2a88b44287de497ac346
+Section: admin
+Priority: optional
+Description: Compose-first control panel for Docker Compose homelabs
+ Stacklab is a host-native, filesystem-first control panel for Docker Compose
+ homelabs running on a single Linux host.
+
+Package: stacklab
+Version: 2026.08.0~nightly20260709+r102.g7b7f9bb
+Architecture: arm64
+Maintainer: Stacklab Maintainers <maintainers@stacklab.invalid>
+Depends: adduser, systemd, docker.io | docker-ce | moby-engine, docker-cli | docker-ce-cli | moby-cli | docker.io (<< 26.0), docker-compose | docker-compose-plugin, git
+Recommends: ca-certificates
+Filename: pool/nightly/main/s/stacklab/stacklab_2026.08.0~nightly20260709+r102.g7b7f9bb_arm64.deb
+Size: 8711616
+MD5sum: 9a4dae2ce06609b8195ae1d41215ed57
+SHA1: 07a43338675e141e7df8280bd91dd78db04cc1a7
+SHA256: d3f4b427e95197743beea85362700c5309b68cf06874c679a93ab918c59df2c3
 Section: admin
 Priority: optional
 Description: Compose-first control panel for Docker Compose homelabs
