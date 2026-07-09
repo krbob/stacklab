@@ -1,6 +1,7 @@
 package stackworkspace
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -482,10 +483,25 @@ func detectEntryType(path string, info os.FileInfo) (EntryType, error) {
 	if len(sample) == 0 {
 		return EntryTypeTextFile, nil
 	}
-	if strings.ContainsRune(string(sample), '\x00') || !utf8.Valid(sample) {
+	if bytes.Contains(sample, []byte{0}) || !validTextSample(sample, info.Size() > int64(readBytes)) {
 		return EntryTypeBinaryFile, nil
 	}
 	return EntryTypeTextFile, nil
+}
+
+func validTextSample(sample []byte, truncated bool) bool {
+	if utf8.Valid(sample) {
+		return true
+	}
+	if !truncated {
+		return false
+	}
+	for trim := 1; trim < utf8.UTFMax && trim < len(sample); trim++ {
+		if utf8.Valid(sample[:len(sample)-trim]) {
+			return true
+		}
+	}
+	return false
 }
 
 func stackBlockedReason(readable, writable bool, entryType EntryType) *string {

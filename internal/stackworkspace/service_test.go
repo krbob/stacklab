@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -43,6 +44,8 @@ func TestServiceFileDetectsTextAndBinaryAndRejectsCanonicalFiles(t *testing.T) {
 
 	service, stackRoot := newTestService(t, "demo")
 	mustWriteFile(t, filepath.Join(stackRoot, "Dockerfile"), "FROM alpine:3.20\n")
+	utf8BoundaryContent := strings.Repeat("a", 8191) + "é\n"
+	mustWriteFile(t, filepath.Join(stackRoot, "utf8-boundary.conf"), utf8BoundaryContent)
 	mustWriteFile(t, filepath.Join(stackRoot, "compose.yaml"), "services: {}\n")
 	if err := os.WriteFile(filepath.Join(stackRoot, "blob.bin"), []byte{0x00, 0x01, 0x02}, 0o644); err != nil {
 		t.Fatalf("WriteFile(blob.bin) error = %v", err)
@@ -57,6 +60,14 @@ func TestServiceFileDetectsTextAndBinaryAndRejectsCanonicalFiles(t *testing.T) {
 	}
 	if textFile.RepairCapability.Supported {
 		t.Fatalf("expected repair capability to be disabled by default, got %#v", textFile.RepairCapability)
+	}
+
+	utf8BoundaryFile, err := service.File(context.Background(), "demo", "utf8-boundary.conf")
+	if err != nil {
+		t.Fatalf("File(utf8-boundary) error = %v", err)
+	}
+	if utf8BoundaryFile.Type != EntryTypeTextFile || utf8BoundaryFile.Content == nil || *utf8BoundaryFile.Content != utf8BoundaryContent {
+		t.Fatalf("unexpected utf8 boundary file payload: %#v", utf8BoundaryFile)
 	}
 
 	binaryFile, err := service.File(context.Background(), "demo", "blob.bin")

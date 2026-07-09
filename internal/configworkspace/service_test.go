@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -95,6 +96,8 @@ func TestServiceFileDetectsTextAndBinary(t *testing.T) {
 	service, root := newTestService(t)
 	mustMkdirAll(t, filepath.Join(root, "nextcloud"))
 	mustWriteFile(t, filepath.Join(root, "nextcloud", "app.conf"), "APP_ENV=prod\n")
+	utf8BoundaryContent := strings.Repeat("a", 8191) + "é\n"
+	mustWriteFile(t, filepath.Join(root, "nextcloud", "utf8-boundary.conf"), utf8BoundaryContent)
 	if err := os.WriteFile(filepath.Join(root, "nextcloud", "cert.p12"), []byte{0x00, 0x01, 0x02, 0x03}, 0o644); err != nil {
 		t.Fatalf("WriteFile(binary) error = %v", err)
 	}
@@ -111,6 +114,14 @@ func TestServiceFileDetectsTextAndBinary(t *testing.T) {
 	}
 	if textFile.RepairCapability.Supported {
 		t.Fatalf("expected repair capability to be disabled by default, got %#v", textFile.RepairCapability)
+	}
+
+	utf8BoundaryFile, err := service.File(context.Background(), "nextcloud/utf8-boundary.conf")
+	if err != nil {
+		t.Fatalf("File(utf8-boundary) error = %v", err)
+	}
+	if utf8BoundaryFile.Type != EntryTypeTextFile || utf8BoundaryFile.Content == nil || *utf8BoundaryFile.Content != utf8BoundaryContent {
+		t.Fatalf("unexpected utf8 boundary file payload: %#v", utf8BoundaryFile)
 	}
 
 	binaryFile, err := service.File(context.Background(), "nextcloud/cert.p12")
