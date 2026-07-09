@@ -284,6 +284,31 @@ func TestOverviewReadsProcAndDiskData(t *testing.T) {
 	}
 }
 
+func TestOverviewCPUPercentIgnoresCounterRollback(t *testing.T) {
+	t.Parallel()
+
+	procDir := filepath.Join(t.TempDir(), "proc")
+	if err := os.MkdirAll(procDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(proc) error = %v", err)
+	}
+	service := NewService(config.Config{RootDir: t.TempDir()}, time.Now().UTC())
+	service.procRoot = procDir
+
+	if err := os.WriteFile(filepath.Join(procDir, "stat"), []byte("cpu  100 0 0 100 0 0 0 0 0 0\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(stat initial) error = %v", err)
+	}
+	if got := service.readCPUPercent(); got != 0 {
+		t.Fatalf("initial readCPUPercent() = %v, want 0", got)
+	}
+
+	if err := os.WriteFile(filepath.Join(procDir, "stat"), []byte("cpu  50 0 0 50 0 0 0 0 0 0\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(stat rollback) error = %v", err)
+	}
+	if got := service.readCPUPercent(); got != 0 {
+		t.Fatalf("rollback readCPUPercent() = %v, want 0", got)
+	}
+}
+
 func TestMetricsCollectorSamplesFilesystemsAndNetworkRates(t *testing.T) {
 	t.Parallel()
 

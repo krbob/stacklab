@@ -461,6 +461,9 @@ func (s *Service) readCPUPercent() float64 {
 
 	last := s.lastCPUSample
 	s.lastCPUSample = sample
+	if sample.total < last.total || sample.idle < last.idle {
+		return 0
+	}
 
 	totalDelta := sample.total - last.total
 	idleDelta := sample.idle - last.idle
