@@ -260,6 +260,28 @@ func TestCloseSendsExitEventAndCleansUp(t *testing.T) {
 	}
 }
 
+func TestClosedAttachmentIgnoresFurtherEvents(t *testing.T) {
+	t.Parallel()
+
+	events := make(chan Event, 1)
+	attachment := &attachment{id: "attach_1", connectionID: "conn_1", events: events}
+
+	sendAndCloseAttachmentLocked(attachment, Event{Type: "exited", Reason: "client_close"})
+	sendAndCloseAttachmentLocked(attachment, Event{Type: "exited", Reason: "duplicate_close"})
+	closeAttachmentLocked(attachment)
+
+	event, ok := <-events
+	if !ok {
+		t.Fatalf("attachment channel closed before exit event")
+	}
+	if event.Reason != "client_close" {
+		t.Fatalf("event reason = %q, want client_close", event.Reason)
+	}
+	if _, ok := <-events; ok {
+		t.Fatalf("attachment channel remains open after close")
+	}
+}
+
 func TestExitCodeFromError(t *testing.T) {
 	t.Parallel()
 

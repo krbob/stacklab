@@ -74,6 +74,7 @@ type attachment struct {
 	id           string
 	connectionID string
 	events       chan Event
+	closed       bool
 }
 
 func NewService(logger *slog.Logger, cfg Config, hook func(LifecycleEvent)) *Service {
@@ -182,7 +183,7 @@ func (s *Service) Attach(ownerID, sessionID string, cols, rows int, connectionID
 	}
 	if terminalSession.current != nil {
 		replaced := terminalSession.current
-		sendAndClose(replaced.events, Event{Type: "exited", Reason: "connection_replaced"})
+		sendAndCloseAttachmentLocked(replaced, Event{Type: "exited", Reason: "connection_replaced"})
 	}
 	terminalSession.current = &attachment{id: attachmentID, connectionID: connectionID, events: events}
 	terminalSession.touchLocked(s.cfg.IdleTimeout)
@@ -220,7 +221,7 @@ func (s *Service) Detach(ownerID, sessionID, attachmentID string) {
 	if terminalSession.current == nil || terminalSession.current.id != attachmentID {
 		return
 	}
-	close(terminalSession.current.events)
+	closeAttachmentLocked(terminalSession.current)
 	terminalSession.current = nil
 	if terminalSession.detachTimer != nil {
 		terminalSession.detachTimer.Stop()
@@ -293,13 +294,17 @@ func (s *Service) forwardOutput(sessionID string) {
 			chunk := string(buffer[:readBytes])
 			terminalSession.mu.Lock()
 			attachment := terminalSession.current
-			terminalSession.mu.Unlock()
-			if attachment != nil {
+			dropped := false
+			if attachment != nil && !attachment.closed {
 				select {
 				case attachment.events <- Event{Type: "output", Data: chunk}:
 				default:
-					s.logger.Warn("terminal output dropped due to backpressure", "session_id", sessionID)
+					dropped = true
 				}
+			}
+			terminalSession.mu.Unlock()
+			if dropped {
+				s.logger.Warn("terminal output dropped due to backpressure", "session_id", sessionID)
 			}
 		}
 		if err != nil {
@@ -353,20 +358,19 @@ func (s *Service) endSessionWithCode(sessionID string, exitCode *int, reason str
 			terminalSession.detachTimer.Stop()
 		}
 		terminalSession.current = nil
+		if current != nil {
+			sendAndCloseAttachmentLocked(current, Event{
+				Type:     "exited",
+				ExitCode: exitCode,
+				Reason:   reason,
+			})
+		}
 		terminalSession.mu.Unlock()
 
 		if terminalSession.process != nil && terminalSession.process.Process != nil {
 			_ = terminalSession.process.Process.Kill()
 		}
 		_ = terminalSession.ptyFile.Close()
-
-		if current != nil {
-			sendAndClose(current.events, Event{
-				Type:     "exited",
-				ExitCode: exitCode,
-				Reason:   reason,
-			})
-		}
 
 		s.mu.Lock()
 		delete(s.sessions, sessionID)
@@ -400,12 +404,23 @@ func (s *session) touchLocked(timeout time.Duration) {
 	}
 }
 
-func sendAndClose(events chan Event, event Event) {
+func sendAndCloseAttachmentLocked(attachment *attachment, event Event) {
+	if attachment == nil || attachment.closed {
+		return
+	}
 	select {
-	case events <- event:
+	case attachment.events <- event:
 	default:
 	}
-	close(events)
+	closeAttachmentLocked(attachment)
+}
+
+func closeAttachmentLocked(attachment *attachment) {
+	if attachment == nil || attachment.closed {
+		return
+	}
+	close(attachment.events)
+	attachment.closed = true
 }
 
 func normalizeShell(shell string) (string, error) {
