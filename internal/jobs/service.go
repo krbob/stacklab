@@ -15,6 +15,8 @@ import (
 var ErrNotFound = errors.New("job not found")
 var ErrStackLocked = errors.New("stack locked")
 
+const selfUpdateReconcileGracePeriod = 2 * time.Hour
+
 type Service struct {
 	store        *store.Store
 	mu           sync.Mutex
@@ -451,7 +453,14 @@ func (s *Service) publishLive(event store.JobEvent) {
 }
 
 func shouldSkipReconcile(job store.Job) bool {
-	return job.Action == "self_update_stacklab"
+	if job.Action != "self_update_stacklab" {
+		return false
+	}
+	startedAt := job.RequestedAt
+	if job.StartedAt != nil {
+		startedAt = *job.StartedAt
+	}
+	return time.Since(startedAt) < selfUpdateReconcileGracePeriod
 }
 
 func interruptedWorkflow(steps []store.JobWorkflowStep) ([]store.JobWorkflowStep, *store.JobEventStep) {

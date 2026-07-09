@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"testing"
+	"time"
 
 	"stacklab/internal/store"
 )
@@ -193,6 +194,43 @@ func TestReconcileInterruptedSkipsActiveSelfUpdate(t *testing.T) {
 	}
 	if len(events) != 1 || events[0].Event != "job_started" {
 		t.Fatalf("job events = %#v, want only job_started", events)
+	}
+}
+
+func TestReconcileInterruptedFailsStaleSelfUpdate(t *testing.T) {
+	t.Parallel()
+
+	jobStore := openJobsTestStore(t)
+	service := NewService(jobStore)
+
+	job, err := service.Start(context.Background(), "", "self_update_stacklab", "local")
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	staleStartedAt := time.Now().UTC().Add(-(selfUpdateReconcileGracePeriod + time.Minute))
+	job.RequestedAt = staleStartedAt
+	job.StartedAt = &staleStartedAt
+	if err := jobStore.UpdateJob(context.Background(), job); err != nil {
+		t.Fatalf("UpdateJob(stale self-update) error = %v", err)
+	}
+
+	reconciled, err := service.ReconcileInterrupted(context.Background())
+	if err != nil {
+		t.Fatalf("ReconcileInterrupted() error = %v", err)
+	}
+	if len(reconciled) != 1 {
+		t.Fatalf("ReconcileInterrupted() len = %d, want 1", len(reconciled))
+	}
+	if reconciled[0].ID != job.ID || reconciled[0].State != "failed" {
+		t.Fatalf("unexpected reconciled job: %#v", reconciled[0])
+	}
+
+	got, err := service.Get(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got.State != "failed" || got.ErrorCode != "job_interrupted" {
+		t.Fatalf("job after reconcile = %#v, want failed job_interrupted", got)
 	}
 }
 
