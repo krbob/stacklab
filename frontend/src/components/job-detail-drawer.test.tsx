@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { JobDetailDrawer } from './job-detail-drawer'
@@ -128,5 +128,51 @@ describe('JobDetailDrawer', () => {
 
     await waitFor(() => expect(mockCancelJob).toHaveBeenCalledWith('job_3'))
     await waitFor(() => expect(mockGetJob).toHaveBeenCalledTimes(2))
+  })
+
+  it('refreshes running job snapshots while open', async () => {
+    vi.useFakeTimers()
+    try {
+      mockGetJob.mockResolvedValue({
+        job: {
+          id: 'job_4',
+          stack_id: 'demo',
+          action: 'pull',
+          state: 'running',
+          requested_at: '2026-04-09T08:00:00Z',
+          started_at: '2026-04-09T08:00:01Z',
+          finished_at: null,
+          workflow: null,
+        },
+      })
+      mockGetJobEvents.mockResolvedValue({
+        job_id: 'job_4',
+        retained: true,
+        items: [],
+      })
+
+      renderDrawer('job_4')
+      fireEvent.click(screen.getByRole('button', { name: 'Open' }))
+
+      await act(async () => {
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      expect(screen.getByText('Job detail')).toBeInTheDocument()
+      expect(mockGetJob).toHaveBeenCalledTimes(1)
+      expect(mockGetJobEvents).toHaveBeenCalledTimes(1)
+
+      await act(async () => {
+        vi.advanceTimersByTime(1000)
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      expect(mockGetJob).toHaveBeenCalledTimes(2)
+      expect(mockGetJobEvents).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

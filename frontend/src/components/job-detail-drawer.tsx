@@ -50,7 +50,7 @@ function JobDetailDrawerContent({ jobId }: { jobId: string }) {
     [jobId],
   )
 
-  const { data: eventsData, error: eventsError, loading: eventsLoading } = useApi(
+  const { data: eventsData, error: eventsError, loading: eventsLoading, refetch: refetchEvents } = useApi(
     () => getJobEvents(jobId),
     [jobId],
   )
@@ -72,6 +72,16 @@ function JobDetailDrawerContent({ jobId }: { jobId: string }) {
   const loading = jobLoading || eventsLoading
   const error = jobError || eventsError
   const cancellable = job?.state === 'queued' || job?.state === 'running'
+  const terminal = job ? ['succeeded', 'failed', 'cancelled', 'timed_out'].includes(job.state) : true
+
+  useEffect(() => {
+    if (!job || terminal) return
+    const interval = window.setInterval(() => {
+      refetchJob()
+      refetchEvents()
+    }, 1000)
+    return () => window.clearInterval(interval)
+  }, [job?.id, job?.state, terminal, refetchJob, refetchEvents])
 
   async function handleCancel() {
     if (!job || canceling) return
