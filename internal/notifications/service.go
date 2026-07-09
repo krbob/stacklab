@@ -962,8 +962,11 @@ func (s *Service) pollStacklabServiceErrors(ctx context.Context) error {
 	}
 
 	payload := buildStacklabServiceErrorPayload(errorEntries, nextCursor, int(s.alertCooldown.Seconds()), now)
-	if err := s.dispatchPayload(ctx, settings, payload); err != nil && s.logger != nil {
-		s.logger.Warn("dispatch stacklab self-health notification failed", slog.String("err", err.Error()))
+	if err := s.dispatchPayload(ctx, settings, payload); err != nil {
+		if s.logger != nil {
+			s.logger.Warn("dispatch stacklab self-health notification failed", slog.String("err", err.Error()))
+		}
+		return err
 	}
 
 	state.LastFingerprint = fingerprint
@@ -1160,8 +1163,11 @@ func (s *Service) pollRuntimeHealthAlerts(ctx context.Context) error {
 		Summary:       fmt.Sprintf("%d stack(s) became unhealthy", len(current)),
 		RuntimeHealth: &RuntimeHealthSummary{AffectedStacks: current},
 	}
-	if err := s.dispatchPayload(ctx, settings, payload); err != nil && s.logger != nil {
-		s.logger.Warn("dispatch runtime health notification failed", slog.String("err", err.Error()))
+	if err := s.dispatchPayload(ctx, settings, payload); err != nil {
+		if s.logger != nil {
+			s.logger.Warn("dispatch runtime health notification failed", slog.String("err", err.Error()))
+		}
+		return err
 	}
 
 	return s.saveRuntimeHealthState(ctx, runtimeHealthState{
@@ -1317,8 +1323,11 @@ func (s *Service) pollRuntimeLogAlerts(ctx context.Context) error {
 			AffectedStacks: failures,
 		},
 	}
-	if err := s.dispatchPayload(ctx, settings, payload); err != nil && s.logger != nil {
-		s.logger.Warn("dispatch runtime log notification failed", slog.String("err", err.Error()))
+	if err := s.dispatchPayload(ctx, settings, payload); err != nil {
+		if s.logger != nil {
+			s.logger.Warn("dispatch runtime log notification failed", slog.String("err", err.Error()))
+		}
+		return err
 	}
 
 	state.LastCheckedAt = now

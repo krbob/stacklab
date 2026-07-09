@@ -3,6 +3,7 @@ package notifications
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -218,6 +219,64 @@ func TestPollStacklabServiceErrorsSendsAlert(t *testing.T) {
 	}
 	if state.LastFingerprint == "" || state.LastNotifiedAt.IsZero() {
 		t.Fatalf("unexpected state after alert: %#v", state)
+	}
+}
+
+func TestPollStacklabServiceErrorsKeepsCursorWhenDispatchFails(t *testing.T) {
+	t.Parallel()
+
+	testStore := openNotificationTestStore(t)
+	service := NewService(testStore, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	service.now = func() time.Time {
+		return time.Date(2026, 4, 10, 8, 15, 0, 0, time.UTC)
+	}
+	service.SetStacklabLogReader(&fakeStacklabLogReader{
+		responses: []hostinfo.StacklabLogsResponse{
+			{
+				Items: []hostinfo.StacklabLogEntry{
+					{Cursor: "s=cursor-2", Level: "error", Message: "failed to bind socket", Timestamp: time.Date(2026, 4, 10, 8, 14, 0, 0, time.UTC)},
+					{Cursor: "s=cursor-3", Level: "error", Message: "failed to bind socket", Timestamp: time.Date(2026, 4, 10, 8, 14, 5, 0, time.UTC)},
+				},
+			},
+		},
+	})
+
+	_, err := service.UpdateSettings(context.Background(), UpdateSettingsRequest{
+		Channels: &ChannelsRequest{
+			Webhook: &WebhookRequest{
+				Enabled: true,
+				URL:     "https://hooks.example.test/stacklab",
+			},
+		},
+		Events: EventToggles{
+			StacklabServiceError: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateSettings() error = %v", err)
+	}
+	if err := service.saveStacklabJournalState(context.Background(), stacklabJournalState{Cursor: "s=cursor-1"}); err != nil {
+		t.Fatalf("saveStacklabJournalState() error = %v", err)
+	}
+
+	dispatchErr := fmt.Errorf("receiver unavailable")
+	service.sendWebhook = func(_ context.Context, _ string, _ WebhookPayload) error {
+		return dispatchErr
+	}
+
+	if err := service.pollStacklabServiceErrors(context.Background()); !errors.Is(err, dispatchErr) {
+		t.Fatalf("pollStacklabServiceErrors() error = %v, want %v", err, dispatchErr)
+	}
+
+	state, err := service.loadStacklabJournalState(context.Background())
+	if err != nil {
+		t.Fatalf("loadStacklabJournalState() error = %v", err)
+	}
+	if state.Cursor != "s=cursor-1" {
+		t.Fatalf("state.Cursor = %q, want original cursor", state.Cursor)
+	}
+	if state.LastFingerprint != "" || !state.LastNotifiedAt.IsZero() {
+		t.Fatalf("unexpected notification state after dispatch failure: %#v", state)
 	}
 }
 
