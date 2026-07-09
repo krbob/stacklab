@@ -1,6 +1,6 @@
-import { useEffect } from 'react'
-import { X } from 'lucide-react'
-import { getJob, getJobEvents } from '@/lib/api-client'
+import { useEffect, useState } from 'react'
+import { CircleStop, X } from 'lucide-react'
+import { cancelJob, getJob, getJobEvents } from '@/lib/api-client'
 import { useApi } from '@/hooks/use-api'
 import { useJobDrawer } from '@/hooks/use-job-drawer'
 import { StepCards } from '@/components/step-cards'
@@ -42,8 +42,10 @@ export function JobDetailDrawer() {
 
 function JobDetailDrawerContent({ jobId }: { jobId: string }) {
   const { closeJob } = useJobDrawer()
+  const [canceling, setCanceling] = useState(false)
+  const [cancelError, setCancelError] = useState<string | null>(null)
 
-  const { data: jobData, error: jobError, loading: jobLoading } = useApi(
+  const { data: jobData, error: jobError, loading: jobLoading, refetch: refetchJob } = useApi(
     () => getJob(jobId),
     [jobId],
   )
@@ -69,6 +71,21 @@ function JobDetailDrawerContent({ jobId }: { jobId: string }) {
   const retentionMessage = eventsData?.message
   const loading = jobLoading || eventsLoading
   const error = jobError || eventsError
+  const cancellable = job?.state === 'queued' || job?.state === 'running'
+
+  async function handleCancel() {
+    if (!job || canceling) return
+    setCanceling(true)
+    setCancelError(null)
+    try {
+      await cancelJob(job.id)
+      refetchJob()
+    } catch (error) {
+      setCancelError(error instanceof Error ? error.message : 'Failed to cancel job')
+    } finally {
+      setCanceling(false)
+    }
+  }
 
   return (
     <>
@@ -96,13 +113,26 @@ function JobDetailDrawerContent({ jobId }: { jobId: string }) {
               </div>
             )}
           </div>
-          <button
-            onClick={closeJob}
-            aria-label="Close job detail"
-            className="flex size-9 items-center justify-center rounded-md text-[var(--muted)] transition hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]"
-          >
-            <X className="size-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {cancellable && (
+              <button
+                onClick={handleCancel}
+                disabled={canceling}
+                aria-label="Cancel job"
+                className="inline-flex items-center gap-1 rounded-md border border-[var(--panel-border)] px-2 py-1 text-xs text-[var(--warning)] transition hover:border-[var(--warning)]/50 hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <CircleStop className="size-3.5" />
+                {canceling ? 'Cancelling...' : 'Cancel'}
+              </button>
+            )}
+            <button
+              onClick={closeJob}
+              aria-label="Close job detail"
+              className="flex size-9 items-center justify-center rounded-md text-[var(--muted)] transition hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]"
+            >
+              <X className="size-5" />
+            </button>
+          </div>
         </div>
 
         {/* Content */}
@@ -117,6 +147,12 @@ function JobDetailDrawerContent({ jobId }: { jobId: string }) {
           {error && (
             <div className="rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">
               {error.message}
+            </div>
+          )}
+
+          {cancelError && (
+            <div className="mb-4 rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">
+              {cancelError}
             </div>
           )}
 

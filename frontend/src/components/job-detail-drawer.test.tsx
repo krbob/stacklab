@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { JobDetailDrawer } from './job-detail-drawer'
@@ -7,8 +7,10 @@ import { useJobDrawer } from '@/hooks/use-job-drawer'
 
 const mockGetJob = vi.fn()
 const mockGetJobEvents = vi.fn()
+const mockCancelJob = vi.fn()
 
 vi.mock('@/lib/api-client', () => ({
+  cancelJob: (...args: unknown[]) => mockCancelJob(...args),
   getJob: (...args: unknown[]) => mockGetJob(...args),
   getJobEvents: (...args: unknown[]) => mockGetJobEvents(...args),
 }))
@@ -33,6 +35,7 @@ describe('JobDetailDrawer', () => {
   beforeEach(() => {
     mockGetJob.mockReset()
     mockGetJobEvents.mockReset()
+    mockCancelJob.mockReset()
   })
 
   it('renders retained job detail with events', async () => {
@@ -96,5 +99,34 @@ describe('JobDetailDrawer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open' }))
 
     expect(await screen.findByText('Detailed output for this job is no longer retained.')).toBeInTheDocument()
+  })
+
+  it('cancels a running job from the drawer', async () => {
+    mockGetJob.mockResolvedValue({
+      job: {
+        id: 'job_3',
+        stack_id: 'demo',
+        action: 'pull',
+        state: 'running',
+        requested_at: '2026-04-09T08:00:00Z',
+        started_at: '2026-04-09T08:00:01Z',
+        finished_at: null,
+        workflow: null,
+      },
+    })
+    mockGetJobEvents.mockResolvedValue({
+      job_id: 'job_3',
+      retained: true,
+      items: [],
+    })
+    mockCancelJob.mockResolvedValue({ job: { id: 'job_3', state: 'cancel_requested' } })
+
+    renderDrawer('job_3')
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }))
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel job' }))
+
+    await waitFor(() => expect(mockCancelJob).toHaveBeenCalledWith('job_3'))
+    await waitFor(() => expect(mockGetJob).toHaveBeenCalledTimes(2))
   })
 })

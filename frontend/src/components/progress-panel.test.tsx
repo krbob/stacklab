@@ -1,16 +1,28 @@
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProgressPanel } from './progress-panel'
+
+const { mockCancelJob } = vi.hoisted(() => ({
+  mockCancelJob: vi.fn(),
+}))
 
 // Mock the job stream hook
 vi.mock('@/hooks/use-job-stream', () => ({
   useJobStream: vi.fn(() => ({ events: [], state: null })),
 }))
 
+vi.mock('@/lib/api-client', () => ({
+  cancelJob: (...args: unknown[]) => mockCancelJob(...args),
+}))
+
 import { useJobStream } from '@/hooks/use-job-stream'
 const mockUseJobStream = vi.mocked(useJobStream)
 
 describe('ProgressPanel', () => {
+  beforeEach(() => {
+    mockCancelJob.mockReset()
+  })
+
   it('renders nothing when jobId is null', () => {
     const { container } = render(<ProgressPanel jobId={null} />)
     expect(container.firstChild).toBeNull()
@@ -95,5 +107,23 @@ describe('ProgressPanel', () => {
     })
     render(<ProgressPanel jobId="job_123" onDone={onDone} />)
     expect(onDone).toHaveBeenCalledWith('succeeded')
+  })
+
+  it('cancels a running job', async () => {
+    mockCancelJob.mockResolvedValue({ job: { id: 'job_123', state: 'cancel_requested' } })
+    mockUseJobStream.mockReturnValue({
+      events: [{
+        job_id: 'job_123', stack_id: 'test', action: 'pull', state: 'running',
+        event: 'job_started', message: 'Job started.', timestamp: '2026-01-01T00:00:00Z',
+        data: null, step: null,
+      }],
+      state: 'running',
+      clear: vi.fn(),
+    })
+
+    render(<ProgressPanel jobId="job_123" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel job' }))
+
+    await waitFor(() => expect(mockCancelJob).toHaveBeenCalledWith('job_123'))
   })
 })
