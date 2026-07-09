@@ -70,6 +70,30 @@ func TestValidateApplyPolicyDefaultsBackupDirFromConfiguredDataDir(t *testing.T)
 	}
 }
 
+func TestRunProbeRejectsUnexpectedPositionalArguments(t *testing.T) {
+	withDockerAdminEnv(t, "")
+
+	err := runProbe([]string{"extra"})
+	if err == nil || !strings.Contains(err.Error(), "unexpected positional") {
+		t.Fatalf("runProbe() error = %v, want unexpected positional rejection", err)
+	}
+}
+
+func TestRunApplyRejectsUnexpectedPositionalArguments(t *testing.T) {
+	withDockerAdminEnv(t, "")
+
+	err := runApply([]string{
+		"--config-path", defaultDockerDaemonConfig,
+		"--backup-dir", defaultDockerAdminBackup,
+		"--unit", defaultDockerUnitName,
+		"--input", filepath.Join(t.TempDir(), "daemon.json"),
+		"extra",
+	})
+	if err == nil || !strings.Contains(err.Error(), "unexpected positional") {
+		t.Fatalf("runApply() error = %v, want unexpected positional rejection", err)
+	}
+}
+
 func withDockerAdminEnv(t *testing.T, content string) {
 	t.Helper()
 

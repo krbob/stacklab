@@ -436,7 +436,7 @@ func (s *Service) writeCapability(ctx context.Context) WriteCapability {
 	if s.useSudo {
 		probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
-		output, err := s.runHelperCommand(probeCtx)
+		output, err := s.runHelperCommand(probeCtx, "probe")
 		if err != nil {
 			message := strings.TrimSpace(string(output))
 			lower := strings.ToLower(message)

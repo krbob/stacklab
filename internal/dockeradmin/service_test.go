@@ -287,3 +287,34 @@ func TestOverviewDisablesWriteCapabilityWhenNoNewPrivilegesBlocksSudo(t *testing
 		t.Fatalf("unexpected write capability reason: %#v", response.WriteCapability)
 	}
 }
+
+func TestWriteCapabilityUsesExplicitSudoProbe(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	helperPath := filepath.Join(tempDir, "helper")
+	if err := os.WriteFile(helperPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile(helper) error = %v", err)
+	}
+
+	service := NewService(config.Config{
+		DockerAdminHelperPath: helperPath,
+		DockerAdminBackupDir:  filepath.Join(tempDir, "backups"),
+		DockerAdminUseSudo:    true,
+	})
+	service.runCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		if name != "sudo" {
+			t.Fatalf("runCommand name = %q, want sudo", name)
+		}
+		want := []string{"-n", "--", helperPath, "probe"}
+		if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
+			t.Fatalf("sudo args = %#v, want %#v", args, want)
+		}
+		return []byte(`{"rolled_back":false}`), nil
+	}
+
+	response := service.writeCapability(context.Background())
+	if !response.Supported {
+		t.Fatalf("expected supported write capability, got %#v", response)
+	}
+}

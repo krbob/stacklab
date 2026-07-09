@@ -46,6 +46,14 @@ func main() {
 	}
 
 	switch os.Args[1] {
+	case "probe":
+		if err := runProbe(os.Args[2:]); err != nil {
+			var emitted *emittedError
+			if errors.As(err, &emitted) {
+				os.Exit(1)
+			}
+			failJSON(err)
+		}
 	case "apply":
 		if err := runApply(os.Args[2:]); err != nil {
 			var emitted *emittedError
@@ -57,6 +65,22 @@ func main() {
 	default:
 		failJSON(fmt.Errorf("unknown subcommand %q", os.Args[1]))
 	}
+}
+
+func runProbe(args []string) error {
+	flags := flag.NewFlagSet("probe", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("unexpected positional arguments")
+	}
+	if _, err := loadDockerAdminPolicy(); err != nil {
+		return err
+	}
+	emitResult(applyResult{})
+	return nil
 }
 
 func runApply(args []string) error {
@@ -73,6 +97,9 @@ func runApply(args []string) error {
 	flags.StringVar(&inputPath, "input", "", "path to validated daemon.json content")
 	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("unexpected positional arguments")
 	}
 
 	if !filepath.IsAbs(configPath) || !filepath.IsAbs(backupDir) {

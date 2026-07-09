@@ -72,6 +72,9 @@ func runProbe(args []string) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
+	if flags.NArg() != 0 {
+		return errors.New("unexpected positional arguments")
+	}
 	strategy = normalizeRepairStrategy(strategy)
 	if strategy == "" {
 		return errors.New("strategy must be ownership or acl")
@@ -102,6 +105,9 @@ func runRepair(args []string) error {
 	flags.StringVar(&strategy, "strategy", repairStrategyOwnership, "repair strategy: ownership or acl")
 	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("unexpected positional arguments")
 	}
 	if !filepath.IsAbs(targetPath) {
 		return errors.New("path must be absolute")

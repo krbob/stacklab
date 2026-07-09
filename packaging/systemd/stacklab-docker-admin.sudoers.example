@@ -1,3 +1,7 @@
 Defaults:stacklab !requiretty
 
-stacklab ALL=(root) NOPASSWD: /usr/lib/stacklab/bin/stacklab-docker-admin-helper
+Cmnd_Alias STACKLAB_DOCKER_ADMIN = \
+    /usr/lib/stacklab/bin/stacklab-docker-admin-helper probe, \
+    /usr/lib/stacklab/bin/stacklab-docker-admin-helper apply --config-path /etc/docker/daemon.json --backup-dir /var/lib/stacklab/docker-admin --unit docker.service --input *
+
+stacklab ALL=(root) NOPASSWD: STACKLAB_DOCKER_ADMIN

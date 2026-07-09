@@ -1,3 +1,11 @@
 Defaults:stacklab !requiretty
 
-stacklab ALL=(root) NOPASSWD: /usr/lib/stacklab/bin/stacklab-workspace-admin-helper
+Cmnd_Alias STACKLAB_WORKSPACE_ADMIN = \
+    /usr/lib/stacklab/bin/stacklab-workspace-admin-helper probe, \
+    /usr/lib/stacklab/bin/stacklab-workspace-admin-helper probe --strategy acl, \
+    /usr/lib/stacklab/bin/stacklab-workspace-admin-helper repair --path *, \
+    /usr/lib/stacklab/bin/stacklab-workspace-admin-helper repair --path * --strategy acl, \
+    /usr/lib/stacklab/bin/stacklab-workspace-admin-helper repair --path * --recursive, \
+    /usr/lib/stacklab/bin/stacklab-workspace-admin-helper repair --path * --strategy acl --recursive
+
+stacklab ALL=(root) NOPASSWD: STACKLAB_WORKSPACE_ADMIN

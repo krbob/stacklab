@@ -47,6 +47,20 @@ func TestLoadStacklabRootIgnoresEnvironmentOverride(t *testing.T) {
 	}
 }
 
+func TestRunProbeRejectsUnexpectedPositionalArguments(t *testing.T) {
+	err := runProbe([]string{"--strategy", "ownership", "extra"})
+	if err == nil || !strings.Contains(err.Error(), "unexpected positional") {
+		t.Fatalf("runProbe() error = %v, want unexpected positional rejection", err)
+	}
+}
+
+func TestRunRepairRejectsUnexpectedPositionalArguments(t *testing.T) {
+	err := runRepair([]string{"--path", filepath.Join(t.TempDir(), "root", "config", "demo"), "extra"})
+	if err == nil || !strings.Contains(err.Error(), "unexpected positional") {
+		t.Fatalf("runRepair() error = %v, want unexpected positional rejection", err)
+	}
+}
+
 func TestRunRepairACLGrantsAccessWithoutChangingMode(t *testing.T) {
 	tempDir := t.TempDir()
 	root := filepath.Join(tempDir, "root")
