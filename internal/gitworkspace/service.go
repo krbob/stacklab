@@ -412,10 +412,9 @@ func (s *Service) repoRoot(ctx context.Context) (string, bool, string, error) {
 		if resolvedWorkspaceRoot, err := filepath.EvalSymlinks(workspaceRoot); err == nil {
 			workspaceRoot = resolvedWorkspaceRoot
 		}
-		s.workspaceRoot = workspaceRoot
 	}
-	if repoRoot != s.workspaceRoot {
-		return s.workspaceRoot, false, "not_a_git_repository", nil
+	if repoRoot != workspaceRoot {
+		return workspaceRoot, false, "not_a_git_repository", nil
 	}
 
 	return repoRoot, true, "", nil

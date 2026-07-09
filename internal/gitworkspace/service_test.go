@@ -155,6 +155,35 @@ func TestServiceStatusAndDiffForManagedWorkspace(t *testing.T) {
 	}
 }
 
+func TestServiceStatusDoesNotMutateWorkspaceRoot(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	realRoot := filepath.Join(tempDir, "real")
+	linkRoot := filepath.Join(tempDir, "link")
+	if err := os.MkdirAll(realRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(realRoot) error = %v", err)
+	}
+	if err := os.Symlink(realRoot, linkRoot); err != nil {
+		t.Fatalf("Symlink(linkRoot) error = %v", err)
+	}
+	runGit(t, realRoot, "init", "-b", "main")
+
+	service := NewService(config.Config{RootDir: linkRoot})
+	originalRoot := service.workspaceRoot
+
+	status, err := service.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status() error = %v", err)
+	}
+	if !status.Available {
+		t.Fatalf("Status().Available = false, want true: %#v", status)
+	}
+	if service.workspaceRoot != originalRoot {
+		t.Fatalf("workspaceRoot mutated from %q to %q", originalRoot, service.workspaceRoot)
+	}
+}
+
 func TestServiceDiffRejectsInvalidPaths(t *testing.T) {
 	t.Parallel()
 
