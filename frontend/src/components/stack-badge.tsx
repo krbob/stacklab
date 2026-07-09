@@ -24,7 +24,11 @@ export function StackBadge({
   configState: ConfigState
   activityState: ActivityState
 }) {
-  const runtime = runtimeStyles[displayState]
+  const runtime = runtimeStyles[displayState] ?? {
+    dot: 'bg-stone-500',
+    label: String(displayState || 'unknown'),
+    text: 'text-[var(--muted)]',
+  }
   const config = configLabels[configState]
 
   return (

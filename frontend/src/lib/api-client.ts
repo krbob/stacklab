@@ -97,7 +97,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     let code = 'unknown'
-    let message = res.statusText
+    let message = res.statusText || `Request failed with status ${res.status}`
     let details: Record<string, unknown> | undefined
 
     try {

@@ -252,5 +252,22 @@ describe('api-client', () => {
         expect((err as ApiClientError).status).toBe(500)
       }
     })
+
+    it('uses a status fallback when HTTP errors have no reason phrase', async () => {
+      mockFetch.mockReturnValueOnce(Promise.resolve({
+        ok: false,
+        status: 502,
+        statusText: '',
+        json: () => Promise.reject(new Error('not json')),
+      }))
+
+      try {
+        await getStacks()
+        expect.fail('should throw')
+      } catch (err) {
+        expect(err).toBeInstanceOf(ApiClientError)
+        expect((err as ApiClientError).message).toBe('Request failed with status 502')
+      }
+    })
   })
 })

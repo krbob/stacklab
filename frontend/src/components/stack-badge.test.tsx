@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { StackBadge } from './stack-badge'
+import type { DisplayState } from '@/lib/api-types'
 
 describe('StackBadge', () => {
   it('shows Running label for running state', () => {
@@ -62,5 +63,10 @@ describe('StackBadge', () => {
     expect(screen.getByText('Partial')).toBeInTheDocument()
     expect(screen.getByText(/Drifted/)).toBeInTheDocument()
     expect(screen.getByText(/Locked/)).toBeInTheDocument()
+  })
+
+  it('falls back for unknown runtime states from older or newer APIs', () => {
+    render(<StackBadge displayState={'paused' as DisplayState} configState="unknown" activityState="idle" />)
+    expect(screen.getByText('paused')).toBeInTheDocument()
   })
 })

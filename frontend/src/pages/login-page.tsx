@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
+import { ApiClientError } from '@/lib/api-client'
 import { useAuth } from '@/hooks/use-auth'
 
 export function LoginPage() {
@@ -20,8 +21,16 @@ export function LoginPage() {
     setLoading(true)
     try {
       await login(password)
-    } catch {
-      setError('Invalid password')
+    } catch (err) {
+      if (err instanceof ApiClientError) {
+        if (err.status === 401) {
+          setError('Invalid password')
+        } else {
+          setError(err.message || 'Login failed')
+        }
+      } else {
+        setError('Unable to reach Stacklab. Check your connection and try again.')
+      }
     } finally {
       setLoading(false)
     }

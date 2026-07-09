@@ -1,6 +1,7 @@
 import type { AuditEntry } from '@/lib/api-types'
 import { useJobDrawer } from '@/hooks/use-job-drawer'
 import { cn } from '@/lib/cn'
+import { useState } from 'react'
 
 const resultColors: Record<string, string> = {
   succeeded: 'text-[var(--ok)]',
@@ -12,13 +13,22 @@ const resultColors: Record<string, string> = {
 interface AuditTableProps {
   entries: AuditEntry[]
   showStack?: boolean
-  onLoadMore?: () => void
+  onLoadMore?: () => void | Promise<void>
   hasMore?: boolean
   loading?: boolean
 }
 
 export function AuditTable({ entries, showStack = false, onLoadMore, hasMore, loading }: AuditTableProps) {
   const { openJob } = useJobDrawer()
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null)
+
+  function handleLoadMore() {
+    if (!onLoadMore) return
+    setLoadMoreError(null)
+    Promise.resolve(onLoadMore()).catch(() => {
+      setLoadMoreError('Failed to load more audit entries.')
+    })
+  }
 
   if (entries.length === 0 && !loading) {
     return (
@@ -79,10 +89,16 @@ export function AuditTable({ entries, showStack = false, onLoadMore, hasMore, lo
         <div className="h-12 animate-pulse rounded border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)]" />
       )}
 
+      {loadMoreError && (
+        <div className="rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-2 text-sm text-[var(--danger)]">
+          {loadMoreError}
+        </div>
+      )}
+
       {hasMore && !loading && (
         <button
           data-testid="audit-load-more"
-          onClick={onLoadMore}
+          onClick={handleLoadMore}
           className="rounded-md border border-[var(--panel-border)] px-4 py-2 text-sm text-[var(--muted)] hover:text-[var(--text)]"
         >
           Load more

@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import type { ComponentProps } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AuditTable } from './audit-table'
 import { JobDrawerProvider } from '@/contexts/job-drawer-context'
@@ -28,11 +29,11 @@ const entries: AuditEntry[] = [
   },
 ]
 
-function renderAudit() {
+function renderAudit(props?: Partial<ComponentProps<typeof AuditTable>>) {
   return render(
     <MemoryRouter>
       <JobDrawerProvider>
-        <AuditTable entries={entries} />
+        <AuditTable entries={entries} {...props} />
         <JobDetailDrawer />
       </JobDrawerProvider>
     </MemoryRouter>,
@@ -70,5 +71,14 @@ describe('AuditTable', () => {
     expect(await screen.findByText('Job detail')).toBeInTheDocument()
     expect(mockGetJob).toHaveBeenCalledWith('job_1')
     expect(mockGetJobEvents).toHaveBeenCalledWith('job_1')
+  })
+
+  it('shows a load-more error when the next audit page fails', async () => {
+    const loadMore = vi.fn().mockRejectedValue(new Error('network down'))
+
+    renderAudit({ hasMore: true, onLoadMore: loadMore })
+    fireEvent.click(screen.getByTestId('audit-load-more'))
+
+    expect(await screen.findByText('Failed to load more audit entries.')).toBeInTheDocument()
   })
 })
