@@ -272,6 +272,43 @@ func TestRunDueSchedulesDispatchesUpdateOncePerSlot(t *testing.T) {
 	}
 }
 
+func TestRunDueSchedulesSkipsStaleCatchUp(t *testing.T) {
+	previousLocal := time.Local
+	time.Local = time.FixedZone("UTC", 0)
+	defer func() { time.Local = previousLocal }()
+
+	testStore := openSchedulerTestStore(t)
+	runner := &fakeRunner{updateDone: make(chan struct{})}
+	service := NewService(testStore, audit.NewService(testStore), runner, &fakeStackLister{
+		items: []stacks.StackListItem{{StackHeader: stacks.StackHeader{ID: "demo"}}},
+	}, nil)
+	service.now = func() time.Time { return time.Date(2026, 4, 9, 4, 0, 0, 0, time.UTC) }
+
+	if _, err := service.UpdateSettings(context.Background(), UpdateSettingsRequest{
+		Update: UpdateScheduleConfig{
+			Enabled:   true,
+			Frequency: FrequencyDaily,
+			Time:      "03:30",
+			Target:    maintenancejobs.UpdateTarget{Mode: "all"},
+			Options: maintenancejobs.UpdateOptions{
+				PullImages:    true,
+				BuildImages:   true,
+				RemoveOrphans: true,
+			},
+		},
+		Prune: defaultSettings().Prune,
+	}); err != nil {
+		t.Fatalf("UpdateSettings() error = %v", err)
+	}
+
+	service.now = func() time.Time { return time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC) }
+	service.runDueSchedules(context.Background())
+
+	if runner.updateCalls != 0 {
+		t.Fatalf("updateCalls = %d, want 0 for stale catch-up", runner.updateCalls)
+	}
+}
+
 func TestRunDueSchedulesDispatchesPruneWithManagedLocks(t *testing.T) {
 	previousLocal := time.Local
 	time.Local = time.FixedZone("UTC", 0)

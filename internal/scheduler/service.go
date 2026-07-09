@@ -25,6 +25,7 @@ const (
 
 	hostLocalTimezone   = "host_local"
 	finalizationTimeout = 10 * time.Second
+	catchUpWindow       = 6 * time.Hour
 )
 
 type runner interface {
@@ -463,6 +464,9 @@ func dueSchedule(enabled bool, frequency Frequency, timeOfDay string, weekdays [
 		return time.Time{}, false
 	}
 	if lastScheduledFor != nil && dueAt.UTC().Equal(lastScheduledFor.UTC()) {
+		return time.Time{}, false
+	}
+	if now.Sub(dueAt) > catchUpWindow {
 		return time.Time{}, false
 	}
 	return dueAt.UTC(), true
