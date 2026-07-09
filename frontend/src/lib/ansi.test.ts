@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { stripAnsi, parseAnsi } from './ansi'
+import { stripAnsi, parseAnsi, createAnsiParser } from './ansi'
 
 const ESC = String.fromCharCode(27)
 
@@ -43,5 +43,21 @@ describe('parseAnsi', () => {
 
   it('returns a single plain span when there are no escapes', () => {
     expect(parseAnsi('plain line')).toEqual([{ text: 'plain line' }])
+  })
+
+  it('does not leak style across stateless parse calls', () => {
+    parseAnsi(`${ESC}[31mfirst`)
+    expect(parseAnsi('second')[0].color).toBeUndefined()
+  })
+
+  it('can preserve SGR state across multiline log entries', () => {
+    const parser = createAnsiParser()
+    const first = parser.parse(`${ESC}[31mfirst`)
+    const second = parser.parse(`second${ESC}[0m`)
+    const third = parser.parse('plain')
+
+    expect(first[0].color).toBeTruthy()
+    expect(second[0].color).toBe(first[0].color)
+    expect(third[0].color).toBeUndefined()
   })
 })

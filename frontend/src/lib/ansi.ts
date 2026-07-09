@@ -80,12 +80,10 @@ function applySgr(params: string, state: SgrState): void {
   }
 }
 
-// Parse a log line into styled runs. Always returns at least one span.
-export function parseAnsi(input: string): AnsiSpan[] {
+function parseAnsiWithState(input: string, state: SgrState): AnsiSpan[] {
   const re = new RegExp(ANSI_PATTERN, 'g')
   const sgrRe = new RegExp(SGR_PATTERN)
   const spans: AnsiSpan[] = []
-  const state: SgrState = { bold: false, dim: false }
   let last = 0
   const push = (text: string) => {
     if (!text) return
@@ -103,5 +101,24 @@ export function parseAnsi(input: string): AnsiSpan[] {
     if (sgr) applySgr(sgr[1], state)
   }
   push(input.slice(last))
-  return spans.length > 0 ? spans : [{ text: input }]
+  return spans.length > 0 ? spans : [{ text: stripAnsi(input) }]
+}
+
+// Parse a log line into styled runs. Always returns at least one span.
+export function parseAnsi(input: string): AnsiSpan[] {
+  return parseAnsiWithState(input, { bold: false, dim: false })
+}
+
+export function createAnsiParser() {
+  const state: SgrState = { bold: false, dim: false }
+  return {
+    parse(input: string): AnsiSpan[] {
+      return parseAnsiWithState(input, state)
+    },
+    reset(): void {
+      state.color = undefined
+      state.bold = false
+      state.dim = false
+    },
+  }
 }

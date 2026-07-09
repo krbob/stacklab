@@ -61,6 +61,25 @@ describe('useLogStream', () => {
     expect(result.current.entries[0].service_name).toBe('app')
   })
 
+  it('preserves ANSI style across log entries until reset', () => {
+    const { result } = renderHook(() => useLogStream({ stackId: 'test' }), {
+      wrapper: ({ children }) => <Provider>{children}</Provider>,
+    })
+
+    const streamId = 'logs_test_all'
+    const esc = String.fromCharCode(27)
+    act(() => {
+      controls.emit(streamId, logEvent(streamId, 'app', `${esc}[31mFirst`))
+      controls.emit(streamId, logEvent(streamId, 'app', `Second${esc}[0m`))
+      controls.emit(streamId, logEvent(streamId, 'app', 'Third'))
+    })
+
+    expect(result.current.entries).toHaveLength(3)
+    expect(result.current.entries[0].spans?.[0].color).toBeTruthy()
+    expect(result.current.entries[1].spans?.[0].color).toBe(result.current.entries[0].spans?.[0].color)
+    expect(result.current.entries[2].spans?.[0].color).toBeUndefined()
+  })
+
   it('buffers entries when paused', () => {
     const { result } = renderHook(() => useLogStream({ stackId: 'test' }), {
       wrapper: ({ children }) => <Provider>{children}</Provider>,

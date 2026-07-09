@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWs } from '@/hooks/use-ws'
-import { parseAnsi } from '@/lib/ansi'
+import { createAnsiParser } from '@/lib/ansi'
 import type { LogEntry, WsServerFrame } from '@/lib/ws-types'
 
 interface UseLogStreamOptions {
@@ -21,6 +21,10 @@ export function useLogStream({ stackId, serviceNames = [], tail = 200, enabled =
   const [entriesState, setEntriesState] = useState<{ streamKey: string; entries: LogEntry[] }>({ streamKey, entries: [] })
   const [paused, setPaused] = useState(false)
   const bufferRef = useRef<{ streamKey: string; entries: LogEntry[] }>({ streamKey, entries: [] })
+  const ansiParserRef = useRef<{ streamKey: string; parser: ReturnType<typeof createAnsiParser> }>({
+    streamKey,
+    parser: createAnsiParser(),
+  })
   const requestIdRef = useRef(0)
   const subscribedStreamKeyRef = useRef<string | null>(null)
 
@@ -31,6 +35,7 @@ export function useLogStream({ stackId, serviceNames = [], tail = 200, enabled =
     const isResubscribe = subscribedStreamKeyRef.current === streamKey
     if (!isResubscribe) {
       bufferRef.current = { streamKey, entries: [] }
+      ansiParserRef.current = { streamKey, parser: createAnsiParser() }
       setEntriesState({ streamKey, entries: [] })
     }
 
@@ -71,10 +76,14 @@ export function useLogStream({ stackId, serviceNames = [], tail = 200, enabled =
 
     return subscribe(streamId, (frame: WsServerFrame) => {
       if (frame.type === 'logs.event' && frame.payload?.entries) {
+        if (ansiParserRef.current.streamKey !== streamKey) {
+          ansiParserRef.current = { streamKey, parser: createAnsiParser() }
+        }
+        const ansiParser = ansiParserRef.current.parser
         const newEntries = (frame.payload.entries as LogEntry[]).map((entry) => {
           // Parse ANSI once, at ingestion: `line` becomes the plain text (for
           // filtering) and `spans` carry the colour for rendering.
-          const spans = parseAnsi(entry.line)
+          const spans = ansiParser.parse(entry.line)
           return { ...entry, line: spans.map((s) => s.text).join(''), spans }
         })
         if (paused) {
@@ -114,6 +123,7 @@ export function useLogStream({ stackId, serviceNames = [], tail = 200, enabled =
     clear: () => {
       setEntriesState({ streamKey, entries: [] })
       bufferRef.current = { streamKey, entries: [] }
+      ansiParserRef.current = { streamKey, parser: createAnsiParser() }
       subscribedStreamKeyRef.current = null
     },
   }
