@@ -358,8 +358,8 @@ export function StackEditorPage() {
       )}
 
       {/* Editor split */}
-      <div className="grid gap-3 xl:grid-cols-2" style={{ height: '500px' }}>
-        <div className="min-h-0 min-w-0">
+      <div className="grid gap-3 xl:h-[min(72vh,720px)] xl:grid-cols-2">
+        <div className="h-[min(55vh,560px)] min-h-[320px] min-w-0 xl:h-auto xl:min-h-0">
           {activeTab === 'compose' ? (
             <YamlEditor
               value={composeYaml}
@@ -372,7 +372,7 @@ export function StackEditorPage() {
             />
           )}
         </div>
-        <div className="min-h-0 min-w-0 overflow-auto rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs text-[var(--muted)]">
+        <div className="max-h-[min(55vh,560px)] min-h-[260px] min-w-0 overflow-auto rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs text-[var(--muted)] xl:max-h-none xl:min-h-0">
           <div className="mb-2 text-[var(--accent)] text-xs uppercase tracking-wider">
             {resolvedSource === 'last_valid' ? 'Last deployed config' : resolvedSource === 'draft' ? 'Draft resolved config' : 'Resolved config'}
           </div>

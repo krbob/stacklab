@@ -160,13 +160,13 @@ export function StackLogsPage() {
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="h-[500px] overflow-y-auto rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs leading-5"
+        className="h-[min(70vh,720px)] min-h-[320px] overflow-y-auto rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs leading-5"
       >
         {filteredEntries.length === 0 && (
           <div className="py-8 text-center text-[var(--muted)]">Waiting for logs...</div>
         )}
         {filteredEntries.map((entry, i) => (
-          <div key={i} className="flex flex-col gap-0.5 py-0.5 hover:bg-[rgba(255,255,255,0.02)] sm:flex-row sm:gap-2 sm:py-0">
+          <div key={logEntryKey(entry, i)} className="flex flex-col gap-0.5 py-0.5 hover:bg-[rgba(255,255,255,0.02)] sm:flex-row sm:gap-2 sm:py-0">
             {/* Meta (time · service) stays on its own line on phones so the
                 message below can use the full width instead of a cramped
                 right-hand column. Inline on sm+ (tablet/desktop). */}
@@ -213,4 +213,8 @@ export function StackLogsPage() {
       </div>
     </div>
   )
+}
+
+function logEntryKey(entry: { timestamp: string; service_name: string; container_id: string; stream: string; line: string }, index: number): string {
+  return `${entry.timestamp}:${entry.container_id}:${entry.stream}:${entry.service_name}:${entry.line}:${index}`
 }
