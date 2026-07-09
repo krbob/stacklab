@@ -1607,19 +1607,26 @@ func (h *Handler) handleDockerAdminApplyDaemonConfig(w http.ResponseWriter, r *h
 		job = updatedJob
 	}
 
-	applyResult, err := h.dockerAdmin.ApplyManagedConfig(r.Context(), dockeradmin.ApplyManagedConfigRequest{
+	go h.runDockerDaemonApplyJob(job, workflow, request)
+
+	writeJSON(w, http.StatusOK, map[string]any{"job": job})
+}
+
+func (h *Handler) runDockerDaemonApplyJob(job store.Job, workflow []store.JobWorkflowStep, request dockerAdminValidateRequest) {
+	ctx := h.appContext()
+	applyResult, err := h.dockerAdmin.ApplyManagedConfig(ctx, dockeradmin.ApplyManagedConfigRequest{
 		Settings:   request.Settings,
 		RemoveKeys: request.RemoveKeys,
 	})
 	if applyResult.BackupPath != "" {
-		_ = h.jobs.PublishEvent(r.Context(), job, "job_log", "Created Docker daemon config backup.", applyResult.BackupPath, workflowStepRef(workflow, 1))
+		_ = h.jobs.PublishEvent(ctx, job, "job_log", "Created Docker daemon config backup.", applyResult.BackupPath, workflowStepRef(workflow, 1))
 	}
 	for _, warning := range applyResult.Warnings {
-		_ = h.jobs.PublishEvent(r.Context(), job, "job_warning", warning, "", workflowStepRef(workflow, 1))
+		_ = h.jobs.PublishEvent(ctx, job, "job_warning", warning, "", workflowStepRef(workflow, 1))
 	}
 	if err != nil {
 		workflow = markWorkflowFailed(workflow, 1)
-		if updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow); updateErr == nil {
+		if updatedJob, updateErr := h.jobs.UpdateWorkflow(ctx, job, workflow); updateErr == nil {
 			job = updatedJob
 		}
 		errorCode := "docker_daemon_apply_failed"
@@ -1628,53 +1635,60 @@ func (h *Handler) handleDockerAdminApplyDaemonConfig(w http.ResponseWriter, r *h
 			errorCode = "not_implemented"
 			message = "Docker daemon apply is not configured yet."
 		}
-		job, _ = h.jobs.FinishFailed(r.Context(), job, errorCode, message)
-		_ = h.audit.RecordJob(r.Context(), job, dockerDaemonApplyAuditDetails(request, applyResult))
-		writeJSON(w, http.StatusOK, map[string]any{"job": job})
+		failedJob, finishErr := h.jobs.FinishFailed(ctx, job, errorCode, message)
+		if finishErr != nil {
+			h.logger.Error("finish docker daemon apply job failed", slog.String("job_id", job.ID), slog.String("err", finishErr.Error()))
+			return
+		}
+		if err := h.audit.RecordJob(ctx, failedJob, dockerDaemonApplyAuditDetails(request, applyResult)); err != nil {
+			h.logger.Warn("record docker daemon apply audit failed", slog.String("job_id", failedJob.ID), slog.String("err", err.Error()))
+		}
 		return
 	}
 
 	workflow = markWorkflowSucceeded(workflow, 1)
-	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_finished", "Applied Docker daemon config and restarted Docker.", "", workflowStepRef(workflow, 1))
+	_ = h.jobs.PublishEvent(ctx, job, "job_step_finished", "Applied Docker daemon config and restarted Docker.", "", workflowStepRef(workflow, 1))
 	workflow = markWorkflowRunning(workflow, 2)
-	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", "Verifying Docker recovery.", "", workflowStepRef(workflow, 2))
-	if updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow); updateErr == nil {
+	_ = h.jobs.PublishEvent(ctx, job, "job_step_started", "Verifying Docker recovery.", "", workflowStepRef(workflow, 2))
+	if updatedJob, updateErr := h.jobs.UpdateWorkflow(ctx, job, workflow); updateErr == nil {
 		job = updatedJob
 	}
 
-	overview, verifyErr := h.dockerAdmin.Overview(r.Context())
+	overview, verifyErr := h.dockerAdmin.Overview(ctx)
 	if verifyErr != nil || !overview.Engine.Available || (overview.Service.Supported && overview.Service.ActiveState != "active") {
 		workflow = markWorkflowFailed(workflow, 2)
-		if updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow); updateErr == nil {
+		if updatedJob, updateErr := h.jobs.UpdateWorkflow(ctx, job, workflow); updateErr == nil {
 			job = updatedJob
 		}
 		message := "Docker daemon restart completed but recovery verification failed."
 		if verifyErr != nil {
 			message = verifyErr.Error()
 		}
-		job, _ = h.jobs.FinishFailed(r.Context(), job, "docker_daemon_verify_failed", message)
-		_ = h.audit.RecordJob(r.Context(), job, dockerDaemonApplyAuditDetails(request, applyResult))
-		writeJSON(w, http.StatusOK, map[string]any{"job": job})
+		failedJob, finishErr := h.jobs.FinishFailed(ctx, job, "docker_daemon_verify_failed", message)
+		if finishErr != nil {
+			h.logger.Error("finish docker daemon apply job failed", slog.String("job_id", job.ID), slog.String("err", finishErr.Error()))
+			return
+		}
+		if err := h.audit.RecordJob(ctx, failedJob, dockerDaemonApplyAuditDetails(request, applyResult)); err != nil {
+			h.logger.Warn("record docker daemon apply audit failed", slog.String("job_id", failedJob.ID), slog.String("err", err.Error()))
+		}
 		return
 	}
 
 	workflow = markWorkflowSucceeded(workflow, 2)
-	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_finished", "Verified Docker recovery.", "", workflowStepRef(workflow, 2))
-	if updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow); updateErr == nil {
+	_ = h.jobs.PublishEvent(ctx, job, "job_step_finished", "Verified Docker recovery.", "", workflowStepRef(workflow, 2))
+	if updatedJob, updateErr := h.jobs.UpdateWorkflow(ctx, job, workflow); updateErr == nil {
 		job = updatedJob
 	}
 
-	job, err = h.jobs.FinishSucceeded(r.Context(), job)
+	job, err = h.jobs.FinishSucceeded(ctx, job)
 	if err != nil {
 		h.logger.Error("finish docker daemon apply job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
-		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to finalize Docker daemon apply job.", nil)
 		return
 	}
-	if err := h.audit.RecordJob(r.Context(), job, dockerDaemonApplyAuditDetails(request, applyResult)); err != nil {
+	if err := h.audit.RecordJob(ctx, job, dockerDaemonApplyAuditDetails(request, applyResult)); err != nil {
 		h.logger.Warn("record docker daemon apply audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
 	}
-
-	writeJSON(w, http.StatusOK, map[string]any{"job": job})
 }
 
 func (h *Handler) handleStacklabUpdateOverview(w http.ResponseWriter, r *http.Request) {

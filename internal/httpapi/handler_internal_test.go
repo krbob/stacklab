@@ -571,9 +571,10 @@ func TestHandlerDockerAdminOverviewAndDaemonConfig(t *testing.T) {
 		Job store.Job `json:"job"`
 	}
 	decodeInternalResponse(t, applyResponse, &applyPayload)
-	if applyPayload.Job.Action != "apply_docker_daemon_config" || applyPayload.Job.State != "succeeded" {
+	if applyPayload.Job.Action != "apply_docker_daemon_config" || applyPayload.Job.State != "running" {
 		t.Fatalf("unexpected docker daemon apply payload: %#v", applyPayload)
 	}
+	waitForInternalJobState(t, served, cookies, applyPayload.Job.ID, "succeeded")
 }
 
 func TestHandlerDockerRegistryStatusLoginAndLogout(t *testing.T) {
