@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -148,10 +149,33 @@ func validateRegistry(registry string) error {
 	if value == "" {
 		return fmt.Errorf("%w: registry is required", ErrInvalidInput)
 	}
-	if strings.HasPrefix(value, "-") {
+	if strings.HasPrefix(value, "-") || strings.ContainsAny(value, "\\ \t\r\n") {
 		return fmt.Errorf("%w: registry is invalid", ErrInvalidInput)
 	}
-	if strings.ContainsAny(value, "/\\ \t\r\n") {
+	if strings.Contains(value, "://") {
+		parsed, err := url.Parse(value)
+		if err != nil {
+			return fmt.Errorf("%w: registry is invalid", ErrInvalidInput)
+		}
+		if parsed.Scheme != "http" && parsed.Scheme != "https" {
+			return fmt.Errorf("%w: registry is invalid", ErrInvalidInput)
+		}
+		if parsed.User != nil || parsed.Host == "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+			return fmt.Errorf("%w: registry is invalid", ErrInvalidInput)
+		}
+		if strings.ContainsAny(parsed.Path, "\\ \t\r\n") {
+			return fmt.Errorf("%w: registry is invalid", ErrInvalidInput)
+		}
+		return validateRegistryHost(parsed.Host)
+	}
+	if strings.Contains(value, "/") {
+		return fmt.Errorf("%w: registry is invalid", ErrInvalidInput)
+	}
+	return validateRegistryHost(value)
+}
+
+func validateRegistryHost(value string) error {
+	if value == "" || strings.HasPrefix(value, "-") {
 		return fmt.Errorf("%w: registry is invalid", ErrInvalidInput)
 	}
 	host := value

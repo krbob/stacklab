@@ -874,6 +874,32 @@ func TestSendTelegramMessageRedactsBotTokenFromTransportErrors(t *testing.T) {
 	}
 }
 
+func TestSendWebhookMessageRedactsTargetURLFromTransportErrors(t *testing.T) {
+	t.Parallel()
+
+	target := "https://hooks.slack.com/services/T000/B000/secret-token"
+	client := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return nil, fmt.Errorf("dial %s: network unavailable", req.URL.String())
+		}),
+	}
+
+	err := sendWebhookMessage(context.Background(), client, target, WebhookPayload{
+		Event:  "test_notification",
+		SentAt: time.Now().UTC(),
+		Source: "stacklab",
+	})
+	if err == nil {
+		t.Fatal("sendWebhookMessage() error = nil, want transport error")
+	}
+	if strings.Contains(err.Error(), "secret-token") || strings.Contains(err.Error(), target) {
+		t.Fatalf("webhook error leaked target URL: %v", err)
+	}
+	if !strings.Contains(err.Error(), "https://hooks.slack.com/<redacted>") {
+		t.Fatalf("webhook error did not include redacted target: %v", err)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {

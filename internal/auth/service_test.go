@@ -167,6 +167,20 @@ func TestServiceClientIPTrustsForwardedForOnlyFromConfiguredProxy(t *testing.T) 
 		t.Fatalf("ClientIP(trusted proxy) = %q, want 203.0.113.10", got)
 	}
 
+	spoofed := httptest.NewRequest(http.MethodPost, "http://stacklab.test/api/auth/login", nil)
+	spoofed.RemoteAddr = "10.1.2.3:4567"
+	spoofed.Header.Set("X-Forwarded-For", "198.51.100.250, 203.0.113.10, 10.2.3.4")
+	if got := service.ClientIP(spoofed); got != "203.0.113.10" {
+		t.Fatalf("ClientIP(spoofed forwarded chain) = %q, want 203.0.113.10", got)
+	}
+
+	allTrusted := httptest.NewRequest(http.MethodPost, "http://stacklab.test/api/auth/login", nil)
+	allTrusted.RemoteAddr = "10.1.2.3:4567"
+	allTrusted.Header.Set("X-Forwarded-For", "10.9.8.7, 10.2.3.4")
+	if got := service.ClientIP(allTrusted); got != "10.1.2.3" {
+		t.Fatalf("ClientIP(all trusted forwarded chain) = %q, want remote proxy 10.1.2.3", got)
+	}
+
 	untrusted := httptest.NewRequest(http.MethodPost, "http://stacklab.test/api/auth/login", nil)
 	untrusted.RemoteAddr = "198.51.100.20:4567"
 	untrusted.Header.Set("X-Forwarded-For", "203.0.113.10")

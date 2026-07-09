@@ -301,11 +301,16 @@ func trustedForwardedFor(remoteHost, headerValue string, trustedProxies []netip.
 	if err != nil || !isTrustedProxy(remoteAddr, trustedProxies) {
 		return ""
 	}
-	for _, part := range strings.Split(headerValue, ",") {
-		addr, err := netip.ParseAddr(strings.TrimSpace(part))
-		if err == nil {
-			return addr.String()
+	parts := strings.Split(headerValue, ",")
+	for i := len(parts) - 1; i >= 0; i-- {
+		addr, err := netip.ParseAddr(strings.TrimSpace(parts[i]))
+		if err != nil {
+			continue
 		}
+		if isTrustedProxy(addr, trustedProxies) {
+			continue
+		}
+		return addr.String()
 	}
 	return ""
 }

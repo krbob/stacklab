@@ -3,6 +3,7 @@ import { useWs } from '@/hooks/use-ws'
 import type { TerminalExitedPayload, TerminalOpenedPayload, WsServerFrame } from '@/lib/ws-types'
 
 type TerminalState = 'idle' | 'connecting' | 'connected' | 'ended' | 'error'
+const terminalInputChunkSize = 8 * 1024
 
 interface UseTerminalOptions {
   stackId: string
@@ -79,11 +80,13 @@ export function useTerminal({ stackId, containerId, shell = '/bin/sh', cols = 12
   }, [connected, attach, termState, sessionId])
 
   const write = useCallback((data: string) => {
-    send({
-      type: 'terminal.input',
-      stream_id: streamId,
-      payload: { session_id: sessionId, data },
-    })
+    for (let offset = 0; offset < data.length; offset += terminalInputChunkSize) {
+      send({
+        type: 'terminal.input',
+        stream_id: streamId,
+        payload: { session_id: sessionId, data: data.slice(offset, offset + terminalInputChunkSize) },
+      })
+    }
   }, [send, streamId, sessionId])
 
   const resize = useCallback((newCols: number, newRows: number) => {

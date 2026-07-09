@@ -271,26 +271,7 @@ func NewService(settingStore Store, logger *slog.Logger) *Service {
 		store:  settingStore,
 		logger: logger,
 		sendWebhook: func(ctx context.Context, target string, payload WebhookPayload) error {
-			body, err := json.Marshal(payload)
-			if err != nil {
-				return fmt.Errorf("marshal webhook payload: %w", err)
-			}
-			req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
-			if err != nil {
-				return fmt.Errorf("build webhook request: %w", err)
-			}
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("User-Agent", "Stacklab-Notifications/1")
-			req.Header.Set("X-Stacklab-Event", payload.Event)
-			resp, err := client.Do(req)
-			if err != nil {
-				return fmt.Errorf("send webhook request: %w", err)
-			}
-			defer resp.Body.Close()
-			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-				return fmt.Errorf("webhook returned status %d", resp.StatusCode)
-			}
-			return nil
+			return sendWebhookMessage(ctx, client, target, payload)
 		},
 		sendTelegram: func(ctx context.Context, botToken, chatID, text string) error {
 			return sendTelegramMessage(ctx, client, botToken, chatID, text)
@@ -315,6 +296,49 @@ func NewService(settingStore Store, logger *slog.Logger) *Service {
 		alertCooldown:  15 * time.Minute,
 		logReadTimeout: runtimeLogReadTimeout,
 	}
+}
+
+func sendWebhookMessage(ctx context.Context, client *http.Client, target string, payload WebhookPayload) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal webhook payload: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build webhook request: %w", redactWebhookError(err, target))
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Stacklab-Notifications/1")
+	req.Header.Set("X-Stacklab-Event", payload.Event)
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("send webhook request: %w", redactWebhookError(err, target))
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("webhook returned status %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func redactWebhookError(err error, target string) error {
+	if err == nil {
+		return nil
+	}
+	redacted := redactWebhookTarget(target)
+	message := strings.ReplaceAll(err.Error(), target, redacted)
+	if parsed, parseErr := url.Parse(target); parseErr == nil {
+		message = strings.ReplaceAll(message, parsed.String(), redacted)
+	}
+	return errors.New(message)
+}
+
+func redactWebhookTarget(target string) string {
+	parsed, err := url.Parse(target)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "<redacted-webhook-url>"
+	}
+	return parsed.Scheme + "://" + parsed.Host + "/<redacted>"
 }
 
 func sendTelegramMessage(ctx context.Context, client *http.Client, botToken, chatID, text string) error {

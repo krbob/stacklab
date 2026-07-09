@@ -162,6 +162,10 @@ func TestValidateRegistryRejectsInvalidValues(t *testing.T) {
 		"ghcr.io/path",
 		"ghcr.io user",
 		"ghcr.io:70000",
+		"ftp://registry.example.com",
+		"https://user:secret@registry.example.com",
+		"https://registry.example.com?token=secret",
+		"https://-bad.example.com",
 	} {
 		t.Run(registry, func(t *testing.T) {
 			_, err := service.Logout(context.Background(), LogoutRequest{Registry: registry})
@@ -175,7 +179,14 @@ func TestValidateRegistryRejectsInvalidValues(t *testing.T) {
 func TestValidateRegistryAcceptsHostAndHostPort(t *testing.T) {
 	t.Parallel()
 
-	for _, registry := range []string{"ghcr.io", "registry.local:5000", "[2001:db8::1]:5000"} {
+	for _, registry := range []string{
+		"ghcr.io",
+		"registry.local:5000",
+		"[2001:db8::1]:5000",
+		"https://registry.example.com",
+		"http://registry.local:5000",
+		"https://index.docker.io/v1/",
+	} {
 		t.Run(registry, func(t *testing.T) {
 			if err := validateRegistry(registry); err != nil {
 				t.Fatalf("validateRegistry(%q) error = %v", registry, err)

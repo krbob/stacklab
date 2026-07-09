@@ -133,6 +133,38 @@ describe('useTerminal', () => {
     })
   })
 
+  it('chunks large terminal.input payloads', () => {
+    const { result } = renderHook(() => useTerminal(defaultOpts), {
+      wrapper: ({ children }) => <Provider>{children}</Provider>,
+    })
+
+    act(() => { result.current.open() })
+
+    const openFrame = controls.getSentFrames().find((f) => f.type === 'terminal.open')!
+    const streamId = openFrame.stream_id as string
+
+    act(() => {
+      controls.emit(streamId, {
+        type: 'terminal.opened',
+        stream_id: streamId,
+        payload: { session_id: 'term_xyz', container_id: 'abc123', shell: '/bin/sh' },
+      })
+    })
+
+    const input = 'x'.repeat(20 * 1024)
+    act(() => { result.current.write(input) })
+
+    const inputFrames = controls.getSentFrames().filter((f) => f.type === 'terminal.input')
+    expect(inputFrames).toHaveLength(3)
+    expect(inputFrames.map((f) => (f.payload as { data: string }).data).join('')).toBe(input)
+    for (const frame of inputFrames) {
+      expect((frame.payload as { data: string }).data.length).toBeLessThanOrEqual(8 * 1024)
+      expect(frame).toMatchObject({
+        payload: expect.objectContaining({ session_id: 'term_xyz' }),
+      })
+    }
+  })
+
   it('transitions to ended on terminal.exited', () => {
     const { result } = renderHook(() => useTerminal(defaultOpts), {
       wrapper: ({ children }) => <Provider>{children}</Provider>,
