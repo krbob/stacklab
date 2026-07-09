@@ -171,6 +171,37 @@ func TestSystemdRunHelperCommandUsesTransientUnit(t *testing.T) {
 	}
 }
 
+func TestSystemdRunHelperCommandNoSudoUsesTransientUnitDirectly(t *testing.T) {
+	t.Parallel()
+
+	helperPath := "/usr/lib/stacklab/bin/stacklab-self-update-helper"
+	service := newTestService(t, config.Config{
+		SelfUpdateHelperPath: helperPath,
+	})
+
+	name, args, err := service.systemdRunHelperCommandNoSudo(systemdRunUnitName("job_123"), false, false, "run", "--job-id", "job_123")
+	if err != nil {
+		t.Fatalf("systemdRunHelperCommandNoSudo() error = %v", err)
+	}
+
+	wantArgs := []string{
+		"--quiet",
+		"--collect",
+		"--unit=stacklab-self-update-job_123",
+		"--service-type=exec",
+		helperPath,
+		"run",
+		"--job-id",
+		"job_123",
+	}
+	if name != systemdRunPath {
+		t.Fatalf("command name = %q, want %q", name, systemdRunPath)
+	}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("command args = %#v, want %#v", args, wantArgs)
+	}
+}
+
 func TestHelperProbeCommandUsesWaitAndPipe(t *testing.T) {
 	t.Parallel()
 

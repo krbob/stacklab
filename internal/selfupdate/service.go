@@ -464,6 +464,22 @@ func (s *Service) startHelper(jobID, requestedVersion string, refreshPackageInde
 		return nil
 	}
 
+	if os.Geteuid() == 0 {
+		commandName, commandArgs, err := s.systemdRunHelperCommandNoSudo(systemdRunUnitName(jobID), false, false, helperArgs...)
+		if err != nil {
+			return err
+		}
+		output, err := s.runCommand(context.Background(), commandName, commandArgs...)
+		if err != nil {
+			message := strings.TrimSpace(string(output))
+			if message != "" {
+				return fmt.Errorf("start self-update transient unit: %w: %s", err, message)
+			}
+			return fmt.Errorf("start self-update transient unit: %w", err)
+		}
+		return nil
+	}
+
 	commandName, commandArgs, err := s.helperCommand(helperArgs...)
 	if err != nil {
 		return err
@@ -517,14 +533,20 @@ func (s *Service) helperCommand(args ...string) (string, []string, error) {
 }
 
 func (s *Service) systemdRunHelperCommand(unitName string, wait bool, pipeOutput bool, helperArgs ...string) (string, []string, error) {
+	commandName, commandArgs, err := s.systemdRunHelperCommandNoSudo(unitName, wait, pipeOutput, helperArgs...)
+	if err != nil {
+		return "", nil, err
+	}
+	return "sudo", append([]string{"-n", commandName}, commandArgs...), nil
+}
+
+func (s *Service) systemdRunHelperCommandNoSudo(unitName string, wait bool, pipeOutput bool, helperArgs ...string) (string, []string, error) {
 	helperPath := strings.TrimSpace(s.cfg.SelfUpdateHelperPath)
 	if helperPath == "" {
 		return "", nil, ErrUnsupported
 	}
 
 	args := []string{
-		"-n",
-		systemdRunPath,
 		"--quiet",
 	}
 	if wait {
@@ -540,7 +562,7 @@ func (s *Service) systemdRunHelperCommand(unitName string, wait bool, pipeOutput
 		helperPath,
 	)
 	args = append(args, helperArgs...)
-	return "sudo", args, nil
+	return systemdRunPath, args, nil
 }
 
 func systemdRunUnitName(jobID string) string {
