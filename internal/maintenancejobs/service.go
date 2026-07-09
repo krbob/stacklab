@@ -182,62 +182,79 @@ func (s *Service) maintenanceNeedsBuild(ctx context.Context, stackID string, ser
 }
 
 func (s *Service) RunUpdate(ctx context.Context, request UpdateRequest, requestedBy string) (store.Job, error) {
+	job, run, err := s.StartUpdate(ctx, request, requestedBy)
+	if err != nil {
+		return store.Job{}, err
+	}
+	return s.ExecuteUpdate(ctx, job, run)
+}
+
+func (s *Service) StartUpdate(ctx context.Context, request UpdateRequest, requestedBy string) (store.Job, UpdateRun, error) {
 	if request.Options.IncludeVolumes && !request.Options.PruneAfter {
-		return store.Job{}, errors.New("include_volumes requires prune_after = true")
+		return store.Job{}, UpdateRun{}, errors.New("include_volumes requires prune_after = true")
 	}
 	if request.Options.RemoveOrphans && hasServiceExclusions(request.Target.ExcludedServices) {
-		return store.Job{}, errors.New("remove_orphans cannot be used with service exclusions")
+		return store.Job{}, UpdateRun{}, errors.New("remove_orphans cannot be used with service exclusions")
 	}
 
 	targetStackIDs, err := s.ResolveTargetStacks(ctx, request.Target.Mode, request.Target.StackIDs)
 	if err != nil {
-		return store.Job{}, err
+		return store.Job{}, UpdateRun{}, err
 	}
 	serviceTargets, err := s.resolveUpdateServiceTargets(ctx, targetStackIDs, request.Target.ExcludedServices)
 	if err != nil {
-		return store.Job{}, err
+		return store.Job{}, UpdateRun{}, err
 	}
 
 	workflow, err := s.buildUpdateWorkflow(ctx, targetStackIDs, serviceTargets, request.Options)
 	if err != nil {
-		return store.Job{}, err
+		return store.Job{}, UpdateRun{}, err
 	}
 
 	job, err := s.jobs.StartWithLocks(ctx, "", "update_stacks", requestedBy, targetStackIDs)
 	if err != nil {
-		return store.Job{}, err
+		return store.Job{}, UpdateRun{}, err
 	}
 
 	if len(workflow) > 0 {
 		workflow = markWorkflowRunning(workflow, 0)
-		if job, err = s.jobs.UpdateWorkflow(ctx, job, workflow); err != nil {
-			return store.Job{}, err
+		updatedJob, updateErr := s.jobs.UpdateWorkflow(ctx, job, workflow)
+		if updateErr != nil {
+			finishCtx, cancel := jobFinalizationContext()
+			defer cancel()
+			_, _ = s.jobs.FinishFailed(finishCtx, job, "update_stacks_prepare_failed", updateErr.Error())
+			return store.Job{}, UpdateRun{}, updateErr
 		}
+		job = updatedJob
 		_ = s.jobs.PublishEvent(ctx, job, "job_step_started", updateStepMessage("Starting", workflow[0]), "", workflowStepRef(workflow, 0))
 	}
+
+	return job, UpdateRun{
+		Request:        request,
+		TargetStackIDs: append([]string(nil), targetStackIDs...),
+		Workflow:       append([]store.JobWorkflowStep(nil), workflow...),
+	}, nil
+}
+
+func (s *Service) ExecuteUpdate(ctx context.Context, job store.Job, run UpdateRun) (store.Job, error) {
+	workflow := append([]store.JobWorkflowStep(nil), run.Workflow...)
+	var err error
 
 	for index, step := range workflow {
 		stepRef := workflowStepRef(workflow, index)
 		onProgress := s.progressPublisher(ctx, job, step, stepRef)
-		output, runErr := s.runUpdateWorkflowStep(ctx, step, request.Options, onProgress)
+		output, runErr := s.runUpdateWorkflowStep(ctx, step, run.Request.Options, onProgress)
 		if trimmed := strings.TrimSpace(output); trimmed != "" {
 			_ = s.jobs.PublishEvent(ctx, job, "job_log", updateStepMessage("Output", step), trimmed, workflowStepRef(workflow, index))
 		}
 		if runErr != nil {
-			workflow = markWorkflowFailed(workflow, index)
-			if updatedJob, updateErr := s.jobs.UpdateWorkflow(ctx, job, workflow); updateErr == nil {
-				job = updatedJob
+			finishCtx, cancel := jobFinalizationContext()
+			finishedJob, finishErr := s.finishUpdateFailure(finishCtx, job, workflow, index, "update_stacks_failed", runErr.Error(), run)
+			cancel()
+			if finishErr != nil {
+				return store.Job{}, finishErr
 			}
-			// Mark the failing step before the terminal transition so live
-			// consumers never see a finished job with a step still running.
-			failingJob := job
-			failingJob.State = "failed"
-			_ = s.jobs.PublishEvent(ctx, failingJob, "job_step_finished", updateStepMessage("Failed", step), "", workflowStepRef(workflow, index))
-			job, _ = s.jobs.FinishFailed(ctx, job, "update_stacks_failed", runErr.Error())
-			if err := s.audit.RecordJob(ctx, job, updateAuditDetails(request, targetStackIDs)); err != nil && s.logger != nil {
-				s.logger.Warn("record maintenance audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
-			}
-			return job, nil
+			return finishedJob, nil
 		}
 		if step.TargetStackID != "" && updateStepInvalidatesImageUpdates(step.Action) {
 			if err := s.stackReader.InvalidateImageUpdateStatus(ctx, step.TargetStackID, step.TargetServiceNames); err != nil && s.logger != nil {
@@ -258,39 +275,69 @@ func (s *Service) RunUpdate(ctx context.Context, request UpdateRequest, requeste
 			workflow = markWorkflowRunning(workflow, index+1)
 			_ = s.jobs.PublishEvent(ctx, job, "job_step_started", updateStepMessage("Starting", workflow[index+1]), "", workflowStepRef(workflow, index+1))
 		}
-		if job, err = s.jobs.UpdateWorkflow(ctx, job, workflow); err != nil {
-			return store.Job{}, err
+		updatedJob, updateErr := s.jobs.UpdateWorkflow(ctx, job, workflow)
+		if updateErr != nil {
+			finishCtx, cancel := jobFinalizationContext()
+			finishedJob, finishErr := s.finishUpdateFailure(finishCtx, job, workflow, index, "update_stacks_failed", updateErr.Error(), run)
+			cancel()
+			return finishedJob, errors.Join(updateErr, finishErr)
 		}
+		job = updatedJob
 	}
 
-	job, err = s.jobs.FinishSucceeded(ctx, job)
+	finishCtx, cancel := jobFinalizationContext()
+	defer cancel()
+	job, err = s.jobs.FinishSucceeded(finishCtx, job)
 	if err != nil {
 		return store.Job{}, err
 	}
-	if err := s.audit.RecordJob(ctx, job, updateAuditDetails(request, targetStackIDs)); err != nil && s.logger != nil {
+	if err := s.audit.RecordJob(finishCtx, job, updateAuditDetails(run.Request, run.TargetStackIDs)); err != nil && s.logger != nil {
 		s.logger.Warn("record maintenance audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
 	}
 	return job, nil
 }
 
 func (s *Service) RunPrune(ctx context.Context, request PruneRequest, requestedBy string, lockStackIDs []string) (store.Job, error) {
+	job, run, err := s.StartPrune(ctx, request, requestedBy, lockStackIDs)
+	if err != nil {
+		return store.Job{}, err
+	}
+	return s.ExecutePrune(ctx, job, run)
+}
+
+func (s *Service) StartPrune(ctx context.Context, request PruneRequest, requestedBy string, lockStackIDs []string) (store.Job, PruneRun, error) {
 	if !request.Scope.Images && !request.Scope.BuildCache && !request.Scope.StoppedContainers && !request.Scope.Volumes {
-		return store.Job{}, errors.New("at least one prune scope must be enabled")
+		return store.Job{}, PruneRun{}, errors.New("at least one prune scope must be enabled")
 	}
 
 	workflow := buildPruneWorkflow(request.Scope)
 	job, err := s.jobs.StartWithLocks(ctx, "", "prune", requestedBy, lockStackIDs)
 	if err != nil {
-		return store.Job{}, err
+		return store.Job{}, PruneRun{}, err
 	}
 
 	if len(workflow) > 0 {
 		workflow = markWorkflowRunning(workflow, 0)
-		if job, err = s.jobs.UpdateWorkflow(ctx, job, workflow); err != nil {
-			return store.Job{}, err
+		updatedJob, updateErr := s.jobs.UpdateWorkflow(ctx, job, workflow)
+		if updateErr != nil {
+			finishCtx, cancel := jobFinalizationContext()
+			defer cancel()
+			_, _ = s.jobs.FinishFailed(finishCtx, job, "prune_prepare_failed", updateErr.Error())
+			return store.Job{}, PruneRun{}, updateErr
 		}
+		job = updatedJob
 		_ = s.jobs.PublishEvent(ctx, job, "job_step_started", pruneStepMessage("Starting", workflow[0]), "", workflowStepRef(workflow, 0))
 	}
+
+	return job, PruneRun{
+		Request:  request,
+		Workflow: append([]store.JobWorkflowStep(nil), workflow...),
+	}, nil
+}
+
+func (s *Service) ExecutePrune(ctx context.Context, job store.Job, run PruneRun) (store.Job, error) {
+	workflow := append([]store.JobWorkflowStep(nil), run.Workflow...)
+	var err error
 
 	for index, step := range workflow {
 		output, runErr := s.maintenance.RunPruneStep(ctx, step.Action)
@@ -298,18 +345,13 @@ func (s *Service) RunPrune(ctx context.Context, request PruneRequest, requestedB
 			_ = s.jobs.PublishEvent(ctx, job, "job_log", pruneStepMessage("Output", step), trimmed, workflowStepRef(workflow, index))
 		}
 		if runErr != nil {
-			workflow = markWorkflowFailed(workflow, index)
-			if updatedJob, updateErr := s.jobs.UpdateWorkflow(ctx, job, workflow); updateErr == nil {
-				job = updatedJob
+			finishCtx, cancel := jobFinalizationContext()
+			finishedJob, finishErr := s.finishPruneFailure(finishCtx, job, workflow, index, "prune_failed", runErr.Error(), run)
+			cancel()
+			if finishErr != nil {
+				return store.Job{}, finishErr
 			}
-			failingJob := job
-			failingJob.State = "failed"
-			_ = s.jobs.PublishEvent(ctx, failingJob, "job_step_finished", pruneStepMessage("Failed", step), "", workflowStepRef(workflow, index))
-			job, _ = s.jobs.FinishFailed(ctx, job, "prune_failed", runErr.Error())
-			if err := s.audit.RecordJob(ctx, job, pruneAuditDetails(request)); err != nil && s.logger != nil {
-				s.logger.Warn("record prune audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
-			}
-			return job, nil
+			return finishedJob, nil
 		}
 
 		workflow = markWorkflowSucceeded(workflow, index)
@@ -318,19 +360,72 @@ func (s *Service) RunPrune(ctx context.Context, request PruneRequest, requestedB
 			workflow = markWorkflowRunning(workflow, index+1)
 			_ = s.jobs.PublishEvent(ctx, job, "job_step_started", pruneStepMessage("Starting", workflow[index+1]), "", workflowStepRef(workflow, index+1))
 		}
-		if job, err = s.jobs.UpdateWorkflow(ctx, job, workflow); err != nil {
-			return store.Job{}, err
+		updatedJob, updateErr := s.jobs.UpdateWorkflow(ctx, job, workflow)
+		if updateErr != nil {
+			finishCtx, cancel := jobFinalizationContext()
+			finishedJob, finishErr := s.finishPruneFailure(finishCtx, job, workflow, index, "prune_failed", updateErr.Error(), run)
+			cancel()
+			return finishedJob, errors.Join(updateErr, finishErr)
 		}
+		job = updatedJob
 	}
 
-	job, err = s.jobs.FinishSucceeded(ctx, job)
+	finishCtx, cancel := jobFinalizationContext()
+	defer cancel()
+	job, err = s.jobs.FinishSucceeded(finishCtx, job)
 	if err != nil {
 		return store.Job{}, err
 	}
-	if err := s.audit.RecordJob(ctx, job, pruneAuditDetails(request)); err != nil && s.logger != nil {
+	if err := s.audit.RecordJob(finishCtx, job, pruneAuditDetails(run.Request)); err != nil && s.logger != nil {
 		s.logger.Warn("record prune audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
 	}
 	return job, nil
+}
+
+func (s *Service) finishUpdateFailure(ctx context.Context, job store.Job, workflow []store.JobWorkflowStep, index int, errorCode, errorMessage string, run UpdateRun) (store.Job, error) {
+	workflow = markWorkflowFailed(workflow, index)
+	if updatedJob, updateErr := s.jobs.UpdateWorkflow(ctx, job, workflow); updateErr == nil {
+		job = updatedJob
+	} else if s.logger != nil {
+		s.logger.Warn("update failed maintenance workflow failed", slog.String("job_id", job.ID), slog.String("err", updateErr.Error()))
+	}
+	// Mark the failing step before the terminal transition so live consumers
+	// never see a finished job with a step still running.
+	failingJob := job
+	failingJob.State = "failed"
+	_ = s.jobs.PublishEvent(ctx, failingJob, "job_step_finished", updateStepMessage("Failed", workflow[index]), "", workflowStepRef(workflow, index))
+	finishedJob, err := s.jobs.FinishFailed(ctx, job, errorCode, errorMessage)
+	if err != nil {
+		return store.Job{}, err
+	}
+	if err := s.audit.RecordJob(ctx, finishedJob, updateAuditDetails(run.Request, run.TargetStackIDs)); err != nil && s.logger != nil {
+		s.logger.Warn("record maintenance audit failed", slog.String("job_id", finishedJob.ID), slog.String("err", err.Error()))
+	}
+	return finishedJob, nil
+}
+
+func (s *Service) finishPruneFailure(ctx context.Context, job store.Job, workflow []store.JobWorkflowStep, index int, errorCode, errorMessage string, run PruneRun) (store.Job, error) {
+	workflow = markWorkflowFailed(workflow, index)
+	if updatedJob, updateErr := s.jobs.UpdateWorkflow(ctx, job, workflow); updateErr == nil {
+		job = updatedJob
+	} else if s.logger != nil {
+		s.logger.Warn("update failed prune workflow failed", slog.String("job_id", job.ID), slog.String("err", updateErr.Error()))
+	}
+	failingJob := job
+	failingJob.State = "failed"
+	_ = s.jobs.PublishEvent(ctx, failingJob, "job_step_finished", pruneStepMessage("Failed", workflow[index]), "", workflowStepRef(workflow, index))
+	finishedJob, err := s.jobs.FinishFailed(ctx, job, errorCode, errorMessage)
+	if err != nil {
+		return store.Job{}, err
+	}
+	if err := s.audit.RecordJob(ctx, finishedJob, pruneAuditDetails(run.Request)); err != nil && s.logger != nil {
+		s.logger.Warn("record prune audit failed", slog.String("job_id", finishedJob.ID), slog.String("err", err.Error()))
+	}
+	return finishedJob, nil
+}
+
+func jobFinalizationContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), 10*time.Second)
 }
 
 func (s *Service) buildUpdateWorkflow(ctx context.Context, stackIDs []string, serviceTargets map[string][]string, options UpdateOptions) ([]store.JobWorkflowStep, error) {

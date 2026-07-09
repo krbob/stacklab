@@ -1088,7 +1088,7 @@ func (h *Handler) handleUpdateStacksMaintenance(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	job, err := h.maintenanceJobs.RunUpdate(r.Context(), maintenancejobs.UpdateRequest{
+	job, run, err := h.maintenanceJobs.StartUpdate(r.Context(), maintenancejobs.UpdateRequest{
 		Target: maintenancejobs.UpdateTarget{
 			Mode:             request.Target.Mode,
 			StackIDs:         request.Target.StackIDs,
@@ -1117,6 +1117,8 @@ func (h *Handler) handleUpdateStacksMaintenance(w http.ResponseWriter, r *http.R
 		}
 		return
 	}
+
+	go h.runMaintenanceUpdateJob(job, run)
 
 	writeJSON(w, http.StatusOK, map[string]any{"job": job})
 }
@@ -1449,7 +1451,7 @@ func (h *Handler) handleMaintenancePrune(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	job, err := h.maintenanceJobs.RunPrune(r.Context(), maintenancejobs.PruneRequest{
+	job, run, err := h.maintenanceJobs.StartPrune(r.Context(), maintenancejobs.PruneRequest{
 		Scope:   request.Scope,
 		Trigger: "manual",
 	}, "local", lockStackIDs)
@@ -1464,7 +1466,21 @@ func (h *Handler) handleMaintenancePrune(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	go h.runMaintenancePruneJob(job, run)
+
 	writeJSON(w, http.StatusOK, map[string]any{"job": job})
+}
+
+func (h *Handler) runMaintenanceUpdateJob(job store.Job, run maintenancejobs.UpdateRun) {
+	if _, err := h.maintenanceJobs.ExecuteUpdate(h.appContext(), job, run); err != nil {
+		h.logger.Error("run maintenance update job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+	}
+}
+
+func (h *Handler) runMaintenancePruneJob(job store.Job, run maintenancejobs.PruneRun) {
+	if _, err := h.maintenanceJobs.ExecutePrune(h.appContext(), job, run); err != nil {
+		h.logger.Error("run maintenance prune job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+	}
 }
 
 func (h *Handler) handleDockerAdminValidateDaemonConfig(w http.ResponseWriter, r *http.Request) {

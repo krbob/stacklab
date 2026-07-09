@@ -1,6 +1,9 @@
 package maintenancejobs
 
-import "stacklab/internal/maintenance"
+import (
+	"stacklab/internal/maintenance"
+	"stacklab/internal/store"
+)
 
 type UpdateTarget struct {
 	Mode             string              `json:"mode"`
@@ -23,8 +26,19 @@ type UpdateRequest struct {
 	ScheduleKey string        `json:"schedule_key,omitempty"`
 }
 
+type UpdateRun struct {
+	Request        UpdateRequest
+	TargetStackIDs []string
+	Workflow       []store.JobWorkflowStep
+}
+
 type PruneRequest struct {
 	Scope       maintenance.PruneScope `json:"scope"`
 	Trigger     string                 `json:"trigger,omitempty"`
 	ScheduleKey string                 `json:"schedule_key,omitempty"`
+}
+
+type PruneRun struct {
+	Request  PruneRequest
+	Workflow []store.JobWorkflowStep
 }

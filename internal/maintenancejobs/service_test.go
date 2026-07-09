@@ -10,6 +10,7 @@ import (
 
 	"stacklab/internal/audit"
 	"stacklab/internal/jobs"
+	"stacklab/internal/maintenance"
 	"stacklab/internal/stacks"
 	"stacklab/internal/store"
 )
@@ -279,6 +280,64 @@ func TestRunUpdateInvalidatesImageStatusAfterPullOrBuild(t *testing.T) {
 		if call.StackID != "demo" || len(call.ServiceNames) != 0 {
 			t.Fatalf("unexpected image invalidation call: %#v", call)
 		}
+	}
+}
+
+func TestExecuteUpdateFinalizesAndUnlocksWhenWorkflowUpdateFails(t *testing.T) {
+	t.Parallel()
+
+	reader := fakeMaintenanceReader()
+	service := newMaintenanceTestService(t, reader)
+	request := UpdateRequest{
+		Target:  UpdateTarget{Mode: "selected", StackIDs: []string{"demo"}},
+		Options: UpdateOptions{PullImages: false, BuildImages: false},
+	}
+
+	job, run, err := service.StartUpdate(context.Background(), request, "test")
+	if err != nil {
+		t.Fatalf("StartUpdate() error = %v", err)
+	}
+
+	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	finishedJob, err := service.ExecuteUpdate(cancelledCtx, job, run)
+	if err == nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("ExecuteUpdate() error = %v, want context.Canceled", err)
+	}
+	if finishedJob.State != "failed" {
+		t.Fatalf("ExecuteUpdate() state = %q, want failed; err=%v; job=%#v", finishedJob.State, err, finishedJob)
+	}
+
+	if _, _, err := service.StartUpdate(context.Background(), request, "test"); err != nil {
+		t.Fatalf("StartUpdate() after failed execution error = %v, want lock released", err)
+	}
+}
+
+func TestExecutePruneFinalizesAndUnlocksWhenWorkflowUpdateFails(t *testing.T) {
+	t.Parallel()
+
+	service := newMaintenanceTestService(t, fakeMaintenanceReader())
+	request := PruneRequest{
+		Scope: maintenance.PruneScope{Images: true},
+	}
+
+	job, run, err := service.StartPrune(context.Background(), request, "test", []string{"demo"})
+	if err != nil {
+		t.Fatalf("StartPrune() error = %v", err)
+	}
+
+	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	finishedJob, err := service.ExecutePrune(cancelledCtx, job, run)
+	if err == nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("ExecutePrune() error = %v, want context.Canceled", err)
+	}
+	if finishedJob.State != "failed" {
+		t.Fatalf("ExecutePrune() state = %q, want failed; err=%v; job=%#v", finishedJob.State, err, finishedJob)
+	}
+
+	if _, _, err := service.StartPrune(context.Background(), request, "test", []string{"demo"}); err != nil {
+		t.Fatalf("StartPrune() after failed execution error = %v, want lock released", err)
 	}
 }
 

@@ -1585,6 +1585,7 @@ func TestHandlerMaintenanceUpdateStacksWorkflow(t *testing.T) {
 
 	var payload struct {
 		Job struct {
+			ID       string  `json:"id"`
 			StackID  *string `json:"stack_id"`
 			Action   string  `json:"action"`
 			State    string  `json:"state"`
@@ -1598,8 +1599,18 @@ func TestHandlerMaintenanceUpdateStacksWorkflow(t *testing.T) {
 		} `json:"job"`
 	}
 	decodeInternalResponse(t, response, &payload)
-	if payload.Job.Action != "update_stacks" || payload.Job.State != "succeeded" {
+	if payload.Job.Action != "update_stacks" || payload.Job.State != "running" || payload.Job.ID == "" {
 		t.Fatalf("unexpected maintenance job payload: %#v", payload.Job)
+	}
+	waitForInternalJobState(t, served, cookies, payload.Job.ID, "succeeded")
+
+	jobResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/jobs/"+payload.Job.ID, nil, cookies)
+	if jobResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/jobs/%s status = %d, want %d; body=%s", payload.Job.ID, jobResponse.Code, http.StatusOK, jobResponse.Body.String())
+	}
+	decodeInternalResponse(t, jobResponse, &payload)
+	if payload.Job.Action != "update_stacks" || payload.Job.State != "succeeded" {
+		t.Fatalf("unexpected finished maintenance job payload: %#v", payload.Job)
 	}
 	if payload.Job.StackID != nil {
 		t.Fatalf("expected maintenance job stack_id to be null, got %#v", payload.Job.StackID)
@@ -1614,22 +1625,9 @@ func TestHandlerMaintenanceUpdateStacksWorkflow(t *testing.T) {
 		t.Fatalf("unexpected prune maintenance step: %#v", payload.Job.Workflow.Steps[3])
 	}
 
-	auditResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/audit", nil, cookies)
-	if auditResponse.Code != http.StatusOK {
-		t.Fatalf("GET /api/audit status = %d, want %d; body=%s", auditResponse.Code, http.StatusOK, auditResponse.Body.String())
-	}
-	var auditPayload struct {
-		Items []struct {
-			Action  string  `json:"action"`
-			StackID *string `json:"stack_id"`
-		} `json:"items"`
-	}
-	decodeInternalResponse(t, auditResponse, &auditPayload)
-	if len(auditPayload.Items) == 0 || auditPayload.Items[0].Action != "update_stacks" {
-		t.Fatalf("unexpected audit payload after maintenance: %#v", auditPayload.Items)
-	}
-	if auditPayload.Items[0].StackID != nil {
-		t.Fatalf("expected maintenance audit stack_id to be null, got %#v", auditPayload.Items[0].StackID)
+	auditEntry := waitForInternalAuditAction(t, served, cookies, "update_stacks")
+	if auditEntry.StackID != nil {
+		t.Fatalf("expected maintenance audit stack_id to be null, got %#v", auditEntry.StackID)
 	}
 
 	recorded, err := os.ReadFile(logPath)
@@ -1694,6 +1692,7 @@ func TestHandlerMaintenanceUpdateWithServiceExclusionsDefaultsRemoveOrphansOff(t
 
 	var payload struct {
 		Job struct {
+			ID       string `json:"id"`
 			State    string `json:"state"`
 			Workflow *struct {
 				Steps []struct {
@@ -1705,8 +1704,18 @@ func TestHandlerMaintenanceUpdateWithServiceExclusionsDefaultsRemoveOrphansOff(t
 		} `json:"job"`
 	}
 	decodeInternalResponse(t, response, &payload)
-	if payload.Job.State != "succeeded" {
+	if payload.Job.State != "running" || payload.Job.ID == "" {
 		t.Fatalf("unexpected maintenance job payload: %#v", payload.Job)
+	}
+	waitForInternalJobState(t, served, cookies, payload.Job.ID, "succeeded")
+
+	jobResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/jobs/"+payload.Job.ID, nil, cookies)
+	if jobResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/jobs/%s status = %d, want %d; body=%s", payload.Job.ID, jobResponse.Code, http.StatusOK, jobResponse.Body.String())
+	}
+	decodeInternalResponse(t, jobResponse, &payload)
+	if payload.Job.State != "succeeded" {
+		t.Fatalf("unexpected finished maintenance job payload: %#v", payload.Job)
 	}
 	if payload.Job.Workflow == nil || len(payload.Job.Workflow.Steps) != 1 {
 		t.Fatalf("unexpected maintenance workflow: %#v", payload.Job.Workflow)
@@ -1861,6 +1870,7 @@ func TestHandlerMaintenanceInventoryAndPrune(t *testing.T) {
 	}
 	var prunePayload struct {
 		Job struct {
+			ID       string  `json:"id"`
 			StackID  *string `json:"stack_id"`
 			Action   string  `json:"action"`
 			State    string  `json:"state"`
@@ -1873,8 +1883,18 @@ func TestHandlerMaintenanceInventoryAndPrune(t *testing.T) {
 		} `json:"job"`
 	}
 	decodeInternalResponse(t, pruneResponse, &prunePayload)
-	if prunePayload.Job.Action != "prune" || prunePayload.Job.State != "succeeded" || prunePayload.Job.StackID != nil {
+	if prunePayload.Job.Action != "prune" || prunePayload.Job.State != "running" || prunePayload.Job.StackID != nil || prunePayload.Job.ID == "" {
 		t.Fatalf("unexpected prune job payload: %#v", prunePayload.Job)
+	}
+	waitForInternalJobState(t, served, cookies, prunePayload.Job.ID, "succeeded")
+
+	pruneJobResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/jobs/"+prunePayload.Job.ID, nil, cookies)
+	if pruneJobResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/jobs/%s status = %d, want %d; body=%s", prunePayload.Job.ID, pruneJobResponse.Code, http.StatusOK, pruneJobResponse.Body.String())
+	}
+	decodeInternalResponse(t, pruneJobResponse, &prunePayload)
+	if prunePayload.Job.Action != "prune" || prunePayload.Job.State != "succeeded" || prunePayload.Job.StackID != nil {
+		t.Fatalf("unexpected finished prune job payload: %#v", prunePayload.Job)
 	}
 	if prunePayload.Job.Workflow == nil || len(prunePayload.Job.Workflow.Steps) != 3 {
 		t.Fatalf("unexpected prune workflow payload: %#v", prunePayload.Job.Workflow)
@@ -1883,23 +1903,9 @@ func TestHandlerMaintenanceInventoryAndPrune(t *testing.T) {
 		t.Fatalf("unexpected prune steps: %#v", prunePayload.Job.Workflow.Steps)
 	}
 
-	auditResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/audit", nil, cookies)
-	if auditResponse.Code != http.StatusOK {
-		t.Fatalf("GET /api/audit(after prune) status = %d, want %d; body=%s", auditResponse.Code, http.StatusOK, auditResponse.Body.String())
-	}
-	var auditPayload store.AuditListResult
-	decodeInternalResponse(t, auditResponse, &auditPayload)
-	foundPrune := false
-	for _, item := range auditPayload.Items {
-		if item.Action == "prune" {
-			foundPrune = true
-			if item.StackID != nil {
-				t.Fatalf("expected prune audit stack_id to be null, got %#v", item.StackID)
-			}
-		}
-	}
-	if !foundPrune {
-		t.Fatalf("expected prune audit action, got %#v", auditPayload.Items)
+	auditEntry := waitForInternalAuditAction(t, served, cookies, "prune")
+	if auditEntry.StackID != nil {
+		t.Fatalf("expected prune audit stack_id to be null, got %#v", auditEntry.StackID)
 	}
 
 	recorded, err := os.ReadFile(logPath)
@@ -2035,6 +2041,30 @@ func waitForInternalJobState(t *testing.T, served http.Handler, cookies []*http.
 	}
 
 	t.Fatalf("job %q did not reach state %q before deadline; last_state=%q", jobID, want, lastState)
+}
+
+func waitForInternalAuditAction(t *testing.T, served http.Handler, cookies []*http.Cookie, action string) store.AuditEntry {
+	t.Helper()
+
+	deadline := time.Now().Add(5 * time.Second)
+	var lastItems []store.AuditEntry
+	for time.Now().Before(deadline) {
+		response := performInternalJSONRequest(t, served, http.MethodGet, "/api/audit", nil, cookies)
+		if response.Code == http.StatusOK {
+			var payload store.AuditListResult
+			decodeInternalResponse(t, response, &payload)
+			lastItems = payload.Items
+			for _, item := range payload.Items {
+				if item.Action == action {
+					return item
+				}
+			}
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	t.Fatalf("audit action %q did not appear before deadline; last_items=%#v", action, lastItems)
+	return store.AuditEntry{}
 }
 
 func runInternalGit(t *testing.T, dir string, args ...string) {
