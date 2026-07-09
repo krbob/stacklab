@@ -56,15 +56,16 @@ type composeCLI struct {
 }
 
 type ServiceReader struct {
-	cfg                  config.Config
-	store                *store.Store
-	logger               *slog.Logger
-	hostShell            bool
-	stats                *StatsCollector
-	updateStatus         func() map[string]ImageUpdateState
-	cacheUpdateStatuses  func([]store.ImageUpdateStatus)
-	definitionWarningMu  sync.Mutex
-	definitionWarningLog map[string]string
+	cfg                         config.Config
+	store                       *store.Store
+	logger                      *slog.Logger
+	hostShell                   bool
+	stats                       *StatsCollector
+	updateStatus                func() map[string]ImageUpdateState
+	cacheUpdateStatuses         func([]store.ImageUpdateStatus)
+	definitionWarningMu         sync.Mutex
+	definitionWarningLog        map[string]string
+	afterScanDefinitionsForTest func()
 }
 
 func (s *ServiceReader) AttachStore(appStore *store.Store) {
@@ -865,6 +866,9 @@ func (s *ServiceReader) readStacks(ctx context.Context) ([]discoveredStack, erro
 	if err != nil {
 		return nil, err
 	}
+	if s.afterScanDefinitionsForTest != nil {
+		s.afterScanDefinitionsForTest()
+	}
 	baselines, err := s.loadDeployBaselines(ctx)
 	if err != nil {
 		return nil, err
@@ -903,7 +907,8 @@ func (s *ServiceReader) readStacks(ctx context.Context) ([]discoveredStack, erro
 				deployedAt := baseline.LastDeployedAt
 				stack.LastDeployedAt = &deployedAt
 				if stack.ConfigState != ConfigStateInvalid {
-					if baseline.ComposeSHA256 == definition.ComposeSHA256 && baseline.EnvSHA256 == definition.EnvSHA256 {
+					composeSHA, envSHA, ok := s.currentDefinitionHashes(stack.ComposeFilePath, stack.EnvFilePath)
+					if ok && baseline.ComposeSHA256 == composeSHA && baseline.EnvSHA256 == envSHA {
 						stack.ConfigState = ConfigStateInSync
 					} else {
 						stack.ConfigState = ConfigStateDrifted
@@ -968,6 +973,20 @@ func contentSHA256(content string) string {
 	normalized := strings.ReplaceAll(content, "\r\n", "\n")
 	sum := sha256.Sum256([]byte(normalized))
 	return hex.EncodeToString(sum[:])
+}
+
+func (s *ServiceReader) currentDefinitionHashes(composePath, envPath string) (string, string, bool) {
+	composeBytes, err := os.ReadFile(composePath)
+	if err != nil {
+		return "", "", false
+	}
+	envContent := ""
+	if envBytes, err := os.ReadFile(envPath); err == nil {
+		envContent = string(envBytes)
+	} else if err != nil && !os.IsNotExist(err) {
+		return "", "", false
+	}
+	return contentSHA256(string(composeBytes)), contentSHA256(envContent), true
 }
 
 func (s *ServiceReader) scanDefinitions() (map[string]definitionSnapshot, error) {

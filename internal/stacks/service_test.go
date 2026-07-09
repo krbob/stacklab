@@ -507,6 +507,46 @@ func TestDeployBaselineDrivesConfigState(t *testing.T) {
 	}
 }
 
+func TestDeployBaselineUsesFreshDefinitionHashes(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	reader := newTestServiceReader(t)
+	testStore, err := store.Open(filepath.Join(t.TempDir(), "stacklab.db"))
+	if err != nil {
+		t.Fatalf("store.Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = testStore.Close() })
+	reader.AttachStore(testStore)
+
+	stackID := uniqueTestStackID()
+	compose := "services:\n  app:\n    image: nginx:alpine\n"
+	if err := reader.CreateStack(ctx, CreateStackRequest{StackID: stackID, ComposeYAML: compose}); err != nil {
+		t.Fatalf("CreateStack() error = %v", err)
+	}
+
+	deployedAt := time.Date(2026, 7, 6, 3, 17, 0, 0, time.UTC)
+	if err := reader.RecordDeployBaseline(ctx, stackID, "job_123", deployedAt); err != nil {
+		t.Fatalf("RecordDeployBaseline() error = %v", err)
+	}
+
+	reader.afterScanDefinitionsForTest = func() {
+		reader.afterScanDefinitionsForTest = nil
+		paths := stackPaths(reader.cfg.RootDir, stackID)
+		if err := os.WriteFile(paths.ComposeFilePath, []byte(compose+"    restart: unless-stopped\n"), 0o644); err != nil {
+			t.Fatalf("WriteFile(compose) error = %v", err)
+		}
+	}
+
+	drifted, err := reader.Get(ctx, stackID)
+	if err != nil {
+		t.Fatalf("Get(after interleaved edit) error = %v", err)
+	}
+	if drifted.Stack.ConfigState != ConfigStateDrifted {
+		t.Fatalf("ConfigState after interleaved edit = %q, want %q", drifted.Stack.ConfigState, ConfigStateDrifted)
+	}
+}
+
 func TestInvalidateImageUpdateStatusMarksTargetedImagesUnknown(t *testing.T) {
 	t.Parallel()
 
