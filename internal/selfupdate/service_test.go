@@ -2,6 +2,7 @@ package selfupdate
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"stacklab/internal/config"
+	"stacklab/internal/jobs"
 	"stacklab/internal/store"
 )
 
@@ -232,6 +234,60 @@ func TestHelperProbeCommandUsesWaitAndPipe(t *testing.T) {
 	}
 	if !foundProbeUnit {
 		t.Fatalf("command args = %#v, want probe unit", args)
+	}
+}
+
+func TestApplyRejectsWhenSelfUpdateLockHeld(t *testing.T) {
+	t.Parallel()
+
+	appStore, err := store.Open(filepath.Join(t.TempDir(), "stacklab.db"))
+	if err != nil {
+		t.Fatalf("store.Open() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = appStore.Close()
+	})
+
+	helperPath := filepath.Join(t.TempDir(), "stacklab-self-update-helper")
+	if err := os.WriteFile(helperPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile(helper) error = %v", err)
+	}
+	jobService := jobs.NewService(appStore)
+	if _, err := jobService.StartWithLocks(context.Background(), "", "other_self_update_owner", "local", []string{selfUpdateLockTarget}); err != nil {
+		t.Fatalf("StartWithLocks(lock holder) error = %v", err)
+	}
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	service := NewService(config.Config{
+		DatabasePath:         filepath.Join(t.TempDir(), "stacklab.db"),
+		SelfUpdateHelperPath: helperPath,
+		SelfUpdateUseSudo:    true,
+	}, appStore, jobService, nil, nil, logger)
+	service.runCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		switch name {
+		case "dpkg-query":
+			return []byte("ii\t2026.07.08\n"), nil
+		case "env":
+			return []byte("stacklab:\n  Installed: 2026.07.08\n  Candidate: 2026.07.09\n"), nil
+		case "sudo":
+			return []byte(`{"result":"ok"}`), nil
+		default:
+			t.Fatalf("unexpected command %s %#v", name, args)
+			return nil, nil
+		}
+	}
+
+	overview, err := service.Overview(context.Background())
+	if err != nil {
+		t.Fatalf("Overview() error = %v", err)
+	}
+	if !overview.Package.Supported || !overview.WriteCapability.Supported || !overview.Package.UpdateAvailable {
+		t.Fatalf("unexpected overview before Apply: %#v", overview)
+	}
+
+	_, err = service.Apply(context.Background(), ApplyRequest{ExpectedCandidateVersion: "2026.07.09"}, "local")
+	if !errors.Is(err, ErrInvalidState) {
+		t.Fatalf("Apply() error = %v, want %v", err, ErrInvalidState)
 	}
 }
 

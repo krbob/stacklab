@@ -119,7 +119,7 @@ func run(args []string) error {
 	}
 
 	if err := runStep(appStore, &job, nextIndex, "Upgrading Stacklab package.", func() (string, error) {
-		return runAPTUpgrade(packageName)
+		return runAPTUpgrade(packageName, requestedVersion)
 	}); err != nil {
 		return finalizeFailure(appStore, runtimeKey, job, packageName, requestedVersion, err)
 	}
@@ -254,14 +254,25 @@ func runAPTUpdate() (string, error) {
 	return string(output), nil
 }
 
-func runAPTUpgrade(packageName string) (string, error) {
-	cmd := exec.Command("apt-get", "install", "-y", "--only-upgrade", "-o", "Dpkg::Options::=--force-confold", packageName)
+func runAPTUpgrade(packageName, requestedVersion string) (string, error) {
+	cmd := exec.Command("apt-get", aptUpgradeArgs(packageName, requestedVersion)...)
 	cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return string(output), fmt.Errorf("apt-get install failed: %w", err)
 	}
 	return string(output), nil
+}
+
+func aptUpgradeArgs(packageName, requestedVersion string) []string {
+	target := strings.TrimSpace(packageName)
+	if target == "" {
+		target = "stacklab"
+	}
+	if version := strings.TrimSpace(requestedVersion); version != "" {
+		target += "=" + version
+	}
+	return []string{"install", "-y", "--only-upgrade", "-o", "Dpkg::Options::=--force-confold", "--", target}
 }
 
 func verifyRecovery(serviceUnit, healthURL string) (string, error) {
