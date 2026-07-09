@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -701,6 +702,99 @@ func TestWebSocketTerminalAttachMissingSession(t *testing.T) {
 	}
 	if errorFrame.Type != "error" || errorFrame.RequestID != "req_attach_1" || errorFrame.StreamID != "term_demo" || errorFrame.Error.Code != "terminal_session_not_found" {
 		t.Fatalf("unexpected terminal attach error frame: %#v", errorFrame)
+	}
+}
+
+func TestWebSocketLimitsSubscriptionsPerConnection(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := newTestHandler(t)
+	cookies := loginTestUser(t, handler, "secret")
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	wsURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("url.Parse(server.URL) error = %v", err)
+	}
+	wsURL.Scheme = strings.Replace(wsURL.Scheme, "http", "ws", 1)
+	wsURL.Path = "/api/ws"
+
+	header := http.Header{}
+	header.Set("Origin", server.URL)
+	for _, cookie := range cookies {
+		header.Add("Cookie", cookie.Name+"="+cookie.Value)
+	}
+
+	wsConn, wsResponse, err := websocket.DefaultDialer.Dial(wsURL.String(), header)
+	if err != nil {
+		if wsResponse != nil {
+			body, _ := io.ReadAll(wsResponse.Body)
+			_ = wsResponse.Body.Close()
+			t.Fatalf("websocket dial error = %v (status=%d body=%q)", err, wsResponse.StatusCode, string(body))
+		}
+		t.Fatalf("websocket dial error = %v", err)
+	}
+	defer wsConn.Close()
+	_ = wsConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+
+	var helloFrame map[string]any
+	if err := wsConn.ReadJSON(&helloFrame); err != nil {
+		t.Fatalf("ReadJSON(hello) error = %v", err)
+	}
+
+	readForRequest := func(requestID string) struct {
+		Type      string `json:"type"`
+		RequestID string `json:"request_id"`
+		StreamID  string `json:"stream_id"`
+		Error     *struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	} {
+		t.Helper()
+		for {
+			var frame struct {
+				Type      string `json:"type"`
+				RequestID string `json:"request_id"`
+				StreamID  string `json:"stream_id"`
+				Error     *struct {
+					Code string `json:"code"`
+				} `json:"error"`
+			}
+			if err := wsConn.ReadJSON(&frame); err != nil {
+				t.Fatalf("ReadJSON(%s) error = %v", requestID, err)
+			}
+			if frame.RequestID == requestID {
+				return frame
+			}
+		}
+	}
+
+	for i := 0; i < 32; i++ {
+		requestID := fmt.Sprintf("req_activity_%d", i)
+		if err := wsConn.WriteJSON(map[string]any{
+			"type":       "activity.subscribe",
+			"request_id": requestID,
+			"stream_id":  fmt.Sprintf("activity_%d", i),
+		}); err != nil {
+			t.Fatalf("WriteJSON(activity %d) error = %v", i, err)
+		}
+		frame := readForRequest(requestID)
+		if frame.Type != "ack" {
+			t.Fatalf("activity subscribe %d frame type = %q, want ack: %#v", i, frame.Type, frame)
+		}
+	}
+
+	if err := wsConn.WriteJSON(map[string]any{
+		"type":       "activity.subscribe",
+		"request_id": "req_activity_over_limit",
+		"stream_id":  "activity_over_limit",
+	}); err != nil {
+		t.Fatalf("WriteJSON(activity over limit) error = %v", err)
+	}
+	frame := readForRequest("req_activity_over_limit")
+	if frame.Type != "error" || frame.Error == nil || frame.Error.Code != "limit_exceeded" {
+		t.Fatalf("over-limit frame = %#v, want limit_exceeded error", frame)
 	}
 }
 

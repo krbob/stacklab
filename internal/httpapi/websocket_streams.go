@@ -85,6 +85,9 @@ func (h *Handler) subscribeLogStream(ctx context.Context, wsConn *wsConnection, 
 	}
 
 	containers := filterContainersByService(stackDetail.Stack.Containers, payload.ServiceNames)
+	if ok, err := ensureWSSubscriptionSlot(wsConn, subscriptions, frame); err != nil || !ok {
+		return err
+	}
 	if existing, ok := subscriptions[frame.StreamID]; ok {
 		existing.Close()
 	}
@@ -132,6 +135,9 @@ func (h *Handler) subscribeStatsStream(ctx context.Context, wsConn *wsConnection
 		return wsConn.writeJSON(validationErrorFrame(frame, "Stats are not available for this stack."))
 	}
 
+	if ok, err := ensureWSSubscriptionSlot(wsConn, subscriptions, frame); err != nil || !ok {
+		return err
+	}
 	if existing, ok := subscriptions[frame.StreamID]; ok {
 		existing.Close()
 	}

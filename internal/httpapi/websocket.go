@@ -19,7 +19,12 @@ import (
 	"stacklab/internal/store"
 )
 
-const wsHeartbeatInterval = 20 * time.Second
+const (
+	wsHeartbeatInterval                   = 20 * time.Second
+	wsReadLimitBytes                int64 = 64 << 10
+	wsPongWait                            = 2*wsHeartbeatInterval + 10*time.Second
+	wsMaxSubscriptionsPerConnection       = 32
+)
 
 var wsUpgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
@@ -68,6 +73,11 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
+	conn.SetReadLimit(wsReadLimitBytes)
+	_ = conn.SetReadDeadline(time.Now().Add(wsPongWait))
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(wsPongWait))
+	})
 
 	wsConn := &wsConnection{conn: conn}
 	connectionID := "conn_" + randomID(18)
@@ -125,6 +135,7 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 		switch frame.Type {
 		case "pong":
+			_ = conn.SetReadDeadline(time.Now().Add(wsPongWait))
 			continue
 		case "logs.subscribe":
 			if err := h.subscribeLogStream(ctx, wsConn, subscriptions, frame); err != nil {
@@ -169,6 +180,12 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		case "activity.subscribe":
 			if strings.TrimSpace(frame.StreamID) == "" {
 				_ = wsConn.writeJSON(validationErrorFrame(frame, "Invalid activity.subscribe payload."))
+				continue
+			}
+			if ok, err := ensureWSSubscriptionSlot(wsConn, subscriptions, frame); err != nil || !ok {
+				if err != nil {
+					return
+				}
 				continue
 			}
 			if existing, ok := subscriptions[frame.StreamID]; ok {
@@ -235,6 +252,12 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 			if existing, ok := subscriptions[frame.StreamID]; ok {
 				existing.Close()
+			}
+			if ok, err := ensureWSSubscriptionSlot(wsConn, subscriptions, frame); err != nil || !ok {
+				if err != nil {
+					return
+				}
+				continue
 			}
 
 			liveEvents, unsubscribe := h.jobs.Subscribe(payload.JobID)
@@ -306,6 +329,27 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+func ensureWSSubscriptionSlot(wsConn *wsConnection, subscriptions map[string]*wsSubscription, frame wsClientFrame) (bool, error) {
+	if _, exists := subscriptions[frame.StreamID]; exists {
+		return true, nil
+	}
+	if len(subscriptions) < wsMaxSubscriptionsPerConnection {
+		return true, nil
+	}
+	return false, wsConn.writeJSON(wsServerFrame{
+		Type:      "error",
+		RequestID: frame.RequestID,
+		StreamID:  frame.StreamID,
+		Error: map[string]any{
+			"code":    "limit_exceeded",
+			"message": "Maximum WebSocket subscriptions reached for this connection.",
+			"details": map[string]any{
+				"max_subscriptions": wsMaxSubscriptionsPerConnection,
+			},
+		},
+	})
 }
 
 // forwardActivity pushes throttled activity.update frames whenever the jobs

@@ -55,6 +55,9 @@ func (h *Handler) openTerminalStream(ctx context.Context, wsConn *wsConnection, 
 		})
 	}
 
+	if ok, err := ensureWSSubscriptionSlot(wsConn, subscriptions, frame); err != nil || !ok {
+		return err
+	}
 	if existing, ok := subscriptions[frame.StreamID]; ok {
 		existing.Close()
 		delete(subscriptions, frame.StreamID)
@@ -114,6 +117,9 @@ func (h *Handler) attachTerminalStream(wsConn *wsConnection, subscriptions map[s
 		return wsConn.writeJSON(validationErrorFrame(frame, "Invalid terminal.attach payload."))
 	}
 
+	if ok, err := ensureWSSubscriptionSlot(wsConn, subscriptions, frame); err != nil || !ok {
+		return err
+	}
 	if existing, ok := subscriptions[frame.StreamID]; ok {
 		existing.Close()
 		delete(subscriptions, frame.StreamID)
