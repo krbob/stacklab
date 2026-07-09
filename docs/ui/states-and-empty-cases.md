@@ -103,8 +103,8 @@ Jobs streamed via WebSocket use domain job states. UI maps them as follows:
 |---|---|
 | `queued` | "Queued..." in progress panel (v1 may skip queuing and reject instead) |
 | `running` | Active progress panel with streaming output |
-| `succeeded` | Brief green flash on badge, progress panel auto-collapses after 3s |
-| `failed` | Red indicator with "View log" link. Persists until dismissed or next operation. |
+| `succeeded` | Green terminal status. Progress output remains available until the owning view closes or replaces it. |
+| `failed` | Red terminal status with job detail available from the progress panel or global activity drawer. |
 | `cancel_requested` | "Cancelling..." in progress panel |
 | `cancelled` | Gray "Cancelled" status, progress panel stays open |
 | `timed_out` | Red "Timed out" status, same treatment as `failed` |
