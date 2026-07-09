@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -631,6 +633,102 @@ func TestMetricsCollectorDedupesSystemdBindMountFilesystems(t *testing.T) {
 	}
 	if filesystems[2].MountPoint != storageDir || filesystems[2].Device != "/dev/nvme0n1p4" || filesystems[2].Primary {
 		t.Fatalf("unexpected storage filesystem: %#v", filesystems[2])
+	}
+}
+
+func TestMetricsCollectorSkipsFuseFilesystemsBeforeStatfs(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	procDir := filepath.Join(tempDir, "proc")
+	if err := os.MkdirAll(filepath.Join(procDir, "self"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(proc/self) error = %v", err)
+	}
+
+	primaryMount := filepath.Join(tempDir, "root")
+	fuseMount := filepath.Join(tempDir, "storage")
+	for _, dir := range []string{primaryMount, fuseMount} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%s) error = %v", dir, err)
+		}
+	}
+
+	mountInfo := strings.Join([]string{
+		"26 23 8:2 / " + primaryMount + " rw,relatime - ext4 /dev/nvme0n1p2 rw",
+		"27 23 0:42 / " + fuseMount + " rw,relatime - fuse.mergerfs mergerfs rw",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(procDir, "self", "mountinfo"), []byte(mountInfo+"\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(mountinfo) error = %v", err)
+	}
+
+	var fuseStatfsCalls atomic.Int32
+	collector := newMetricsCollector(primaryMount, procDir)
+	collector.statfs = func(path string, stats *syscall.Statfs_t) error {
+		if path == fuseMount {
+			fuseStatfsCalls.Add(1)
+			return os.ErrInvalid
+		}
+		stats.Blocks = 100
+		stats.Bfree = 40
+		stats.Bavail = 35
+		stats.Bsize = 4096
+		return nil
+	}
+
+	filesystems := collector.readFilesystems()
+	if len(filesystems) != 1 || filesystems[0].MountPoint != primaryMount {
+		t.Fatalf("unexpected filesystems: %#v", filesystems)
+	}
+	if fuseStatfsCalls.Load() != 0 {
+		t.Fatalf("fuse statfs calls = %d, want 0", fuseStatfsCalls.Load())
+	}
+}
+
+func TestMetricsCollectorUsesCachedFilesystemUsageAfterStatfsTimeout(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	procDir := filepath.Join(tempDir, "proc")
+	if err := os.MkdirAll(filepath.Join(procDir, "self"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(proc/self) error = %v", err)
+	}
+
+	mountPoint := filepath.Join(tempDir, "root")
+	if err := os.MkdirAll(mountPoint, 0o755); err != nil {
+		t.Fatalf("MkdirAll(root) error = %v", err)
+	}
+	mountInfo := "26 23 8:2 / " + mountPoint + " rw,relatime - ext4 /dev/nvme0n1p2 rw"
+	if err := os.WriteFile(filepath.Join(procDir, "self", "mountinfo"), []byte(mountInfo+"\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(mountinfo) error = %v", err)
+	}
+
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+
+	var calls atomic.Int32
+	collector := newMetricsCollector(mountPoint, procDir)
+	collector.statfsTimeout = 5 * time.Millisecond
+	collector.statfs = func(_ string, stats *syscall.Statfs_t) error {
+		if calls.Add(1) > 1 {
+			<-release
+		}
+		stats.Blocks = 100
+		stats.Bfree = 40
+		stats.Bavail = 35
+		stats.Bsize = 4096
+		return nil
+	}
+
+	first := collector.readFilesystems()
+	if len(first) != 1 {
+		t.Fatalf("first filesystems = %#v", first)
+	}
+	second := collector.readFilesystems()
+	if len(second) != 1 {
+		t.Fatalf("second filesystems = %#v", second)
+	}
+	if second[0].TotalBytes != first[0].TotalBytes || second[0].UsedBytes != first[0].UsedBytes {
+		t.Fatalf("timeout did not use cached usage: first=%#v second=%#v", first[0], second[0])
 	}
 }
 

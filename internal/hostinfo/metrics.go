@@ -35,13 +35,17 @@ const (
 	processCmdlineReadLimit         = 4096
 	processContainerMetadataTTL     = 30 * time.Second
 	processContainerInspectTimeout  = 2 * time.Second
+	filesystemStatfsTimeout         = 500 * time.Millisecond
 	publicIPCacheTTL                = 10 * time.Minute
 	publicIPFailureRetryInterval    = time.Minute
 	publicIPFetchTimeout            = 2 * time.Second
 	publicIPLookupURL               = "https://api64.ipify.org"
 )
 
-var errPublicIPLookupPanic = errors.New("public IP lookup panic")
+var (
+	errPublicIPLookupPanic = errors.New("public IP lookup panic")
+	errStatfsTimedOut      = errors.New("statfs timed out")
+)
 
 type MetricsCollector struct {
 	procRoot           string
@@ -54,6 +58,7 @@ type MetricsCollector struct {
 	maxSamples         int
 	now                func() time.Time
 	statfs             func(string, *syscall.Statfs_t) error
+	statfsTimeout      time.Duration
 	wakeCh             chan struct{}
 
 	sampleMu              sync.Mutex
@@ -71,6 +76,7 @@ type MetricsCollector struct {
 	lastProcessSystemCPU  uint64
 	lastProcessUsage      *ProcessUsage
 	lastProcessSampledAt  time.Time
+	statfsCache           map[string]syscall.Statfs_t
 	processSampleInterval time.Duration
 	usernamesByUID        map[uint32]string
 	usernamesLoaded       bool
@@ -145,11 +151,13 @@ func newMetricsCollector(rootDir, procRoot string) *MetricsCollector {
 		processSampleInterval: processesSampleInterval,
 		now:                   time.Now,
 		statfs:                syscall.Statfs,
+		statfsTimeout:         filesystemStatfsTimeout,
 		wakeCh:                make(chan struct{}, 1),
 		containerMetadataTTL:  processContainerMetadataTTL,
 		lastDiskIO:            map[string]diskIOCounter{},
 		lastNetwork:           map[string]networkCounter{},
 		lastProcesses:         map[int]processCPUCounter{},
+		statfsCache:           map[string]syscall.Statfs_t{},
 		publicIPLookupEnabled: func() bool { return false },
 		publicIPResolver:      defaultPublicIPResolver,
 	}
@@ -1315,9 +1323,19 @@ func (c *MetricsCollector) rootFilesystemUsage() FilesystemUsage {
 }
 
 func (c *MetricsCollector) filesystemUsage(mountPoint, device, fsType string) (FilesystemUsage, bool) {
-	var stats syscall.Statfs_t
-	if err := c.statfs(mountPoint, &stats); err != nil {
-		return FilesystemUsage{}, false
+	stats, err := c.statfsWithTimeout(mountPoint)
+	if err != nil {
+		if errors.Is(err, errStatfsTimedOut) {
+			if cached, ok := c.statfsCache[mountPoint]; ok {
+				stats = cached
+			} else {
+				return FilesystemUsage{}, false
+			}
+		} else {
+			return FilesystemUsage{}, false
+		}
+	} else {
+		c.statfsCache[mountPoint] = stats
 	}
 
 	blockSize := statfsBlockSize(stats)
@@ -1343,6 +1361,35 @@ func (c *MetricsCollector) filesystemUsage(mountPoint, device, fsType string) (F
 		AvailableBytes: available,
 		UsagePercent:   usagePercent,
 	}, true
+}
+
+func (c *MetricsCollector) statfsWithTimeout(mountPoint string) (syscall.Statfs_t, error) {
+	if c.statfsTimeout <= 0 {
+		var stats syscall.Statfs_t
+		err := c.statfs(mountPoint, &stats)
+		return stats, err
+	}
+
+	type statfsResult struct {
+		stats syscall.Statfs_t
+		err   error
+	}
+	results := make(chan statfsResult, 1)
+	go func() {
+		var stats syscall.Statfs_t
+		err := c.statfs(mountPoint, &stats)
+		results <- statfsResult{stats: stats, err: err}
+	}()
+
+	timer := time.NewTimer(c.statfsTimeout)
+	defer stopTimer(timer)
+
+	select {
+	case result := <-results:
+		return result.stats, result.err
+	case <-timer.C:
+		return syscall.Statfs_t{}, errStatfsTimedOut
+	}
 }
 
 func (c *MetricsCollector) readDiskIOUsage(sampledAt time.Time) DiskIOUsage {
@@ -1662,12 +1709,7 @@ func isVirtualFilesystem(fsType string) bool {
 
 func isNetworkFilesystem(fsType string) bool {
 	if strings.HasPrefix(fsType, "fuse.") {
-		switch fsType {
-		case "fuse.sshfs", "fuse.rclone", "fuse.curlftpfs", "fuse.davfs":
-			return true
-		default:
-			return false
-		}
+		return true
 	}
 
 	switch fsType {
