@@ -27,9 +27,10 @@ type UpdateRequest struct {
 }
 
 type UpdateRun struct {
-	Request        UpdateRequest
-	TargetStackIDs []string
-	Workflow       []store.JobWorkflowStep
+	Request         UpdateRequest
+	TargetStackIDs  []string
+	ManagedStackIDs []string
+	Workflow        []store.JobWorkflowStep
 }
 
 type PruneRequest struct {

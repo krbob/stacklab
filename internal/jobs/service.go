@@ -357,8 +357,19 @@ func (s *Service) Cancel(ctx context.Context, id string) (store.Job, error) {
 	if job.Workflow != nil {
 		job.Workflow = &store.JobWorkflow{Steps: markWorkflowCancelRequested(job.Workflow.Steps)}
 	}
-	if err := s.store.UpdateJob(ctx, job); err != nil {
+	updated, err := s.store.UpdateJobIfStateIn(ctx, job, []string{"queued", "running", "cancel_requested"})
+	if err != nil {
 		return store.Job{}, err
+	}
+	if !updated {
+		current, getErr := s.Get(ctx, id)
+		if getErr != nil {
+			return store.Job{}, getErr
+		}
+		if current.State == "cancel_requested" {
+			return current, nil
+		}
+		return store.Job{}, ErrNotCancellable
 	}
 
 	cancel()

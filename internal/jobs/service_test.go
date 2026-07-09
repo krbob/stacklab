@@ -137,6 +137,42 @@ func TestCancelRejectsUnregisteredJob(t *testing.T) {
 	}
 }
 
+func TestCancelDoesNotOverwriteTerminalJob(t *testing.T) {
+	t.Parallel()
+
+	jobStore := openJobsTestStore(t)
+	service := NewService(jobStore)
+
+	job, err := service.Start(context.Background(), "demo", "pull", "local")
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	runCtx, cancel := context.WithCancel(context.Background())
+	unregister := service.RegisterCancel(job.ID, cancel)
+	defer unregister()
+
+	now := time.Now().UTC()
+	job.State = "succeeded"
+	job.FinishedAt = &now
+	if err := jobStore.UpdateJob(context.Background(), job); err != nil {
+		t.Fatalf("UpdateJob(succeeded) error = %v", err)
+	}
+
+	if _, err := service.Cancel(context.Background(), job.ID); !errors.Is(err, ErrNotCancellable) {
+		t.Fatalf("Cancel(terminal) error = %v, want ErrNotCancellable", err)
+	}
+	if runCtx.Err() != nil {
+		t.Fatalf("run context error = %v, want nil", runCtx.Err())
+	}
+	stored, err := jobStore.JobByID(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("JobByID() error = %v", err)
+	}
+	if stored.State != "succeeded" {
+		t.Fatalf("stored job state = %q, want succeeded", stored.State)
+	}
+}
+
 func TestReconcileInterruptedMarksActiveJobFailed(t *testing.T) {
 	t.Parallel()
 

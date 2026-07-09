@@ -198,8 +198,9 @@ func (s *Service) Attach(ownerID, sessionID string, cols, rows int, connectionID
 		Cols: uint16(normalizeCols(cols)),
 		Rows: uint16(normalizeRows(rows)),
 	}); err != nil {
+		closeAttachmentLocked(terminalSession.current)
+		terminalSession.current = nil
 		terminalSession.mu.Unlock()
-		close(events)
 		return SessionInfo{}, "", nil, err
 	}
 	info := terminalSession.info

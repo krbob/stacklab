@@ -124,6 +124,7 @@ type VolumeItem struct {
 	Driver          string              `json:"driver"`
 	Mountpoint      string              `json:"mountpoint"`
 	Scope           string              `json:"scope"`
+	SizeBytes       int64               `json:"size_bytes"`
 	OptionsCount    int                 `json:"options_count"`
 	ContainersUsing int                 `json:"containers_using"`
 	StacksUsing     []StackServiceUsage `json:"stacks_using"`

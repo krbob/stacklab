@@ -172,6 +172,48 @@ func TestAttachReplacesExistingConnection(t *testing.T) {
 	}
 }
 
+func TestAttachSetsizeFailureClosesNewAttachmentSafely(t *testing.T) {
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe() error = %v", err)
+	}
+	defer readEnd.Close()
+	defer writeEnd.Close()
+
+	service := NewService(nil, Config{IdleTimeout: time.Minute}, nil)
+	terminalSession := &session{
+		info: SessionInfo{
+			ID:          "term_setsize",
+			StackID:     "demo",
+			ContainerID: "container_setsize",
+			Shell:       "/bin/sh",
+		},
+		ownerID:   "owner_setsize",
+		ptyFile:   writeEnd,
+		idleTimer: time.NewTimer(time.Minute),
+	}
+	defer terminalSession.idleTimer.Stop()
+
+	service.sessions["term_setsize"] = terminalSession
+	service.owners["owner_setsize"] = map[string]struct{}{"term_setsize": {}}
+
+	_, _, events, err := service.Attach("owner_setsize", "term_setsize", 80, 24, "conn_bad")
+	if err == nil {
+		t.Fatal("Attach() error = nil, want Setsize error")
+	}
+	if events != nil {
+		t.Fatalf("Attach() events = %#v, want nil on error", events)
+	}
+
+	terminalSession.mu.Lock()
+	if terminalSession.current != nil {
+		t.Fatalf("terminal current attachment = %#v, want nil", terminalSession.current)
+	}
+	terminalSession.mu.Unlock()
+
+	service.endSessionWithCode("term_setsize", nil, "test_cleanup")
+}
+
 func TestDetachSchedulesCleanup(t *testing.T) {
 	readEnd, writeEnd, err := os.Pipe()
 	if err != nil {

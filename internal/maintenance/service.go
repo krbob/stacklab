@@ -215,6 +215,7 @@ func (s *Service) Volumes(ctx context.Context, query VolumesQuery) (VolumesRespo
 			Driver:          row.Driver,
 			Mountpoint:      inspected.Mountpoint,
 			Scope:           inspected.Scope,
+			SizeBytes:       inspected.UsageData.Size,
 			OptionsCount:    len(inspected.Options),
 			ContainersUsing: volumeUsage.count,
 			StacksUsing:     stacksUsing,
@@ -388,7 +389,7 @@ func (s *Service) PrunePreview(ctx context.Context, query PrunePreviewQuery) (Pr
 		if err != nil {
 			return PrunePreviewResponse{}, err
 		}
-		preview.Volumes = buildVolumePrunePreview(volumes.Items)
+		preview.Volumes = buildVolumePrunePreview(volumes.Items, systemDF["local volumes"])
 	}
 
 	preview.TotalReclaimableBytes =
@@ -624,6 +625,9 @@ type dockerVolumeInspect struct {
 	Scope      string            `json:"Scope"`
 	Labels     map[string]string `json:"Labels"`
 	Options    map[string]string `json:"Options"`
+	UsageData  struct {
+		Size int64 `json:"Size"`
+	} `json:"UsageData"`
 }
 
 type systemDFRow struct {
@@ -1113,9 +1117,10 @@ func buildImagePrunePreview(items []ImageItem) PruneCategoryPreview {
 	}
 }
 
-func buildVolumePrunePreview(items []VolumeItem) PruneCategoryPreview {
+func buildVolumePrunePreview(items []VolumeItem, fallback systemDFSummary) PruneCategoryPreview {
 	seen := map[string]struct{}{}
 	previewItems := make([]PrunePreviewItem, 0, len(items))
+	var total int64
 	for _, item := range items {
 		if _, ok := seen[item.Name]; ok {
 			continue
@@ -1123,13 +1128,19 @@ func buildVolumePrunePreview(items []VolumeItem) PruneCategoryPreview {
 		seen[item.Name] = struct{}{}
 		previewItems = append(previewItems, PrunePreviewItem{
 			Reference: item.Name,
+			SizeBytes: item.SizeBytes,
 			Reason:    "unused_external_volume",
 		})
+		total += item.SizeBytes
+	}
+	if total == 0 && len(previewItems) > 0 {
+		total = fallback.ReclaimableBytes
 	}
 	sort.Slice(previewItems, func(i, j int) bool { return previewItems[i].Reference < previewItems[j].Reference })
 	return PruneCategoryPreview{
-		Count: len(previewItems),
-		Items: previewItems,
+		Count:            len(previewItems),
+		ReclaimableBytes: total,
+		Items:            previewItems,
 	}
 }
 

@@ -91,13 +91,24 @@ func (f *fakeMaintenanceStackReader) InvalidateImageUpdateStatus(ctx context.Con
 	return nil
 }
 
-type fakeMaintenancePruneRunner struct{}
+type fakeMaintenancePruneRunner struct {
+	systemPruneCalls []systemPruneCall
+}
+
+type systemPruneCall struct {
+	IncludeVolumes  bool
+	ManagedStackIDs []string
+}
 
 func (f *fakeMaintenancePruneRunner) RunPruneStep(ctx context.Context, action string, managedStackIDs []string) (string, error) {
 	return "", nil
 }
 
 func (f *fakeMaintenancePruneRunner) RunSystemPrune(ctx context.Context, includeVolumes bool, managedStackIDs []string) (string, error) {
+	f.systemPruneCalls = append(f.systemPruneCalls, systemPruneCall{
+		IncludeVolumes:  includeVolumes,
+		ManagedStackIDs: append([]string(nil), managedStackIDs...),
+	})
 	return "", nil
 }
 
@@ -283,6 +294,53 @@ func TestRunUpdateInvalidatesImageStatusAfterPullOrBuild(t *testing.T) {
 	}
 }
 
+func TestRunUpdatePruneAfterWithVolumesUsesAllManagedStacks(t *testing.T) {
+	t.Parallel()
+
+	reader := fakeMaintenanceReader()
+	reader.details["stopped"] = stacks.StackDetailResponse{
+		Stack: stacks.StackDetail{
+			StackHeader:      stacks.StackHeader{ID: "stopped"},
+			AvailableActions: []string{"up"},
+			Services: []stacks.Service{
+				{Name: "db", Mode: stacks.ServiceModeImage},
+			},
+		},
+	}
+	pruner := &fakeMaintenancePruneRunner{}
+	service := newMaintenanceTestServiceWithPruner(t, reader, pruner)
+
+	job, err := service.RunUpdate(context.Background(), UpdateRequest{
+		Target: UpdateTarget{
+			Mode:     "selected",
+			StackIDs: []string{"demo"},
+		},
+		Options: UpdateOptions{
+			PullImages:     false,
+			BuildImages:    false,
+			PruneAfter:     true,
+			IncludeVolumes: true,
+		},
+	}, "test")
+	if err != nil {
+		t.Fatalf("RunUpdate() error = %v", err)
+	}
+	if job.State != "succeeded" {
+		t.Fatalf("RunUpdate() state = %q, want succeeded", job.State)
+	}
+	if len(pruner.systemPruneCalls) != 1 {
+		t.Fatalf("system prune calls = %#v, want one call", pruner.systemPruneCalls)
+	}
+	call := pruner.systemPruneCalls[0]
+	if !call.IncludeVolumes {
+		t.Fatalf("IncludeVolumes = false, want true")
+	}
+	wantIDs := []string{"demo", "stopped"}
+	if !reflect.DeepEqual(call.ManagedStackIDs, wantIDs) {
+		t.Fatalf("ManagedStackIDs = %#v, want %#v", call.ManagedStackIDs, wantIDs)
+	}
+}
+
 func TestExecuteUpdateFinalizesAndUnlocksWhenWorkflowUpdateFails(t *testing.T) {
 	t.Parallel()
 
@@ -342,6 +400,10 @@ func TestExecutePruneFinalizesAndUnlocksWhenWorkflowUpdateFails(t *testing.T) {
 }
 
 func newMaintenanceTestService(t *testing.T, reader *fakeMaintenanceStackReader) *Service {
+	return newMaintenanceTestServiceWithPruner(t, reader, &fakeMaintenancePruneRunner{})
+}
+
+func newMaintenanceTestServiceWithPruner(t *testing.T, reader *fakeMaintenanceStackReader, pruner *fakeMaintenancePruneRunner) *Service {
 	t.Helper()
 
 	testStore, err := store.Open(filepath.Join(t.TempDir(), "stacklab.db"))
@@ -350,7 +412,7 @@ func newMaintenanceTestService(t *testing.T, reader *fakeMaintenanceStackReader)
 	}
 	t.Cleanup(func() { _ = testStore.Close() })
 
-	return NewService(nil, jobs.NewService(testStore), audit.NewService(testStore), reader, &fakeMaintenancePruneRunner{})
+	return NewService(nil, jobs.NewService(testStore), audit.NewService(testStore), reader, pruner)
 }
 
 func fakeMaintenanceReader() *fakeMaintenanceStackReader {

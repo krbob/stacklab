@@ -60,13 +60,13 @@ func TestServiceImagesAndPreview(t *testing.T) {
 		case "volume inspect demo_data external_media":
 			return []byte(`[
 				{"Name":"demo_data","Driver":"local","Mountpoint":"/var/lib/docker/volumes/demo_data/_data","Scope":"local","Labels":{"com.docker.compose.project":"demo"},"Options":{}},
-				{"Name":"external_media","Driver":"local","Mountpoint":"/var/lib/docker/volumes/external_media/_data","Scope":"local","Labels":{},"Options":{"type":"nfs"}}
+				{"Name":"external_media","Driver":"local","Mountpoint":"/var/lib/docker/volumes/external_media/_data","Scope":"local","Labels":{},"Options":{"type":"nfs"},"UsageData":{"Size":9000}}
 			]`), nil
 		case "system df --format {{json .}}":
 			return []byte(strings.Join([]string{
 				`{"Type":"Images","TotalCount":"2","Active":"1","Size":"3000B","Reclaimable":"2000B (66%)"}`,
 				`{"Type":"Containers","TotalCount":"1","Active":"1","Size":"12kB","Reclaimable":"0B (0%)"}`,
-				`{"Type":"Local Volumes","TotalCount":"0","Active":"0","Size":"0B","Reclaimable":"0B"}`,
+				`{"Type":"Local Volumes","TotalCount":"2","Active":"1","Size":"12kB","Reclaimable":"9kB"}`,
 				`{"Type":"Build Cache","TotalCount":"3","Active":"0","Size":"5MB","Reclaimable":"5MB"}`,
 			}, "\n")), nil
 		default:
@@ -150,7 +150,7 @@ func TestServiceImagesAndPreview(t *testing.T) {
 	if preview.Preview.StoppedContainers.Count != 0 {
 		t.Fatalf("unexpected stopped container preview: %#v", preview.Preview.StoppedContainers)
 	}
-	if preview.Preview.Volumes.Count != 1 || len(preview.Preview.Volumes.Items) != 1 || preview.Preview.Volumes.Items[0].Reference != "external_media" {
+	if preview.Preview.Volumes.Count != 1 || preview.Preview.Volumes.ReclaimableBytes != 9000 || len(preview.Preview.Volumes.Items) != 1 || preview.Preview.Volumes.Items[0].Reference != "external_media" || preview.Preview.Volumes.Items[0].SizeBytes != 9000 {
 		t.Fatalf("unexpected volume preview: %#v", preview.Preview.Volumes)
 	}
 	if preview.Preview.TotalReclaimableBytes == 0 {

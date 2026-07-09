@@ -520,11 +520,35 @@ func (s *Store) CreateJob(ctx context.Context, job Job) error {
 }
 
 func (s *Store) UpdateJob(ctx context.Context, job Job) error {
+	updated, err := s.updateJob(ctx, job, "")
+	if err != nil {
+		return err
+	}
+	if !updated {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) UpdateJobIfStateIn(ctx context.Context, job Job, states []string) (bool, error) {
+	if len(states) == 0 {
+		return false, nil
+	}
+	placeholders := make([]string, len(states))
+	args := make([]any, 0, 7+len(states))
+	for i, state := range states {
+		placeholders[i] = "?"
+		args = append(args, state)
+	}
+	return s.updateJob(ctx, job, " AND state IN ("+strings.Join(placeholders, ",")+")", args...)
+}
+
+func (s *Store) updateJob(ctx context.Context, job Job, whereSuffix string, whereArgs ...any) (bool, error) {
 	var workflowJSON sql.NullString
 	if job.Workflow != nil {
 		workflowBytes, err := json.Marshal(job.Workflow)
 		if err != nil {
-			return fmt.Errorf("marshal workflow: %w", err)
+			return false, fmt.Errorf("marshal workflow: %w", err)
 		}
 		workflowJSON = sql.NullString{String: string(workflowBytes), Valid: true}
 	}
@@ -538,11 +562,10 @@ func (s *Store) UpdateJob(ctx context.Context, job Job) error {
 		finishedAt = sql.NullString{String: job.FinishedAt.UTC().Format(time.RFC3339Nano), Valid: true}
 	}
 
-	result, err := s.db.ExecContext(
-		ctx,
-		`UPDATE jobs
+	query := `UPDATE jobs
 		 SET state = ?, started_at = ?, finished_at = ?, workflow_json = ?, error_code = ?, error_message = ?
-		 WHERE id = ?`,
+		 WHERE id = ?` + whereSuffix
+	args := []any{
 		job.State,
 		startedAt,
 		finishedAt,
@@ -550,18 +573,22 @@ func (s *Store) UpdateJob(ctx context.Context, job Job) error {
 		nullIfEmpty(job.ErrorCode),
 		nullIfEmpty(job.ErrorMessage),
 		job.ID,
+	}
+	args = append(args, whereArgs...)
+
+	result, err := s.db.ExecContext(
+		ctx,
+		query,
+		args...,
 	)
 	if err != nil {
-		return fmt.Errorf("update job: %w", err)
+		return false, fmt.Errorf("update job: %w", err)
 	}
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("update job rows affected: %w", err)
+		return false, fmt.Errorf("update job rows affected: %w", err)
 	}
-	if rowsAffected == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return rowsAffected > 0, nil
 }
 
 func (s *Store) JobByID(ctx context.Context, id string) (Job, error) {

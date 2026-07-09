@@ -201,6 +201,15 @@ func (s *Service) StartUpdate(ctx context.Context, request UpdateRequest, reques
 	if err != nil {
 		return store.Job{}, UpdateRun{}, err
 	}
+	managedStackIDs := append([]string(nil), targetStackIDs...)
+	lockStackIDs := targetStackIDs
+	if request.Options.PruneAfter && request.Options.IncludeVolumes {
+		managedStackIDs, err = s.ResolveTargetStacks(ctx, "all", nil)
+		if err != nil {
+			return store.Job{}, UpdateRun{}, err
+		}
+		lockStackIDs = managedStackIDs
+	}
 	serviceTargets, err := s.resolveUpdateServiceTargets(ctx, targetStackIDs, request.Target.ExcludedServices)
 	if err != nil {
 		return store.Job{}, UpdateRun{}, err
@@ -211,7 +220,7 @@ func (s *Service) StartUpdate(ctx context.Context, request UpdateRequest, reques
 		return store.Job{}, UpdateRun{}, err
 	}
 
-	job, err := s.jobs.StartWithLocks(ctx, "", "update_stacks", requestedBy, targetStackIDs)
+	job, err := s.jobs.StartWithLocks(ctx, "", "update_stacks", requestedBy, lockStackIDs)
 	if err != nil {
 		return store.Job{}, UpdateRun{}, err
 	}
@@ -230,9 +239,10 @@ func (s *Service) StartUpdate(ctx context.Context, request UpdateRequest, reques
 	}
 
 	return job, UpdateRun{
-		Request:        request,
-		TargetStackIDs: append([]string(nil), targetStackIDs...),
-		Workflow:       append([]store.JobWorkflowStep(nil), workflow...),
+		Request:         request,
+		TargetStackIDs:  append([]string(nil), targetStackIDs...),
+		ManagedStackIDs: append([]string(nil), managedStackIDs...),
+		Workflow:        append([]store.JobWorkflowStep(nil), workflow...),
 	}, nil
 }
 
@@ -249,7 +259,7 @@ func (s *Service) ExecuteUpdate(ctx context.Context, job store.Job, run UpdateRu
 	for index, step := range workflow {
 		stepRef := workflowStepRef(workflow, index)
 		onProgress := s.progressPublisher(ctx, job, step, stepRef)
-		output, runErr := s.runUpdateWorkflowStep(ctx, step, run.Request.Options, run.TargetStackIDs, onProgress)
+		output, runErr := s.runUpdateWorkflowStep(ctx, step, run.Request.Options, run.ManagedStackIDs, onProgress)
 		if trimmed := strings.TrimSpace(output); trimmed != "" {
 			_ = s.jobs.PublishEvent(ctx, job, "job_log", updateStepMessage("Output", step), trimmed, workflowStepRef(workflow, index))
 		}

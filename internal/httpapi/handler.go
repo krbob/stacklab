@@ -1652,8 +1652,10 @@ func (h *Handler) runDockerDaemonApplyJob(job store.Job, workflow []store.JobWor
 		if errors.Is(ctx.Err(), context.Canceled) || errors.Is(err, context.Canceled) {
 			terminalState = "cancelled"
 		}
+		finishCtx, finishCancel := h.jobFinalizationContext()
+		defer finishCancel()
 		workflow = markWorkflowState(workflow, 1, terminalState)
-		if updatedJob, updateErr := h.jobs.UpdateWorkflow(ctx, job, workflow); updateErr == nil {
+		if updatedJob, updateErr := h.jobs.UpdateWorkflow(finishCtx, job, workflow); updateErr == nil {
 			job = updatedJob
 		}
 		errorCode := "docker_daemon_apply_failed"
@@ -1665,12 +1667,12 @@ func (h *Handler) runDockerDaemonApplyJob(job store.Job, workflow []store.JobWor
 			errorCode = "docker_daemon_apply_cancelled"
 			message = "Docker daemon apply was cancelled."
 		}
-		failedJob, finishErr := h.finishTerminalJob(ctx, job, terminalState, errorCode, message)
+		failedJob, finishErr := h.finishTerminalJob(finishCtx, job, terminalState, errorCode, message)
 		if finishErr != nil {
 			h.logger.Error("finish docker daemon apply job failed", slog.String("job_id", job.ID), slog.String("err", finishErr.Error()))
 			return
 		}
-		if err := h.audit.RecordJob(ctx, failedJob, dockerDaemonApplyAuditDetails(request, applyResult)); err != nil {
+		if err := h.audit.RecordJob(finishCtx, failedJob, dockerDaemonApplyAuditDetails(request, applyResult)); err != nil {
 			h.logger.Warn("record docker daemon apply audit failed", slog.String("job_id", failedJob.ID), slog.String("err", err.Error()))
 		}
 		return
@@ -1686,20 +1688,22 @@ func (h *Handler) runDockerDaemonApplyJob(job store.Job, workflow []store.JobWor
 
 	overview, verifyErr := h.dockerAdmin.Overview(ctx)
 	if verifyErr != nil || !overview.Engine.Available || (overview.Service.Supported && overview.Service.ActiveState != "active") {
+		finishCtx, finishCancel := h.jobFinalizationContext()
+		defer finishCancel()
 		workflow = markWorkflowFailed(workflow, 2)
-		if updatedJob, updateErr := h.jobs.UpdateWorkflow(ctx, job, workflow); updateErr == nil {
+		if updatedJob, updateErr := h.jobs.UpdateWorkflow(finishCtx, job, workflow); updateErr == nil {
 			job = updatedJob
 		}
 		message := "Docker daemon restart completed but recovery verification failed."
 		if verifyErr != nil {
 			message = verifyErr.Error()
 		}
-		failedJob, finishErr := h.jobs.FinishFailed(ctx, job, "docker_daemon_verify_failed", message)
+		failedJob, finishErr := h.jobs.FinishFailed(finishCtx, job, "docker_daemon_verify_failed", message)
 		if finishErr != nil {
 			h.logger.Error("finish docker daemon apply job failed", slog.String("job_id", job.ID), slog.String("err", finishErr.Error()))
 			return
 		}
-		if err := h.audit.RecordJob(ctx, failedJob, dockerDaemonApplyAuditDetails(request, applyResult)); err != nil {
+		if err := h.audit.RecordJob(finishCtx, failedJob, dockerDaemonApplyAuditDetails(request, applyResult)); err != nil {
 			h.logger.Warn("record docker daemon apply audit failed", slog.String("job_id", failedJob.ID), slog.String("err", err.Error()))
 		}
 		return
@@ -1711,12 +1715,14 @@ func (h *Handler) runDockerDaemonApplyJob(job store.Job, workflow []store.JobWor
 		job = updatedJob
 	}
 
-	job, err = h.jobs.FinishSucceeded(ctx, job)
+	finishCtx, finishCancel := h.jobFinalizationContext()
+	defer finishCancel()
+	job, err = h.jobs.FinishSucceeded(finishCtx, job)
 	if err != nil {
 		h.logger.Error("finish docker daemon apply job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
 		return
 	}
-	if err := h.audit.RecordJob(ctx, job, dockerDaemonApplyAuditDetails(request, applyResult)); err != nil {
+	if err := h.audit.RecordJob(finishCtx, job, dockerDaemonApplyAuditDetails(request, applyResult)); err != nil {
 		h.logger.Warn("record docker daemon apply audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
 	}
 }

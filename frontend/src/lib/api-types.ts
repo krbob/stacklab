@@ -1135,6 +1135,7 @@ export interface MaintenanceVolumeItem {
   driver: string
   mountpoint: string
   scope: string
+  size_bytes: number
   options_count: number
   containers_using: number
   stacks_using: MaintenanceImageStackUsage[]
