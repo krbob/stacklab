@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"stacklab/internal/store"
@@ -27,6 +28,54 @@ func TestResourceString(t *testing.T) {
 		if got := test.resource.String(); got != test.want {
 			t.Errorf("Resource.String() = %q, want %q", got, test.want)
 		}
+	}
+}
+
+func TestStackResourcesAndAccessors(t *testing.T) {
+	t.Parallel()
+
+	resources := StackResources([]string{" alpha ", "", "beta"})
+	if len(resources) != 2 || resources[0] != StackResource("alpha") || resources[1] != StackResource("beta") {
+		t.Fatalf("StackResources() = %#v", resources)
+	}
+	if resources[0].Kind() != ResourceKindStack || resources[0].StackID() != "alpha" {
+		t.Fatalf("stack resource accessors = kind %d stack %q", resources[0].Kind(), resources[0].StackID())
+	}
+	if GlobalResource().StackID() != "" {
+		t.Fatalf("GlobalResource().StackID() = %q, want empty", GlobalResource().StackID())
+	}
+	if got := (Resource{}).String(); got != "invalid" {
+		t.Fatalf("zero Resource.String() = %q, want invalid", got)
+	}
+}
+
+func TestResourceValidationAndConflictErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []Resource{
+		{kind: ResourceKindGlobal, id: "unexpected"},
+		{kind: ResourceKindStack},
+		{kind: ResourceKind(255)},
+	}
+	for _, resource := range tests {
+		if err := resource.validate(); !errors.Is(err, ErrInvalidResource) {
+			t.Errorf("Resource(%#v).validate() error = %v, want ErrInvalidResource", resource, err)
+		}
+	}
+
+	var nilConflict *ResourceConflictError
+	if got := nilConflict.Error(); got != ErrResourceConflict.Error() {
+		t.Fatalf("nil ResourceConflictError.Error() = %q", got)
+	}
+	conflict := &ResourceConflictError{
+		Reason: ConflictReasonResourceHeld, Requested: StackResource("alpha"),
+		Conflicting: DockerRegistryResource(), ConflictingJobID: "job-holder",
+	}
+	if message := conflict.Error(); !strings.Contains(message, "resource_held") || !strings.Contains(message, "job-holder") {
+		t.Fatalf("ResourceConflictError.Error() = %q", message)
+	}
+	if !errors.Is(conflict, ErrResourceConflict) {
+		t.Fatalf("ResourceConflictError does not unwrap to ErrResourceConflict")
 	}
 }
 
