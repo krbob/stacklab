@@ -78,7 +78,6 @@ Implemented and already exercised on Linux staging hosts:
 Engineering backlog:
 
 - generate frontend API types from `docs/api/openapi.yaml` and add a CI check that prevents REST contract/type drift
-- split `internal/httpapi/handler.go` by API domain after the auth and job lifecycle hardening work settles
 - join detached job runner goroutines during graceful shutdown so jobs can reliably land as `cancelled` instead of falling back to startup reconciliation as interrupted
 - evaluate tag-triggered release workflows and GoReleaser/nfpm only if they reduce the current release script surface without weakening APT channel validation
 - turn the existing README screenshot capture script into a GitHub workflow that boots a deterministic demo harness, refreshes screenshots, uploads review artifacts, and optionally opens a docs-only update when tracked screenshots drift

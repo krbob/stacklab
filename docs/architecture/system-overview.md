@@ -98,6 +98,31 @@ The HTTP handler owns HTTP routing and hijacked connection state only. It does
 not construct services, start background samplers, cancel the shared runtime,
 or close injected persistence.
 
+## HTTP Transport Layout
+
+`internal/httpapi.Handler` is the shared transport shell: it stores injected
+dependencies, applies middleware, serves the composed router, and owns
+WebSocket connection lifecycle. Domain request handling and route registration
+are split across seven controllers:
+
+- auth;
+- system;
+- workspace;
+- maintenance;
+- stacks;
+- operations (jobs and audit);
+- settings.
+
+Controllers share the process-owned services through the handler pointer, so a
+test or the composition root still injects each dependency once. Transport
+mechanisms that own connection state, including health probes, service metrics,
+and WebSockets, remain on the handler and are registered by the system
+controller.
+
+`routes_contract_test.go` locks all explicit method/path patterns, their
+authentication policy, and the API/frontend fallbacks. The split does not
+change the REST or WebSocket contract.
+
 ## Primary Data Flow
 
 ### Read Flow
