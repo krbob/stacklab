@@ -1,6 +1,4 @@
-# Default ownership and high-risk areas.
-* @krbob
-
+# Review ownership for high-risk areas.
 /.github/ @krbob
 /packaging/ @krbob
 /scripts/release/ @krbob
