@@ -378,21 +378,38 @@ export function getResolvedConfig(stackId: string, source?: 'current' | 'last_va
   return request(`/api/stacks/${encodeURIComponent(stackId)}/resolved-config${qs ? `?${qs}` : ''}`)
 }
 
-export function getStackAudit(stackId: string, params?: { cursor?: string; limit?: number }): Promise<AuditResponse> {
+export interface AuditQueryParams {
+  cursor?: string
+  limit?: number
+  q?: string
+  result?: 'all' | 'succeeded' | 'failed' | 'cancelled' | 'timed_out'
+  from?: string
+  to?: string
+}
+
+export function getStackAudit(stackId: string, params?: AuditQueryParams, signal?: AbortSignal): Promise<AuditResponse> {
   const search = new URLSearchParams()
   if (params?.cursor) search.set('cursor', params.cursor)
   if (params?.limit) search.set('limit', String(params.limit))
+  if (params?.q) search.set('q', params.q)
+  if (params?.result) search.set('result', params.result)
+  if (params?.from) search.set('from', params.from)
+  if (params?.to) search.set('to', params.to)
   const qs = search.toString()
-  return request(`/api/stacks/${encodeURIComponent(stackId)}/audit${qs ? `?${qs}` : ''}`)
+  return request(`/api/stacks/${encodeURIComponent(stackId)}/audit${qs ? `?${qs}` : ''}`, { signal })
 }
 
-export function getGlobalAudit(params?: { stack_id?: string; cursor?: string; limit?: number }): Promise<AuditResponse> {
+export function getGlobalAudit(params?: AuditQueryParams & { stack_id?: string }, signal?: AbortSignal): Promise<AuditResponse> {
   const search = new URLSearchParams()
   if (params?.stack_id) search.set('stack_id', params.stack_id)
   if (params?.cursor) search.set('cursor', params.cursor)
   if (params?.limit) search.set('limit', String(params.limit))
+  if (params?.q) search.set('q', params.q)
+  if (params?.result) search.set('result', params.result)
+  if (params?.from) search.set('from', params.from)
+  if (params?.to) search.set('to', params.to)
   const qs = search.toString()
-  return request(`/api/audit${qs ? `?${qs}` : ''}`)
+  return request(`/api/audit${qs ? `?${qs}` : ''}`, { signal })
 }
 
 export function getJob(jobId: string): Promise<{ job: JobDetail }> {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { getStacks, getStack, login, updateStacksMaintenance, commitGitWorkspace, pushGitWorkspace, getMaintenanceSchedules, updateMaintenanceSchedules, ApiClientError } from './api-client'
+import { getStacks, getStack, getGlobalAudit, getStackAudit, login, updateStacksMaintenance, commitGitWorkspace, pushGitWorkspace, getMaintenanceSchedules, updateMaintenanceSchedules, ApiClientError } from './api-client'
 
 const mockFetch = vi.fn()
 vi.stubGlobal('fetch', mockFetch)
@@ -56,6 +56,47 @@ describe('api-client', () => {
 
       await getStack('my-stack')
       expect(mockFetch.mock.calls[0][0]).toBe('/api/stacks/my-stack')
+    })
+  })
+
+  describe('audit queries', () => {
+    it('serializes and encodes global audit filters', async () => {
+      mockFetch.mockReturnValueOnce(jsonResponse({ items: [], next_cursor: null }))
+      const controller = new AbortController()
+
+      await getGlobalAudit({
+        stack_id: 'demo stack',
+        cursor: 'next/page=',
+        limit: 25,
+        q: 'pull % image',
+        result: 'failed',
+        from: '2026-07-01T00:00:00+02:00',
+        to: '2026-07-03T00:00:00+02:00',
+      }, controller.signal)
+
+      const [rawURL, init] = mockFetch.mock.calls[0]
+      const url = new URL(rawURL as string, 'http://stacklab.test')
+      expect(url.pathname).toBe('/api/audit')
+      expect(Object.fromEntries(url.searchParams)).toEqual({
+        stack_id: 'demo stack',
+        cursor: 'next/page=',
+        limit: '25',
+        q: 'pull % image',
+        result: 'failed',
+        from: '2026-07-01T00:00:00+02:00',
+        to: '2026-07-03T00:00:00+02:00',
+      })
+      expect(init.signal).toBe(controller.signal)
+    })
+
+    it('encodes stack IDs and keeps filters on per-stack requests', async () => {
+      mockFetch.mockReturnValueOnce(jsonResponse({ items: [], next_cursor: null }))
+
+      await getStackAudit('demo/blue', { q: 'restart', result: 'timed_out' })
+
+      const url = new URL(mockFetch.mock.calls[0][0] as string, 'http://stacklab.test')
+      expect(url.pathname).toBe('/api/stacks/demo%2Fblue/audit')
+      expect(Object.fromEntries(url.searchParams)).toEqual({ q: 'restart', result: 'timed_out' })
     })
   })
 

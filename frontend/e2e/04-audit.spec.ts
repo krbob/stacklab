@@ -41,6 +41,17 @@ test.describe('Global Audit', () => {
       await expect(row).toBeVisible()
       await expect(row.getByText('save_definition')).toBeVisible()
 
+      const search = page.getByTestId('audit-filter')
+      await search.fill(AUDIT_STACK)
+      await expect(page).toHaveURL(new RegExp(`q=${AUDIT_STACK}`))
+      await expect(row).toBeVisible()
+
+      await search.fill('no-such-audit-entry')
+      await expect(page.getByText('No audit entries match these filters')).toBeVisible()
+
+      await page.getByRole('button', { name: 'Clear filters' }).click()
+      await expect(row).toBeVisible()
+
       await row.click()
       const drawer = page.getByRole('dialog', { name: 'Job detail' })
       await expect(drawer.getByRole('heading', { name: 'Job detail', exact: true })).toBeVisible()

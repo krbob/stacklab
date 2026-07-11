@@ -16,9 +16,19 @@ interface AuditTableProps {
   onLoadMore?: () => void | Promise<void>
   hasMore?: boolean
   loading?: boolean
+  emptyTitle?: string
+  emptyDescription?: string
 }
 
-export function AuditTable({ entries, showStack = false, onLoadMore, hasMore, loading }: AuditTableProps) {
+export function AuditTable({
+  entries,
+  showStack = false,
+  onLoadMore,
+  hasMore,
+  loading,
+  emptyTitle = 'No operations recorded yet',
+  emptyDescription = 'Actions like deploy, stop, pull, and remove will appear here.',
+}: AuditTableProps) {
   const { openJob } = useJobDrawer()
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null)
 
@@ -33,10 +43,8 @@ export function AuditTable({ entries, showStack = false, onLoadMore, hasMore, lo
   if (entries.length === 0 && !loading) {
     return (
       <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-10 text-center">
-        <p className="text-[var(--text)]">No operations recorded yet</p>
-        <p className="mt-1 text-sm text-[var(--muted)]">
-          Actions like deploy, stop, pull, and remove will appear here.
-        </p>
+        <p className="text-[var(--text)]">{emptyTitle}</p>
+        <p className="mt-1 text-sm text-[var(--muted)]">{emptyDescription}</p>
       </div>
     )
   }

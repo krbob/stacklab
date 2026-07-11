@@ -1,55 +1,41 @@
-import { useCallback, useMemo, useState } from 'react'
-import { getGlobalAudit } from '@/lib/api-client'
-import { useApi } from '@/hooks/use-api'
+import { useCallback, useMemo } from 'react'
+import { getGlobalAudit, type AuditQueryParams } from '@/lib/api-client'
 import { AuditTable } from '@/components/audit-table'
-import type { AuditEntry } from '@/lib/api-types'
+import { AuditFilterBar } from '@/components/audit-filter-bar'
 import { PageHeader } from '@/components/page-header'
-import { cn } from '@/lib/cn'
-
-type ResultFilter = 'all' | 'succeeded' | 'failed'
+import { useAuditFilters } from '@/hooks/use-audit-filters'
+import { usePaginatedAudit } from '@/hooks/use-paginated-audit'
 
 export function GlobalAuditPage() {
-  const [allEntries, setAllEntries] = useState<AuditEntry[]>([])
-  const [cursor, setCursor] = useState<string | undefined>(undefined)
-  const [loadingMore, setLoadingMore] = useState(false)
-  const [filter, setFilter] = useState('')
-  const [result, setResult] = useState<ResultFilter>('all')
-
-  const { loading, error } = useApi(async () => {
-    const response = await getGlobalAudit({ limit: 50 })
-    setAllEntries(response.items)
-    setCursor(response.next_cursor ?? undefined)
-    return response
-  }, [])
-
-  const loadMore = useCallback(async () => {
-    if (!cursor) return
-    setLoadingMore(true)
-    try {
-      const response = await getGlobalAudit({ cursor, limit: 50 })
-      setAllEntries((prev) => [...prev, ...response.items])
-      setCursor(response.next_cursor ?? undefined)
-    } finally {
-      setLoadingMore(false)
-    }
-  }, [cursor])
-
-  const visible = useMemo(() => {
-    const needle = filter.trim().toLowerCase()
-    return allEntries.filter((entry) => {
-      if (result === 'failed' && entry.result !== 'failed' && entry.result !== 'timed_out') return false
-      if (result === 'succeeded' && entry.result !== 'succeeded') return false
-      if (!needle) return true
-      return (
-        entry.action.toLowerCase().includes(needle) ||
-        (entry.stack_id ?? '').toLowerCase().includes(needle)
-      )
-    })
-  }, [allEntries, filter, result])
+  const {
+    filters,
+    queryKey,
+    rangeError,
+    hasActiveFilters,
+    updateFilters,
+    clearFilters,
+  } = useAuditFilters()
+  const loadPage = useCallback(
+    (params: AuditQueryParams, signal: AbortSignal) => getGlobalAudit(params, signal),
+    [],
+  )
+  const {
+    entries,
+    error,
+    loading,
+    loadingMore,
+    hasMore,
+    loadMore,
+    refetch,
+  } = usePaginatedAudit({
+    queryKey,
+    loadPage,
+    enabled: rangeError === null,
+  })
 
   const failedCount = useMemo(
-    () => allEntries.filter((e) => e.result === 'failed' || e.result === 'timed_out').length,
-    [allEntries],
+    () => entries.filter((entry) => entry.result === 'failed' || entry.result === 'timed_out').length,
+    [entries],
   )
 
   return (
@@ -57,60 +43,43 @@ export function GlobalAuditPage() {
       <PageHeader
         kicker="System"
         title="Audit log"
-        meta={allEntries.length > 0 && (
+        meta={entries.length > 0 && (
           <>
-            <span>{allEntries.length} loaded</span>
+            <span>{entries.length} loaded</span>
             {failedCount > 0 && <span className="text-[var(--danger)]">{failedCount} failed</span>}
           </>
         )}
       />
 
-      {/* Filters (client-side over loaded pages) */}
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <input
-          data-testid="audit-filter"
-          type="text"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          placeholder="Filter by action or stack…"
-          className="w-full max-w-72 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-1.5 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
-        />
-        {(['all', 'succeeded', 'failed'] as const).map((value) => (
-          <button
-            key={value}
-            onClick={() => setResult(value)}
-            aria-pressed={result === value}
-            className={cn(
-              'rounded-md border px-3 py-1.5 text-xs capitalize transition',
-              result === value
-                ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
-                : 'border-[var(--panel-border)] text-[var(--muted)] hover:text-[var(--text)]',
-            )}
-          >
-            {value}
-          </button>
-        ))}
-      </div>
+      <AuditFilterBar
+        filters={filters}
+        hasActiveFilters={hasActiveFilters}
+        rangeError={rangeError}
+        onChange={updateFilters}
+        onClear={clearFilters}
+      />
 
       <div className="mt-4">
         {error && (
-          <div className="rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">
-            Failed to load audit: {error.message}
+          <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]" role="alert">
+            <span>Failed to load audit: {error.message}</span>
+            <button type="button" onClick={refetch} className="ml-auto rounded-md border border-[var(--danger)]/30 px-3 py-1 text-xs hover:bg-[var(--danger)]/10">
+              Retry
+            </button>
           </div>
         )}
 
-        <AuditTable
-          entries={visible}
-          showStack
-          loading={loading || loadingMore}
-          hasMore={!!cursor}
-          onLoadMore={loadMore}
-        />
-
-        {!loading && visible.length === 0 && allEntries.length > 0 && (
-          <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-8 text-center text-sm text-[var(--muted)]">
-            No entries match the current filter.
-          </div>
+        {!rangeError && (!error || entries.length > 0) && (
+          <AuditTable
+            key={queryKey}
+            entries={entries}
+            showStack
+            loading={loading || loadingMore}
+            hasMore={hasMore}
+            onLoadMore={loadMore}
+            emptyTitle={hasActiveFilters ? 'No audit entries match these filters' : undefined}
+            emptyDescription={hasActiveFilters ? 'Try widening the date range or clearing one of the filters.' : undefined}
+          />
         )}
       </div>
     </section>
