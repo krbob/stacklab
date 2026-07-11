@@ -138,6 +138,7 @@ jobs:
     needs: [prepare, build]
     if: needs.prepare.outputs.should_publish == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -150,7 +151,7 @@ jobs:
           name: nightly-amd64
           path: dist/release
 
-      - name: Smoke install package on Debian
+      - name: Smoke install and upgrade package under systemd
         run: scripts/release/smoke-deb-install.sh dist/release/stacklab_${{ needs.prepare.outputs.release_version }}_amd64.deb
 
       - name: Smoke install tarball on Debian

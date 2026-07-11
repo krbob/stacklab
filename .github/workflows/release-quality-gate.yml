@@ -30,10 +30,16 @@ jobs:
     with:
       source_sha: ${{ inputs.source_sha }}
 
+  systemd-package-smoke:
+    name: systemd-package-smoke
+    uses: ./.github/workflows/deb-package-smoke.yml
+    with:
+      source_sha: ${{ inputs.source_sha }}
+
   gate-result:
     name: release-quality-gate
     if: always()
-    needs: [baseline-quality, docker-smoke, browser-smoke]
+    needs: [baseline-quality, docker-smoke, browser-smoke, systemd-package-smoke]
     runs-on: ubuntu-latest
     steps:
       - name: Require every quality job
@@ -41,14 +47,17 @@ jobs:
           BASELINE_RESULT: ${{ needs.baseline-quality.result }}
           DOCKER_RESULT: ${{ needs.docker-smoke.result }}
           BROWSER_RESULT: ${{ needs.browser-smoke.result }}
+          SYSTEMD_PACKAGE_RESULT: ${{ needs.systemd-package-smoke.result }}
           SOURCE_SHA: ${{ inputs.source_sha }}
         shell: bash
         run: |
           set -euo pipefail
-          printf 'Quality results for %s: baseline=%s docker=%s browser=%s\n' \
-            "${SOURCE_SHA}" "${BASELINE_RESULT}" "${DOCKER_RESULT}" "${BROWSER_RESULT}"
+          printf 'Quality results for %s: baseline=%s docker=%s browser=%s systemd-package=%s\n' \
+            "${SOURCE_SHA}" "${BASELINE_RESULT}" "${DOCKER_RESULT}" "${BROWSER_RESULT}" \
+            "${SYSTEMD_PACKAGE_RESULT}"
           if [[ "${BASELINE_RESULT}" != success ]] || \
              [[ "${DOCKER_RESULT}" != success ]] || \
-             [[ "${BROWSER_RESULT}" != success ]]; then
+             [[ "${BROWSER_RESULT}" != success ]] || \
+             [[ "${SYSTEMD_PACKAGE_RESULT}" != success ]]; then
             exit 1
           fi

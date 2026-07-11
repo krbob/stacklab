@@ -1,6 +1,12 @@
 name: Debian Package Smoke
 
 on:
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Exact source revision to package and validate
+        required: true
+        type: string
   workflow_dispatch:
   pull_request:
     paths:
@@ -9,7 +15,9 @@ on:
       - 'packaging/debian/**'
       - 'scripts/release/build-artifact.sh'
       - 'scripts/release/build-deb.sh'
+      - 'scripts/release/run-systemd-deb-smoke.sh'
       - 'scripts/release/smoke-deb-install.sh'
+      - 'scripts/release/systemd-smoke.Dockerfile'
   push:
     branches:
       - main
@@ -19,7 +27,9 @@ on:
       - 'packaging/debian/**'
       - 'scripts/release/build-artifact.sh'
       - 'scripts/release/build-deb.sh'
+      - 'scripts/release/run-systemd-deb-smoke.sh'
       - 'scripts/release/smoke-deb-install.sh'
+      - 'scripts/release/systemd-smoke.Dockerfile'
 
 permissions:
   contents: read
@@ -32,11 +42,18 @@ jobs:
   deb-package-smoke:
     name: deb-package-smoke
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ inputs.source_sha || github.sha }}
           persist-credentials: false
+
+      - name: Verify source revision
+        env:
+          EXPECTED_SHA: ${{ inputs.source_sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
 
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -67,5 +84,6 @@ jobs:
           STACKLAB_RELEASE_GOARCH: amd64
         run: scripts/release/build-deb.sh
 
-      - name: Smoke install package on Debian
+      - name: Smoke install and upgrade package under systemd
+        timeout-minutes: 15
         run: scripts/release/smoke-deb-install.sh dist/release/stacklab_0.0.0-ci_amd64.deb
