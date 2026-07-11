@@ -1,0 +1,11 @@
+# Default ownership and high-risk areas.
+* @krbob
+
+/.github/ @krbob
+/packaging/ @krbob
+/scripts/release/ @krbob
+/internal/auth/ @krbob
+/internal/store/ @krbob
+/internal/selfupdate/ @krbob
+/docs/api/ @krbob
+/docs/ops/ @krbob

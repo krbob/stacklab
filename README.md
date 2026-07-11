@@ -173,6 +173,9 @@ and `make check-hygiene`. See
 [`docs/quality/developer-checks.md`](docs/quality/developer-checks.md) for the
 toolchain contract and exact command scope.
 
+Contributions are described in [`CONTRIBUTING.md`](CONTRIBUTING.md). Report
+suspected vulnerabilities privately according to [`SECURITY.md`](SECURITY.md).
+
 ## Screenshots
 
 | Stacks | Stack Editor |

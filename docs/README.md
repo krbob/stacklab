@@ -26,6 +26,11 @@ The most current operator-facing entry points are:
 - `ops/release-plan.md`
 - `ops/upgrade-validation-checklist.md`
 
+Repository policies:
+
+- `../CONTRIBUTING.md`
+- `../SECURITY.md`
+
 Recommended product entry points:
 
 - `roadmap.md`
