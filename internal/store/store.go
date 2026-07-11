@@ -286,7 +286,8 @@ func (s *Store) migrate(ctx context.Context) error {
 			finished_at TEXT,
 			workflow_json TEXT,
 			error_code TEXT,
-			error_message TEXT
+			error_message TEXT,
+			event_sequence INTEGER NOT NULL DEFAULT 0
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_jobs_stack_requested_at ON jobs (stack_id, requested_at DESC);`,
 		`CREATE INDEX IF NOT EXISTS idx_jobs_state_requested_at ON jobs (state, requested_at DESC);`,
@@ -350,11 +351,27 @@ func (s *Store) migrate(ctx context.Context) error {
 	additiveColumns := []string{
 		`ALTER TABLE job_events ADD COLUMN progress_json TEXT`,
 		`ALTER TABLE auth_sessions ADD COLUMN password_version INTEGER NOT NULL DEFAULT 1`,
+		`ALTER TABLE jobs ADD COLUMN event_sequence INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, statement := range additiveColumns {
 		if _, err := s.db.ExecContext(ctx, statement); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 			return fmt.Errorf("migrate sqlite store (additive column): %w", err)
 		}
+	}
+	if _, err := s.db.ExecContext(ctx, `
+		UPDATE jobs
+		SET event_sequence = COALESCE((
+			SELECT MAX(job_events.sequence)
+			FROM job_events
+			WHERE job_events.job_id = jobs.id
+		), 0)
+		WHERE event_sequence < COALESCE((
+			SELECT MAX(job_events.sequence)
+			FROM job_events
+			WHERE job_events.job_id = jobs.id
+		), 0)
+	`); err != nil {
+		return fmt.Errorf("migrate sqlite store (backfill job event sequence): %w", err)
 	}
 
 	return nil
@@ -698,6 +715,9 @@ func (s *Store) CreateJobWithInitialEvent(ctx context.Context, job Job, event Jo
 	if err := createJob(ctx, tx, job); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, `UPDATE jobs SET event_sequence = 1 WHERE id = ?`, job.ID); err != nil {
+		return fmt.Errorf("initialize job event sequence: %w", err)
+	}
 	if err := createJobEvent(ctx, tx, event); err != nil {
 		return err
 	}
@@ -772,14 +792,112 @@ func (s *Store) UpdateJobIfStateIn(ctx context.Context, job Job, states []string
 	return s.updateJob(ctx, job, " AND state IN ("+strings.Join(placeholders, ",")+")", args...)
 }
 
-func (s *Store) updateJob(ctx context.Context, job Job, whereSuffix string, whereArgs ...any) (bool, error) {
-	var workflowJSON sql.NullString
-	if job.Workflow != nil {
-		workflowBytes, err := json.Marshal(job.Workflow)
-		if err != nil {
-			return false, fmt.Errorf("marshal workflow: %w", err)
+// UpdateJobWorkflow updates only workflow_json. In particular, a worker with a
+// stale Job value cannot move cancel_requested back to running while reporting
+// step progress.
+func (s *Store) UpdateJobWorkflow(ctx context.Context, id string, workflow *JobWorkflow) error {
+	workflowJSON, err := marshalJobWorkflow(workflow)
+	if err != nil {
+		return err
+	}
+	result, err := s.db.ExecContext(ctx, `UPDATE jobs SET workflow_json = ? WHERE id = ?`, workflowJSON, id)
+	if err != nil {
+		return fmt.Errorf("update job workflow: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update job workflow rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// TransitionJobWithEvents serializes an allowed state transition and all
+// events describing it through the job row's sequence counter.
+func (s *Store) TransitionJobWithEvents(ctx context.Context, job Job, allowedStates []string, events []JobEvent) (bool, []JobEvent, error) {
+	if len(allowedStates) == 0 || len(events) == 0 {
+		return false, nil, errors.New("job transition requires allowed states and events")
+	}
+	for _, event := range events {
+		if event.JobID != job.ID || event.State != job.State {
+			return false, nil, errors.New("job transition event must match job id and state")
 		}
-		workflowJSON = sql.NullString{String: string(workflowBytes), Valid: true}
+	}
+
+	workflowJSON, err := marshalJobWorkflow(job.Workflow)
+	if err != nil {
+		return false, nil, err
+	}
+	var startedAt sql.NullString
+	if job.StartedAt != nil {
+		startedAt = sql.NullString{String: job.StartedAt.UTC().Format(time.RFC3339Nano), Valid: true}
+	}
+	var finishedAt sql.NullString
+	if job.FinishedAt != nil {
+		finishedAt = sql.NullString{String: job.FinishedAt.UTC().Format(time.RFC3339Nano), Valid: true}
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, nil, fmt.Errorf("begin job transition: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	placeholders := make([]string, len(allowedStates))
+	args := []any{
+		job.State,
+		startedAt,
+		finishedAt,
+		workflowJSON,
+		nullIfEmpty(job.ErrorCode),
+		nullIfEmpty(job.ErrorMessage),
+		len(events),
+		job.ID,
+	}
+	for index, state := range allowedStates {
+		placeholders[index] = "?"
+		args = append(args, state)
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE jobs
+		SET state = ?, started_at = ?, finished_at = ?, workflow_json = ?, error_code = ?, error_message = ?,
+			event_sequence = event_sequence + ?
+		WHERE id = ? AND state IN (`+strings.Join(placeholders, ",")+`)`, args...)
+	if err != nil {
+		return false, nil, fmt.Errorf("transition job: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return false, nil, fmt.Errorf("transition job rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return false, nil, nil
+	}
+
+	var lastSequence int
+	if err := tx.QueryRowContext(ctx, `SELECT event_sequence FROM jobs WHERE id = ?`, job.ID).Scan(&lastSequence); err != nil {
+		return false, nil, fmt.Errorf("load transitioned job event sequence: %w", err)
+	}
+	committedEvents := make([]JobEvent, len(events))
+	firstSequence := lastSequence - len(events) + 1
+	for index, event := range events {
+		event.Sequence = firstSequence + index
+		if err := createJobEvent(ctx, tx, event); err != nil {
+			return false, nil, err
+		}
+		committedEvents[index] = event
+	}
+	if err := tx.Commit(); err != nil {
+		return false, nil, fmt.Errorf("commit job transition: %w", err)
+	}
+	return true, committedEvents, nil
+}
+
+func (s *Store) updateJob(ctx context.Context, job Job, whereSuffix string, whereArgs ...any) (bool, error) {
+	workflowJSON, err := marshalJobWorkflow(job.Workflow)
+	if err != nil {
+		return false, err
 	}
 
 	var startedAt sql.NullString
@@ -818,6 +936,17 @@ func (s *Store) updateJob(ctx context.Context, job Job, whereSuffix string, wher
 		return false, fmt.Errorf("update job rows affected: %w", err)
 	}
 	return rowsAffected > 0, nil
+}
+
+func marshalJobWorkflow(workflow *JobWorkflow) (sql.NullString, error) {
+	if workflow == nil {
+		return sql.NullString{}, nil
+	}
+	workflowBytes, err := json.Marshal(workflow)
+	if err != nil {
+		return sql.NullString{}, fmt.Errorf("marshal workflow: %w", err)
+	}
+	return sql.NullString{String: string(workflowBytes), Valid: true}, nil
 }
 
 func (s *Store) JobByID(ctx context.Context, id string) (Job, error) {
@@ -882,8 +1011,59 @@ func (s *Store) NextJobEventSequence(ctx context.Context, jobID string) (int, er
 	return nextSequence, nil
 }
 
+// AppendJobEvent assigns the next sequence and captures the current persisted
+// state in one transaction. Concurrent publishers serialize on the job row
+// counter, so an event appended after cancellation cannot claim running state.
+func (s *Store) AppendJobEvent(ctx context.Context, event JobEvent) (JobEvent, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return JobEvent{}, fmt.Errorf("begin append job event: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	result, err := tx.ExecContext(ctx, `UPDATE jobs SET event_sequence = event_sequence + 1 WHERE id = ?`, event.JobID)
+	if err != nil {
+		return JobEvent{}, fmt.Errorf("increment job event sequence: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return JobEvent{}, fmt.Errorf("increment job event sequence rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return JobEvent{}, ErrNotFound
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT event_sequence, state FROM jobs WHERE id = ?`, event.JobID).Scan(&event.Sequence, &event.State); err != nil {
+		return JobEvent{}, fmt.Errorf("load appended job event sequence: %w", err)
+	}
+	if err := createJobEvent(ctx, tx, event); err != nil {
+		return JobEvent{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return JobEvent{}, fmt.Errorf("commit appended job event: %w", err)
+	}
+	return event, nil
+}
+
 func (s *Store) CreateJobEvent(ctx context.Context, event JobEvent) error {
-	return createJobEvent(ctx, s.db, event)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin create job event: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := createJobEvent(ctx, tx, event); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE jobs
+		SET event_sequence = MAX(event_sequence, ?)
+		WHERE id = ?
+	`, event.Sequence, event.JobID); err != nil {
+		return fmt.Errorf("advance explicit job event sequence: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit explicit job event: %w", err)
+	}
+	return nil
 }
 
 func createJobEvent(ctx context.Context, executor sqlExecutor, event JobEvent) error {

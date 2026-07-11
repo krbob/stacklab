@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -180,6 +181,149 @@ func TestCancelRequestsCancellableJob(t *testing.T) {
 	}
 	if events[len(events)-1].Event != "job_cancel_requested" || events[len(events)-1].State != "cancel_requested" {
 		t.Fatalf("last event = %#v, want cancel_requested event", events[len(events)-1])
+	}
+}
+
+func TestUpdateWorkflowCannotRestoreRunningStateAfterCancellation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	jobStore := openJobsTestStore(t)
+	service := NewService(jobStore)
+	job, err := service.StartWithWorkflow(ctx, "demo", "pull", "local", []store.JobWorkflowStep{{Action: "pull", State: "running"}})
+	if err != nil {
+		t.Fatalf("StartWithWorkflow() error = %v", err)
+	}
+	_, cancel := context.WithCancel(context.Background())
+	unregister := service.RegisterCancel(job.ID, cancel)
+	defer unregister()
+	if _, err := service.Cancel(ctx, job.ID); err != nil {
+		t.Fatalf("Cancel() error = %v", err)
+	}
+
+	if _, err := service.UpdateWorkflow(ctx, job, []store.JobWorkflowStep{{Action: "pull", State: "succeeded"}}); err != nil {
+		t.Fatalf("UpdateWorkflow(stale job) error = %v", err)
+	}
+	stored, err := service.Get(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if stored.State != "cancel_requested" {
+		t.Fatalf("job state after stale workflow update = %q, want cancel_requested", stored.State)
+	}
+}
+
+func TestPublishEventAfterCancellationUsesPersistedState(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	jobStore := openJobsTestStore(t)
+	service := NewService(jobStore)
+	job, err := service.Start(ctx, "demo", "pull", "local")
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	_, cancel := context.WithCancel(context.Background())
+	unregister := service.RegisterCancel(job.ID, cancel)
+	defer unregister()
+	if _, err := service.Cancel(ctx, job.ID); err != nil {
+		t.Fatalf("Cancel() error = %v", err)
+	}
+	if err := service.PublishEvent(ctx, job, "job_log", "late worker output", "", nil); err != nil {
+		t.Fatalf("PublishEvent() error = %v", err)
+	}
+
+	events, err := jobStore.ListJobEvents(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("ListJobEvents() error = %v", err)
+	}
+	last := events[len(events)-1]
+	if last.Event != "job_log" || last.State != "cancel_requested" {
+		t.Fatalf("late event = %#v, want cancel_requested job_log", last)
+	}
+}
+
+func TestCancelAndWorkerFinishSerializeTransitionEvents(t *testing.T) {
+	t.Parallel()
+
+	const iterations = 50
+	for iteration := 0; iteration < iterations; iteration++ {
+		jobStore := openJobsTestStore(t)
+		service := NewService(jobStore)
+		job, err := service.Start(context.Background(), "demo", "up", "local")
+		if err != nil {
+			t.Fatalf("iteration %d Start() error = %v", iteration, err)
+		}
+		_, cancel := context.WithCancel(context.Background())
+		unregister := service.RegisterCancel(job.ID, cancel)
+		liveEvents, unsubscribe := service.Subscribe(job.ID)
+
+		start := make(chan struct{})
+		var waitGroup sync.WaitGroup
+		waitGroup.Add(2)
+		var cancelErr error
+		var finishErr error
+		go func() {
+			defer waitGroup.Done()
+			<-start
+			_, cancelErr = service.Cancel(context.Background(), job.ID)
+		}()
+		go func() {
+			defer waitGroup.Done()
+			<-start
+			_, finishErr = service.FinishSucceeded(context.Background(), job)
+		}()
+		close(start)
+		waitGroup.Wait()
+		unregister()
+		unsubscribe()
+
+		if cancelErr != nil && !errors.Is(cancelErr, ErrNotCancellable) {
+			t.Fatalf("iteration %d Cancel() error = %v", iteration, cancelErr)
+		}
+		if finishErr != nil {
+			t.Fatalf("iteration %d FinishSucceeded() error = %v", iteration, finishErr)
+		}
+		stored, err := service.Get(context.Background(), job.ID)
+		if err != nil {
+			t.Fatalf("iteration %d Get() error = %v", iteration, err)
+		}
+		if stored.State != "succeeded" {
+			t.Fatalf("iteration %d final state = %q, want succeeded", iteration, stored.State)
+		}
+		events, err := jobStore.ListJobEvents(context.Background(), job.ID)
+		if err != nil {
+			t.Fatalf("iteration %d ListJobEvents() error = %v", iteration, err)
+		}
+		if len(events) < 2 || len(events) > 3 {
+			t.Fatalf("iteration %d events = %#v", iteration, events)
+		}
+		for index, event := range events {
+			if event.Sequence != index+1 {
+				t.Fatalf("iteration %d events[%d].Sequence = %d, want %d", iteration, index, event.Sequence, index+1)
+			}
+		}
+		receivedLive := make([]store.JobEvent, 0, len(events)-1)
+		for {
+			select {
+			case event := <-liveEvents:
+				receivedLive = append(receivedLive, event)
+			default:
+				goto liveEventsDrained
+			}
+		}
+	liveEventsDrained:
+		if len(receivedLive) != len(events)-1 {
+			t.Fatalf("iteration %d live events len = %d, want %d", iteration, len(receivedLive), len(events)-1)
+		}
+		for index, event := range receivedLive {
+			if event.Sequence != events[index+1].Sequence {
+				t.Fatalf("iteration %d live event %d sequence = %d, want %d", iteration, index, event.Sequence, events[index+1].Sequence)
+			}
+		}
+		if events[len(events)-1].Event != "job_finished" || events[len(events)-1].State != "succeeded" {
+			t.Fatalf("iteration %d final event = %#v", iteration, events[len(events)-1])
+		}
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 
 var ErrNotFound = errors.New("job not found")
 var ErrNotCancellable = errors.New("job is not cancellable")
+var ErrTransitionConflict = errors.New("job state transition conflict")
 
 const selfUpdateReconcileGracePeriod = 2 * time.Hour
 
@@ -28,6 +29,7 @@ type Service struct {
 	subsByJob        map[string]map[chan store.JobEvent]struct{}
 	activitySubs     map[chan struct{}]struct{}
 	onTerminal       func(store.Job)
+	eventLocks       [64]sync.Mutex
 }
 
 func NewService(jobStore *store.Store) *Service {
@@ -158,6 +160,8 @@ func (s *Service) start(ctx context.Context, stackID, action, requestedBy string
 	if err := s.lockMany(job.ID, resources, draining); err != nil {
 		return store.Job{}, err
 	}
+	unlockEvents := s.lockJobEvents(job.ID)
+	defer unlockEvents()
 	if err := s.store.CreateJobWithInitialEvent(ctx, job, initialEvent); err != nil {
 		s.unlockAll(job.ID)
 		return store.Job{}, err
@@ -168,21 +172,12 @@ func (s *Service) start(ctx context.Context, stackID, action, requestedBy string
 }
 
 func (s *Service) FinishSucceeded(ctx context.Context, job store.Job) (store.Job, error) {
-	defer s.unlockAll(job.ID)
-
 	now := time.Now().UTC()
 	job.State = "succeeded"
 	job.FinishedAt = &now
-	if err := s.store.UpdateJob(ctx, job); err != nil {
-		return store.Job{}, err
-	}
-	if err := s.PublishEvent(ctx, job, "job_finished", "Job finished successfully.", "", nil); err != nil {
-		return job, err
-	}
-	if s.onTerminal != nil {
-		s.onTerminal(job)
-	}
-	return job, nil
+	return s.commitTerminalTransition(ctx, job, []store.JobEvent{
+		newJobEvent(job, "job_finished", "Job finished successfully.", "", nil, nil, now),
+	})
 }
 
 func (s *Service) FinishFailed(ctx context.Context, job store.Job, errorCode, errorMessage string) (store.Job, error) {
@@ -198,22 +193,40 @@ func (s *Service) FinishCancelled(ctx context.Context, job store.Job, errorCode,
 }
 
 func (s *Service) finishTerminal(ctx context.Context, job store.Job, state, errorCode, errorMessage, finishMessage string) (store.Job, error) {
-	defer s.unlockAll(job.ID)
-
 	now := time.Now().UTC()
 	job.State = state
 	job.FinishedAt = &now
 	job.ErrorCode = errorCode
 	job.ErrorMessage = errorMessage
-	if err := s.store.UpdateJob(ctx, job); err != nil {
+	return s.commitTerminalTransition(ctx, job, []store.JobEvent{
+		newJobEvent(job, "job_error", errorMessage, "", nil, nil, now),
+		newJobEvent(job, "job_finished", finishMessage, "", nil, nil, now),
+	})
+}
+
+func (s *Service) commitTerminalTransition(ctx context.Context, job store.Job, events []store.JobEvent) (store.Job, error) {
+	unlockEvents := s.lockJobEvents(job.ID)
+	defer unlockEvents()
+	updated, committedEvents, err := s.store.TransitionJobWithEvents(ctx, job, []string{"queued", "running", "cancel_requested"}, events)
+	if err != nil {
 		return store.Job{}, err
 	}
-	if err := s.PublishEvent(ctx, job, "job_error", errorMessage, "", nil); err != nil {
-		return job, err
+	if !updated {
+		current, getErr := s.Get(ctx, job.ID)
+		if getErr != nil {
+			return store.Job{}, getErr
+		}
+		if isTerminalJobState(current.State) {
+			s.unlockAll(job.ID)
+			if current.State == job.State {
+				return current, nil
+			}
+		}
+		return current, ErrTransitionConflict
 	}
-	if err := s.PublishEvent(ctx, job, "job_finished", finishMessage, "", nil); err != nil {
-		return job, err
-	}
+
+	s.publishCommittedEvents(committedEvents)
+	s.unlockAll(job.ID)
 	if s.onTerminal != nil {
 		s.onTerminal(job)
 	}
@@ -246,7 +259,7 @@ func (s *Service) UpdateWorkflow(ctx context.Context, job store.Job, steps []sto
 	job.Workflow = &store.JobWorkflow{
 		Steps: append([]store.JobWorkflowStep(nil), steps...),
 	}
-	if err := s.store.UpdateJob(ctx, job); err != nil {
+	if err := s.store.UpdateJobWorkflow(ctx, job.ID, job.Workflow); err != nil {
 		return store.Job{}, err
 	}
 	return job, nil
@@ -257,14 +270,10 @@ func (s *Service) PublishEvent(ctx context.Context, job store.Job, eventType, me
 }
 
 func (s *Service) PublishEventWithProgress(ctx context.Context, job store.Job, eventType, message, data string, step *store.JobEventStep, progress *store.JobProgress) error {
-	sequence, err := s.store.NextJobEventSequence(ctx, job.ID)
-	if err != nil {
-		return err
-	}
-
-	event := store.JobEvent{
+	unlockEvents := s.lockJobEvents(job.ID)
+	defer unlockEvents()
+	event, err := s.store.AppendJobEvent(ctx, store.JobEvent{
 		JobID:     job.ID,
-		Sequence:  sequence,
 		Event:     eventType,
 		State:     job.State,
 		Message:   message,
@@ -272,8 +281,8 @@ func (s *Service) PublishEventWithProgress(ctx context.Context, job store.Job, e
 		Step:      step,
 		Progress:  progress,
 		Timestamp: time.Now().UTC(),
-	}
-	if err := s.store.CreateJobEvent(ctx, event); err != nil {
+	})
+	if err != nil {
 		return err
 	}
 
@@ -392,11 +401,17 @@ func (s *Service) Cancel(ctx context.Context, id string) (store.Job, error) {
 	if job.Workflow != nil {
 		job.Workflow = &store.JobWorkflow{Steps: markWorkflowCancelRequested(job.Workflow.Steps)}
 	}
-	updated, err := s.store.UpdateJobIfStateIn(ctx, job, []string{"queued", "running", "cancel_requested"})
+	now := time.Now().UTC()
+	unlockEvents := s.lockJobEvents(job.ID)
+	updated, committedEvents, err := s.store.TransitionJobWithEvents(ctx, job, []string{"queued", "running"}, []store.JobEvent{
+		newJobEvent(job, "job_cancel_requested", "Cancellation requested.", "", nil, nil, now),
+	})
 	if err != nil {
+		unlockEvents()
 		return store.Job{}, err
 	}
 	if !updated {
+		unlockEvents()
 		current, getErr := s.Get(ctx, id)
 		if getErr != nil {
 			return store.Job{}, getErr
@@ -407,10 +422,9 @@ func (s *Service) Cancel(ctx context.Context, id string) (store.Job, error) {
 		return store.Job{}, ErrNotCancellable
 	}
 
+	s.publishCommittedEvents(committedEvents)
+	unlockEvents()
 	cancel()
-	if err := s.PublishEvent(ctx, job, "job_cancel_requested", "Cancellation requested.", "", nil); err != nil {
-		return job, err
-	}
 	return job, nil
 }
 
@@ -494,8 +508,6 @@ func randomToken(length int) string {
 }
 
 func (s *Service) reconcileInterruptedJob(ctx context.Context, job store.Job) (store.Job, error) {
-	defer s.unlockAll(job.ID)
-
 	const errorCode = "job_interrupted"
 	const errorMessage = "Job did not finish before Stacklab restarted."
 	const finishMessage = "Job marked failed after Stacklab restarted."
@@ -513,25 +525,59 @@ func (s *Service) reconcileInterruptedJob(ctx context.Context, job store.Job) (s
 	job.FinishedAt = &now
 	job.ErrorCode = errorCode
 	job.ErrorMessage = errorMessage
-	if err := s.store.UpdateJob(ctx, job); err != nil {
-		return store.Job{}, err
-	}
-
+	events := make([]store.JobEvent, 0, 3)
 	if stepRef != nil {
-		if err := s.PublishEvent(ctx, job, "job_step_finished", stepMessage, "", stepRef); err != nil {
-			return store.Job{}, err
-		}
+		events = append(events, newJobEvent(job, "job_step_finished", stepMessage, "", stepRef, nil, now))
 	}
-	if err := s.PublishEvent(ctx, job, "job_error", errorMessage, "", stepRef); err != nil {
-		return store.Job{}, err
+	events = append(events,
+		newJobEvent(job, "job_error", errorMessage, "", stepRef, nil, now),
+		newJobEvent(job, "job_finished", finishMessage, "", nil, nil, now),
+	)
+	return s.commitTerminalTransition(ctx, job, events)
+}
+
+func newJobEvent(job store.Job, eventType, message, data string, step *store.JobEventStep, progress *store.JobProgress, timestamp time.Time) store.JobEvent {
+	return store.JobEvent{
+		JobID:     job.ID,
+		Event:     eventType,
+		State:     job.State,
+		Message:   message,
+		Data:      data,
+		Step:      step,
+		Progress:  progress,
+		Timestamp: timestamp,
 	}
-	if err := s.PublishEvent(ctx, job, "job_finished", finishMessage, "", nil); err != nil {
-		return store.Job{}, err
+}
+
+func (s *Service) publishCommittedEvents(events []store.JobEvent) {
+	for _, event := range events {
+		s.publishLive(event)
+		s.notifyActivity()
 	}
-	if s.onTerminal != nil {
-		s.onTerminal(job)
+}
+
+func isTerminalJobState(state string) bool {
+	switch state {
+	case "succeeded", "failed", "cancelled", "timed_out":
+		return true
+	default:
+		return false
 	}
-	return job, nil
+}
+
+func (s *Service) lockJobEvents(jobID string) func() {
+	const (
+		fnvOffset32 = uint32(2166136261)
+		fnvPrime32  = uint32(16777619)
+	)
+	hash := fnvOffset32
+	for index := 0; index < len(jobID); index++ {
+		hash ^= uint32(jobID[index])
+		hash *= fnvPrime32
+	}
+	lock := &s.eventLocks[hash%uint32(len(s.eventLocks))]
+	lock.Lock()
+	return lock.Unlock
 }
 
 func (s *Service) publishLive(event store.JobEvent) {

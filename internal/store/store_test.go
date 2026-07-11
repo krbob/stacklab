@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -159,6 +160,168 @@ func TestCreateJobWithInitialEventRollsBackOnInjectedEventFailure(t *testing.T) 
 	}
 	if len(events) != 0 {
 		t.Fatalf("events after rollback = %#v, want none", events)
+	}
+}
+
+func TestTransitionJobWithEventsRollsBackStateSequenceAndEventsOnFailure(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	testStore := openTestStore(t)
+	now := time.Date(2026, 7, 12, 10, 0, 0, 0, time.UTC)
+	job := Job{ID: "job_transition_rollback", StackID: "demo", Action: "up", State: "running", RequestedBy: "local", RequestedAt: now, StartedAt: &now}
+	initial := JobEvent{JobID: job.ID, Sequence: 1, Event: "job_started", State: "running", Timestamp: now}
+	if err := testStore.CreateJobWithInitialEvent(ctx, job, initial); err != nil {
+		t.Fatalf("CreateJobWithInitialEvent() error = %v", err)
+	}
+	if _, err := testStore.db.ExecContext(ctx, `
+		CREATE TRIGGER fail_terminal_job_event
+		BEFORE INSERT ON job_events
+		WHEN NEW.job_id = 'job_transition_rollback' AND NEW.event = 'job_finished'
+		BEGIN
+			SELECT RAISE(FAIL, 'injected transition event failure');
+		END;
+	`); err != nil {
+		t.Fatalf("create transition fault trigger error = %v", err)
+	}
+
+	finishedAt := now.Add(time.Minute)
+	terminalJob := job
+	terminalJob.State = "succeeded"
+	terminalJob.FinishedAt = &finishedAt
+	updated, _, err := testStore.TransitionJobWithEvents(ctx, terminalJob, []string{"running"}, []JobEvent{{
+		JobID: terminalJob.ID, Event: "job_finished", State: "succeeded", Timestamp: finishedAt,
+	}})
+	if err == nil || updated {
+		t.Fatalf("TransitionJobWithEvents() = updated %t, error %v; want rollback error", updated, err)
+	}
+	stored, err := testStore.JobByID(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("JobByID() error = %v", err)
+	}
+	if stored.State != "running" || stored.FinishedAt != nil {
+		t.Fatalf("job after transition rollback = %#v", stored)
+	}
+	events, err := testStore.ListJobEvents(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("ListJobEvents() error = %v", err)
+	}
+	if len(events) != 1 || events[0].Sequence != 1 {
+		t.Fatalf("events after transition rollback = %#v", events)
+	}
+	appended, err := testStore.AppendJobEvent(ctx, JobEvent{JobID: job.ID, Event: "job_log", State: "running", Timestamp: finishedAt})
+	if err != nil {
+		t.Fatalf("AppendJobEvent() error = %v", err)
+	}
+	if appended.Sequence != 2 {
+		t.Fatalf("sequence after rollback = %d, want 2", appended.Sequence)
+	}
+}
+
+func TestAppendJobEventSerializesConcurrentSequences(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	testStore := openTestStore(t)
+	now := time.Date(2026, 7, 12, 10, 0, 0, 0, time.UTC)
+	job := Job{ID: "job_concurrent_events", StackID: "demo", Action: "up", State: "running", RequestedBy: "local", RequestedAt: now, StartedAt: &now}
+	if err := testStore.CreateJobWithInitialEvent(ctx, job, JobEvent{JobID: job.ID, Sequence: 1, Event: "job_started", State: "running", Timestamp: now}); err != nil {
+		t.Fatalf("CreateJobWithInitialEvent() error = %v", err)
+	}
+
+	const publisherCount = 64
+	errorsCh := make(chan error, publisherCount)
+	var waitGroup sync.WaitGroup
+	for index := 0; index < publisherCount; index++ {
+		waitGroup.Add(1)
+		go func() {
+			defer waitGroup.Done()
+			_, err := testStore.AppendJobEvent(ctx, JobEvent{JobID: job.ID, Event: "job_log", State: "running", Timestamp: now})
+			errorsCh <- err
+		}()
+	}
+	waitGroup.Wait()
+	close(errorsCh)
+	for err := range errorsCh {
+		if err != nil {
+			t.Fatalf("AppendJobEvent() concurrent error = %v", err)
+		}
+	}
+
+	events, err := testStore.ListJobEvents(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("ListJobEvents() error = %v", err)
+	}
+	if len(events) != publisherCount+1 {
+		t.Fatalf("events len = %d, want %d", len(events), publisherCount+1)
+	}
+	for index, event := range events {
+		if event.Sequence != index+1 {
+			t.Fatalf("events[%d].Sequence = %d, want %d", index, event.Sequence, index+1)
+		}
+	}
+}
+
+func TestOpenMigratesAndBackfillsJobEventSequence(t *testing.T) {
+	t.Parallel()
+
+	databasePath := filepath.Join(t.TempDir(), "stacklab.db")
+	db, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	_, err = db.Exec(`
+		CREATE TABLE jobs (
+			id TEXT PRIMARY KEY,
+			stack_id TEXT NOT NULL,
+			action TEXT NOT NULL,
+			state TEXT NOT NULL,
+			requested_by TEXT NOT NULL,
+			requested_at TEXT NOT NULL,
+			started_at TEXT,
+			finished_at TEXT,
+			workflow_json TEXT,
+			error_code TEXT,
+			error_message TEXT
+		);
+		CREATE TABLE job_events (
+			job_id TEXT NOT NULL,
+			sequence INTEGER NOT NULL,
+			event TEXT NOT NULL,
+			state TEXT NOT NULL,
+			message TEXT,
+			data TEXT,
+			step_json TEXT,
+			timestamp TEXT NOT NULL,
+			PRIMARY KEY (job_id, sequence)
+		);
+		INSERT INTO jobs (id, stack_id, action, state, requested_by, requested_at, started_at)
+		VALUES ('job_legacy_sequence', 'demo', 'up', 'running', 'local', '2026-07-12T10:00:00Z', '2026-07-12T10:00:00Z');
+		INSERT INTO job_events (job_id, sequence, event, state, timestamp) VALUES
+			('job_legacy_sequence', 1, 'job_started', 'running', '2026-07-12T10:00:00Z'),
+			('job_legacy_sequence', 2, 'job_log', 'running', '2026-07-12T10:00:01Z');
+	`)
+	if err != nil {
+		_ = db.Close()
+		t.Fatalf("create legacy jobs schema error = %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close legacy database error = %v", err)
+	}
+
+	testStore, err := Open(databasePath)
+	if err != nil {
+		t.Fatalf("Open(legacy database) error = %v", err)
+	}
+	t.Cleanup(func() { _ = testStore.Close() })
+	appended, err := testStore.AppendJobEvent(context.Background(), JobEvent{
+		JobID: "job_legacy_sequence", Event: "job_log", State: "running", Timestamp: time.Date(2026, 7, 12, 10, 0, 2, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("AppendJobEvent(after migration) error = %v", err)
+	}
+	if appended.Sequence != 3 {
+		t.Fatalf("appended sequence after migration = %d, want 3", appended.Sequence)
 	}
 }
 

@@ -143,6 +143,7 @@ Suggested columns:
 | `workflow_json` | `TEXT` | Optional workflow steps metadata |
 | `error_code` | `TEXT` | Terminal failure classification |
 | `error_message` | `TEXT` | Short failure summary |
+| `event_sequence` | `INTEGER NOT NULL DEFAULT 0` | Last sequence reserved for this job's retained events |
 
 Allowed `state` values:
 
@@ -163,6 +164,8 @@ Rules:
 
 - this table stores the current summary view of a job
 - detailed streamed output belongs in `job_events`
+- job creation, its initial workflow, and `job_started` are committed together
+- state transitions reserve event sequences and persist their related events in the same transaction
 
 ## `job_events`
 
@@ -190,6 +193,7 @@ Indexes:
 Rules:
 
 - append-only
+- per-job sequences are allocated through the owning `jobs` row, not with a separate `MAX(sequence)` read
 - suitable for replaying progress panels within retention limits
 - not intended as an infinite log sink
 
