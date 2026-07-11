@@ -282,7 +282,8 @@ Recommended upgrade flow:
 4. let Stacklab run its versioned SQLite migrations on first start of the new
    binary; a failed or newer-than-supported schema keeps the service down
 5. start the service
-6. verify `GET /api/health`
+6. verify `GET /api/ready` (use `/api/live` only to distinguish a live but
+   unready process)
 
 Observed staging note:
 

@@ -127,7 +127,7 @@ This does the following:
 - installs `/etc/systemd/system/stacklab.service` if missing
 - installs `/etc/stacklab/stacklab.env` if missing
 - restarts `stacklab.service`
-- waits for `/api/health`
+- waits for `/api/ready`
 
 If you already run Stacklab under a different service account, provide it explicitly:
 
@@ -193,7 +193,7 @@ Those remain operator-managed.
 
 Default health URL:
 
-- `http://127.0.0.1:8080/api/health`
+- `http://127.0.0.1:8080/api/ready`
 
 Default behavior:
 
@@ -205,7 +205,7 @@ Default behavior:
 Useful override:
 
 ```bash
-sudo ./host-tools/upgrade.sh --health-url http://127.0.0.1:18080/api/health
+sudo ./host-tools/upgrade.sh --health-url http://127.0.0.1:18080/api/ready
 ```
 
 ## Service File Notes
@@ -226,7 +226,7 @@ After install or upgrade:
 ```bash
 systemctl status stacklab
 journalctl -u stacklab -n 200
-curl -fsS http://127.0.0.1:8080/api/health
+curl -fsS http://127.0.0.1:8080/api/ready
 ```
 
 ## Known Limits

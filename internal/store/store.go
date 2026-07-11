@@ -247,6 +247,13 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+func (s *Store) Ping(ctx context.Context) error {
+	if err := s.db.PingContext(ctx); err != nil {
+		return fmt.Errorf("ping sqlite store: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) migrate(ctx context.Context) error {
 	return s.runMigrations(ctx)
 }

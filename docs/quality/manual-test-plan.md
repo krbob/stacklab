@@ -160,7 +160,8 @@ go run ./scripts/dev/seed-retention-fixtures.go \
 - **A9** Zmiana hasła (`/settings`): złe „current" → błąd; nowe ≠ confirm → błąd;
   poprawna zmiana → stare hasło przestaje działać, nowe działa.
 - **A10** Nieuwierzytelniony dostęp do chronionego REST (np. `curl /api/stacks`
-  bez cookie) → 401. `/api/health` dostępne bez auth.
+  bez cookie) → 401. `/api/live`, `/api/ready` i zgodnościowe `/api/health`
+  dostępne bez auth; zasymulowana awaria DB daje `live=200`, `ready=503`.
 - **A11** Cookie `Secure`: przy `STACKLAB_COOKIE_SECURE=true` cookie nie leci po
   czystym HTTP (weryfikacja atrybutów w DevTools / za reverse proxy TLS).
 
@@ -497,7 +498,7 @@ go run ./scripts/dev/seed-retention-fixtures.go \
 
 > Tor tarball/`.deb`/systemd. Skrypty smoke: `scripts/release/smoke-*.sh`.
 
-- **DP1** Instalacja `.deb` z APT (stable) → usługa startuje, `/api/health` OK.
+- **DP1** Instalacja `.deb` z APT (stable) → usługa startuje, `/api/ready` OK.
 - **DP2** systemd: start/stop/restart/status działają; stan w `/var/lib/stacklab`.
 - **DP3** Reverse proxy (jeśli konfigurujemy) — dostęp przez proxy, WS działa
   (terminal/logi), cookie Secure przy TLS.

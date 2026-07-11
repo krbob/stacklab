@@ -27,7 +27,7 @@ Options:
   --app-root PATH        Application root. Default: /opt/stacklab/app
   --stacklab-root PATH   Managed Stacklab root. Default: /opt/stacklab
   --data-dir PATH        Runtime data directory. Default: /var/lib/stacklab
-  --health-url URL       Health check URL. Default: http://127.0.0.1:8080/api/health
+  --health-url URL       Readiness URL. Default: http://127.0.0.1:8080/api/ready
   --no-health-check      Skip the post-restart health check.
   --help                 Show this help.
 
@@ -309,7 +309,7 @@ main() {
   local app_root="/opt/stacklab/app"
   local stacklab_root="/opt/stacklab"
   local data_dir="/var/lib/stacklab"
-  local health_url="http://127.0.0.1:8080/api/health"
+  local health_url="http://127.0.0.1:8080/api/ready"
   local do_health_check=1
 
   while [[ $# -gt 0 ]]; do

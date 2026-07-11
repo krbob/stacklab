@@ -26,6 +26,7 @@ import type {
   GitPushResponse,
   GitWorkspaceStatusResponse,
   HealthResponse,
+  LivenessResponse,
   HostMetricsResponse,
   HostOverviewResponse,
   HostSettingsResponse,
@@ -121,6 +122,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function getHealth(): Promise<HealthResponse> {
   return request('/api/health')
+}
+
+export function getLiveness(): Promise<LivenessResponse> {
+  return request('/api/live')
+}
+
+export function getReadiness(): Promise<HealthResponse> {
+  return request('/api/ready')
 }
 
 export function getSession(): Promise<SessionResponse> {

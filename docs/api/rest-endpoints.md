@@ -80,11 +80,11 @@ file body or generated command output can be accumulated without a bound.
 
 ## Read Resources
 
-## `GET /api/health`
+## `GET /api/live`
 
 Purpose:
 
-- basic liveness probe for frontend bootstrap and operations checks
+- process liveness only; it stays successful while the HTTP process can answer
 
 Response:
 
@@ -94,6 +94,33 @@ Response:
   "version": "0.1.0"
 }
 ```
+
+## `GET /api/ready`
+
+Purpose:
+
+- deployment and self-update readiness;
+- verifies SQLite, built frontend assets, and the application runtime context.
+
+Returns `200` with `status = ok` when every required component is ready, or
+`503` with `status = unavailable` and per-component checks. Component errors
+are logged server-side; the unauthenticated response exposes only the stable
+message `unavailable`.
+
+```json
+{
+  "status": "ok",
+  "version": "0.1.0",
+  "checks": {
+    "database": { "status": "ok" },
+    "frontend": { "status": "ok" },
+    "runtime": { "status": "ok" }
+  }
+}
+```
+
+`GET /api/health` remains an unauthenticated, deprecated alias of `/api/ready`
+for existing installations.
 
 ## `GET /api/session`
 

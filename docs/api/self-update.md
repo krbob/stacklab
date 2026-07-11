@@ -53,7 +53,7 @@ Recommended env:
 - `STACKLAB_SELF_UPDATE_HELPER_PATH=/usr/lib/stacklab/bin/stacklab-self-update-helper`
 - `STACKLAB_SELF_UPDATE_USE_SUDO=true`
 - `STACKLAB_SELF_UPDATE_PACKAGE_NAME=stacklab`
-- `STACKLAB_SELF_UPDATE_HEALTH_URL=http://127.0.0.1:8080/api/health`
+- `STACKLAB_SELF_UPDATE_HEALTH_URL=http://127.0.0.1:8080/api/ready`
 
 Operational notes:
 

@@ -34,6 +34,24 @@ func TestOpenCreatesPrivateDatabaseFiles(t *testing.T) {
 	}
 }
 
+func TestPingReportsClosedDatabase(t *testing.T) {
+	t.Parallel()
+
+	testStore, err := Open(filepath.Join(t.TempDir(), "stacklab.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	if err := testStore.Ping(context.Background()); err != nil {
+		t.Fatalf("Ping(open) error = %v", err)
+	}
+	if err := testStore.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if err := testStore.Ping(context.Background()); err == nil {
+		t.Fatal("Ping(closed) error = nil")
+	}
+}
+
 func TestEnsureDataDirectoryCreatesAndMigratesPrivateMode(t *testing.T) {
 	t.Parallel()
 

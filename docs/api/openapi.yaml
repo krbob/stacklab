@@ -21,14 +21,51 @@ tags:
   - name: Jobs
   - name: Settings
 paths:
+  /live:
+    get:
+      tags: [Health]
+      operationId: getLiveness
+      security: []
+      responses:
+        '200':
+          description: Process liveness; succeeds while the HTTP process can serve requests.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LivenessResponse'
+  /ready:
+    get:
+      tags: [Health]
+      operationId: getReadiness
+      security: []
+      responses:
+        '200':
+          description: Service and required component readiness.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: One or more required components are unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
   /health:
     get:
       tags: [Health]
       operationId: getHealth
+      deprecated: true
       security: []
       responses:
         '200':
-          description: Service health status.
+          description: Backward-compatible alias of `/ready`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: One or more required components are unavailable.
           content:
             application/json:
               schema:
@@ -1510,7 +1547,7 @@ components:
     EmptyObject:
       type: object
       additionalProperties: false
-    HealthResponse:
+    LivenessResponse:
       type: object
       properties:
         status:
@@ -1519,6 +1556,28 @@ components:
         version:
           type: string
       required: [status, version]
+    HealthCheckResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, error]
+        message:
+          type: string
+      required: [status]
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, unavailable]
+        version:
+          type: string
+        checks:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/HealthCheckResponse'
+      required: [status, version, checks]
     SessionResponse:
       type: object
       properties:

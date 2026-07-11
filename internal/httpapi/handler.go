@@ -64,6 +64,7 @@ type Handler struct {
 	notifications   notificationsManager
 	schedules       schedulerManager
 	selfUpdate      selfUpdateManager
+	readinessChecks []readinessCheck
 
 	wsMu          sync.Mutex
 	wsClosing     bool
@@ -213,6 +214,7 @@ func NewHandlerWithContext(appCtx context.Context, cfg config.Config, logger *sl
 		maintenanceJobs: maintenancejobs.NewService(logger, jobService, auditService, stackReader, maintenanceService),
 		schedules:       scheduleService,
 		selfUpdate:      selfUpdateService,
+		readinessChecks: defaultReadinessChecks(cfg, jobService.Store(), workers.Context()),
 		wsConnections:   map[*wsConnection]struct{}{},
 	}
 	authService.SetSessionTerminationHook(func(termination auth.SessionTermination) {
@@ -238,7 +240,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) registerRoutes() {
-	h.mux.HandleFunc("GET /api/health", h.handleHealth)
+	h.mux.HandleFunc("GET /api/live", h.handleLive)
+	h.mux.HandleFunc("GET /api/ready", h.handleReady)
+	h.mux.HandleFunc("GET /api/health", h.handleReady)
 	h.mux.HandleFunc("GET /api/ws", h.handleWebSocket)
 	h.mux.HandleFunc("GET /api/session", h.handleSession)
 	h.mux.HandleFunc("POST /api/auth/login", h.handleLogin)
@@ -306,13 +310,6 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/jobs/{jobId}", h.withAuth(h.handleGetJob))
 	h.mux.HandleFunc("/api/", h.withAuth(h.handleAPINotImplemented))
 	h.mux.HandleFunc("/", h.handleFrontend)
-}
-
-func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
-		"status":  "ok",
-		"version": stacks.AppVersion,
-	})
 }
 
 func (h *Handler) handleSession(w http.ResponseWriter, r *http.Request) {

@@ -65,7 +65,7 @@ func Load() Config {
 		SelfUpdateHelperPath:         getenv("STACKLAB_SELF_UPDATE_HELPER_PATH", ""),
 		SelfUpdateUseSudo:            parseBool(getenv("STACKLAB_SELF_UPDATE_USE_SUDO", "false")),
 		SelfUpdatePackageName:        getenv("STACKLAB_SELF_UPDATE_PACKAGE_NAME", "stacklab"),
-		SelfUpdateHealthURL:          getenv("STACKLAB_SELF_UPDATE_HEALTH_URL", "http://127.0.0.1:8080/api/health"),
+		SelfUpdateHealthURL:          getenv("STACKLAB_SELF_UPDATE_HEALTH_URL", "http://127.0.0.1:8080/api/ready"),
 		WorkspaceAdminHelperPath:     getenv("STACKLAB_WORKSPACE_ADMIN_HELPER_PATH", ""),
 		WorkspaceAdminUseSudo:        parseBool(getenv("STACKLAB_WORKSPACE_ADMIN_USE_SUDO", "false")),
 		WorkspaceAdminRepairStrategy: getenv("STACKLAB_WORKSPACE_ADMIN_REPAIR_STRATEGY", "ownership"),

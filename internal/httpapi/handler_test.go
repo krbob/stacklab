@@ -155,6 +155,32 @@ func TestHandlerSetsSecurityHeaders(t *testing.T) {
 	}
 }
 
+func TestHandlerHealthRoutesSeparateLiveAndReady(t *testing.T) {
+	t.Parallel()
+
+	handler, cfg := newTestHandler(t)
+	for _, path := range []string{"/api/live", "/api/ready", "/api/health"} {
+		response := performJSONRequest(t, handler, http.MethodGet, path, nil, nil)
+		if response.Code != http.StatusOK {
+			t.Fatalf("GET %s status = %d, want %d; body=%s", path, response.Code, http.StatusOK, response.Body.String())
+		}
+	}
+
+	if err := os.Remove(filepath.Join(cfg.FrontendDistDir, "index.html")); err != nil {
+		t.Fatalf("Remove(frontend index) error = %v", err)
+	}
+	for _, path := range []string{"/api/ready", "/api/health"} {
+		response := performJSONRequest(t, handler, http.MethodGet, path, nil, nil)
+		if response.Code != http.StatusServiceUnavailable {
+			t.Fatalf("GET %s without assets status = %d, want %d; body=%s", path, response.Code, http.StatusServiceUnavailable, response.Body.String())
+		}
+	}
+	liveResponse := performJSONRequest(t, handler, http.MethodGet, "/api/live", nil, nil)
+	if liveResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/live without assets status = %d, want %d; body=%s", liveResponse.Code, http.StatusOK, liveResponse.Body.String())
+	}
+}
+
 func TestHandlerRateLimitsRepeatedLoginFailures(t *testing.T) {
 	t.Parallel()
 
@@ -1087,6 +1113,9 @@ func newTestHandler(t *testing.T) (*httpapi.Handler, config.Config) {
 	}
 	if err := os.MkdirAll(cfg.FrontendDistDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(frontend dist) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.FrontendDistDir, "index.html"), []byte("<!doctype html><title>Stacklab</title>"), 0o644); err != nil {
+		t.Fatalf("WriteFile(frontend index) error = %v", err)
 	}
 
 	testStore, err := store.Open(cfg.DatabasePath)

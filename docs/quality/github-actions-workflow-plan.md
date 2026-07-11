@@ -466,7 +466,7 @@ Validation scope:
 
 - install or unpack release artifact
 - start service under `systemd`
-- verify `/api/health`
+- verify `/api/ready`
 - verify login and stack discovery
 - verify Docker socket access
 - verify reverse proxy path if configured

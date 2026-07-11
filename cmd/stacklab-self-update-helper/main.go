@@ -21,7 +21,7 @@ import (
 const (
 	defaultDataDir      = "/var/lib/stacklab"
 	defaultPackageName  = "stacklab"
-	defaultHealthURL    = "http://127.0.0.1:8080/api/health"
+	defaultHealthURL    = "http://127.0.0.1:8080/api/ready"
 	defaultSystemdUnit  = "stacklab"
 	defaultRuntimeKey   = "self_update_runtime_v1"
 	defaultDatabaseName = "stacklab.db"

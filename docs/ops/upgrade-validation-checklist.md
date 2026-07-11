@@ -77,7 +77,7 @@ readlink -f /opt/stacklab/app/current
 ### Service health
 
 - `systemctl status stacklab` is `active (running)`
-- `curl -fsS http://127.0.0.1:8080/api/health` succeeds
+- `curl -fsS http://127.0.0.1:8080/api/ready` succeeds
 
 ### Core product checks
 
@@ -160,7 +160,7 @@ If the tarball upgrade fails:
 ```bash
 sudo ln -sfn /opt/stacklab/app/releases/<previous> /opt/stacklab/app/current
 sudo systemctl restart stacklab
-curl -fsS http://127.0.0.1:8080/api/health
+curl -fsS http://127.0.0.1:8080/api/ready
 ```
 
 ## Exit Criteria

@@ -134,7 +134,7 @@ cd ..
 scripts/e2e/run-backend.sh > /tmp/stacklab-e2e.log 2>&1 &
 STACKLAB_PID=$!
 
-until curl -fsS http://127.0.0.1:18081/api/health >/dev/null; do
+until curl -fsS http://127.0.0.1:18081/api/ready >/dev/null; do
   sleep 1
 done
 

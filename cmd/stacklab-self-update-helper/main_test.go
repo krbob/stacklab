@@ -49,14 +49,14 @@ func TestValidateRunPolicyAllowsConfiguredSelfUpdateInputs(t *testing.T) {
 	withStacklabEnv(t, strings.Join([]string{
 		"STACKLAB_DATA_DIR=" + dataDir,
 		"STACKLAB_SELF_UPDATE_PACKAGE_NAME=stacklab",
-		"STACKLAB_SELF_UPDATE_HEALTH_URL=http://127.0.0.1:8080/api/health",
+		"STACKLAB_SELF_UPDATE_HEALTH_URL=http://127.0.0.1:8080/api/ready",
 		"STACKLAB_SYSTEMD_UNIT=stacklab",
 	}, "\n"))
 
 	err := validateRunPolicy(
 		filepath.Join(dataDir, "stacklab.db"),
 		"stacklab",
-		"http://127.0.0.1:8080/api/health",
+		"http://127.0.0.1:8080/api/ready",
 		"stacklab",
 		defaultRuntimeKey,
 	)
@@ -101,7 +101,7 @@ func TestValidateRunPolicyRejectsFlagOverrides(t *testing.T) {
 			name:        "health URL",
 			dbPath:      dbPath,
 			packageName: "stacklab",
-			healthURL:   "http://127.0.0.1:9/api/health",
+			healthURL:   "http://127.0.0.1:9/api/ready",
 			serviceUnit: defaultSystemdUnit,
 			runtimeKey:  defaultRuntimeKey,
 			want:        "health-url",
@@ -141,7 +141,7 @@ func TestValidateRequestedVersionRejectsUnsafeTokens(t *testing.T) {
 }
 
 func TestLoadSelfUpdatePolicyRejectsInvalidConfiguredHealthURL(t *testing.T) {
-	withStacklabEnv(t, "STACKLAB_SELF_UPDATE_HEALTH_URL=https://user:pass@example.test/api/health\n")
+	withStacklabEnv(t, "STACKLAB_SELF_UPDATE_HEALTH_URL=https://user:pass@example.test/api/ready\n")
 	_, err := loadSelfUpdatePolicy()
 	if err == nil || !strings.Contains(err.Error(), "health URL") {
 		t.Fatalf("loadSelfUpdatePolicy() error = %v, want health URL error", err)

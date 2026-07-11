@@ -227,6 +227,60 @@ func TestHandlerConfigWorkspaceFileReturnsContentTooLarge(t *testing.T) {
 	}
 }
 
+func TestHandlerSeparatesLivenessFromComponentReadiness(t *testing.T) {
+	t.Parallel()
+
+	handler := &Handler{
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		readinessChecks: []readinessCheck{
+			{name: "database", check: func(context.Context) error { return errors.New("database unavailable") }},
+			{name: "frontend", check: func(context.Context) error { return nil }},
+			{name: "runtime", check: func(context.Context) error { return nil }},
+		},
+	}
+
+	readyResponse := httptest.NewRecorder()
+	handler.handleReady(readyResponse, httptest.NewRequest(http.MethodGet, "/api/ready", nil))
+	if readyResponse.Code != http.StatusServiceUnavailable {
+		t.Fatalf("ready status = %d, want %d; body=%s", readyResponse.Code, http.StatusServiceUnavailable, readyResponse.Body.String())
+	}
+	var payload readinessResponse
+	decodeInternalResponse(t, readyResponse, &payload)
+	if payload.Status != "unavailable" || payload.Checks["database"].Status != "error" || payload.Checks["frontend"].Status != "ok" || payload.Checks["runtime"].Status != "ok" {
+		t.Fatalf("unexpected readiness payload: %#v", payload)
+	}
+	if payload.Checks["database"].Message != "unavailable" {
+		t.Fatalf("readiness leaked or omitted safe component message: %#v", payload.Checks["database"])
+	}
+
+	liveResponse := httptest.NewRecorder()
+	handler.handleLive(liveResponse, httptest.NewRequest(http.MethodGet, "/api/live", nil))
+	if liveResponse.Code != http.StatusOK {
+		t.Fatalf("live status = %d, want %d; body=%s", liveResponse.Code, http.StatusOK, liveResponse.Body.String())
+	}
+}
+
+func TestCheckFrontendAssetsRejectsMissingAndEmptyIndex(t *testing.T) {
+	t.Parallel()
+
+	frontendDir := t.TempDir()
+	if err := checkFrontendAssets(frontendDir); err == nil {
+		t.Fatal("checkFrontendAssets(missing) error = nil")
+	}
+	if err := os.WriteFile(filepath.Join(frontendDir, "index.html"), nil, 0o644); err != nil {
+		t.Fatalf("WriteFile(empty index) error = %v", err)
+	}
+	if err := checkFrontendAssets(frontendDir); err == nil {
+		t.Fatal("checkFrontendAssets(empty) error = nil")
+	}
+	if err := os.WriteFile(filepath.Join(frontendDir, "index.html"), []byte("<!doctype html>"), 0o644); err != nil {
+		t.Fatalf("WriteFile(index) error = %v", err)
+	}
+	if err := checkFrontendAssets(frontendDir); err != nil {
+		t.Fatalf("checkFrontendAssets(valid) error = %v", err)
+	}
+}
+
 func TestHandlerPutDefinitionReturnsStackLockedWhenAnotherJobOwnsStack(t *testing.T) {
 	t.Parallel()
 
@@ -2185,6 +2239,9 @@ func newInternalTestHandler(t *testing.T) (*Handler, http.Handler, config.Config
 	}
 	if err := os.MkdirAll(cfg.FrontendDistDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(frontend dist) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.FrontendDistDir, "index.html"), []byte("<!doctype html><title>Stacklab</title>"), 0o644); err != nil {
+		t.Fatalf("WriteFile(frontend index) error = %v", err)
 	}
 
 	testStore, err := store.Open(cfg.DatabasePath)

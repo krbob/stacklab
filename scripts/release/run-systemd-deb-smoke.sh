@@ -24,7 +24,7 @@ wait_for_stacklab() {
 
   while (( SECONDS < deadline )); do
     if systemctl is-active --quiet stacklab.service \
-      && curl -fsS http://127.0.0.1:8080/api/health >/dev/null 2>&1; then
+      && curl -fsS http://127.0.0.1:8080/api/ready >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
@@ -59,7 +59,7 @@ assert_health_and_frontend() {
   local asset_path
   local asset_url
 
-  curl -fsS http://127.0.0.1:8080/api/health >"${health_file}"
+  curl -fsS http://127.0.0.1:8080/api/ready >"${health_file}"
   grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"' "${health_file}" \
     || die "health response after ${phase} did not report status=ok"
 

@@ -41,7 +41,13 @@ export type TerminalExitReason = 'process_exit' | 'idle_timeout' | 'server_clean
 // --- REST response shapes ---
 
 export interface HealthResponse {
-  status: string
+  status: 'ok' | 'unavailable'
+  version: string
+  checks: Record<string, { status: 'ok' | 'error'; message?: string }>
+}
+
+export interface LivenessResponse {
+  status: 'ok'
   version: string
 }
 
