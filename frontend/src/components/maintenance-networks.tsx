@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getMaintenanceNetworks, createMaintenanceNetwork, deleteMaintenanceNetwork } from '@/lib/api-client'
 import { useApi } from '@/hooks/use-api'
+import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import type { MaintenanceNetworkItem } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -26,6 +27,7 @@ export function MaintenanceNetworks() {
   const [usage, setUsage] = useState<Usage>('all')
   const [origin, setOrigin] = useState<Origin>('all')
   const [search, setSearch] = useState('')
+  const debouncedSearch = useDebouncedValue(search)
   const [showCreate, setShowCreate] = useState(false)
   const [createName, setCreateName] = useState('')
   const [creating, setCreating] = useState(false)
@@ -35,8 +37,8 @@ export function MaintenanceNetworks() {
   const [deletingName, setDeletingName] = useState<string | null>(null)
 
   const { data, error, loading, refetch } = useApi(
-    () => getMaintenanceNetworks({ usage: usage !== 'all' ? usage : undefined, origin: origin !== 'all' ? origin : undefined, q: search || undefined }),
-    [usage, origin, search],
+    () => getMaintenanceNetworks({ usage: usage !== 'all' ? usage : undefined, origin: origin !== 'all' ? origin : undefined, q: debouncedSearch || undefined }),
+    [usage, origin, debouncedSearch],
   )
 
   const networks = data?.items ?? []
@@ -88,7 +90,7 @@ export function MaintenanceNetworks() {
           {(['all', 'stack_managed', 'external'] as const).map((v) => (
             <button key={v} onClick={() => setOrigin(v)} aria-pressed={origin === v} className={cn('rounded-md border px-2.5 py-1 text-xs transition', origin === v ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}>{v.replace('_', ' ')}</button>
           ))}
-          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search..." className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
+          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search..." aria-label="Search networks" className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
           <button onClick={() => setShowCreate(true)} className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-2.5 py-1 text-xs text-[var(--text)]">Create network</button>
           <button onClick={refetch} className="rounded-md border border-[var(--panel-border)] px-2.5 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]">Refresh</button>
         </div>

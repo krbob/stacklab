@@ -21,6 +21,7 @@ authoritative for the implemented interface.
 - [states-and-empty-cases.md](states-and-empty-cases.md) — stack/service/operation state model, badges, empty states, loading, errors, confirmation dialogs
 - [accessibility-dynamic-status.md](accessibility-dynamic-status.md) — ARIA and keyboard contract for dynamic status, loading, progress, tabs, toggles, and the command palette
 - [readability-and-motion.md](readability-and-motion.md) — text-size floor, AA token contrast, local fonts, reduced motion, and texture limits
+- [maintenance-experience.md](maintenance-experience.md) — lazy tab lifecycle, debounced inventory search, stack status, idle review, and recent runs
 - [editor-progress-integration.md](editor-progress-integration.md) — backend-backed integration notes for the editor, mutating actions, and progress panel
 - [global-activity-handoff.md](global-activity-handoff.md) — app-wide background job visibility, collapsed chrome activity, and active job list guidance
 - [job-detail-handoff.md](job-detail-handoff.md) — shared job detail guidance for audit/history/global activity links

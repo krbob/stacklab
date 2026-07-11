@@ -10,6 +10,7 @@ const mockUseJobStream = vi.fn()
 const mockPruneRefetch = vi.fn()
 
 vi.mock('@/lib/api-client', () => ({
+  getGlobalAudit: vi.fn(),
   getStacks: vi.fn(),
   updateStacksMaintenance: (...args: unknown[]) => mockUpdateStacksMaintenance(...args),
   getMaintenanceImages: vi.fn(),
@@ -81,6 +82,52 @@ describe('MaintenancePage', () => {
       if (source.includes('getStacks')) {
         return {
           data: stacksData,
+          error: null,
+          loading: false,
+          refetch: vi.fn(),
+        }
+      }
+
+      if (source.includes('getGlobalAudit')) {
+        return {
+          data: {
+            items: [
+              {
+                id: 'audit-update',
+                stack_id: null,
+                job_id: 'job-update-history',
+                action: 'update_stacks',
+                requested_by: 'local',
+                result: 'succeeded',
+                requested_at: '2026-07-11T10:00:00Z',
+                finished_at: '2026-07-11T10:01:00Z',
+                duration_ms: 60_000,
+              },
+              {
+                id: 'audit-prune',
+                stack_id: null,
+                job_id: 'job-prune-history',
+                action: 'prune',
+                requested_by: 'local',
+                result: 'failed',
+                requested_at: '2026-07-10T10:00:00Z',
+                finished_at: '2026-07-10T10:00:10Z',
+                duration_ms: 10_000,
+              },
+              {
+                id: 'audit-login',
+                stack_id: null,
+                job_id: null,
+                action: 'login',
+                requested_by: 'local',
+                result: 'succeeded',
+                requested_at: '2026-07-09T10:00:00Z',
+                finished_at: '2026-07-09T10:00:00Z',
+                duration_ms: 1,
+              },
+            ],
+            next_cursor: null,
+          },
           error: null,
           loading: false,
           refetch: vi.fn(),
@@ -201,6 +248,33 @@ describe('MaintenancePage', () => {
     expect(imagesTab).toHaveFocus()
     expect(imagesTab).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByRole('tabpanel', { name: 'Images' })).toBeVisible()
+  })
+
+  it('mounts inventory tabs only after their first activation', () => {
+    render(<MaintenancePage />)
+
+    expect(mockUseApi.mock.calls.map((call) => String(call[0])).some((source) => source.includes('getMaintenanceImages'))).toBe(false)
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Images' }))
+
+    expect(mockUseApi.mock.calls.map((call) => String(call[0])).some((source) => source.includes('getMaintenanceImages'))).toBe(true)
+    expect(screen.getByRole('tabpanel', { name: 'Images' })).toBeVisible()
+  })
+
+  it('shows stack runtime status and a useful idle summary with recent runs', () => {
+    render(<MaintenancePage />)
+
+    expect(screen.getByText('2 stacks in scope')).toBeInTheDocument()
+    expect(screen.getByText('✓ Pull images')).toBeInTheDocument()
+    const recent = within(screen.getByTestId('recent-maintenance'))
+    expect(recent.getByText('Recent maintenance')).toBeInTheDocument()
+    expect(recent.getByText('Update stacks')).toBeInTheDocument()
+    expect(recent.getByText('Cleanup')).toBeInTheDocument()
+    expect(recent.queryByText('login')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('Selected stacks'))
+    expect(screen.getByText('defined · 0/1')).toBeInTheDocument()
+    expect(screen.getByText('running · 1/1')).toBeInTheDocument()
   })
 
   it('never sends include_volumes when prune_after is disabled', async () => {

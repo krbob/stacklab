@@ -1,7 +1,8 @@
-import { useCallback, useMemo, useState } from 'react'
-import { getStacks, updateStacksMaintenance } from '@/lib/api-client'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { getGlobalAudit, getStacks, updateStacksMaintenance } from '@/lib/api-client'
 import { useApi } from '@/hooks/use-api'
 import { useJobStream } from '@/hooks/use-job-stream'
+import { useJobDrawer } from '@/hooks/use-job-drawer'
 import { MaintenanceImages } from '@/components/maintenance-images'
 import { MaintenanceCleanup } from '@/components/maintenance-cleanup'
 import { MaintenanceNetworks } from '@/components/maintenance-networks'
@@ -9,7 +10,7 @@ import { MaintenanceVolumes } from '@/components/maintenance-volumes'
 import { StepCards } from '@/components/step-cards'
 import { PageHeader } from '@/components/page-header'
 import { ConfirmDialog } from '@/components/confirm-dialog'
-import type { StackListItem } from '@/lib/api-types'
+import type { AuditEntry, StackListItem } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
 
 type MaintenanceTab = 'update' | 'images' | 'networks' | 'volumes' | 'cleanup'
@@ -32,6 +33,16 @@ const stepStatusColors: Record<string, string> = {
 
 export function MaintenancePage() {
   const { data: stacksData } = useApi(() => getStacks(), [])
+  const {
+    data: auditData,
+    error: auditError,
+    loading: auditLoading,
+    refetch: refetchAudit,
+  } = useApi(() => getGlobalAudit({ limit: 25 }), [])
+  const { openJob } = useJobDrawer()
+
+  const [activeTab, setActiveTab] = useState<MaintenanceTab>('update')
+  const [mountedTabs, setMountedTabs] = useState<Set<MaintenanceTab>>(() => new Set(['update']))
 
   const [targetMode, setTargetMode] = useState<TargetMode>('all')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -49,9 +60,23 @@ export function MaintenancePage() {
   const { events, state: jobState } = useJobStream({ jobId })
 
   const stacks = useMemo(() => stacksData?.items ?? [], [stacksData])
+  const recentMaintenance = useMemo(
+    () => (auditData?.items ?? []).filter((entry) => entry.action === 'update_stacks' || entry.action === 'prune').slice(0, 5),
+    [auditData],
+  )
   const isTerminal = jobState === 'succeeded' || jobState === 'failed' || jobState === 'cancelled' || jobState === 'timed_out'
   const running = startPending || (jobId !== null && !isTerminal)
   const canStart = targetMode === 'all' ? stacks.length > 0 : selectedIds.size > 0
+
+  const activateTab = useCallback((tab: MaintenanceTab) => {
+    setActiveTab(tab)
+    setMountedTabs((current) => {
+      if (current.has(tab)) return current
+      const next = new Set(current)
+      next.add(tab)
+      return next
+    })
+  }, [])
 
   const toggleStack = useCallback((id: string) => {
     setSelectedIds((prev) => {
@@ -106,7 +131,9 @@ export function MaintenancePage() {
     void handleStart()
   }, [handleStart, pruneAfter, pruneVolumes])
 
-  const [activeTab, setActiveTab] = useState<MaintenanceTab>('update')
+  useEffect(() => {
+    if (jobId && isTerminal) refetchAudit()
+  }, [isTerminal, jobId, refetchAudit])
 
   return (
     <div className="flex flex-col gap-4" style={{ minHeight: 'calc(100vh - 120px)' }}>
@@ -124,7 +151,7 @@ export function MaintenancePage() {
                 aria-selected={activeTab === key}
                 aria-controls={`maintenance-panel-${key}`}
                 tabIndex={activeTab === key ? 0 : -1}
-                onClick={() => setActiveTab(key)}
+                onClick={() => activateTab(key)}
                 onKeyDown={(event) => {
                   let nextIndex: number
                   if (event.key === 'ArrowRight') nextIndex = (index + 1) % maintenanceTabs.length
@@ -134,7 +161,7 @@ export function MaintenancePage() {
                   else return
                   event.preventDefault()
                   const nextTab = maintenanceTabs[nextIndex][0]
-                  setActiveTab(nextTab)
+                  activateTab(nextTab)
                   document.getElementById(`maintenance-tab-${nextTab}`)?.focus()
                 }}
                 className={cn('shrink-0 whitespace-nowrap rounded-md border px-3 py-1.5 text-xs transition', activeTab === key ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
@@ -146,21 +173,29 @@ export function MaintenancePage() {
         }
       />
 
-      <div id="maintenance-panel-images" role="tabpanel" aria-labelledby="maintenance-tab-images" hidden={activeTab !== 'images'}>
-        <MaintenanceImages />
-      </div>
+      {mountedTabs.has('images') && (
+        <div id="maintenance-panel-images" role="tabpanel" aria-labelledby="maintenance-tab-images" hidden={activeTab !== 'images'}>
+          <MaintenanceImages />
+        </div>
+      )}
 
-      <div id="maintenance-panel-networks" role="tabpanel" aria-labelledby="maintenance-tab-networks" hidden={activeTab !== 'networks'}>
-        <MaintenanceNetworks />
-      </div>
+      {mountedTabs.has('networks') && (
+        <div id="maintenance-panel-networks" role="tabpanel" aria-labelledby="maintenance-tab-networks" hidden={activeTab !== 'networks'}>
+          <MaintenanceNetworks />
+        </div>
+      )}
 
-      <div id="maintenance-panel-volumes" role="tabpanel" aria-labelledby="maintenance-tab-volumes" hidden={activeTab !== 'volumes'}>
-        <MaintenanceVolumes />
-      </div>
+      {mountedTabs.has('volumes') && (
+        <div id="maintenance-panel-volumes" role="tabpanel" aria-labelledby="maintenance-tab-volumes" hidden={activeTab !== 'volumes'}>
+          <MaintenanceVolumes />
+        </div>
+      )}
 
-      <div id="maintenance-panel-cleanup" role="tabpanel" aria-labelledby="maintenance-tab-cleanup" hidden={activeTab !== 'cleanup'}>
-        <MaintenanceCleanup />
-      </div>
+      {mountedTabs.has('cleanup') && (
+        <div id="maintenance-panel-cleanup" role="tabpanel" aria-labelledby="maintenance-tab-cleanup" hidden={activeTab !== 'cleanup'}>
+          <MaintenanceCleanup />
+        </div>
+      )}
 
       <div id="maintenance-panel-update" role="tabpanel" aria-labelledby="maintenance-tab-update" hidden={activeTab !== 'update'}>
     <div className="flex flex-col gap-4 lg:flex-row">
@@ -269,8 +304,19 @@ export function MaintenancePage() {
         <h2 className="text-lg font-medium text-[var(--text)]">Progress</h2>
 
         {!jobId && (
-          <div className="flex flex-1 items-center justify-center">
-            <p className="text-sm text-[var(--muted)]">Configure and start an update workflow.</p>
+          <div className="mt-4 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4">
+            <h3 className="text-sm font-medium text-[var(--text)]">Ready to run</h3>
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              {targetMode === 'all'
+                ? `${stacks.length} stack${stacks.length === 1 ? '' : 's'} in scope`
+                : `${selectedIds.size} of ${stacks.length} stacks selected`}
+            </p>
+            <ul className="mt-3 grid gap-1 text-xs text-[var(--muted)] sm:grid-cols-2">
+              <li>{pullImages ? '✓ Pull images' : '– Skip image pull'}</li>
+              <li>{buildImages ? '✓ Build local images' : '– Skip builds'}</li>
+              <li>{removeOrphans ? '✓ Remove orphans' : '– Keep orphans'}</li>
+              <li>{pruneAfter ? `✓ Cleanup${pruneVolumes ? ' including volumes' : ''}` : '– No cleanup after update'}</li>
+            </ul>
           </div>
         )}
 
@@ -288,9 +334,71 @@ export function MaintenancePage() {
             <StepCards events={events} />
           </div>
         )}
+
+        <RecentMaintenance
+          entries={recentMaintenance}
+          loading={auditLoading}
+          error={auditError}
+          onOpenJob={openJob}
+        />
       </div>
     </div>
       </div>
+    </div>
+  )
+}
+
+function RecentMaintenance({ entries, loading, error, onOpenJob }: {
+  entries: AuditEntry[]
+  loading: boolean
+  error: Error | null
+  onOpenJob: (jobId: string) => void
+}) {
+  const resultColors: Record<string, string> = {
+    succeeded: 'text-[var(--ok)]',
+    failed: 'text-[var(--danger)]',
+    timed_out: 'text-[var(--danger)]',
+    cancelled: 'text-[var(--muted)]',
+  }
+
+  return (
+    <div data-testid="recent-maintenance" className="mt-6 border-t border-[var(--panel-border)] pt-4">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-medium text-[var(--text)]">Recent maintenance</h3>
+        <span className="text-xs text-[var(--muted)]">durable audit history</span>
+      </div>
+      {loading && entries.length === 0 && <p className="mt-3 text-xs text-[var(--muted)]" role="status">Loading recent runs…</p>}
+      {error && !loading && <p className="mt-3 text-xs text-[var(--danger)]">Recent runs unavailable.</p>}
+      {!loading && !error && entries.length === 0 && (
+        <p className="mt-3 text-xs text-[var(--muted)]">No update or cleanup run has finished yet.</p>
+      )}
+      {entries.length > 0 && (
+        <div className="mt-3 space-y-1">
+          {entries.map((entry) => {
+            const content = (
+              <>
+                <span className="font-medium text-[var(--text)]">{entry.action === 'prune' ? 'Cleanup' : 'Update stacks'}</span>
+                <span className={cn('ml-auto', resultColors[entry.result] ?? 'text-[var(--muted)]')}>{entry.result}</span>
+                <span className="w-28 text-right tabular-nums text-[var(--muted)]">{new Date(entry.requested_at).toLocaleString()}</span>
+              </>
+            )
+            return entry.job_id ? (
+              <button
+                type="button"
+                key={entry.id}
+                onClick={() => onOpenJob(entry.job_id!)}
+                className="flex w-full items-center gap-3 rounded-md border border-[var(--panel-border)] px-3 py-2 text-left text-xs transition hover:border-[rgba(245,165,36,0.25)] hover:bg-[rgba(255,255,255,0.03)]"
+              >
+                {content}
+              </button>
+            ) : (
+              <div key={entry.id} className="flex items-center gap-3 rounded-md border border-[var(--panel-border)] px-3 py-2 text-xs">
+                {content}
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
@@ -301,20 +409,27 @@ function StackCheckbox({ stack, checked, onChange, disabled }: {
   onChange: () => void
   disabled: boolean
 }) {
-  const stateColors: Record<string, string> = {
+  const stateDotColors: Record<string, string> = {
+    running: 'bg-[var(--ok)]',
+    stopped: 'bg-[var(--muted)]',
+    partial: 'bg-[var(--warning)]',
+    error: 'bg-[var(--danger)]',
+    defined: 'bg-[var(--muted)]',
+  }
+  const stateTextColors: Record<string, string> = {
     running: 'text-[var(--ok)]',
-    stopped: 'text-[var(--muted)]',
     partial: 'text-[var(--warning)]',
     error: 'text-[var(--danger)]',
-    defined: 'text-[var(--muted)]',
   }
 
   return (
     <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition hover:bg-[rgba(255,255,255,0.03)]">
       <input type="checkbox" checked={checked} onChange={onChange} disabled={disabled} className="rounded" />
-      <span className={cn('inline-block size-1.5 rounded-full', stateColors[stack.runtime_state] ?? 'bg-stone-600')} />
-      <span className="text-[var(--text)]">{stack.name}</span>
-      <span className="text-[var(--muted)]">{stack.service_count.running}/{stack.service_count.defined}</span>
+      <span aria-hidden="true" className={cn('inline-block size-1.5 rounded-full', stateDotColors[stack.runtime_state] ?? 'bg-[var(--muted)]')} />
+      <span className="min-w-0 flex-1 truncate text-[var(--text)]">{stack.name}</span>
+      <span className={cn('shrink-0 text-[var(--muted)]', stateTextColors[stack.runtime_state])}>
+        {stack.runtime_state.replace('_', ' ')} · {stack.service_count.running}/{stack.service_count.defined}
+      </span>
     </label>
   )
 }

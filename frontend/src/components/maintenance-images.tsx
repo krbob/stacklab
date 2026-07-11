@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getMaintenanceImages } from '@/lib/api-client'
 import { useApi } from '@/hooks/use-api'
+import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import type { MaintenanceImageItem, MaintenanceImageUsage, MaintenanceImageOrigin } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
 
@@ -15,10 +16,11 @@ export function MaintenanceImages() {
   const [usage, setUsage] = useState<MaintenanceImageUsage>('all')
   const [origin, setOrigin] = useState<MaintenanceImageOrigin>('all')
   const [search, setSearch] = useState('')
+  const debouncedSearch = useDebouncedValue(search)
 
   const { data, error, loading, refetch } = useApi(
-    () => getMaintenanceImages({ usage: usage !== 'all' ? usage : undefined, origin: origin !== 'all' ? origin : undefined, q: search || undefined }),
-    [usage, origin, search],
+    () => getMaintenanceImages({ usage: usage !== 'all' ? usage : undefined, origin: origin !== 'all' ? origin : undefined, q: debouncedSearch || undefined }),
+    [usage, origin, debouncedSearch],
   )
 
   const images = data?.items ?? []
@@ -67,6 +69,7 @@ export function MaintenanceImages() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search..."
+            aria-label="Search images"
             className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
           />
 
