@@ -27,6 +27,7 @@ import (
 	"stacklab/internal/maintenance"
 	"stacklab/internal/maintenancejobs"
 	"stacklab/internal/notifications"
+	"stacklab/internal/requestid"
 	"stacklab/internal/scheduler"
 	"stacklab/internal/selfupdate"
 	"stacklab/internal/stacks"
@@ -227,14 +228,14 @@ func NewHandlerWithContext(appCtx context.Context, cfg config.Config, logger *sl
 	})
 
 	handler.registerRoutes()
-	handler.served = handler.withLogging(handler.withSecurityHeaders(handler.mux))
+	handler.served = handler.withRequestID(handler.withLogging(handler.withSecurityHeaders(handler.mux)))
 
 	return handler, nil
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.served == nil {
-		h.served = h.withLogging(h.withSecurityHeaders(h.mux))
+		h.served = h.withRequestID(h.withLogging(h.withSecurityHeaders(h.mux)))
 	}
 	h.served.ServeHTTP(w, r)
 }
@@ -2614,11 +2615,20 @@ func (h *Handler) withLogging(next http.Handler) http.Handler {
 		next.ServeHTTP(recorder, r)
 
 		h.logger.Info("http request",
+			slog.String("request_id", requestid.FromContext(r.Context())),
 			slog.String("method", r.Method),
 			slog.String("path", r.URL.Path),
 			slog.Int("status", recorder.status),
 			slog.Duration("duration", time.Since(startedAt)),
 		)
+	})
+}
+
+func (h *Handler) withRequestID(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := requestid.Resolve(r.Header.Get(requestid.Header))
+		w.Header().Set(requestid.Header, id)
+		next.ServeHTTP(w, r.WithContext(requestid.WithContext(r.Context(), id)))
 	})
 }
 

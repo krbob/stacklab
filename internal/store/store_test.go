@@ -103,6 +103,7 @@ func TestCreateJobWithInitialEventPersistsWorkflowAtomically(t *testing.T) {
 		Action:      "up",
 		State:       "running",
 		RequestedBy: "local",
+		RequestID:   "req_atomic_start",
 		RequestedAt: now,
 		StartedAt:   &now,
 		Workflow: &JobWorkflow{Steps: []JobWorkflowStep{
@@ -128,6 +129,9 @@ func TestCreateJobWithInitialEventPersistsWorkflowAtomically(t *testing.T) {
 	}
 	if stored.Workflow == nil || len(stored.Workflow.Steps) != 2 || stored.Workflow.Steps[0].State != "running" {
 		t.Fatalf("stored workflow = %#v", stored.Workflow)
+	}
+	if stored.RequestID != "req_atomic_start" {
+		t.Fatalf("stored request ID = %q", stored.RequestID)
 	}
 	events, err := testStore.ListJobEvents(ctx, job.ID)
 	if err != nil {
@@ -368,8 +372,8 @@ func TestOpenUpgradesPreviousVersionAndPreservesData(t *testing.T) {
 		}
 	}
 	if _, err := db.ExecContext(ctx, `
-		INSERT INTO jobs (id, stack_id, action, state, requested_by, requested_at, started_at)
-		VALUES ('job_previous_version', 'demo', 'up', 'running', 'local', '2026-07-12T10:00:00Z', '2026-07-12T10:00:00Z');
+		INSERT INTO jobs (id, stack_id, action, state, requested_by, requested_at, started_at, event_sequence)
+		VALUES ('job_previous_version', 'demo', 'up', 'running', 'local', '2026-07-12T10:00:00Z', '2026-07-12T10:00:00Z', 2);
 		INSERT INTO job_events (job_id, sequence, event, state, timestamp) VALUES
 			('job_previous_version', 1, 'job_started', 'running', '2026-07-12T10:00:00Z'),
 			('job_previous_version', 2, 'job_log', 'running', '2026-07-12T10:00:01Z');
@@ -393,6 +397,13 @@ func TestOpenUpgradesPreviousVersionAndPreservesData(t *testing.T) {
 	}
 	if migrationCount != len(schemaMigrations) || maxVersion != currentSchemaVersion {
 		t.Fatalf("migration history = count %d max %d, want %d/%d", migrationCount, maxVersion, len(schemaMigrations), currentSchemaVersion)
+	}
+	previousJob, err := testStore.JobByID(ctx, "job_previous_version")
+	if err != nil {
+		t.Fatalf("JobByID(after versioned upgrade) error = %v", err)
+	}
+	if previousJob.RequestID != "" {
+		t.Fatalf("migrated previous job request ID = %q, want empty", previousJob.RequestID)
 	}
 	appended, err := testStore.AppendJobEvent(ctx, JobEvent{
 		JobID: "job_previous_version", Event: "job_log", State: "running", Timestamp: time.Date(2026, 7, 12, 10, 0, 2, 0, time.UTC),

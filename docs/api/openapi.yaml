@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Stacklab API
   version: 0.1.0
-  summary: Compose-first homelab control panel API
+  description: Compose-first homelab control panel API. Every HTTP response includes `X-Request-ID`; the same optional request header is accepted when it matches the safe identifier format.
 servers:
   - url: /api
 security:
@@ -1465,6 +1465,15 @@ components:
       in: cookie
       name: stacklab_session
   parameters:
+    RequestID:
+      in: header
+      name: X-Request-ID
+      required: false
+      description: Optional caller correlation ID. Unsafe values are replaced by the server.
+      schema:
+        type: string
+        maxLength: 128
+        pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'
     StackId:
       in: path
       name: stackId
@@ -1500,45 +1509,71 @@ components:
       schema:
         type: string
         enum: [validate, up, down, stop, restart, pull, build, recreate]
+  headers:
+    RequestID:
+      description: Correlates the response, structured request log, and any job started by the request.
+      schema:
+        type: string
   responses:
     ErrorUnauthorized:
       description: Authentication required or invalid session.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestID'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     ErrorNotFound:
       description: Resource not found.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestID'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     ErrorConflict:
       description: Request conflicts with current state.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestID'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     ErrorInvalidState:
       description: Operation not allowed in current state.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestID'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     ErrorValidationFailed:
       description: Validation failed.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestID'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     ErrorContentTooLarge:
       description: File content or generated command output exceeds its bounded processing limit.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestID'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     ErrorBadGateway:
       description: Upstream delivery failed.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestID'
       content:
         application/json:
           schema:
@@ -3475,6 +3510,9 @@ components:
           type: string
         state:
           $ref: '#/components/schemas/JobState'
+        request_id:
+          type: string
+          description: HTTP request that started the job, when available.
         requested_at:
           type: string
           format: date-time
@@ -3563,6 +3601,9 @@ components:
           type: string
         state:
           $ref: '#/components/schemas/JobState'
+        request_id:
+          type: string
+          description: HTTP request that started the job, when available.
         requested_at:
           type: string
           format: date-time

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"stacklab/internal/requestid"
 	"stacklab/internal/store"
 )
 
@@ -138,6 +139,7 @@ func (s *Service) start(ctx context.Context, stackID, action, requestedBy string
 		Action:      action,
 		State:       "running",
 		RequestedBy: requestedBy,
+		RequestID:   requestid.FromContext(ctx),
 		RequestedAt: now,
 		StartedAt:   &now,
 	}
@@ -443,6 +445,7 @@ func (s *Service) ListActive(ctx context.Context) (ActiveJobsResponse, error) {
 			ID:          job.ID,
 			Action:      job.Action,
 			State:       job.State,
+			RequestID:   job.RequestID,
 			RequestedAt: job.RequestedAt,
 			StartedAt:   job.StartedAt,
 		}

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"stacklab/internal/requestid"
 	"stacklab/internal/store"
 )
 
@@ -39,7 +40,7 @@ func TestTerminalHookRunsOnFinishSucceeded(t *testing.T) {
 func TestStartWithWorkflowPersistsCompleteInitialization(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := requestid.WithContext(context.Background(), "req_job_workflow")
 	jobStore := openJobsTestStore(t)
 	service := NewService(jobStore)
 	workflow := []store.JobWorkflowStep{
@@ -54,12 +55,18 @@ func TestStartWithWorkflowPersistsCompleteInitialization(t *testing.T) {
 	if job.Workflow == nil || len(job.Workflow.Steps) != 2 {
 		t.Fatalf("started job workflow = %#v", job.Workflow)
 	}
+	if job.RequestID != "req_job_workflow" {
+		t.Fatalf("started job request ID = %q", job.RequestID)
+	}
 	stored, err := jobStore.JobByID(ctx, job.ID)
 	if err != nil {
 		t.Fatalf("JobByID() error = %v", err)
 	}
 	if stored.Workflow == nil || len(stored.Workflow.Steps) != 2 || stored.Workflow.Steps[0].Action != "pull" {
 		t.Fatalf("stored workflow = %#v", stored.Workflow)
+	}
+	if stored.RequestID != "req_job_workflow" {
+		t.Fatalf("stored job request ID = %q", stored.RequestID)
 	}
 	events, err := jobStore.ListJobEvents(ctx, job.ID)
 	if err != nil {

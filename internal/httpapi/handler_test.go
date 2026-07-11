@@ -153,6 +153,69 @@ func TestHandlerSetsSecurityHeaders(t *testing.T) {
 	if got := headers.Get("X-Frame-Options"); got != "DENY" {
 		t.Fatalf("X-Frame-Options = %q, want DENY", got)
 	}
+	if got := headers.Get("X-Request-ID"); got == "" {
+		t.Fatal("X-Request-ID is empty")
+	}
+}
+
+func TestHandlerCorrelatesRequestWithStartedJob(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := newTestHandler(t)
+	cookies := loginTestUser(t, handler, "test-password")
+	payload, err := json.Marshal(map[string]any{
+		"scope": map[string]any{
+			"images":             true,
+			"build_cache":        false,
+			"stopped_containers": false,
+			"volumes":            false,
+		},
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	const requestID = "req_prune_support_123"
+	request := httptest.NewRequest(http.MethodPost, "http://stacklab.test/api/maintenance/prune", bytes.NewReader(payload))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", "http://stacklab.test")
+	request.Header.Set("X-Request-ID", requestID)
+	for _, cookie := range cookies {
+		request.AddCookie(cookie)
+	}
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("POST /api/maintenance/prune status = %d, want %d; body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+	if got := response.Header().Get("X-Request-ID"); got != requestID {
+		t.Fatalf("response X-Request-ID = %q, want %q", got, requestID)
+	}
+	var started struct {
+		Job struct {
+			ID        string `json:"id"`
+			RequestID string `json:"request_id"`
+		} `json:"job"`
+	}
+	decodeResponse(t, response, &started)
+	if started.Job.ID == "" || started.Job.RequestID != requestID {
+		t.Fatalf("started job correlation = %#v", started.Job)
+	}
+
+	detailResponse := performJSONRequest(t, handler, http.MethodGet, "/api/jobs/"+started.Job.ID, nil, cookies)
+	if detailResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/jobs/%s status = %d; body=%s", started.Job.ID, detailResponse.Code, detailResponse.Body.String())
+	}
+	var detail struct {
+		Job struct {
+			RequestID string `json:"request_id"`
+		} `json:"job"`
+	}
+	decodeResponse(t, detailResponse, &detail)
+	if detail.Job.RequestID != requestID {
+		t.Fatalf("persisted job request ID = %q, want %q", detail.Job.RequestID, requestID)
+	}
 }
 
 func TestHandlerHealthRoutesSeparateLiveAndReady(t *testing.T) {

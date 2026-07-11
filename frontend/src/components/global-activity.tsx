@@ -29,6 +29,7 @@ function toActiveJobItem(job: JobDetail): ActiveJobItem {
     stack_id: job.stack_id,
     action: job.action,
     state: job.state,
+    request_id: job.request_id,
     requested_at: job.requested_at,
     started_at: job.started_at,
     workflow: job.workflow,

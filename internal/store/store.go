@@ -56,6 +56,7 @@ type Job struct {
 	Action       string       `json:"action"`
 	State        string       `json:"state"`
 	RequestedBy  string       `json:"-"`
+	RequestID    string       `json:"request_id,omitempty"`
 	RequestedAt  time.Time    `json:"requested_at"`
 	StartedAt    *time.Time   `json:"started_at"`
 	FinishedAt   *time.Time   `json:"finished_at"`
@@ -73,6 +74,7 @@ func (j Job) MarshalJSON() ([]byte, error) {
 		StackID     *string       `json:"stack_id"`
 		Action      string        `json:"action"`
 		State       string        `json:"state"`
+		RequestID   string        `json:"request_id,omitempty"`
 		RequestedAt time.Time     `json:"requested_at"`
 		StartedAt   *time.Time    `json:"started_at,omitempty"`
 		FinishedAt  *time.Time    `json:"finished_at,omitempty"`
@@ -94,6 +96,7 @@ func (j Job) MarshalJSON() ([]byte, error) {
 		StackID:     stackID,
 		Action:      j.Action,
 		State:       j.State,
+		RequestID:   j.RequestID,
 		RequestedAt: j.RequestedAt,
 		StartedAt:   j.StartedAt,
 		FinishedAt:  j.FinishedAt,
@@ -629,13 +632,14 @@ func createJob(ctx context.Context, executor sqlExecutor, job Job) error {
 
 	_, err := executor.ExecContext(
 		ctx,
-		`INSERT INTO jobs (id, stack_id, action, state, requested_by, requested_at, started_at, finished_at, workflow_json, error_code, error_message)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO jobs (id, stack_id, action, state, requested_by, request_id, requested_at, started_at, finished_at, workflow_json, error_code, error_message)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		job.ID,
 		job.StackID,
 		job.Action,
 		job.State,
 		job.RequestedBy,
+		nullIfEmpty(job.RequestID),
 		job.RequestedAt.UTC().Format(time.RFC3339Nano),
 		startedAt,
 		finishedAt,
@@ -833,7 +837,7 @@ func marshalJobWorkflow(workflow *JobWorkflow) (sql.NullString, error) {
 func (s *Store) JobByID(ctx context.Context, id string) (Job, error) {
 	job, err := scanJob(s.db.QueryRowContext(
 		ctx,
-		`SELECT id, stack_id, action, state, requested_by, requested_at, started_at, finished_at, workflow_json, error_code, error_message
+		`SELECT id, stack_id, action, state, requested_by, request_id, requested_at, started_at, finished_at, workflow_json, error_code, error_message
 		 FROM jobs
 		 WHERE id = ?`,
 		id,
@@ -851,7 +855,7 @@ func (s *Store) JobByID(ctx context.Context, id string) (Job, error) {
 func (s *Store) ListActiveJobs(ctx context.Context) ([]Job, error) {
 	rows, err := s.db.QueryContext(
 		ctx,
-		`SELECT id, stack_id, action, state, requested_by, requested_at, started_at, finished_at, workflow_json, error_code, error_message
+		`SELECT id, stack_id, action, state, requested_by, request_id, requested_at, started_at, finished_at, workflow_json, error_code, error_message
 		 FROM jobs
 		 WHERE state IN ('queued', 'running', 'cancel_requested')
 		 ORDER BY COALESCE(started_at, requested_at) DESC, requested_at DESC`,
@@ -1316,6 +1320,7 @@ func nullIfPtr(value *string) sql.NullString {
 }
 
 func scanJob(scanner interface{ Scan(dest ...any) error }) (Job, error) {
+	var rawRequestID sql.NullString
 	var rawRequestedAt string
 	var rawStartedAt sql.NullString
 	var rawFinishedAt sql.NullString
@@ -1330,6 +1335,7 @@ func scanJob(scanner interface{ Scan(dest ...any) error }) (Job, error) {
 		&job.Action,
 		&job.State,
 		&job.RequestedBy,
+		&rawRequestID,
 		&rawRequestedAt,
 		&rawStartedAt,
 		&rawFinishedAt,
@@ -1349,6 +1355,9 @@ func scanJob(scanner interface{ Scan(dest ...any) error }) (Job, error) {
 		return Job{}, fmt.Errorf("parse requested_at: %w", err)
 	}
 	job.RequestedAt = parsedRequestedAt
+	if rawRequestID.Valid {
+		job.RequestID = rawRequestID.String
+	}
 
 	if rawStartedAt.Valid {
 		startedAt, err := time.Parse(time.RFC3339Nano, rawStartedAt.String)

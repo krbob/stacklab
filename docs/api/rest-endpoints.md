@@ -45,6 +45,20 @@ Example:
 2026-04-03T18:42:00Z
 ```
 
+### Request Correlation
+
+Every HTTP response includes `X-Request-ID`. A client or reverse proxy may send
+an identifier using the same header when it matches the documented safe ASCII
+format; otherwise Stacklab generates one. The identifier is included in the
+structured request log and persisted on every job started by that request.
+
+The UI appends the response request ID to API error messages so an operator can
+search the service journal for the corresponding request. For example:
+
+```bash
+journalctl -u stacklab --output=json | jq 'select(.request_id == "req_...")'
+```
+
 ### Error Envelope
 
 Errors use a consistent envelope:

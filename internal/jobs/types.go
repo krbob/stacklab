@@ -30,6 +30,7 @@ type ActiveJobItem struct {
 	StackID     *string         `json:"stack_id"`
 	Action      string          `json:"action"`
 	State       string          `json:"state"`
+	RequestID   string          `json:"request_id,omitempty"`
 	RequestedAt time.Time       `json:"requested_at"`
 	StartedAt   *time.Time      `json:"started_at,omitempty"`
 	Workflow    *ActiveWorkflow `json:"workflow,omitempty"`

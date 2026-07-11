@@ -69,18 +69,21 @@ class ApiClientError extends Error {
   status: number
   code: string
   details?: Record<string, unknown>
+  requestId?: string
 
   constructor(
     status: number,
     code: string,
     message: string,
     details?: Record<string, unknown>,
+    requestId?: string,
   ) {
-    super(message)
+    super(requestId ? `${message} [Request ID: ${requestId}]` : message)
     this.name = 'ApiClientError'
     this.status = status
     this.code = code
     this.details = details
+    this.requestId = requestId
   }
 }
 
@@ -100,6 +103,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     let code = 'unknown'
     let message = res.statusText || `Request failed with status ${res.status}`
     let details: Record<string, unknown> | undefined
+    const requestId = res.headers?.get?.('X-Request-ID') || undefined
 
     try {
       const body = await res.json()
@@ -112,7 +116,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       // response body not JSON, use defaults
     }
 
-    throw new ApiClientError(res.status, code, message, details)
+    throw new ApiClientError(res.status, code, message, details, requestId)
   }
 
   return res.json() as Promise<T>

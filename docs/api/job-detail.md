@@ -30,6 +30,7 @@ This endpoint remains the source of truth for:
 
 - `action`
 - `state`
+- `request_id` when the job originated from an HTTP request
 - `stack_id`
 - `requested_at`
 - `started_at`
@@ -87,6 +88,7 @@ Only the last case is an actual error.
 ## Notes
 
 - event ordering is by ascending `sequence`
+- `request_id` correlates the job start response with the HTTP request log
 - `job_events` are immutable after write
 - step context is attached per event when available
 - this contract does not add cancellation or retry behavior

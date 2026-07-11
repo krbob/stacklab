@@ -410,6 +410,7 @@ export interface JobRef {
   stack_id: string | null
   action: string
   state: JobState
+  request_id?: string
   workflow?: {
     steps: { action: string; state: string; target_stack_id?: string }[]
   }
@@ -420,6 +421,7 @@ export interface JobDetail {
   stack_id: string | null
   action: string
   state: JobState
+  request_id?: string
   requested_at: string
   started_at: string | null
   finished_at: string | null
@@ -473,6 +475,7 @@ export interface ActiveJobItem {
   stack_id: string | null
   action: string
   state: JobState
+  request_id?: string
   requested_at: string
   started_at: string | null
   workflow?: {

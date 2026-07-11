@@ -316,6 +316,7 @@ Logs should include:
 - Docker/Compose availability failures
 - job lifecycle milestones
 - authentication failures without sensitive details
+- `request_id` on HTTP request records for UI-to-journal correlation
 
 ## Backup Considerations
 

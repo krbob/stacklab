@@ -138,6 +138,7 @@ Suggested columns:
 | `action` | `TEXT NOT NULL` | Domain action name |
 | `state` | `TEXT NOT NULL` | Domain job state |
 | `requested_by` | `TEXT NOT NULL` | `local` in v1 |
+| `request_id` | `TEXT` | HTTP request that started the job; null for internal/legacy jobs |
 | `requested_at` | `TEXT NOT NULL` | ISO 8601 UTC |
 | `started_at` | `TEXT` | Null until running |
 | `finished_at` | `TEXT` | Null until terminal |
@@ -308,6 +309,7 @@ Current versions:
 2. structured progress payloads for job events;
 3. password-generation binding for credentials and sessions;
 4. serialized per-job event sequence with a legacy event backfill.
+5. optional HTTP request correlation identifier on jobs.
 
 ## Schema Notes
 

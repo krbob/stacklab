@@ -17,11 +17,12 @@ function jsonResponse(data: unknown, status = 200) {
   })
 }
 
-function errorResponse(status: number, error: { code: string; message: string }) {
+function errorResponse(status: number, error: { code: string; message: string }, requestId?: string) {
   return Promise.resolve({
     ok: false,
     status,
     statusText: 'Error',
+    headers: new Headers(requestId ? { 'X-Request-ID': requestId } : undefined),
     json: () => Promise.resolve({ error }),
   })
 }
@@ -233,6 +234,22 @@ describe('api-client', () => {
       } catch (err) {
         expect(err).toBeInstanceOf(ApiClientError)
         expect((err as ApiClientError).status).toBe(401)
+      }
+    })
+
+    it('surfaces the response request ID for journal correlation', async () => {
+      mockFetch.mockReturnValueOnce(errorResponse(500, {
+        code: 'internal_error',
+        message: 'Operation failed.',
+      }, 'req_support_123'))
+
+      try {
+        await getStacks()
+        expect.fail('should throw')
+      } catch (err) {
+        const apiErr = err as ApiClientError
+        expect(apiErr.requestId).toBe('req_support_123')
+        expect(apiErr.message).toBe('Operation failed. [Request ID: req_support_123]')
       }
     })
 

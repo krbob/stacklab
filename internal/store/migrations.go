@@ -10,7 +10,7 @@ import (
 
 var ErrSchemaTooNew = errors.New("sqlite schema is newer than this Stacklab version")
 
-const currentSchemaVersion = 4
+const currentSchemaVersion = 5
 
 type schemaMigration struct {
 	version int
@@ -23,6 +23,7 @@ var schemaMigrations = []schemaMigration{
 	{version: 2, name: "job_event_progress", up: migrateJobEventProgress},
 	{version: 3, name: "password_version", up: migratePasswordVersion},
 	{version: 4, name: "job_event_sequence", up: migrateJobEventSequence},
+	{version: 5, name: "job_request_id", up: migrateJobRequestID},
 }
 
 func (s *Store) runMigrations(ctx context.Context) error {
@@ -269,6 +270,10 @@ func migrateJobEventSequence(ctx context.Context, tx *sql.Tx) error {
 		), 0)
 	`)
 	return err
+}
+
+func migrateJobRequestID(ctx context.Context, tx *sql.Tx) error {
+	return addColumnIfMissing(ctx, tx, "jobs", "request_id", `ALTER TABLE jobs ADD COLUMN request_id TEXT`)
 }
 
 func addColumnIfMissing(ctx context.Context, tx *sql.Tx, table, column, alterStatement string) error {
