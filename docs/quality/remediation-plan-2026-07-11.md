@@ -71,7 +71,7 @@ rozszerzania zakresu produktu poza model single-host i Compose-first.
 
 | ID | Status | Krok | Kryterium odbioru | Planowany commit |
 | --- | --- | --- | --- | --- |
-| REL-01 | planned | Zablokować release bez pełnego quality gate | stable/nightly/hotfix weryfikują dokładny SHA przez testy backend/frontend, hygiene i wymagane integration smoke | `ci: gate releases on verified source revisions` |
+| REL-01 | done | Zablokować release bez pełnego quality gate | stable/nightly/hotfix weryfikują dokładny SHA przez testy backend/frontend, hygiene i wymagane integration smoke | `ci: gate releases on verified source revisions` |
 | REL-02 | planned | Dodać prawdziwy package smoke | test uruchamia artefakt jako `stacklab` pod systemd, sprawdza readiness, frontend, login i upgrade A→B | `test(release): run package smoke under systemd` |
 | REL-03 | done | Ograniczyć uprawnienia workflowów | domyślnie `contents: read`; write tylko w publish; checkout bez utrwalonych credentials poza świadomym pushem | `ci: minimize release workflow permissions` |
 | REL-04 | planned | Przypiąć Actions i narzędzia analizy | Actions do pełnych SHA, staticcheck/govulncheck do wersji; Renovate nadal może proponować aktualizacje | `ci: pin workflow dependencies` |

@@ -1,0 +1,54 @@
+name: Release Quality Gate
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Exact source revision to validate before release
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  baseline-quality:
+    name: baseline-quality
+    uses: ./.github/workflows/pr-quality.yml
+    with:
+      source_sha: ${{ inputs.source_sha }}
+
+  docker-smoke:
+    name: docker-smoke
+    uses: ./.github/workflows/docker-integration.yml
+    with:
+      source_sha: ${{ inputs.source_sha }}
+
+  browser-smoke:
+    name: browser-smoke
+    uses: ./.github/workflows/browser-e2e.yml
+    with:
+      source_sha: ${{ inputs.source_sha }}
+
+  gate-result:
+    name: release-quality-gate
+    if: always()
+    needs: [baseline-quality, docker-smoke, browser-smoke]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every quality job
+        env:
+          BASELINE_RESULT: ${{ needs.baseline-quality.result }}
+          DOCKER_RESULT: ${{ needs.docker-smoke.result }}
+          BROWSER_RESULT: ${{ needs.browser-smoke.result }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'Quality results for %s: baseline=%s docker=%s browser=%s\n' \
+            "${SOURCE_SHA}" "${BASELINE_RESULT}" "${DOCKER_RESULT}" "${BROWSER_RESULT}"
+          if [[ "${BASELINE_RESULT}" != success ]] || \
+             [[ "${DOCKER_RESULT}" != success ]] || \
+             [[ "${BROWSER_RESULT}" != success ]]; then
+            exit 1
+          fi

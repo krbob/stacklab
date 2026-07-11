@@ -46,9 +46,16 @@ jobs:
           echo "release_version=${release_version}" >> "$GITHUB_OUTPUT"
           echo "previous_tag=${previous_tag}" >> "$GITHUB_OUTPUT"
 
+  quality-gate:
+    name: quality-gate-hotfix
+    needs: prepare
+    uses: ./.github/workflows/release-quality-gate.yml
+    with:
+      source_sha: ${{ github.sha }}
+
   build:
     name: build-hotfix-${{ matrix.arch }}
-    needs: prepare
+    needs: [prepare, quality-gate]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -124,7 +131,7 @@ jobs:
 
   publish:
     name: publish-hotfix
-    needs: [prepare, build, smoke-package]
+    needs: [prepare, quality-gate, build, smoke-package]
     permissions:
       contents: write
     runs-on: ubuntu-latest

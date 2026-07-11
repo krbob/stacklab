@@ -63,10 +63,18 @@ jobs:
             echo "previous_tag=${previous_tag}"
           } >> "$GITHUB_OUTPUT"
 
-  build:
-    name: build-stable-${{ matrix.arch }}
+  quality-gate:
+    name: quality-gate-stable
     needs: prepare
     if: needs.prepare.outputs.should_publish == 'true'
+    uses: ./.github/workflows/release-quality-gate.yml
+    with:
+      source_sha: ${{ github.sha }}
+
+  build:
+    name: build-stable-${{ matrix.arch }}
+    needs: [prepare, quality-gate]
+    if: needs.prepare.outputs.should_publish == 'true' && needs.quality-gate.result == 'success'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -143,8 +151,8 @@ jobs:
 
   publish:
     name: publish-stable
-    needs: [prepare, build, smoke-package]
-    if: needs.prepare.outputs.should_publish == 'true'
+    needs: [prepare, quality-gate, build, smoke-package]
+    if: needs.prepare.outputs.should_publish == 'true' && needs.quality-gate.result == 'success'
     permissions:
       contents: write
     runs-on: ubuntu-latest

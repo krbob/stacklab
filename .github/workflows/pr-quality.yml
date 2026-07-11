@@ -1,6 +1,12 @@
 name: PR Quality
 
 on:
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Exact source revision to validate
+        required: true
+        type: string
   pull_request:
   push:
     branches:
@@ -24,7 +30,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.source_sha || github.sha }}
           persist-credentials: false
+
+      - name: Verify source revision
+        env:
+          EXPECTED_SHA: ${{ inputs.source_sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -55,7 +67,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.source_sha || github.sha }}
           persist-credentials: false
+
+      - name: Verify source revision
+        env:
+          EXPECTED_SHA: ${{ inputs.source_sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
 
       - name: Setup Go
         uses: actions/setup-go@v6
@@ -73,7 +91,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.source_sha || github.sha }}
           persist-credentials: false
+
+      - name: Verify source revision
+        env:
+          EXPECTED_SHA: ${{ inputs.source_sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
 
       - name: Setup Go
         uses: actions/setup-go@v6

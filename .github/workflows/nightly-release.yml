@@ -70,10 +70,18 @@ jobs:
             echo "release_title=Stacklab nightly ${today} (${short_sha})"
           } >> "$GITHUB_OUTPUT"
 
-  build:
-    name: build-nightly-${{ matrix.arch }}
+  quality-gate:
+    name: quality-gate-nightly
     needs: prepare
     if: needs.prepare.outputs.should_publish == 'true'
+    uses: ./.github/workflows/release-quality-gate.yml
+    with:
+      source_sha: ${{ github.sha }}
+
+  build:
+    name: build-nightly-${{ matrix.arch }}
+    needs: [prepare, quality-gate]
+    if: needs.prepare.outputs.should_publish == 'true' && needs.quality-gate.result == 'success'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -150,8 +158,8 @@ jobs:
 
   publish:
     name: publish-nightly
-    needs: [prepare, build, smoke-package]
-    if: needs.prepare.outputs.should_publish == 'true'
+    needs: [prepare, quality-gate, build, smoke-package]
+    if: needs.prepare.outputs.should_publish == 'true' && needs.quality-gate.result == 'success'
     permissions:
       contents: write
     runs-on: ubuntu-latest
