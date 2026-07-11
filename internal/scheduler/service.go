@@ -39,13 +39,46 @@ type stackLister interface {
 	Get(ctx context.Context, stackID string) (stacks.StackDetailResponse, error)
 }
 
+type schedulerTicker interface {
+	C() <-chan time.Time
+	Stop()
+}
+
+type schedulerClock interface {
+	Now() time.Time
+	NewTicker(interval time.Duration) schedulerTicker
+}
+
+type systemClock struct{}
+
+func (systemClock) Now() time.Time {
+	return time.Now().UTC()
+}
+
+func (systemClock) NewTicker(interval time.Duration) schedulerTicker {
+	return systemTicker{ticker: time.NewTicker(interval)}
+}
+
+type systemTicker struct {
+	ticker *time.Ticker
+}
+
+func (ticker systemTicker) C() <-chan time.Time {
+	return ticker.ticker.C
+}
+
+func (ticker systemTicker) Stop() {
+	ticker.ticker.Stop()
+}
+
 type Service struct {
 	store        *store.Store
 	audit        *audit.Service
 	runner       runner
 	stackLister  stackLister
 	logger       *slog.Logger
-	now          func() time.Time
+	clock        schedulerClock
+	location     *time.Location
 	pollInterval time.Duration
 
 	mu        sync.Mutex
@@ -55,13 +88,24 @@ type Service struct {
 }
 
 func NewService(appStore *store.Store, auditService *audit.Service, runner runner, stackLister stackLister, logger *slog.Logger) *Service {
+	return newService(appStore, auditService, runner, stackLister, logger, systemClock{}, time.Now().Location())
+}
+
+func newService(appStore *store.Store, auditService *audit.Service, runner runner, stackLister stackLister, logger *slog.Logger, clock schedulerClock, location *time.Location) *Service {
+	if clock == nil {
+		clock = systemClock{}
+	}
+	if location == nil {
+		location = time.UTC
+	}
 	return &Service{
 		store:        appStore,
 		audit:        auditService,
 		runner:       runner,
 		stackLister:  stackLister,
 		logger:       logger,
-		now:          func() time.Time { return time.Now().UTC() },
+		clock:        clock,
+		location:     location,
 		pollInterval: 30 * time.Second,
 		running: map[string]bool{
 			"update": false,
@@ -80,7 +124,7 @@ func (s *Service) GetSettings(ctx context.Context) (SettingsResponse, error) {
 		return SettingsResponse{}, err
 	}
 
-	now := s.now()
+	now := s.clock.Now()
 	return SettingsResponse{
 		Timezone: hostLocalTimezone,
 		Update: ScheduledUpdatePolicy{
@@ -105,7 +149,7 @@ func (s *Service) UpdateSettings(ctx context.Context, request UpdateSettingsRequ
 	if err := s.saveSettings(ctx, settings); err != nil {
 		return SettingsResponse{}, err
 	}
-	if err := s.resetRuntimeState(ctx, settings, s.now()); err != nil {
+	if err := s.resetRuntimeState(ctx, settings, s.clock.Now()); err != nil {
 		return SettingsResponse{}, err
 	}
 	return s.GetSettings(ctx)
@@ -117,19 +161,23 @@ func (s *Service) StartBackground(ctx context.Context) {
 
 func (s *Service) RunBackground(ctx context.Context) {
 	s.loop(ctx)
+	s.waitForWorkers()
+}
+
+func (s *Service) waitForWorkers() {
 	s.workerWG.Wait()
 }
 
 func (s *Service) loop(ctx context.Context) {
 	s.runDueSchedules(ctx)
-	ticker := time.NewTicker(s.pollInterval)
+	ticker := s.clock.NewTicker(s.pollInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-ticker.C():
 			s.runDueSchedules(ctx)
 		}
 	}
@@ -147,13 +195,13 @@ func (s *Service) runDueSchedules(ctx context.Context) {
 		return
 	}
 
-	now := s.now()
+	now := s.clock.Now()
 	s.evaluateUpdate(ctx, settings.Update, runtimeState.Update, now)
 	s.evaluatePrune(ctx, settings.Prune, runtimeState.Prune, now)
 }
 
 func (s *Service) evaluateUpdate(ctx context.Context, config UpdateScheduleConfig, runtime scheduleRuntimeState, now time.Time) {
-	dueAt, ok := dueSchedule(config.Enabled, config.Frequency, config.Time, config.Weekdays, runtime.LastScheduledFor, now)
+	dueAt, ok := dueSchedule(config.Enabled, config.Frequency, config.Time, config.Weekdays, runtime.LastScheduledFor, now, s.location)
 	if !ok || !s.tryStart("update") {
 		return
 	}
@@ -187,7 +235,7 @@ func (s *Service) evaluateUpdate(ctx context.Context, config UpdateScheduleConfi
 }
 
 func (s *Service) evaluatePrune(ctx context.Context, config PruneScheduleConfig, runtime scheduleRuntimeState, now time.Time) {
-	dueAt, ok := dueSchedule(config.Enabled, config.Frequency, config.Time, config.Weekdays, runtime.LastScheduledFor, now)
+	dueAt, ok := dueSchedule(config.Enabled, config.Frequency, config.Time, config.Weekdays, runtime.LastScheduledFor, now, s.location)
 	if !ok || !s.tryStart("prune") {
 		return
 	}
@@ -248,7 +296,7 @@ func (s *Service) finalizeScheduledRun(ctx context.Context, scheduleKey string, 
 			result = "failed"
 			message = runErr.Error()
 		}
-		finishedAt := s.now()
+		finishedAt := s.clock.Now()
 		_ = s.audit.RecordSystemEvent(finalCtx, "run_maintenance_schedule", "scheduler", result, scheduledFor, &finishedAt, map[string]any{
 			"schedule_key":  scheduleKey,
 			"scheduled_for": scheduledFor.UTC().Format(time.RFC3339),
@@ -277,7 +325,7 @@ func (s *Service) recordScheduleFailure(ctx context.Context, scheduleKey string,
 	}); persistErr != nil {
 		s.logWarn("persist schedule failure failed", persistErr)
 	}
-	finishedAt := s.now()
+	finishedAt := s.clock.Now()
 	_ = s.audit.RecordSystemEvent(finalCtx, "run_maintenance_schedule", "scheduler", "failed", scheduledFor, &finishedAt, map[string]any{
 		"schedule_key":  scheduleKey,
 		"scheduled_for": scheduledFor.UTC().Format(time.RFC3339),
@@ -288,7 +336,7 @@ func (s *Service) recordScheduleFailure(ctx context.Context, scheduleKey string,
 func (s *Service) buildStatus(enabled bool, frequency Frequency, timeOfDay string, weekdays []Weekday, runtime scheduleRuntimeState, now time.Time) ScheduleStatus {
 	var nextRunAt *time.Time
 	if enabled {
-		if next, err := nextRun(frequency, timeOfDay, weekdays, now); err == nil {
+		if next, err := nextRun(frequency, timeOfDay, weekdays, now, s.location); err == nil {
 			nextRunAt = &next
 		}
 	}
@@ -465,11 +513,11 @@ func validateBaseSchedule(enabled bool, frequency Frequency, timeOfDay string, w
 	}
 }
 
-func dueSchedule(enabled bool, frequency Frequency, timeOfDay string, weekdays []Weekday, lastScheduledFor *time.Time, now time.Time) (time.Time, bool) {
+func dueSchedule(enabled bool, frequency Frequency, timeOfDay string, weekdays []Weekday, lastScheduledFor *time.Time, now time.Time, location *time.Location) (time.Time, bool) {
 	if !enabled {
 		return time.Time{}, false
 	}
-	dueAt, err := mostRecentScheduledAt(frequency, timeOfDay, weekdays, now.In(time.Local))
+	dueAt, err := mostRecentScheduledAt(frequency, timeOfDay, weekdays, now.In(location))
 	if err != nil {
 		return time.Time{}, false
 	}
@@ -482,8 +530,8 @@ func dueSchedule(enabled bool, frequency Frequency, timeOfDay string, weekdays [
 	return dueAt.UTC(), true
 }
 
-func nextRun(frequency Frequency, timeOfDay string, weekdays []Weekday, now time.Time) (time.Time, error) {
-	return nextScheduledAt(frequency, timeOfDay, weekdays, now.In(time.Local))
+func nextRun(frequency Frequency, timeOfDay string, weekdays []Weekday, now time.Time, location *time.Location) (time.Time, error) {
+	return nextScheduledAt(frequency, timeOfDay, weekdays, now.In(location))
 }
 
 func mostRecentScheduledAt(frequency Frequency, timeOfDay string, weekdays []Weekday, now time.Time) (time.Time, error) {
@@ -673,7 +721,7 @@ func (s *Service) saveSettings(ctx context.Context, settings Settings) error {
 	if err != nil {
 		return fmt.Errorf("marshal maintenance schedules: %w", err)
 	}
-	return s.store.SetAppSetting(ctx, settingsKey, string(payload), s.now())
+	return s.store.SetAppSetting(ctx, settingsKey, string(payload), s.clock.Now())
 }
 
 func (s *Service) resetRuntimeState(ctx context.Context, settings Settings, now time.Time) error {
@@ -681,15 +729,15 @@ func (s *Service) resetRuntimeState(ctx context.Context, settings Settings, now 
 	defer s.persistMu.Unlock()
 
 	state := runtimeState{
-		Update: seededScheduleRuntimeState(settings.Update.Enabled, settings.Update.Frequency, settings.Update.Time, settings.Update.Weekdays, now),
-		Prune:  seededScheduleRuntimeState(settings.Prune.Enabled, settings.Prune.Frequency, settings.Prune.Time, settings.Prune.Weekdays, now),
+		Update: seededScheduleRuntimeState(settings.Update.Enabled, settings.Update.Frequency, settings.Update.Time, settings.Update.Weekdays, now, s.location),
+		Prune:  seededScheduleRuntimeState(settings.Prune.Enabled, settings.Prune.Frequency, settings.Prune.Time, settings.Prune.Weekdays, now, s.location),
 	}
 
 	payload, err := json.Marshal(state)
 	if err != nil {
 		return fmt.Errorf("marshal maintenance schedule runtime: %w", err)
 	}
-	return s.store.SetAppSetting(ctx, runtimeKey, string(payload), s.now())
+	return s.store.SetAppSetting(ctx, runtimeKey, string(payload), s.clock.Now())
 }
 
 func (s *Service) loadRuntimeState(ctx context.Context) (runtimeState, error) {
@@ -729,7 +777,7 @@ func (s *Service) updateRuntime(ctx context.Context, scheduleKey string, mutate 
 	if err != nil {
 		return fmt.Errorf("marshal maintenance schedule runtime: %w", err)
 	}
-	return s.store.SetAppSetting(ctx, runtimeKey, string(payload), s.now())
+	return s.store.SetAppSetting(ctx, runtimeKey, string(payload), s.clock.Now())
 }
 
 func (s *Service) tryStart(scheduleKey string) bool {
@@ -755,17 +803,14 @@ func (s *Service) logWarn(message string, err error) {
 }
 
 func schedulerFinalizationContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	if ctx.Err() == nil {
-		return ctx, func() {}
-	}
-	return context.WithTimeout(context.Background(), finalizationTimeout)
+	return context.WithTimeout(context.WithoutCancel(ctx), finalizationTimeout)
 }
 
-func seededScheduleRuntimeState(enabled bool, frequency Frequency, timeOfDay string, weekdays []Weekday, now time.Time) scheduleRuntimeState {
+func seededScheduleRuntimeState(enabled bool, frequency Frequency, timeOfDay string, weekdays []Weekday, now time.Time, location *time.Location) scheduleRuntimeState {
 	if !enabled {
 		return scheduleRuntimeState{}
 	}
-	mostRecent, err := mostRecentScheduledAt(frequency, timeOfDay, weekdays, now.In(time.Local))
+	mostRecent, err := mostRecentScheduledAt(frequency, timeOfDay, weekdays, now.In(location))
 	if err != nil {
 		return scheduleRuntimeState{}
 	}

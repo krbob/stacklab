@@ -87,6 +87,19 @@ Purpose:
 - keep the codebase syntactically healthy
 - keep PR feedback loop short
 
+### Scheduler determinism
+
+Scheduler tests must inject both the clock and the host-local location. They must
+drive polling through a manual ticker and wait for scheduler workers, including
+runtime finalization, instead of mutating process-wide `time.Local`, sleeping, or
+polling against wall-clock deadlines.
+
+Use this repeated race run when changing scheduler timing or shutdown behavior:
+
+```bash
+go test -race ./internal/scheduler -count=20
+```
+
 ## Layer B: Static analysis
 
 These checks should be added after the fast baseline is stable.
