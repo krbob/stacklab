@@ -75,7 +75,7 @@ rozszerzania zakresu produktu poza model single-host i Compose-first.
 | REL-02 | planned | Dodać prawdziwy package smoke | test uruchamia artefakt jako `stacklab` pod systemd, sprawdza readiness, frontend, login i upgrade A→B | `test(release): run package smoke under systemd` |
 | REL-03 | planned | Ograniczyć uprawnienia workflowów | domyślnie `contents: read`; write tylko w publish; checkout bez utrwalonych credentials poza świadomym pushem | `ci: minimize release workflow permissions` |
 | REL-04 | planned | Przypiąć Actions i narzędzia analizy | Actions do pełnych SHA, staticcheck/govulncheck do wersji; Renovate nadal może proponować aktualizacje | `ci: pin workflow dependencies` |
-| REL-05 | planned | Wyłączyć automerge zmian wysokiego ryzyka | major, Actions, SQLite, WebSocket i PTY wymagają review i rozszerzonych testów | `chore(deps): require review for high-risk updates` |
+| REL-05 | done | Wyłączyć automerge zmian wysokiego ryzyka | major, Actions, SQLite, WebSocket i PTY wymagają review i rozszerzonych testów | `chore(deps): require review for high-risk updates` |
 | REL-06 | planned | Serializować publikację APT/Pages | wszystkie ścieżki publikacji używają wspólnej blokady concurrency i idempotentnego publish | `ci: serialize apt repository publication` |
 | REL-07 | planned | Weryfikować tarball przed instalacją | pobrany i lokalny artefakt wymaga zgodnego SHA256 lub podpisanego manifestu przed ekstrakcją | `fix(upgrade): verify release archives before install` |
 

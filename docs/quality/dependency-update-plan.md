@@ -16,7 +16,8 @@ This document records the intended steady-state dependency policy for the reposi
 Recommendation:
 
 - use Renovate continuously
-- allow automerge for all Renovate PRs once required checks pass
+- allow automerge for routine Renovate PRs once required checks pass
+- require review for major updates, GitHub Actions, SQLite, WebSocket, and PTY
 - constrain automerge to the monthly post-stable window
 - use nightly prereleases and monthly stable releases as the soak and publication loop
 
@@ -46,13 +47,13 @@ Conclusion:
 
 ## Adoption Timing
 
-Do not enable repository-wide automerge if:
+Do not enable routine-update automerge if:
 
 - frontend and backend integration is still visibly unstable
 - core PR validation is not green and reliable
 - key end-to-end workflows still change shape every few days
 
-Enable repository-wide automerge when all of the following are true:
+Enable routine-update automerge when all of the following are true:
 
 - `main` has a stable baseline of automated checks
 - the current application milestone is functionally complete enough that dependency updates are noise, not constant overlap
@@ -77,9 +78,9 @@ Active repository config:
 Current policy:
 
 - Renovate may create branches and PRs at any time; there is no global PR creation schedule
-- all Renovate PRs may automerge once required checks pass
+- routine Renovate PRs may automerge once required checks pass
 - automerge is constrained to the `2nd`-`3rd` day of the month after the stable release on the `1st`
-- major updates remain separate PRs, but they are not excluded from automerge
+- major updates, all GitHub Actions, and the SQLite, WebSocket, and PTY Go modules require manual review
 
 This does not remove manual control. It means:
 
@@ -126,7 +127,10 @@ Current repository config:
   - `github.com/creack/pty`
   - `modernc.org/sqlite`
 - major updates kept separate
-- automerge applies to all Renovate PRs that satisfy required checks
+- automerge applies to routine Renovate PRs that satisfy required checks
+- major updates, all GitHub Actions, and `modernc.org/sqlite`,
+  `github.com/gorilla/websocket`, and `github.com/creack/pty` have automerge
+  explicitly disabled
 - automerge runs once per month on the `2nd`-`3rd`, after the stable release on the `1st`
 
 Note on scheduling:
@@ -143,9 +147,9 @@ This keeps update volume controlled while avoiding confusing "pending but not cr
 
 ## Risk-Based Update Visibility
 
-Risk still matters, but it affects grouping, review attention, and whether a
-human should intervene before the monthly automerge window. It does not define
-which Renovate PRs are eligible for automerge.
+Risk determines both grouping and automerge eligibility. Major updates, all
+GitHub Actions, and the three high-risk Go runtime modules are review-only even
+when required checks pass.
 
 ### Lower-risk classes
 
@@ -181,8 +185,8 @@ Automatic monthly stable publication is only sensible if dependency policy remai
 
 Recommended model:
 
-- all green Renovate PRs may automerge once per month after the stable release
-- high-risk and major updates remain separated or visible enough for manual intervention
+- green routine Renovate PRs may automerge once per month after the stable release
+- high-risk, major, and GitHub Actions updates require manual review and merge
 - nightly prereleases soak the resulting `main` during the rest of the month
 - monthly stable release publishes the already-green state of `main` on the `1st` of the next month
 
@@ -331,9 +335,10 @@ Watch for:
 
 Only after a stable observation period:
 
-- enable automerge for all Renovate PRs
+- enable automerge for routine Renovate PRs
 - keep automerge constrained to the post-stable monthly window
-- keep major and high-risk runtime updates separate for visibility
+- keep major and high-risk runtime updates separate and review-only
+- keep all GitHub Actions updates review-only
 
 ## Manual Intervention Policy
 
@@ -365,7 +370,7 @@ It should not require full manual exploratory testing for every patch-level bump
 4. add Docker-backed integration validation on GitHub Actions Linux `x64`
 5. only then enable Renovate
 6. enable Renovate PR creation without a global PR schedule
-7. enable repository-wide automerge constrained to the post-stable monthly window
+7. enable routine-update automerge constrained to the post-stable monthly window
 
 ## Summary
 
@@ -375,4 +380,5 @@ The recommended model for Stacklab is:
 - strong CI before adoption
 - Linux Docker-backed integration tests as the main hardening layer
 - VM or staging host checks as pre-release validation, not per-update validation
-- repository-wide automerge in the monthly post-stable window
+- routine-update automerge in the monthly post-stable window
+- mandatory review for major, GitHub Actions, SQLite, WebSocket, and PTY updates

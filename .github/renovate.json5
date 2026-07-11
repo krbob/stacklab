@@ -62,6 +62,7 @@
         'modernc.org/sqlite',
       ],
       groupName: null,
+      automerge: false,
     },
     {
       description: 'Group non-high-risk Go module updates into a single PR.',
@@ -108,6 +109,14 @@
         'major',
       ],
       groupName: null,
+      automerge: false,
+    },
+    {
+      description: 'Require review for all GitHub Actions updates.',
+      matchManagers: [
+        'github-actions',
+      ],
+      automerge: false,
     },
   ],
 }
