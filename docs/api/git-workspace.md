@@ -268,7 +268,8 @@ Notes:
 - deleted files should still return metadata and diff text when practical
 - binary files should not return inline content
 - unreadable files should return metadata with `diff_available: false`
-- large diffs may be truncated, but truncation must be explicit
+- output is retained up to 256 KiB while the Git pipe continues draining;
+  larger diffs set `truncated = true` without buffering the complete diff
 
 ## Error Handling
 

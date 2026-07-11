@@ -379,6 +379,8 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
           $ref: '#/components/responses/ErrorNotFound'
+        '413':
+          $ref: '#/components/responses/ErrorContentTooLarge'
     put:
       tags: [Config]
       operationId: saveConfigWorkspaceFile
@@ -411,6 +413,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          $ref: '#/components/responses/ErrorContentTooLarge'
   /git/workspace/status:
     get:
       tags: [Git]
@@ -424,6 +428,8 @@ paths:
                 $ref: '#/components/schemas/GitWorkspaceStatusResponse'
         '401':
           $ref: '#/components/responses/ErrorUnauthorized'
+        '413':
+          $ref: '#/components/responses/ErrorContentTooLarge'
   /git/workspace/diff:
     get:
       tags: [Git]
@@ -451,6 +457,8 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
           $ref: '#/components/responses/ErrorNotFound'
+        '413':
+          $ref: '#/components/responses/ErrorContentTooLarge'
         '503':
           description: Git workspace is unavailable.
           content:
@@ -999,6 +1007,8 @@ paths:
           $ref: '#/components/responses/ErrorNotFound'
         '409':
           $ref: '#/components/responses/ErrorConflict'
+        '413':
+          $ref: '#/components/responses/ErrorContentTooLarge'
         '422':
           $ref: '#/components/responses/ErrorValidationFailed'
   /stacks/{stackId}:
@@ -1057,6 +1067,8 @@ paths:
           $ref: '#/components/responses/ErrorNotFound'
         '409':
           $ref: '#/components/responses/ErrorInvalidState'
+        '413':
+          $ref: '#/components/responses/ErrorContentTooLarge'
     put:
       tags: [Stacks]
       operationId: updateStackDefinition
@@ -1079,6 +1091,8 @@ paths:
           $ref: '#/components/responses/ErrorNotFound'
         '409':
           $ref: '#/components/responses/ErrorInvalidState'
+        '413':
+          $ref: '#/components/responses/ErrorContentTooLarge'
   /stacks/{stackId}/resolved-config:
     parameters:
       - $ref: '#/components/parameters/StackId'
@@ -1103,6 +1117,8 @@ paths:
           $ref: '#/components/responses/ErrorUnauthorized'
         '404':
           $ref: '#/components/responses/ErrorNotFound'
+        '413':
+          $ref: '#/components/responses/ErrorContentTooLarge'
     post:
       tags: [Stacks]
       operationId: previewResolvedConfig
@@ -1125,6 +1141,8 @@ paths:
           $ref: '#/components/responses/ErrorNotFound'
         '409':
           $ref: '#/components/responses/ErrorInvalidState'
+        '413':
+          $ref: '#/components/responses/ErrorContentTooLarge'
   /stacks/{stackId}/audit:
     parameters:
       - $ref: '#/components/parameters/StackId'
@@ -1470,6 +1488,12 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
     ErrorValidationFailed:
       description: Validation failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ErrorContentTooLarge:
+      description: File content or generated command output exceeds its bounded processing limit.
       content:
         application/json:
           schema:

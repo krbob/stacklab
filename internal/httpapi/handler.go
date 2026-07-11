@@ -22,6 +22,7 @@ import (
 	"stacklab/internal/imageupdates"
 	"stacklab/internal/jobs"
 	"stacklab/internal/lifecycle"
+	"stacklab/internal/limitedio"
 	"stacklab/internal/maintenance"
 	"stacklab/internal/maintenancejobs"
 	"stacklab/internal/notifications"
@@ -615,6 +616,8 @@ func (h *Handler) handleConfigWorkspaceFile(w http.ResponseWriter, r *http.Reque
 	response, err := h.configFiles.File(r.Context(), strings.TrimSpace(r.URL.Query().Get("path")))
 	if err != nil {
 		switch {
+		case errors.Is(err, configworkspace.ErrContentTooLarge):
+			writeContentTooLargeError(w, err)
 		case errors.Is(err, configworkspace.ErrPathOutsideWorkspace):
 			writeError(w, http.StatusBadRequest, "path_outside_workspace", "Path escapes the config workspace.", nil)
 		case errors.Is(err, configworkspace.ErrNotFound):
@@ -648,6 +651,8 @@ func (h *Handler) handlePutConfigWorkspaceFile(w http.ResponseWriter, r *http.Re
 	response, err := h.configFiles.SaveFile(r.Context(), request)
 	if err != nil {
 		switch {
+		case errors.Is(err, configworkspace.ErrContentTooLarge):
+			writeContentTooLargeError(w, err)
 		case errors.Is(err, configworkspace.ErrPathOutsideWorkspace):
 			writeError(w, http.StatusBadRequest, "path_outside_workspace", "Path escapes the config workspace.", nil)
 		case errors.Is(err, configworkspace.ErrNotFound):
@@ -752,6 +757,8 @@ func (h *Handler) handleStackWorkspaceFile(w http.ResponseWriter, r *http.Reques
 	response, err := h.stackFiles.File(r.Context(), r.PathValue("stackId"), strings.TrimSpace(r.URL.Query().Get("path")))
 	if err != nil {
 		switch {
+		case errors.Is(err, stackworkspace.ErrContentTooLarge):
+			writeContentTooLargeError(w, err)
 		case errors.Is(err, stackworkspace.ErrPathOutsideWorkspace):
 			writeError(w, http.StatusBadRequest, "path_outside_workspace", "Path escapes the stack workspace.", nil)
 		case errors.Is(err, stackworkspace.ErrReservedPath):
@@ -788,6 +795,8 @@ func (h *Handler) handlePutStackWorkspaceFile(w http.ResponseWriter, r *http.Req
 	response, err := h.stackFiles.SaveFile(r.Context(), stackID, request)
 	if err != nil {
 		switch {
+		case errors.Is(err, stackworkspace.ErrContentTooLarge):
+			writeContentTooLargeError(w, err)
 		case errors.Is(err, stackworkspace.ErrPathOutsideWorkspace):
 			writeError(w, http.StatusBadRequest, "path_outside_workspace", "Path escapes the stack workspace.", nil)
 		case errors.Is(err, stackworkspace.ErrReservedPath):
@@ -869,6 +878,10 @@ func (h *Handler) handleRepairStackWorkspacePermissions(w http.ResponseWriter, r
 func (h *Handler) handleGitWorkspaceStatus(w http.ResponseWriter, r *http.Request) {
 	response, err := h.gitStatus.Status(r.Context())
 	if err != nil {
+		if errors.Is(err, gitworkspace.ErrContentTooLarge) {
+			writeContentTooLargeError(w, err)
+			return
+		}
 		h.logger.Error("git workspace status failed", slog.String("err", err.Error()))
 		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load Git workspace status.", nil)
 		return
@@ -881,6 +894,8 @@ func (h *Handler) handleGitWorkspaceDiff(w http.ResponseWriter, r *http.Request)
 	response, err := h.gitStatus.Diff(r.Context(), strings.TrimSpace(r.URL.Query().Get("path")))
 	if err != nil {
 		switch {
+		case errors.Is(err, gitworkspace.ErrContentTooLarge):
+			writeContentTooLargeError(w, err)
 		case errors.Is(err, gitworkspace.ErrUnavailable):
 			writeError(w, http.StatusServiceUnavailable, "git_unavailable", "Git workspace is unavailable.", nil)
 		case errors.Is(err, gitworkspace.ErrPathOutsideWorkspace):
@@ -1866,8 +1881,14 @@ func (h *Handler) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "validation_failed", "Stack ID must use lowercase ASCII letters, digits, and dashes.", nil)
 		return
 	}
+	if err := stacks.ValidateDefinitionContent(request.ComposeYAML, request.Env); err != nil {
+		writeContentTooLargeError(w, err)
+		return
+	}
 	if err := h.stackReader.EnsureCreateStackAvailable(r.Context(), request.StackID); err != nil {
 		switch {
+		case errors.Is(err, stacks.ErrContentTooLarge):
+			writeContentTooLargeError(w, err)
 		case errors.Is(err, stacks.ErrConflict):
 			writeError(w, http.StatusConflict, "conflict", "Stack ID already exists.", nil)
 		default:
@@ -1900,6 +1921,8 @@ func (h *Handler) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 		_ = h.audit.RecordStackJob(r.Context(), job)
 
 		switch {
+		case errors.Is(err, stacks.ErrContentTooLarge):
+			writeContentTooLargeError(w, err)
 		case errors.Is(err, stacks.ErrConflict):
 			writeError(w, http.StatusConflict, "conflict", "Stack ID already exists.", nil)
 		case errors.Is(err, stacks.ErrNotFound):
@@ -1998,6 +2021,8 @@ func (h *Handler) handleGetDefinition(w http.ResponseWriter, r *http.Request) {
 	response, err := h.stackReader.Definition(r.Context(), r.PathValue("stackId"))
 	if err != nil {
 		switch {
+		case errors.Is(err, stacks.ErrContentTooLarge):
+			writeContentTooLargeError(w, err)
 		case errors.Is(err, stacks.ErrNotFound):
 			writeError(w, http.StatusNotFound, "not_found", "Stack was not found.", nil)
 		case errors.Is(err, stacks.ErrInvalidState):
@@ -2097,6 +2122,10 @@ func (h *Handler) handlePutDefinition(w http.ResponseWriter, r *http.Request) {
 		writeDecodeJSONError(w, err)
 		return
 	}
+	if err := stacks.ValidateDefinitionContent(request.ComposeYAML, request.Env); err != nil {
+		writeContentTooLargeError(w, err)
+		return
+	}
 
 	job, err := h.jobs.Start(r.Context(), r.PathValue("stackId"), "save_definition", "local")
 	if err != nil {
@@ -2118,6 +2147,8 @@ func (h *Handler) handlePutDefinition(w http.ResponseWriter, r *http.Request) {
 			h.logger.Warn("record failed save_definition audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
 		}
 		switch {
+		case errors.Is(saveErr, stacks.ErrContentTooLarge):
+			writeContentTooLargeError(w, saveErr)
 		case errors.Is(saveErr, stacks.ErrNotFound):
 			writeError(w, http.StatusNotFound, "not_found", "Stack was not found.", nil)
 		case errors.Is(saveErr, stacks.ErrInvalidState):
@@ -2165,6 +2196,8 @@ func (h *Handler) handleGetResolvedConfig(w http.ResponseWriter, r *http.Request
 	response, err := h.stackReader.ResolvedConfigCurrent(r.Context(), r.PathValue("stackId"), source)
 	if err != nil {
 		switch {
+		case errors.Is(err, stacks.ErrContentTooLarge):
+			writeContentTooLargeError(w, err)
 		case errors.Is(err, stacks.ErrNotFound):
 			writeError(w, http.StatusNotFound, "not_found", "Stack was not found.", nil)
 		case errors.Is(err, stacks.ErrInvalidState):
@@ -2185,10 +2218,16 @@ func (h *Handler) handlePostResolvedConfig(w http.ResponseWriter, r *http.Reques
 		writeDecodeJSONError(w, err)
 		return
 	}
+	if err := stacks.ValidateDefinitionContent(request.ComposeYAML, request.Env); err != nil {
+		writeContentTooLargeError(w, err)
+		return
+	}
 
 	response, err := h.stackReader.ResolvedConfigDraft(r.Context(), r.PathValue("stackId"), request)
 	if err != nil {
 		switch {
+		case errors.Is(err, stacks.ErrContentTooLarge):
+			writeContentTooLargeError(w, err)
 		case errors.Is(err, stacks.ErrNotFound):
 			writeError(w, http.StatusNotFound, "not_found", "Stack was not found.", nil)
 		case errors.Is(err, stacks.ErrInvalidState):
@@ -2718,6 +2757,14 @@ func writeDecodeJSONErrorWithLimit(w http.ResponseWriter, err error, maxBytes in
 		return
 	}
 	writeError(w, http.StatusBadRequest, "validation_failed", "Invalid request body.", nil)
+}
+
+func writeContentTooLargeError(w http.ResponseWriter, err error) {
+	details := map[string]any{}
+	if maxBytes, ok := limitedio.MaxBytes(err); ok {
+		details["max_bytes"] = maxBytes
+	}
+	writeError(w, http.StatusRequestEntityTooLarge, "content_too_large", "Content exceeds the safe processing limit.", details)
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string, details any) {

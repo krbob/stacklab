@@ -375,6 +375,7 @@ Suggested error codes:
 - `path_outside_workspace`
 - `path_not_directory`
 - `path_not_file`
+- `content_too_large`
 - `internal_error`
 - `not_implemented`
 
@@ -384,6 +385,8 @@ Examples:
 - trying to open a directory through file endpoint → `400 path_not_file`
 - trying to save a binary file through text editor → `409 binary_not_editable`
 - trying to save an unreadable or unwritable file → `409 permission_denied`
+- reading or saving text content over 1 MiB → `413 content_too_large` with
+  `details.max_bytes`
 - trying to repair permissions without a configured helper → `501 not_implemented`
 
 ## Audit Expectations

@@ -16,6 +16,7 @@ import (
 	"stacklab/internal/atomicfile"
 	"stacklab/internal/config"
 	"stacklab/internal/fsmeta"
+	"stacklab/internal/limitedio"
 	"stacklab/internal/stacks"
 	"stacklab/internal/workspacefiles"
 	"stacklab/internal/workspacerepair"
@@ -29,7 +30,10 @@ var (
 	ErrBinaryNotEditable    = errors.New("binary file is not editable")
 	ErrPermissionDenied     = errors.New("config workspace permission denied")
 	ErrConflict             = errors.New("config workspace file changed")
+	ErrContentTooLarge      = limitedio.ErrContentTooLarge
 )
+
+const MaxFileContentBytes int64 = 1 << 20
 
 type Service struct {
 	repoRoot      string
@@ -211,7 +215,7 @@ func (s *Service) File(ctx context.Context, filePath string) (FileResponse, erro
 	}
 
 	if entryType == EntryTypeTextFile && readable {
-		contentBytes, err := os.ReadFile(resolvedPath)
+		contentBytes, err := limitedio.ReadFile(resolvedPath, MaxFileContentBytes)
 		if err != nil {
 			if errors.Is(err, os.ErrPermission) {
 				reason := "not_readable"
@@ -307,6 +311,9 @@ func (s *Service) gitIgnoredPaths(ctx context.Context, items []TreeEntry) map[st
 
 func (s *Service) SaveFile(ctx context.Context, request SaveFileRequest) (SaveFileResponse, error) {
 	_ = ctx
+	if err := limitedio.CheckString(request.Content, MaxFileContentBytes); err != nil {
+		return SaveFileResponse{}, err
+	}
 
 	normalized, err := normalizeRequiredFilePath(request.Path)
 	if err != nil {

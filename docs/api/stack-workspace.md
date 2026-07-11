@@ -289,4 +289,9 @@ Rules:
   - reserved canonical root files
 - `409 binary_not_editable`
 - `409 permission_denied`
+- `413 content_too_large`
 - `501 not_implemented`
+
+Editable text content is limited to 1 MiB for both reads and saves. The 413
+response includes `details.max_bytes`; tree metadata remains available for
+larger files.

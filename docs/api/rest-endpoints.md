@@ -72,7 +72,11 @@ Suggested common error codes:
 - `invalid_state`
 - `conflict`
 - `docker_unavailable`
+- `content_too_large`
 - `internal_error`
+
+`413 content_too_large` includes `details.max_bytes` and is returned before a
+file body or generated command output can be accumulated without a bound.
 
 ## Read Resources
 
@@ -1047,7 +1051,8 @@ Rules:
 - path traversal is rejected
 - if the workspace is not a Git repository, this endpoint returns `git_unavailable`
 - untracked files diff against an empty file
-- large diffs may be truncated, but truncation is explicit
+- diff output is retained up to 256 KiB while the Git pipe continues draining;
+  larger diffs set `truncated = true` without first buffering the full output
 
 ## `POST /api/git/workspace/commit`
 
@@ -1846,6 +1851,8 @@ Rules:
 - `.env` may not exist; UI should handle `exists = false`
 - `env` is always present in the response shape
 - when `.env` does not exist, `env.exists = false` and `env.content = ""`
+- `compose.yaml` and `.env` are each limited to 2 MiB; larger files return
+  `413 content_too_large`
 
 ## `GET /api/stacks/{stackId}/resolved-config`
 
@@ -1921,6 +1928,8 @@ Rules:
 - does not create a job
 - may be called repeatedly by the editor
 - for `orphaned` stacks returns `409 invalid_state`
+- draft definition files are limited to 2 MiB each and resolved Compose output
+  to 4 MiB; exceeding either returns `413 content_too_large`
 
 ## `GET /api/stacks/{stackId}/audit`
 
@@ -2101,6 +2110,8 @@ Rules:
 - allowed to persist invalid definitions if requested content can be safely written
 - validation results are reported via the job and reflected in `config_state`
 - for `orphaned` stacks returns `409 invalid_state`
+- each definition file is limited to 2 MiB; larger requests return
+  `413 content_too_large` before a job is created
 
 ## `POST /api/stacks/{stackId}/actions/{action}`
 

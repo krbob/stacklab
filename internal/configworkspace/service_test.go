@@ -251,6 +251,31 @@ func TestServiceSaveFileRejectsStaleModifiedAt(t *testing.T) {
 	}
 }
 
+func TestServiceFileRejectsOversizeContent(t *testing.T) {
+	t.Parallel()
+
+	service, root := newTestService(t)
+	path := filepath.Join(root, "large.conf")
+	if err := os.WriteFile(path, []byte(strings.Repeat("a", int(MaxFileContentBytes+1))), 0o644); err != nil {
+		t.Fatalf("WriteFile(large.conf) error = %v", err)
+	}
+
+	_, err := service.File(context.Background(), "large.conf")
+	if !errors.Is(err, ErrContentTooLarge) {
+		t.Fatalf("File(large.conf) error = %v, want %v", err, ErrContentTooLarge)
+	}
+	_, err = service.SaveFile(context.Background(), SaveFileRequest{
+		Path:    "new-large.conf",
+		Content: strings.Repeat("a", int(MaxFileContentBytes+1)),
+	})
+	if !errors.Is(err, ErrContentTooLarge) {
+		t.Fatalf("SaveFile(new-large.conf) error = %v, want %v", err, ErrContentTooLarge)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "new-large.conf")); !os.IsNotExist(statErr) {
+		t.Fatalf("oversize save created a file: %v", statErr)
+	}
+}
+
 func TestServicePermissionDiagnostics(t *testing.T) {
 	t.Parallel()
 

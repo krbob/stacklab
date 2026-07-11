@@ -29,6 +29,7 @@ import (
 	"stacklab/internal/imageupdates"
 	"stacklab/internal/jobs"
 	"stacklab/internal/lifecycle"
+	"stacklab/internal/limitedio"
 	"stacklab/internal/maintenance"
 	"stacklab/internal/maintenancejobs"
 	"stacklab/internal/notifications"
@@ -82,6 +83,7 @@ type fakeDockerRegistry struct {
 type fakeConfigWorkspaceReader struct {
 	repairResponse configworkspace.RepairPermissionsResponse
 	repairError    error
+	fileError      error
 }
 
 type fakeStackWorkspaceReader struct {
@@ -162,7 +164,7 @@ func (f *fakeConfigWorkspaceReader) Tree(ctx context.Context, currentPath string
 }
 
 func (f *fakeConfigWorkspaceReader) File(ctx context.Context, filePath string) (configworkspace.FileResponse, error) {
-	return configworkspace.FileResponse{}, nil
+	return configworkspace.FileResponse{}, f.fileError
 }
 
 func (f *fakeConfigWorkspaceReader) SaveFile(ctx context.Context, request configworkspace.SaveFileRequest) (configworkspace.SaveFileResponse, error) {
@@ -195,6 +197,34 @@ func (f *fakeSelfUpdate) Overview(ctx context.Context) (selfupdate.OverviewRespo
 
 func (f *fakeSelfUpdate) Apply(ctx context.Context, request selfupdate.ApplyRequest, requestedBy string) (selfupdate.ApplyResponse, error) {
 	return f.applyResponse, f.applyError
+}
+
+func TestHandlerConfigWorkspaceFileReturnsContentTooLarge(t *testing.T) {
+	t.Parallel()
+
+	handler := &Handler{
+		configFiles: &fakeConfigWorkspaceReader{fileError: limitedio.NewLimitError(configworkspace.MaxFileContentBytes)},
+		logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/config/workspace/file?path=large.conf", nil)
+	response := httptest.NewRecorder()
+
+	handler.handleConfigWorkspaceFile(response, request)
+	if response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusRequestEntityTooLarge, response.Body.String())
+	}
+	var payload struct {
+		Error struct {
+			Code    string `json:"code"`
+			Details struct {
+				MaxBytes int64 `json:"max_bytes"`
+			} `json:"details"`
+		} `json:"error"`
+	}
+	decodeInternalResponse(t, response, &payload)
+	if payload.Error.Code != "content_too_large" || payload.Error.Details.MaxBytes != configworkspace.MaxFileContentBytes {
+		t.Fatalf("unexpected error payload: %#v", payload)
+	}
 }
 
 func TestHandlerPutDefinitionReturnsStackLockedWhenAnotherJobOwnsStack(t *testing.T) {

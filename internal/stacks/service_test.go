@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -709,6 +710,49 @@ func TestRemoveDefinitionRejectsSymlinkedStackRoot(t *testing.T) {
 		if _, statErr := os.Stat(target); statErr != nil {
 			t.Fatalf("external target %q was changed: %v", target, statErr)
 		}
+	}
+}
+
+func TestDefinitionAndSaveRejectOversizeContent(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	reader := newTestServiceReader(t)
+	stackID := uniqueTestStackID()
+	original := "services: {}\n"
+	if err := reader.CreateStack(ctx, CreateStackRequest{StackID: stackID, ComposeYAML: original}); err != nil {
+		t.Fatalf("CreateStack() error = %v", err)
+	}
+
+	oversize := strings.Repeat("a", int(MaxDefinitionFileBytes+1))
+	if _, _, err := reader.SaveDefinition(ctx, stackID, UpdateDefinitionRequest{ComposeYAML: oversize}); !errors.Is(err, ErrContentTooLarge) {
+		t.Fatalf("SaveDefinition(oversize) error = %v, want %v", err, ErrContentTooLarge)
+	}
+	composePath := stackPaths(reader.cfg.RootDir, stackID).ComposeFilePath
+	assertFileContent(t, composePath, original)
+
+	if err := os.WriteFile(composePath, []byte(oversize), 0o644); err != nil {
+		t.Fatalf("WriteFile(oversize compose) error = %v", err)
+	}
+	if _, err := reader.Definition(ctx, stackID); !errors.Is(err, ErrContentTooLarge) {
+		t.Fatalf("Definition(oversize) error = %v, want %v", err, ErrContentTooLarge)
+	}
+}
+
+func TestRunCombinedOutputBoundsSubprocessOutput(t *testing.T) {
+	if os.Getenv("STACKLAB_TEST_LARGE_COMMAND_OUTPUT") == "1" {
+		_, _ = io.WriteString(os.Stdout, strings.Repeat("x", 2048))
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestRunCombinedOutputBoundsSubprocessOutput$")
+	cmd.Env = append(os.Environ(), "STACKLAB_TEST_LARGE_COMMAND_OUTPUT=1")
+	output, err := runCombinedOutput(cmd, 1024)
+	if !errors.Is(err, ErrContentTooLarge) {
+		t.Fatalf("runCombinedOutput() error = %v, want %v", err, ErrContentTooLarge)
+	}
+	if len(output) != 1024 {
+		t.Fatalf("runCombinedOutput() retained %d bytes, want 1024", len(output))
 	}
 }
 

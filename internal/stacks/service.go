@@ -23,6 +23,7 @@ import (
 
 	"stacklab/internal/atomicfile"
 	"stacklab/internal/config"
+	"stacklab/internal/limitedio"
 	"stacklab/internal/store"
 
 	"gopkg.in/yaml.v3"
@@ -34,9 +35,15 @@ var (
 	ErrConflict          = errors.New("conflict")
 	ErrUnsupportedAction = errors.New("unsupported action")
 	ErrDockerUnavailable = errors.New("docker unavailable")
+	ErrContentTooLarge   = limitedio.ErrContentTooLarge
 	stackIDRegexp        = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 	composeCLIMu         sync.Mutex
 	composeCLICached     *composeCLI
+)
+
+const (
+	MaxDefinitionFileBytes int64 = 2 * 1024 * 1024
+	MaxComposeOutputBytes  int64 = 4 * 1024 * 1024
 )
 
 var (
@@ -371,7 +378,7 @@ func (s *ServiceReader) definitionFromFiles(stack discoveredStack, configState C
 	if err != nil {
 		return StackDefinitionResponse{}, fmt.Errorf("stat compose file: %w", err)
 	}
-	composeContent, err := os.ReadFile(stack.ComposeFilePath)
+	composeContent, err := limitedio.ReadFile(stack.ComposeFilePath, MaxDefinitionFileBytes)
 	if err != nil {
 		return StackDefinitionResponse{}, fmt.Errorf("read compose file: %w", err)
 	}
@@ -383,7 +390,7 @@ func (s *ServiceReader) definitionFromFiles(stack discoveredStack, configState C
 		envExists = true
 		modifiedAt := envInfo.ModTime().UTC()
 		envModifiedAt = &modifiedAt
-		envBytes, err := os.ReadFile(stack.EnvFilePath)
+		envBytes, err := limitedio.ReadFile(stack.EnvFilePath, MaxDefinitionFileBytes)
 		if err != nil {
 			return StackDefinitionResponse{}, fmt.Errorf("read env file: %w", err)
 		}
@@ -423,7 +430,17 @@ func (s *ServiceReader) ResolvedConfigCurrent(ctx context.Context, stackID strin
 		return s.resolveLastValid(ctx, stack)
 	}
 
-	return s.resolveCurrent(ctx, stack), nil
+	response := s.resolveCurrent(ctx, stack)
+	if response.Error != nil && response.Error.Code == "content_too_large" {
+		maxBytes := MaxComposeOutputBytes
+		if details, ok := response.Error.Details.(map[string]any); ok {
+			if reported, ok := details["max_bytes"].(int64); ok {
+				maxBytes = reported
+			}
+		}
+		return ResolvedConfigResponse{}, limitedio.NewLimitError(maxBytes)
+	}
+	return response, nil
 }
 
 func (s *ServiceReader) resolveLastValid(ctx context.Context, stack discoveredStack) (ResolvedConfigResponse, error) {
@@ -437,6 +454,9 @@ func (s *ServiceReader) resolveLastValid(ctx context.Context, stack discoveredSt
 	if !ok {
 		return ResolvedConfigResponse{}, ErrInvalidState
 	}
+	if err := ValidateDefinitionContent(baseline.ComposeYAML, baseline.Env); err != nil {
+		return ResolvedConfigResponse{}, err
+	}
 
 	envPath, cleanup, err := writeTempEnvFile(s.cfg.DataDir, baseline.Env)
 	if err != nil {
@@ -446,6 +466,9 @@ func (s *ServiceReader) resolveLastValid(ctx context.Context, stack discoveredSt
 
 	content, resolveErr := runComposeConfig(ctx, stack.RootPath, "-", envPath, baseline.ComposeYAML)
 	if resolveErr != nil {
+		if errors.Is(resolveErr, ErrContentTooLarge) {
+			return ResolvedConfigResponse{}, resolveErr
+		}
 		return ResolvedConfigResponse{
 			StackID: stack.ID,
 			Valid:   false,
@@ -473,6 +496,9 @@ func (s *ServiceReader) ResolvedConfigDraft(ctx context.Context, stackID string,
 	if stack.RuntimeState == RuntimeStateOrphaned {
 		return ResolvedConfigResponse{}, ErrInvalidState
 	}
+	if err := ValidateDefinitionContent(request.ComposeYAML, request.Env); err != nil {
+		return ResolvedConfigResponse{}, err
+	}
 
 	envPath, cleanup, err := writeTempEnvFile(s.cfg.DataDir, request.Env)
 	if err != nil {
@@ -482,6 +508,9 @@ func (s *ServiceReader) ResolvedConfigDraft(ctx context.Context, stackID string,
 
 	content, resolveErr := runComposeConfig(ctx, stack.RootPath, "-", envPath, request.ComposeYAML)
 	if resolveErr != nil {
+		if errors.Is(resolveErr, ErrContentTooLarge) {
+			return ResolvedConfigResponse{}, resolveErr
+		}
 		return ResolvedConfigResponse{
 			StackID: stack.ID,
 			Valid:   false,
@@ -686,13 +715,13 @@ func (s *ServiceReader) RecordDeployBaseline(ctx context.Context, stackID, jobID
 		return err
 	}
 	paths := stackPaths(s.cfg.RootDir, stackID)
-	composeBytes, err := os.ReadFile(paths.ComposeFilePath)
+	composeBytes, err := limitedio.ReadFile(paths.ComposeFilePath, MaxDefinitionFileBytes)
 	if err != nil {
 		return fmt.Errorf("read compose file for deploy baseline: %w", err)
 	}
 	env := ""
 	envExists := false
-	if envBytes, err := os.ReadFile(paths.EnvFilePath); err == nil {
+	if envBytes, err := limitedio.ReadFile(paths.EnvFilePath, MaxDefinitionFileBytes); err == nil {
 		env = string(envBytes)
 		envExists = true
 	} else if err != nil && !os.IsNotExist(err) {
@@ -1083,13 +1112,23 @@ func contentSHA256(content string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func ValidateDefinitionContent(composeContent, envContent string) error {
+	if err := limitedio.CheckString(composeContent, MaxDefinitionFileBytes); err != nil {
+		return fmt.Errorf("compose definition: %w", err)
+	}
+	if err := limitedio.CheckString(envContent, MaxDefinitionFileBytes); err != nil {
+		return fmt.Errorf("environment definition: %w", err)
+	}
+	return nil
+}
+
 func (s *ServiceReader) currentDefinitionHashes(composePath, envPath string) (string, string, bool) {
-	composeBytes, err := os.ReadFile(composePath)
+	composeBytes, err := limitedio.ReadFile(composePath, MaxDefinitionFileBytes)
 	if err != nil {
 		return "", "", false
 	}
 	envContent := ""
-	if envBytes, err := os.ReadFile(envPath); err == nil {
+	if envBytes, err := limitedio.ReadFile(envPath, MaxDefinitionFileBytes); err == nil {
 		envContent = string(envBytes)
 	} else if err != nil && !os.IsNotExist(err) {
 		return "", "", false
@@ -1130,7 +1169,7 @@ func (s *ServiceReader) scanDefinitions() (map[string]definitionSnapshot, error)
 		dirInfo, dirErr := os.Stat(stackRoot)
 		createdAt, updatedAt := timeRange(dirInfo, dirErr, composeInfo, nil, envInfo, envErr)
 
-		content, err := os.ReadFile(composePath)
+		content, err := limitedio.ReadFile(composePath, MaxDefinitionFileBytes)
 		if err != nil {
 			s.logDefinitionWarning("failed to read compose file", entry.Name(), "read", err)
 			result[entry.Name()] = definitionSnapshot{
@@ -1144,7 +1183,7 @@ func (s *ServiceReader) scanDefinitions() (map[string]definitionSnapshot, error)
 
 		envContent := ""
 		envExists := false
-		if envBytes, err := os.ReadFile(envPath); err == nil {
+		if envBytes, err := limitedio.ReadFile(envPath, MaxDefinitionFileBytes); err == nil {
 			envExists = true
 			envContent = string(envBytes)
 			s.clearDefinitionWarning(entry.Name(), "env")
@@ -1906,6 +1945,9 @@ func detectDockerEngineVersion(ctx context.Context) string {
 }
 
 func writeTempEnvFile(dataDir, content string) (string, func(), error) {
+	if err := limitedio.CheckString(content, MaxDefinitionFileBytes); err != nil {
+		return "", func() {}, fmt.Errorf("temporary environment: %w", err)
+	}
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return "", func() {}, fmt.Errorf("create data dir for temp env: %w", err)
 	}
@@ -1951,6 +1993,9 @@ func createStackDirectory(path string) error {
 }
 
 func (s *ServiceReader) writeDefinitionRevision(composePath, composeContent, envPath, envContent string) error {
+	if err := ValidateDefinitionContent(composeContent, envContent); err != nil {
+		return err
+	}
 	composeBefore, err := snapshotDefinitionFile(composePath)
 	if err != nil {
 		return fmt.Errorf("snapshot compose file: %w", err)
@@ -2021,7 +2066,7 @@ func snapshotDefinitionFile(path string) (definitionFileSnapshot, error) {
 	if !info.Mode().IsRegular() {
 		return snapshot, fmt.Errorf("%q is not a regular file", path)
 	}
-	content, err := os.ReadFile(path)
+	content, err := limitedio.ReadFile(path, MaxDefinitionFileBytes)
 	if err != nil {
 		return snapshot, err
 	}
@@ -2125,6 +2170,11 @@ func ensureDefinitionRevision(stack discoveredStack, expected DefinitionRevision
 }
 
 func runComposeConfig(ctx context.Context, projectDir, composeArg, envPath, stdinContent string) (string, error) {
+	if composeArg == "-" {
+		if err := limitedio.CheckString(stdinContent, MaxDefinitionFileBytes); err != nil {
+			return "", fmt.Errorf("compose input: %w", err)
+		}
+	}
 	command, args := composeCommand(ctx, projectDir, composeArg, envPath)
 	args = append(args, "config")
 
@@ -2134,8 +2184,11 @@ func runComposeConfig(ctx context.Context, projectDir, composeArg, envPath, stdi
 		cmd.Stdin = strings.NewReader(stdinContent)
 	}
 
-	output, err := cmd.CombinedOutput()
+	output, err := runCombinedOutput(cmd, MaxComposeOutputBytes)
 	if err != nil {
+		if errors.Is(err, ErrContentTooLarge) {
+			return "", err
+		}
 		message := strings.TrimSpace(string(output))
 		if message == "" {
 			message = err.Error()
@@ -2146,6 +2199,17 @@ func runComposeConfig(ctx context.Context, projectDir, composeArg, envPath, stdi
 	return string(output), nil
 }
 
+func runCombinedOutput(cmd *exec.Cmd, maxBytes int64) ([]byte, error) {
+	output := limitedio.NewBuffer(maxBytes)
+	cmd.Stdout = output
+	cmd.Stderr = output
+	runErr := cmd.Run()
+	if limitErr := output.Err(); limitErr != nil {
+		return output.Bytes(), limitErr
+	}
+	return output.Bytes(), runErr
+}
+
 func (s *ServiceReader) runComposeActionOutput(ctx context.Context, stack discoveredStack, action string, extraArgs ...string) (string, error) {
 	command, args := composeCommand(ctx, stack.RootPath, stack.ComposeFilePath, stack.EnvFilePath)
 	args = append(args, action)
@@ -2154,8 +2218,11 @@ func (s *ServiceReader) runComposeActionOutput(ctx context.Context, stack discov
 	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.Dir = stack.RootPath
 
-	output, err := cmd.CombinedOutput()
+	output, err := runCombinedOutput(cmd, MaxComposeOutputBytes)
 	if err != nil {
+		if errors.Is(err, ErrContentTooLarge) {
+			return "", err
+		}
 		message := strings.TrimSpace(string(output))
 		if message == "" {
 			message = err.Error()
@@ -2194,8 +2261,11 @@ func (s *ServiceReader) runContainerActionOutput(ctx context.Context, stack disc
 	args = append(args, extraArgs...)
 	args = append(args, containerIDs...)
 	cmd := exec.CommandContext(ctx, "docker", args...)
-	output, err := cmd.CombinedOutput()
+	output, err := runCombinedOutput(cmd, MaxComposeOutputBytes)
 	if err != nil {
+		if errors.Is(err, ErrContentTooLarge) {
+			return "", err
+		}
 		message := strings.TrimSpace(string(output))
 		if message == "" {
 			message = err.Error()
@@ -2225,34 +2295,48 @@ type stackPathSet struct {
 }
 
 func (s *ServiceReader) resolveCurrent(ctx context.Context, stack discoveredStack) ResolvedConfigResponse {
+	composeContent, err := limitedio.ReadFile(stack.ComposeFilePath, MaxDefinitionFileBytes)
+	if err != nil {
+		return resolvedConfigFailure(stack.ID, err)
+	}
 	envPath := ""
 	if fileExists(stack.EnvFilePath) {
+		if _, err := limitedio.ReadFile(stack.EnvFilePath, MaxDefinitionFileBytes); err != nil {
+			return resolvedConfigFailure(stack.ID, err)
+		}
 		envPath = stack.EnvFilePath
 	}
 
 	content, err := runComposeConfig(ctx, stack.RootPath, stack.ComposeFilePath, envPath, "")
 	if err != nil {
-		return ResolvedConfigResponse{
-			StackID: stack.ID,
-			Valid:   false,
-			Error: &ErrorDetail{
-				Code:    "validation_failed",
-				Message: err.Error(),
-				Details: nil,
-			},
-		}
-	}
-
-	var warnings []ComposeWarning
-	if raw, readErr := os.ReadFile(stack.ComposeFilePath); readErr == nil {
-		warnings = LintCompose(raw)
+		return resolvedConfigFailure(stack.ID, err)
 	}
 
 	return ResolvedConfigResponse{
 		StackID:  stack.ID,
 		Valid:    true,
 		Content:  content,
-		Warnings: warnings,
+		Warnings: LintCompose(composeContent),
+	}
+}
+
+func resolvedConfigFailure(stackID string, err error) ResolvedConfigResponse {
+	code := "validation_failed"
+	details := any(nil)
+	if errors.Is(err, ErrContentTooLarge) {
+		code = "content_too_large"
+		if maxBytes, ok := limitedio.MaxBytes(err); ok {
+			details = map[string]any{"max_bytes": maxBytes}
+		}
+	}
+	return ResolvedConfigResponse{
+		StackID: stackID,
+		Valid:   false,
+		Error: &ErrorDetail{
+			Code:    code,
+			Message: err.Error(),
+			Details: details,
+		},
 	}
 }
 

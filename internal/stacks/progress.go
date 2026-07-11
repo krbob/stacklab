@@ -2,7 +2,6 @@ package stacks
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"os/exec"
@@ -11,6 +10,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"stacklab/internal/limitedio"
 )
 
 // StepProgress is a point-in-time aggregate of a streaming compose action,
@@ -142,8 +143,8 @@ func (s *ServiceReader) runComposeProgressMode(ctx context.Context, stack discov
 	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.Dir = stack.RootPath
 
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
+	output := limitedio.NewBuffer(MaxComposeOutputBytes)
+	cmd.Stdout = output
 
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
@@ -153,22 +154,24 @@ func (s *ServiceReader) runComposeProgressMode(ctx context.Context, stack discov
 		return "", err
 	}
 
-	var stderrText bytes.Buffer
 	var consumeErr error
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		if mode == "json" {
-			consumeErr = consumeComposeProgress(stderrPipe, &stderrText, onProgress, onLine)
+			consumeErr = consumeComposeProgress(stderrPipe, output, onProgress, onLine)
 		} else {
-			consumeErr = consumePlainProgress(stderrPipe, &stderrText, onProgress, onLine)
+			consumeErr = consumePlainProgress(stderrPipe, output, onProgress, onLine)
 		}
 	}()
 	wg.Wait()
 
 	runErr := cmd.Wait()
-	combined := strings.TrimSpace(strings.TrimSpace(stdout.String()) + "\n" + strings.TrimSpace(stderrText.String()))
+	combined := strings.TrimSpace(output.String())
+	if limitErr := output.Err(); limitErr != nil {
+		return combined, limitErr
+	}
 	if consumeErr != nil && runErr == nil {
 		return combined, &composeError{message: consumeErr.Error()}
 	}
@@ -200,7 +203,7 @@ var plainDoneStatuses = map[string]bool{
 // consumePlainProgress derives coarse progress from --progress plain output:
 // pull layers and container lifecycle lines both follow a stable
 // "<id> <status>" shape. All lines are preserved as text.
-func consumePlainProgress(r interface{ Read([]byte) (int, error) }, text *bytes.Buffer, onProgress func(StepProgress), onLine func(string)) error {
+func consumePlainProgress(r interface{ Read([]byte) (int, error) }, text interface{ WriteString(string) (int, error) }, onProgress func(StepProgress), onLine func(string)) error {
 	doneByID := map[string]bool{}
 	lastEmit := time.Time{}
 	lastCompleted := -1
@@ -269,7 +272,7 @@ func (e *composeError) Error() string { return e.message }
 // consumeComposeProgress reads compose's stderr line by line: JSON progress
 // events update the aggregate (throttled), everything else is kept as text so
 // error output is never lost.
-func consumeComposeProgress(r interface{ Read([]byte) (int, error) }, text *bytes.Buffer, onProgress func(StepProgress), onLine func(string)) error {
+func consumeComposeProgress(r interface{ Read([]byte) (int, error) }, text interface{ WriteString(string) (int, error) }, onProgress func(StepProgress), onLine func(string)) error {
 	statusByID := map[string]string{}
 	lastDetail := ""
 	lastEmit := time.Time{}
@@ -325,7 +328,7 @@ func consumeComposeProgress(r interface{ Read([]byte) (int, error) }, text *byte
 	return appendScannerError(text, onLine, scanner.Err())
 }
 
-func appendScannerError(text *bytes.Buffer, onLine func(string), err error) error {
+func appendScannerError(text interface{ WriteString(string) (int, error) }, onLine func(string), err error) error {
 	if err == nil {
 		return nil
 	}

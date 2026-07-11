@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 
+	"stacklab/internal/limitedio"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -276,7 +278,7 @@ func (s *ServiceReader) Templates(_ context.Context) (TemplatesResponse, error) 
 			continue
 		}
 		composePath := filepath.Join(templatesRoot, entry.Name(), "compose.yaml")
-		composeContent, err := os.ReadFile(composePath)
+		composeContent, err := limitedio.ReadFile(composePath, MaxDefinitionFileBytes)
 		if err != nil {
 			continue
 		}
@@ -286,7 +288,7 @@ func (s *ServiceReader) Templates(_ context.Context) (TemplatesResponse, error) 
 			Name:        entry.Name(),
 			ComposeYAML: string(composeContent),
 		}
-		if manifestContent, err := os.ReadFile(filepath.Join(templatesRoot, entry.Name(), "template.yaml")); err == nil {
+		if manifestContent, err := limitedio.ReadFile(filepath.Join(templatesRoot, entry.Name(), "template.yaml"), MaxDefinitionFileBytes); err == nil {
 			var manifest templateManifest
 			if yaml.Unmarshal(manifestContent, &manifest) == nil {
 				if name := strings.TrimSpace(manifest.Name); name != "" {

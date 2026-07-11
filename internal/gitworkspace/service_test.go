@@ -174,6 +174,30 @@ func TestServiceDiffUsesEmptyTreeForUnbornHead(t *testing.T) {
 	}
 }
 
+func TestServiceDiffBoundsLargeOutputBeforeReturningTruncatedContent(t *testing.T) {
+	t.Parallel()
+
+	service, root := newTestService(t)
+	runGit(t, root, "init", "-b", "main")
+	largePath := filepath.Join(root, "config", "demo", "large.conf")
+	mustWriteFile(t, largePath, strings.Repeat("line before change\n", 20_000))
+
+	diff, err := service.Diff(context.Background(), "config/demo/large.conf")
+	if err != nil {
+		t.Fatalf("Diff(large.conf) error = %v", err)
+	}
+	if !diff.Truncated {
+		t.Fatal("Diff(large.conf).Truncated = false, want true")
+	}
+	if diff.Diff == nil || int64(len(*diff.Diff)) > diffSizeLimit {
+		length := 0
+		if diff.Diff != nil {
+			length = len(*diff.Diff)
+		}
+		t.Fatalf("Diff(large.conf) length = %d, want <= %d", length, diffSizeLimit)
+	}
+}
+
 func TestServiceStatusDoesNotMutateWorkspaceRoot(t *testing.T) {
 	t.Parallel()
 

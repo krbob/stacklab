@@ -15,6 +15,7 @@ import (
 	"stacklab/internal/atomicfile"
 	"stacklab/internal/config"
 	"stacklab/internal/fsmeta"
+	"stacklab/internal/limitedio"
 	"stacklab/internal/stacks"
 	"stacklab/internal/workspacefiles"
 	"stacklab/internal/workspacerepair"
@@ -29,7 +30,10 @@ var (
 	ErrPermissionDenied     = errors.New("stack workspace permission denied")
 	ErrReservedPath         = errors.New("reserved stack definition path")
 	ErrConflict             = errors.New("stack workspace file changed")
+	ErrContentTooLarge      = limitedio.ErrContentTooLarge
 )
+
+const MaxFileContentBytes int64 = 1 << 20
 
 type Service struct {
 	rootDir  string
@@ -216,7 +220,7 @@ func (s *Service) File(ctx context.Context, stackID, filePath string) (FileRespo
 	}
 
 	if entryType == EntryTypeTextFile && readable {
-		contentBytes, err := os.ReadFile(resolvedPath)
+		contentBytes, err := limitedio.ReadFile(resolvedPath, MaxFileContentBytes)
 		if err != nil {
 			if errors.Is(err, os.ErrPermission) {
 				reason := "not_readable"
@@ -240,6 +244,9 @@ func (s *Service) File(ctx context.Context, stackID, filePath string) (FileRespo
 
 func (s *Service) SaveFile(ctx context.Context, stackID string, request SaveFileRequest) (SaveFileResponse, error) {
 	_ = ctx
+	if err := limitedio.CheckString(request.Content, MaxFileContentBytes); err != nil {
+		return SaveFileResponse{}, err
+	}
 
 	stackRoot, err := s.stackRoot(stackID)
 	if err != nil {

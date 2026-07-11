@@ -17,6 +17,7 @@ import (
 
 	"stacklab/internal/config"
 	"stacklab/internal/fsmeta"
+	"stacklab/internal/limitedio"
 	"stacklab/internal/stacks"
 )
 
@@ -33,10 +34,13 @@ var (
 	ErrUpstreamNotConfigured = errors.New("git upstream not configured")
 	ErrPushRejected          = errors.New("git push rejected")
 	ErrAuthFailed            = errors.New("git auth failed")
+	ErrContentTooLarge       = limitedio.ErrContentTooLarge
 )
 
 const (
-	diffSizeLimit        = 256 * 1024
+	diffSizeLimit  int64 = 256 * 1024
+	gitOutputLimit int64 = 4 * 1024 * 1024
+
 	staleGitIndexLockAge = 15 * time.Minute
 	emptyTreeHash        = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 )
@@ -160,14 +164,11 @@ func (s *Service) Diff(ctx context.Context, requestedPath string) (DiffResponse,
 		return response, nil
 	}
 
-	diffText, err := s.diffText(ctx, *item)
+	diffText, truncated, err := s.diffText(ctx, *item)
 	if err != nil {
 		return DiffResponse{}, err
 	}
-	if len(diffText) > diffSizeLimit {
-		diffText = diffText[:diffSizeLimit]
-		response.Truncated = true
-	}
+	response.Truncated = truncated
 	response.Diff = &diffText
 
 	return response, nil
@@ -582,36 +583,37 @@ func (s *Service) enrichStatusItem(item StatusItem) (StatusItem, error) {
 	return item, nil
 }
 
-func (s *Service) diffText(ctx context.Context, item StatusItem) (string, error) {
+func (s *Service) diffText(ctx context.Context, item StatusItem) (string, bool, error) {
 	var (
-		output []byte
-		err    error
+		output    []byte
+		truncated bool
+		err       error
 	)
 
 	if item.Status == FileStatusUntracked {
 		absolutePath := filepath.Join(s.workspaceRoot, filepath.FromSlash(item.Path))
-		output, _, err = s.runGitAllowDiff(ctx, "diff", "--no-index", "--binary", "--", "/dev/null", absolutePath)
+		output, _, truncated, err = s.runGitAllowTruncatedDiff(ctx, "diff", "--no-index", "--binary", "--", "/dev/null", absolutePath)
 		if err != nil {
-			return "", err
+			return "", false, err
 		}
 		diff := strings.ReplaceAll(string(output), absolutePath, item.Path)
-		return diff, nil
+		return diff, truncated, nil
 	}
 
 	base, err := s.diffBase(ctx)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	args := []string{"diff", "--binary", "--find-renames", base, "--"}
 	if item.OldPath != nil {
 		args = append(args, *item.OldPath)
 	}
 	args = append(args, item.Path)
-	output, _, err = s.runGitAllowDiff(ctx, args...)
+	output, _, truncated, err = s.runGitAllowTruncatedDiff(ctx, args...)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	return string(output), nil
+	return string(output), truncated, nil
 }
 
 func (s *Service) diffBase(ctx context.Context) (string, error) {
@@ -629,6 +631,14 @@ func (s *Service) diffBase(ctx context.Context) (string, error) {
 }
 
 func (s *Service) runGit(ctx context.Context, args ...string) ([]byte, []byte, error) {
+	stdout, stderr, stdoutTruncated, err := s.runGitWithLimits(ctx, gitOutputLimit, gitOutputLimit, args...)
+	if stdoutTruncated {
+		return stdout, stderr, limitedio.NewLimitError(gitOutputLimit)
+	}
+	return stdout, stderr, err
+}
+
+func (s *Service) runGitWithLimits(ctx context.Context, stdoutLimit, stderrLimit int64, args ...string) ([]byte, []byte, bool, error) {
 	cmd := exec.CommandContext(ctx, s.gitBinary, append([]string{"-C", s.workspaceRoot}, args...)...)
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {
@@ -644,15 +654,18 @@ func (s *Service) runGit(ctx context.Context, args ...string) ([]byte, []byte, e
 		"LANG=C",
 		"GIT_OPTIONAL_LOCKS=0",
 	)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout := limitedio.NewBuffer(stdoutLimit)
+	stderr := limitedio.NewBuffer(stderrLimit)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	err := cmd.Run()
 	if err != nil && ctx.Err() != nil && gitCommandMayLeaveIndexLock(args) {
 		_ = s.removeIndexLock()
 	}
-	return stdout.Bytes(), stderr.Bytes(), err
+	if limitErr := stderr.Err(); limitErr != nil {
+		return stdout.Bytes(), stderr.Bytes(), false, limitErr
+	}
+	return stdout.Bytes(), stderr.Bytes(), stdout.Err() != nil, err
 }
 
 func (s *Service) runGitAllowDiff(ctx context.Context, args ...string) ([]byte, []byte, error) {
@@ -665,6 +678,18 @@ func (s *Service) runGitAllowDiff(ctx context.Context, args ...string) ([]byte, 
 		return stdout, stderr, nil
 	}
 	return nil, nil, err
+}
+
+func (s *Service) runGitAllowTruncatedDiff(ctx context.Context, args ...string) ([]byte, []byte, bool, error) {
+	stdout, stderr, truncated, err := s.runGitWithLimits(ctx, diffSizeLimit, gitOutputLimit, args...)
+	if err == nil {
+		return stdout, stderr, truncated, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return stdout, stderr, truncated, nil
+	}
+	return nil, nil, false, err
 }
 
 func gitCommandMayLeaveIndexLock(args []string) bool {
