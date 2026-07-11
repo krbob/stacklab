@@ -163,9 +163,13 @@ type AuditEntry struct {
 }
 
 type AuditQuery struct {
-	StackID string
-	Cursor  string
-	Limit   int
+	StackID         string
+	Cursor          string
+	Search          string
+	Results         []string
+	RequestedFrom   *time.Time
+	RequestedBefore *time.Time
+	Limit           int
 }
 
 type AuditListResult struct {
@@ -1100,6 +1104,27 @@ func (s *Store) ListAuditEntries(ctx context.Context, query AuditQuery) (AuditLi
 		where = append(where, "stack_id = ?")
 		args = append(args, query.StackID)
 	}
+	if query.Search != "" {
+		pattern := "%" + escapeLikePattern(strings.ToLower(strings.TrimSpace(query.Search))) + "%"
+		where = append(where, `(LOWER(action) LIKE ? ESCAPE '\' OR LOWER(COALESCE(stack_id, '')) LIKE ? ESCAPE '\')`)
+		args = append(args, pattern, pattern)
+	}
+	if len(query.Results) > 0 {
+		placeholders := make([]string, len(query.Results))
+		for index, result := range query.Results {
+			placeholders[index] = "?"
+			args = append(args, result)
+		}
+		where = append(where, "result IN ("+strings.Join(placeholders, ",")+")")
+	}
+	if query.RequestedFrom != nil {
+		where = append(where, "julianday(requested_at) >= julianday(?)")
+		args = append(args, query.RequestedFrom.UTC().Format(time.RFC3339Nano))
+	}
+	if query.RequestedBefore != nil {
+		where = append(where, "julianday(requested_at) < julianday(?)")
+		args = append(args, query.RequestedBefore.UTC().Format(time.RFC3339Nano))
+	}
 	if query.Cursor != "" {
 		cursorTime, cursorID, err := decodeAuditCursor(query.Cursor)
 		if err != nil {
@@ -1145,6 +1170,12 @@ func (s *Store) ListAuditEntries(ctx context.Context, query AuditQuery) (AuditLi
 	result.Items = items
 
 	return result, nil
+}
+
+func escapeLikePattern(value string) string {
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, `%`, `\%`)
+	return strings.ReplaceAll(value, `_`, `\_`)
 }
 
 func (s *Store) LatestAuditEntriesByStackIDs(ctx context.Context, stackIDs []string) (map[string]AuditEntry, error) {

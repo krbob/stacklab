@@ -40,6 +40,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 type Handler struct {
@@ -2283,12 +2284,12 @@ func (h *Handler) handleListStackAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response, err := h.audit.List(
-		r.Context(),
-		r.PathValue("stackId"),
-		strings.TrimSpace(r.URL.Query().Get("cursor")),
-		parseLimit(r.URL.Query().Get("limit")),
-	)
+	query, err := parseAuditListQuery(r, r.PathValue("stackId"))
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "validation_failed", "Invalid audit filters.", nil)
+		return
+	}
+	response, err := h.audit.List(r.Context(), query)
 	if err != nil {
 		h.logger.Error("list stack audit failed", slog.String("stack_id", r.PathValue("stackId")), slog.String("err", err.Error()))
 		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load audit entries.", nil)
@@ -2299,12 +2300,12 @@ func (h *Handler) handleListStackAudit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleListAudit(w http.ResponseWriter, r *http.Request) {
-	response, err := h.audit.List(
-		r.Context(),
-		strings.TrimSpace(r.URL.Query().Get("stack_id")),
-		strings.TrimSpace(r.URL.Query().Get("cursor")),
-		parseLimit(r.URL.Query().Get("limit")),
-	)
+	query, err := parseAuditListQuery(r, strings.TrimSpace(r.URL.Query().Get("stack_id")))
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "validation_failed", "Invalid audit filters.", nil)
+		return
+	}
+	response, err := h.audit.List(r.Context(), query)
 	if err != nil {
 		h.logger.Error("list audit failed", slog.String("err", err.Error()))
 		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load audit entries.", nil)
@@ -2835,6 +2836,61 @@ func parseLimit(value string) int {
 		return 50
 	}
 	return parsed
+}
+
+func parseAuditListQuery(r *http.Request, stackID string) (audit.ListQuery, error) {
+	const maxSearchLength = 200
+	values := r.URL.Query()
+	search := strings.TrimSpace(values.Get("q"))
+	if utf8.RuneCountInString(search) > maxSearchLength {
+		return audit.ListQuery{}, errors.New("audit search is too long")
+	}
+
+	var results []string
+	switch result := strings.TrimSpace(values.Get("result")); result {
+	case "", "all":
+	case "failed":
+		results = []string{"failed", "timed_out"}
+	case "succeeded", "cancelled", "timed_out":
+		results = []string{result}
+	default:
+		return audit.ListQuery{}, errors.New("invalid audit result")
+	}
+
+	from, err := parseAuditTime(values.Get("from"))
+	if err != nil {
+		return audit.ListQuery{}, err
+	}
+	before, err := parseAuditTime(values.Get("to"))
+	if err != nil {
+		return audit.ListQuery{}, err
+	}
+	if from != nil && before != nil && !from.Before(*before) {
+		return audit.ListQuery{}, errors.New("invalid audit date range")
+	}
+
+	return audit.ListQuery{
+		StackID:         stackID,
+		Cursor:          strings.TrimSpace(values.Get("cursor")),
+		Search:          search,
+		Results:         results,
+		RequestedFrom:   from,
+		RequestedBefore: before,
+		Limit:           parseLimit(values.Get("limit")),
+	}, nil
+}
+
+func parseAuditTime(value string) (*time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return nil, errors.New("invalid audit timestamp")
+	}
+	utc := parsed.UTC()
+	return &utc, nil
 }
 
 func parseOptionalPositiveInt(value string, fallback, max int) (int, error) {

@@ -734,6 +734,143 @@ func TestListAuditEntriesPaginatesAndFilters(t *testing.T) {
 			t.Fatalf("expected alpha-only filter, got %#v", item.StackID)
 		}
 	}
+
+	searchOnly, err := testStore.ListAuditEntries(ctx, AuditQuery{Search: "BET", Limit: 10})
+	if err != nil {
+		t.Fatalf("ListAuditEntries(search) error = %v", err)
+	}
+	if len(searchOnly.Items) != 1 || searchOnly.Items[0].ID != "audit-2" {
+		t.Fatalf("search filter items = %#v", searchOnly.Items)
+	}
+
+	failedOnly, err := testStore.ListAuditEntries(ctx, AuditQuery{Results: []string{"failed", "timed_out"}, Limit: 10})
+	if err != nil {
+		t.Fatalf("ListAuditEntries(results) error = %v", err)
+	}
+	if len(failedOnly.Items) != 1 || failedOnly.Items[0].ID != "audit-2" {
+		t.Fatalf("result filter items = %#v", failedOnly.Items)
+	}
+
+	requestedFrom := baseTime.Add(2 * time.Minute)
+	requestedBefore := baseTime.Add(3 * time.Minute)
+	dateOnly, err := testStore.ListAuditEntries(ctx, AuditQuery{
+		RequestedFrom: &requestedFrom, RequestedBefore: &requestedBefore, Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("ListAuditEntries(date range) error = %v", err)
+	}
+	if len(dateOnly.Items) != 1 || dateOnly.Items[0].ID != "audit-2" {
+		t.Fatalf("date filter items = %#v", dateOnly.Items)
+	}
+}
+
+func TestListAuditEntriesKeepsFiltersAcrossPages(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	testStore := openTestStore(t)
+	baseTime := time.Date(2026, 4, 4, 12, 0, 0, 0, time.UTC)
+	entries := []AuditEntry{
+		{ID: "audit-failed", Action: "pull", RequestedBy: "local", Result: "failed", RequestedAt: baseTime, TargetType: "workspace"},
+		{ID: "audit-succeeded", Action: "pull", RequestedBy: "local", Result: "succeeded", RequestedAt: baseTime.Add(time.Minute), TargetType: "workspace"},
+		{ID: "audit-timed-out", Action: "pull", RequestedBy: "local", Result: "timed_out", RequestedAt: baseTime.Add(2 * time.Minute), TargetType: "workspace"},
+	}
+	for _, entry := range entries {
+		insertAuditEntry(t, testStore, entry)
+	}
+
+	query := AuditQuery{Search: "pull", Results: []string{"failed", "timed_out"}, Limit: 1}
+	first, err := testStore.ListAuditEntries(ctx, query)
+	if err != nil {
+		t.Fatalf("ListAuditEntries(first filtered page) error = %v", err)
+	}
+	if len(first.Items) != 1 || first.Items[0].ID != "audit-timed-out" || first.NextCursor == nil {
+		t.Fatalf("first filtered page = %#v, cursor=%v", first.Items, first.NextCursor)
+	}
+
+	query.Cursor = *first.NextCursor
+	second, err := testStore.ListAuditEntries(ctx, query)
+	if err != nil {
+		t.Fatalf("ListAuditEntries(second filtered page) error = %v", err)
+	}
+	if len(second.Items) != 1 || second.Items[0].ID != "audit-failed" || second.NextCursor != nil {
+		t.Fatalf("second filtered page = %#v, cursor=%v", second.Items, second.NextCursor)
+	}
+}
+
+func TestListAuditEntriesTreatsSearchMetacharactersLiterally(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	testStore := openTestStore(t)
+	baseTime := time.Date(2026, 4, 5, 12, 0, 0, 0, time.UTC)
+	entries := []AuditEntry{
+		{ID: "audit-percent", Action: "pull%image", RequestedBy: "local", Result: "succeeded", RequestedAt: baseTime, TargetType: "workspace"},
+		{ID: "audit-underscore", StackID: stringPtr("stack_name"), Action: "up", RequestedBy: "local", Result: "succeeded", RequestedAt: baseTime.Add(time.Minute), TargetType: "stack"},
+		{ID: "audit-backslash", Action: `sync\config`, RequestedBy: "local", Result: "succeeded", RequestedAt: baseTime.Add(2 * time.Minute), TargetType: "workspace"},
+		{ID: "audit-plain", Action: "pull-image", RequestedBy: "local", Result: "succeeded", RequestedAt: baseTime.Add(3 * time.Minute), TargetType: "workspace"},
+	}
+	for _, entry := range entries {
+		insertAuditEntry(t, testStore, entry)
+	}
+
+	for search, wantID := range map[string]string{
+		"%": "audit-percent",
+		"_": "audit-underscore",
+		`\`: "audit-backslash",
+	} {
+		result, err := testStore.ListAuditEntries(ctx, AuditQuery{Search: search, Limit: 10})
+		if err != nil {
+			t.Fatalf("ListAuditEntries(search=%q) error = %v", search, err)
+		}
+		if len(result.Items) != 1 || result.Items[0].ID != wantID {
+			t.Fatalf("ListAuditEntries(search=%q) items = %#v, want %q", search, result.Items, wantID)
+		}
+	}
+}
+
+func TestListAuditEntriesUsesExactTimestampBoundaries(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	testStore := openTestStore(t)
+	from := time.Date(2026, 4, 6, 0, 0, 0, 0, time.UTC)
+	before := from.AddDate(0, 0, 1)
+	entries := []AuditEntry{
+		{ID: "audit-at-start", Action: "up", RequestedBy: "local", Result: "succeeded", RequestedAt: from, TargetType: "workspace"},
+		{ID: "audit-after-start", Action: "up", RequestedBy: "local", Result: "succeeded", RequestedAt: from.Add(100 * time.Millisecond), TargetType: "workspace"},
+		{ID: "audit-before-end", Action: "up", RequestedBy: "local", Result: "succeeded", RequestedAt: before.Add(-100 * time.Millisecond), TargetType: "workspace"},
+		{ID: "audit-at-end", Action: "up", RequestedBy: "local", Result: "succeeded", RequestedAt: before, TargetType: "workspace"},
+		{ID: "audit-after-end", Action: "up", RequestedBy: "local", Result: "succeeded", RequestedAt: before.Add(100 * time.Millisecond), TargetType: "workspace"},
+	}
+	for _, entry := range entries {
+		insertAuditEntry(t, testStore, entry)
+	}
+
+	result, err := testStore.ListAuditEntries(ctx, AuditQuery{
+		RequestedFrom:   &from,
+		RequestedBefore: &before,
+		Limit:           10,
+	})
+	if err != nil {
+		t.Fatalf("ListAuditEntries(timestamp range) error = %v", err)
+	}
+	if len(result.Items) != 3 {
+		t.Fatalf("timestamp range items = %#v, want three entries", result.Items)
+	}
+	for _, item := range result.Items {
+		if item.ID == "audit-at-end" || item.ID == "audit-after-end" {
+			t.Fatalf("exclusive upper bound returned %q", item.ID)
+		}
+	}
+}
+
+func TestEscapeLikePatternTreatsSearchMetacharactersLiterally(t *testing.T) {
+	t.Parallel()
+
+	if got, want := escapeLikePattern(`a\b%_`), `a\\b\%\_`; got != want {
+		t.Fatalf("escapeLikePattern() = %q, want %q", got, want)
+	}
 }
 
 func TestLatestAuditEntriesByStackIDsReturnsNewestPerStack(t *testing.T) {

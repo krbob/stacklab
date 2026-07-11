@@ -16,6 +16,16 @@ type Service struct {
 	store *store.Store
 }
 
+type ListQuery struct {
+	StackID         string
+	Cursor          string
+	Search          string
+	Results         []string
+	RequestedFrom   *time.Time
+	RequestedBefore *time.Time
+	Limit           int
+}
+
 func NewService(auditStore *store.Store) *Service {
 	return &Service{store: auditStore}
 }
@@ -293,11 +303,15 @@ func (s *Service) RecordGitPush(ctx context.Context, requestedBy, remote, branch
 	})
 }
 
-func (s *Service) List(ctx context.Context, stackID, cursor string, limit int) (store.AuditListResult, error) {
+func (s *Service) List(ctx context.Context, query ListQuery) (store.AuditListResult, error) {
 	return s.store.ListAuditEntries(ctx, store.AuditQuery{
-		StackID: stackID,
-		Cursor:  cursor,
-		Limit:   limit,
+		StackID:         query.StackID,
+		Cursor:          query.Cursor,
+		Search:          query.Search,
+		Results:         append([]string(nil), query.Results...),
+		RequestedFrom:   query.RequestedFrom,
+		RequestedBefore: query.RequestedBefore,
+		Limit:           query.Limit,
 	})
 }
 

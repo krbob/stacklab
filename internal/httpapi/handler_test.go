@@ -651,6 +651,25 @@ func TestHandlerCreateAndDeleteStackWithoutRuntime(t *testing.T) {
 	if auditPayload.Items[0].Action != "remove_stack_definition" || auditPayload.Items[1].Action != "create_stack" {
 		t.Fatalf("unexpected audit actions order: %#v", auditPayload.Items)
 	}
+
+	filteredAuditResponse := performJSONRequest(t, handler, http.MethodGet, "/api/audit?q=remove&result=succeeded", nil, cookies)
+	if filteredAuditResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/audit(filtered) status = %d, want %d", filteredAuditResponse.Code, http.StatusOK)
+	}
+	var filteredAuditPayload struct {
+		Items []struct {
+			Action string `json:"action"`
+		} `json:"items"`
+	}
+	decodeResponse(t, filteredAuditResponse, &filteredAuditPayload)
+	if len(filteredAuditPayload.Items) != 1 || filteredAuditPayload.Items[0].Action != "remove_stack_definition" {
+		t.Fatalf("unexpected filtered audit entries: %#v", filteredAuditPayload.Items)
+	}
+
+	invalidAuditResponse := performJSONRequest(t, handler, http.MethodGet, "/api/audit?from=invalid", nil, cookies)
+	if invalidAuditResponse.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("GET /api/audit(invalid filter) status = %d, want %d", invalidAuditResponse.Code, http.StatusUnprocessableEntity)
+	}
 }
 
 func TestHandlerDeleteStackContinuesAfterRequestDisconnect(t *testing.T) {
