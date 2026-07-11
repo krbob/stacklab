@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,11 +39,11 @@ var (
 )
 
 const (
-	diffSizeLimit  int64 = 256 * 1024
-	gitOutputLimit int64 = 4 * 1024 * 1024
+	diffSizeLimit           int64 = 256 * 1024
+	gitOutputLimit          int64 = 4 * 1024 * 1024
+	gitIndexFinalizeTimeout       = 30 * time.Second
 
-	staleGitIndexLockAge = 15 * time.Minute
-	emptyTreeHash        = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+	emptyTreeHash = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 )
 
 type Service struct {
@@ -174,7 +175,7 @@ func (s *Service) Diff(ctx context.Context, requestedPath string) (DiffResponse,
 	return response, nil
 }
 
-func (s *Service) Commit(ctx context.Context, request CommitRequest) (CommitResponse, error) {
+func (s *Service) Commit(ctx context.Context, request CommitRequest) (response CommitResponse, resultErr error) {
 	s.mutationMu.Lock()
 	defer s.mutationMu.Unlock()
 
@@ -182,9 +183,28 @@ func (s *Service) Commit(ctx context.Context, request CommitRequest) (CommitResp
 	if message == "" {
 		return CommitResponse{}, ErrValidation
 	}
-	if err := s.removeStaleIndexLock(staleGitIndexLockAge); err != nil {
+
+	repoRoot, available, _, err := s.repoRoot(ctx)
+	if err != nil {
 		return CommitResponse{}, err
 	}
+	if !available || repoRoot == "" {
+		return CommitResponse{}, ErrUnavailable
+	}
+	if s.hasOperationInProgress(ctx) {
+		return CommitResponse{}, ErrOperationInProgress
+	}
+
+	indexLock, err := s.acquireIndexLock(ctx)
+	if err != nil {
+		return CommitResponse{}, err
+	}
+	defer func() {
+		if err := indexLock.release(); err != nil {
+			response = CommitResponse{}
+			resultErr = errors.Join(resultErr, err)
+		}
+	}()
 
 	status, selectedItems, normalizedPaths, err := s.selectedItems(ctx, request.Paths)
 	if err != nil {
@@ -205,18 +225,31 @@ func (s *Service) Commit(ctx context.Context, request CommitRequest) (CommitResp
 		}
 	}
 
-	addArgs := append([]string{"add", "-A", "--"}, normalizedPaths...)
-	if _, stderr, err := s.runGit(ctx, addArgs...); err != nil {
+	commitPaths := commitPathspecs(selectedItems, normalizedPaths)
+	temporaryDir, err := os.MkdirTemp(filepath.Dir(indexLock.path), ".stacklab-index-")
+	if err != nil {
+		return CommitResponse{}, fmt.Errorf("create temporary git index directory: %w", err)
+	}
+	defer os.RemoveAll(temporaryDir)
+
+	commitIndexPath := filepath.Join(temporaryDir, "commit-index")
+	if err := s.initializeCommitIndex(ctx, commitIndexPath); err != nil {
+		return CommitResponse{}, err
+	}
+
+	addArgs := append([]string{"add", "-A", "--"}, commitPaths...)
+	if _, stderr, err := s.runGitWithIndex(ctx, commitIndexPath, addArgs...); err != nil {
 		return CommitResponse{}, classifyGitMutationError(stderr, err)
 	}
 
-	commitPaths := commitPathspecs(selectedItems, normalizedPaths)
 	diffArgs := append([]string{"diff", "--cached", "--quiet", "--"}, commitPaths...)
-	if _, stderr, err := s.runGit(ctx, diffArgs...); err != nil {
+	if _, stderr, err := s.runGitWithIndex(ctx, commitIndexPath, diffArgs...); err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
-			commitArgs := append([]string{"commit", "-m", message, "--only", "--"}, commitPaths...)
-			if _, stderr, err := s.runGit(ctx, commitArgs...); err != nil {
+			if err := indexLock.ensureOwned(); err != nil {
+				return CommitResponse{}, err
+			}
+			if _, stderr, err := s.runGitWithIndex(ctx, commitIndexPath, "commit", "-m", message); err != nil {
 				return CommitResponse{}, classifyGitCommitError(stderr, err)
 			}
 		} else {
@@ -225,12 +258,28 @@ func (s *Service) Commit(ctx context.Context, request CommitRequest) (CommitResp
 	} else {
 		return CommitResponse{}, ErrNothingToCommit
 	}
+	if err := indexLock.ensureOwned(); err != nil {
+		return CommitResponse{}, err
+	}
 
-	headCommit, err := s.headCommit(ctx)
+	// HEAD has advanced. Finish the local index transaction even if the HTTP
+	// request is canceled at this point, otherwise the real index would still
+	// describe the previous HEAD.
+	finalizeCtx, cancelFinalize := context.WithTimeout(context.WithoutCancel(ctx), gitIndexFinalizeTimeout)
+	defer cancelFinalize()
+	reconciledIndexPath := filepath.Join(temporaryDir, "reconciled-index")
+	if err := s.reconcileIndex(finalizeCtx, indexLock.indexPath, reconciledIndexPath, commitPaths); err != nil {
+		return CommitResponse{}, err
+	}
+	if err := indexLock.install(reconciledIndexPath); err != nil {
+		return CommitResponse{}, err
+	}
+
+	headCommit, err := s.headCommit(finalizeCtx)
 	if err != nil {
 		return CommitResponse{}, err
 	}
-	updatedStatus, err := s.Status(ctx)
+	updatedStatus, err := s.Status(finalizeCtx)
 	if err != nil {
 		return CommitResponse{}, err
 	}
@@ -631,7 +680,11 @@ func (s *Service) diffBase(ctx context.Context) (string, error) {
 }
 
 func (s *Service) runGit(ctx context.Context, args ...string) ([]byte, []byte, error) {
-	stdout, stderr, stdoutTruncated, err := s.runGitWithLimits(ctx, gitOutputLimit, gitOutputLimit, args...)
+	return s.runGitWithIndex(ctx, "", args...)
+}
+
+func (s *Service) runGitWithIndex(ctx context.Context, indexPath string, args ...string) ([]byte, []byte, error) {
+	stdout, stderr, stdoutTruncated, err := s.runGitWithLimitsAndIndex(ctx, gitOutputLimit, gitOutputLimit, indexPath, args...)
 	if stdoutTruncated {
 		return stdout, stderr, limitedio.NewLimitError(gitOutputLimit)
 	}
@@ -639,6 +692,10 @@ func (s *Service) runGit(ctx context.Context, args ...string) ([]byte, []byte, e
 }
 
 func (s *Service) runGitWithLimits(ctx context.Context, stdoutLimit, stderrLimit int64, args ...string) ([]byte, []byte, bool, error) {
+	return s.runGitWithLimitsAndIndex(ctx, stdoutLimit, stderrLimit, "", args...)
+}
+
+func (s *Service) runGitWithLimitsAndIndex(ctx context.Context, stdoutLimit, stderrLimit int64, indexPath string, args ...string) ([]byte, []byte, bool, error) {
 	cmd := exec.CommandContext(ctx, s.gitBinary, append([]string{"-C", s.workspaceRoot}, args...)...)
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {
@@ -647,21 +704,12 @@ func (s *Service) runGitWithLimits(ctx context.Context, stdoutLimit, stderrLimit
 		return cmd.Process.Signal(syscall.SIGTERM)
 	}
 	cmd.WaitDelay = 5 * time.Second
-	cmd.Env = append(cmd.Environ(),
-		"GIT_PAGER=cat",
-		"TERM=dumb",
-		"LC_ALL=C",
-		"LANG=C",
-		"GIT_OPTIONAL_LOCKS=0",
-	)
+	cmd.Env = gitCommandEnvironment(cmd.Environ(), indexPath)
 	stdout := limitedio.NewBuffer(stdoutLimit)
 	stderr := limitedio.NewBuffer(stderrLimit)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	err := cmd.Run()
-	if err != nil && ctx.Err() != nil && gitCommandMayLeaveIndexLock(args) {
-		_ = s.removeIndexLock()
-	}
 	if limitErr := stderr.Err(); limitErr != nil {
 		return stdout.Bytes(), stderr.Bytes(), false, limitErr
 	}
@@ -692,45 +740,248 @@ func (s *Service) runGitAllowTruncatedDiff(ctx context.Context, args ...string) 
 	return nil, nil, false, err
 }
 
-func gitCommandMayLeaveIndexLock(args []string) bool {
-	if len(args) == 0 {
-		return false
+func gitCommandEnvironment(base []string, indexPath string) []string {
+	overridden := map[string]struct{}{
+		"GIT_INDEX_FILE":     {},
+		"GIT_OPTIONAL_LOCKS": {},
+		"GIT_PAGER":          {},
+		"LANG":               {},
+		"LC_ALL":             {},
+		"TERM":               {},
 	}
-	switch args[0] {
-	case "add", "commit":
-		return true
-	default:
-		return false
+	environment := make([]string, 0, len(base)+6)
+	for _, entry := range base {
+		key, _, found := strings.Cut(entry, "=")
+		if _, replace := overridden[key]; found && replace {
+			continue
+		}
+		environment = append(environment, entry)
 	}
+	environment = append(environment,
+		"GIT_PAGER=cat",
+		"TERM=dumb",
+		"LC_ALL=C",
+		"LANG=C",
+		"GIT_OPTIONAL_LOCKS=0",
+	)
+	if indexPath != "" {
+		environment = append(environment, "GIT_INDEX_FILE="+indexPath)
+	}
+	return environment
 }
 
-func (s *Service) removeStaleIndexLock(maxAge time.Duration) error {
-	lockPath := s.indexLockPath()
-	info, err := os.Stat(lockPath)
+// ownedIndexLock tracks the exact filesystem object created by Stacklab. A
+// path match alone is never enough to authorize cleanup because another Git
+// process may have replaced the lock after cancellation.
+type ownedIndexLock struct {
+	file      *os.File
+	identity  os.FileInfo
+	indexPath string
+	path      string
+	installed bool
+}
+
+func (s *Service) acquireIndexLock(ctx context.Context) (*ownedIndexLock, error) {
+	indexPath, err := s.gitPath(ctx, "index")
+	if err != nil {
+		return nil, err
+	}
+	lockPath, err := s.gitPath(ctx, "index.lock")
+	if err != nil {
+		return nil, err
+	}
+
+	mode := os.FileMode(0o644)
+	if info, statErr := os.Lstat(indexPath); statErr == nil {
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("git index is not a regular file: %s", indexPath)
+		}
+		mode = info.Mode().Perm()
+	} else if !os.IsNotExist(statErr) {
+		return nil, fmt.Errorf("stat git index: %w", statErr)
+	}
+
+	file, err := os.OpenFile(lockPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if err != nil {
+		switch {
+		case os.IsExist(err):
+			return nil, ErrOperationInProgress
+		case os.IsPermission(err):
+			return nil, ErrPermissionDenied
+		default:
+			return nil, fmt.Errorf("acquire git index lock: %w", err)
+		}
+	}
+	identity, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, fmt.Errorf("stat owned git index lock: %w", err)
+	}
+	return &ownedIndexLock{
+		file:      file,
+		identity:  identity,
+		indexPath: indexPath,
+		path:      lockPath,
+	}, nil
+}
+
+func (s *Service) gitPath(ctx context.Context, name string) (string, error) {
+	output, stderr, err := s.runGit(ctx, "rev-parse", "--git-path", name)
+	if err != nil {
+		return "", gitCommandError(stderr, err)
+	}
+	path := strings.TrimSpace(string(output))
+	if path == "" {
+		return "", fmt.Errorf("git returned an empty path for %s", name)
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(s.workspaceRoot, path)
+	}
+	return filepath.Clean(path), nil
+}
+
+func (lock *ownedIndexLock) ensureOwned() error {
+	if lock.installed || lock.file == nil {
+		return ErrOperationInProgress
+	}
+	current, err := os.Lstat(lock.path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return ErrOperationInProgress
 		}
-		return fmt.Errorf("stat git index lock: %w", err)
+		return fmt.Errorf("stat git index lock ownership: %w", err)
 	}
-	if time.Since(info.ModTime()) < maxAge {
-		return nil
-	}
-	if err := os.Remove(lockPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove stale git index lock: %w", err)
+	if !os.SameFile(lock.identity, current) {
+		return ErrOperationInProgress
 	}
 	return nil
 }
 
-func (s *Service) removeIndexLock() error {
-	if err := os.Remove(s.indexLockPath()); err != nil && !os.IsNotExist(err) {
+func (lock *ownedIndexLock) install(sourcePath string) error {
+	if err := lock.ensureOwned(); err != nil {
 		return err
 	}
+	source, err := os.Open(sourcePath)
+	if err != nil {
+		return fmt.Errorf("open reconciled git index: %w", err)
+	}
+	defer source.Close()
+	if err := lock.file.Truncate(0); err != nil {
+		return fmt.Errorf("truncate git index lock: %w", err)
+	}
+	if _, err := lock.file.Seek(0, 0); err != nil {
+		return fmt.Errorf("seek git index lock: %w", err)
+	}
+	if _, err := io.Copy(lock.file, source); err != nil {
+		return fmt.Errorf("write reconciled git index: %w", err)
+	}
+	if err := lock.file.Sync(); err != nil {
+		return fmt.Errorf("sync reconciled git index: %w", err)
+	}
+	if err := lock.ensureOwned(); err != nil {
+		return err
+	}
+	if err := lock.file.Close(); err != nil {
+		return fmt.Errorf("close reconciled git index: %w", err)
+	}
+	lock.file = nil
+	if err := os.Rename(lock.path, lock.indexPath); err != nil {
+		return fmt.Errorf("install reconciled git index: %w", err)
+	}
+	lock.installed = true
+	if err := syncDirectory(filepath.Dir(lock.indexPath)); err != nil {
+		return fmt.Errorf("sync git index directory: %w", err)
+	}
 	return nil
 }
 
-func (s *Service) indexLockPath() string {
-	return filepath.Join(s.workspaceRoot, ".git", "index.lock")
+func (lock *ownedIndexLock) release() error {
+	var closeErr error
+	if lock.file != nil {
+		closeErr = lock.file.Close()
+		lock.file = nil
+	}
+	if lock.installed {
+		return closeErr
+	}
+	current, err := os.Lstat(lock.path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return closeErr
+		}
+		return errors.Join(closeErr, fmt.Errorf("stat git index lock during cleanup: %w", err))
+	}
+	if !os.SameFile(lock.identity, current) {
+		return errors.Join(closeErr, ErrOperationInProgress)
+	}
+	if err := os.Remove(lock.path); err != nil && !os.IsNotExist(err) {
+		return errors.Join(closeErr, fmt.Errorf("remove owned git index lock: %w", err))
+	}
+	return closeErr
+}
+
+func (s *Service) initializeCommitIndex(ctx context.Context, indexPath string) error {
+	_, stderr, err := s.runGit(ctx, "rev-parse", "--verify", "HEAD^{commit}")
+	args := []string{"read-tree", "HEAD"}
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if !isUnbornHead(stderr) {
+			return gitCommandError(stderr, err)
+		}
+		args = []string{"read-tree", "--empty"}
+	}
+	if _, stderr, err := s.runGitWithIndex(ctx, indexPath, args...); err != nil {
+		return classifyGitMutationError(stderr, err)
+	}
+	return nil
+}
+
+func (s *Service) reconcileIndex(ctx context.Context, realIndexPath, temporaryIndexPath string, committedPaths []string) error {
+	if err := copyIndex(realIndexPath, temporaryIndexPath); err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+		if _, stderr, readErr := s.runGitWithIndex(ctx, temporaryIndexPath, "read-tree", "HEAD"); readErr != nil {
+			return classifyGitMutationError(stderr, readErr)
+		}
+		return nil
+	}
+	resetArgs := append([]string{"reset", "--quiet", "HEAD", "--"}, committedPaths...)
+	if _, stderr, err := s.runGitWithIndex(ctx, temporaryIndexPath, resetArgs...); err != nil {
+		return classifyGitMutationError(stderr, err)
+	}
+	return nil
+}
+
+func copyIndex(sourcePath, destinationPath string) error {
+	source, err := os.Open(sourcePath)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+	destination, err := os.OpenFile(destinationPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("create temporary git index: %w", err)
+	}
+	if _, err := io.Copy(destination, source); err != nil {
+		_ = destination.Close()
+		return fmt.Errorf("copy git index: %w", err)
+	}
+	if err := destination.Close(); err != nil {
+		return fmt.Errorf("close temporary git index: %w", err)
+	}
+	return nil
+}
+
+func syncDirectory(path string) error {
+	directory, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	return directory.Sync()
 }
 
 func (s *Service) hasOperationInProgress(ctx context.Context) bool {

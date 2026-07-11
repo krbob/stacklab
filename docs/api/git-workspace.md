@@ -328,6 +328,14 @@ Notes:
 - UI may offer quick-select per stack, but backend still receives explicit file paths
 - each selected path must currently be changed under `stacks/` or `config/`
 - conflicted files must be rejected
+- Stacklab builds the selected commit in an isolated temporary index; unrelated staged
+  and unstaged changes in the real index/worktree are preserved
+- Stacklab acquires `index.lock` exclusively before the commit transaction and never
+  removes a lock whose file identity it does not own
+- any existing `index.lock`, regardless of age, returns `409 operation_in_progress`;
+  stale-lock recovery remains an explicit operator action
+- after the commit, the real index is atomically reconciled to the new `HEAD`, so the
+  committed paths are clean while unrelated staged state remains staged
 
 Response:
 
@@ -352,6 +360,7 @@ Suggested error codes:
 - `conflicted_files_selected`
 - `permission_denied`
 - `nothing_to_commit`
+- `operation_in_progress`
 - `git_unavailable`
 
 ## `POST /api/git/workspace/push`

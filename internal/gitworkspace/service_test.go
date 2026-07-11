@@ -174,6 +174,33 @@ func TestServiceDiffUsesEmptyTreeForUnbornHead(t *testing.T) {
 	}
 }
 
+func TestServiceCommitUsesTemporaryIndexForUnbornHead(t *testing.T) {
+	t.Parallel()
+
+	service, root := newTestService(t)
+	runGit(t, root, "init", "-b", "main")
+	runGit(t, root, "config", "user.name", "Stacklab Test")
+	runGit(t, root, "config", "user.email", "stacklab@example.com")
+	mustWriteFile(t, filepath.Join(root, "config", "demo", "app.conf"), "server_name demo.local;\n")
+
+	response, err := service.Commit(context.Background(), CommitRequest{
+		Message: "Initial config",
+		Paths:   []string{"config/demo/app.conf"},
+	})
+	if err != nil {
+		t.Fatalf("Commit(unborn HEAD) error = %v", err)
+	}
+	if !response.Committed || response.Commit == "" || response.RemainingChanges != 0 {
+		t.Fatalf("unexpected Commit(unborn HEAD) response: %#v", response)
+	}
+	if got := gitOutput(t, root, "show", "HEAD:config/demo/app.conf"); got != "server_name demo.local;\n" {
+		t.Fatalf("initial committed content = %q", got)
+	}
+	if got := gitOutput(t, root, "status", "--porcelain"); got != "" {
+		t.Fatalf("workspace remained dirty after initial commit: %q", got)
+	}
+}
+
 func TestServiceDiffBoundsLargeOutputBeforeReturningTruncatedContent(t *testing.T) {
 	t.Parallel()
 
@@ -346,7 +373,7 @@ func TestServiceCommitRenamedFileIncludesOldPath(t *testing.T) {
 	}
 }
 
-func TestServiceCommitRemovesStaleIndexLock(t *testing.T) {
+func TestServiceCommitPreservesExternalIndexLockRegardlessOfAge(t *testing.T) {
 	t.Parallel()
 
 	service, root := newTestService(t)
@@ -361,23 +388,175 @@ func TestServiceCommitRemovesStaleIndexLock(t *testing.T) {
 
 	lockPath := filepath.Join(root, ".git", "index.lock")
 	mustWriteFile(t, lockPath, "stale lock\n")
-	staleTime := time.Now().Add(-(staleGitIndexLockAge + time.Minute))
+	staleTime := time.Now().Add(-24 * time.Hour)
 	if err := os.Chtimes(lockPath, staleTime, staleTime); err != nil {
 		t.Fatalf("Chtimes(index.lock) error = %v", err)
 	}
 
-	commitResponse, err := service.Commit(context.Background(), CommitRequest{
+	if _, err := service.Commit(context.Background(), CommitRequest{
 		Message: "Update app config",
 		Paths:   []string{"config/demo/app.conf"},
+	}); err != ErrOperationInProgress {
+		t.Fatalf("Commit(external index.lock) error = %v, want %v", err, ErrOperationInProgress)
+	}
+	content, err := os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatalf("ReadFile(index.lock) error = %v", err)
+	}
+	if string(content) != "stale lock\n" {
+		t.Fatalf("index.lock content = %q, want preserved foreign content", content)
+	}
+	info, err := os.Stat(lockPath)
+	if err != nil {
+		t.Fatalf("Stat(index.lock) error = %v", err)
+	}
+	if !info.ModTime().Equal(staleTime) {
+		t.Fatalf("index.lock mtime = %v, want %v", info.ModTime(), staleTime)
+	}
+}
+
+func TestServiceCommitPreservesExternalStagedAndUnstagedChanges(t *testing.T) {
+	t.Parallel()
+
+	service, root := newTestService(t)
+	runGit(t, root, "init", "-b", "main")
+	runGit(t, root, "config", "user.name", "Stacklab Test")
+	runGit(t, root, "config", "user.email", "stacklab@example.com")
+
+	for _, name := range []string{"selected.conf", "staged.conf", "split.conf", "unstaged.conf"} {
+		mustWriteFile(t, filepath.Join(root, "config", "demo", name), "initial\n")
+	}
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "initial")
+
+	mustWriteFile(t, filepath.Join(root, "config", "demo", "selected.conf"), "selected by Stacklab\n")
+	mustWriteFile(t, filepath.Join(root, "config", "demo", "staged.conf"), "external staged\n")
+	mustWriteFile(t, filepath.Join(root, "config", "demo", "split.conf"), "external staged part\n")
+	runGit(t, root, "add", "config/demo/staged.conf", "config/demo/split.conf")
+	mustWriteFile(t, filepath.Join(root, "config", "demo", "split.conf"), "external unstaged part\n")
+	mustWriteFile(t, filepath.Join(root, "config", "demo", "unstaged.conf"), "external unstaged\n")
+
+	stagedBlobBefore := gitOutput(t, root, "show", ":config/demo/staged.conf")
+	splitBlobBefore := gitOutput(t, root, "show", ":config/demo/split.conf")
+
+	response, err := service.Commit(context.Background(), CommitRequest{
+		Message: "Commit selected config",
+		Paths:   []string{"config/demo/selected.conf"},
 	})
 	if err != nil {
 		t.Fatalf("Commit() error = %v", err)
 	}
-	if !commitResponse.Committed {
-		t.Fatalf("Commit().Committed = false, want true")
+	if !response.Committed || response.RemainingChanges != 3 {
+		t.Fatalf("unexpected Commit() response: %#v", response)
 	}
-	if _, err := os.Stat(lockPath); !os.IsNotExist(err) {
-		t.Fatalf("index.lock still present after commit, err=%v", err)
+	if got := gitOutput(t, root, "show", "HEAD:config/demo/selected.conf"); got != "selected by Stacklab\n" {
+		t.Fatalf("committed selected.conf = %q", got)
+	}
+	if got := gitOutput(t, root, "show", "HEAD:config/demo/staged.conf"); got != "initial\n" {
+		t.Fatalf("commit included external staged change: %q", got)
+	}
+	if got := gitOutput(t, root, "show", ":config/demo/staged.conf"); got != stagedBlobBefore {
+		t.Fatalf("staged.conf index content = %q, want %q", got, stagedBlobBefore)
+	}
+	if got := gitOutput(t, root, "show", ":config/demo/split.conf"); got != splitBlobBefore {
+		t.Fatalf("split.conf index content = %q, want %q", got, splitBlobBefore)
+	}
+	if got := strings.Fields(gitOutput(t, root, "diff", "--cached", "--name-only")); !equalStrings(got, []string{
+		"config/demo/split.conf",
+		"config/demo/staged.conf",
+	}) {
+		t.Fatalf("cached paths = %v, want external staged paths", got)
+	}
+	if got := strings.Fields(gitOutput(t, root, "diff", "--name-only")); !equalStrings(got, []string{
+		"config/demo/split.conf",
+		"config/demo/unstaged.conf",
+	}) {
+		t.Fatalf("unstaged paths = %v, want external unstaged paths", got)
+	}
+	if got := gitOutput(t, root, "status", "--porcelain", "--", "config/demo/selected.conf"); got != "" {
+		t.Fatalf("selected.conf remained dirty after commit: %q", got)
+	}
+}
+
+func TestServiceCommitCancellationNeverRemovesReplacementIndexLock(t *testing.T) {
+	t.Parallel()
+
+	service, root := newTestService(t)
+	runGit(t, root, "init", "-b", "main")
+	runGit(t, root, "config", "user.name", "Stacklab Test")
+	runGit(t, root, "config", "user.email", "stacklab@example.com")
+	mustWriteFile(t, filepath.Join(root, "config", "demo", "app.conf"), "server_name old.local;\n")
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "initial")
+	mustWriteFile(t, filepath.Join(root, "config", "demo", "app.conf"), "server_name new.local;\n")
+
+	indexPath := filepath.Join(root, ".git", "index")
+	indexBefore, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatalf("ReadFile(index) error = %v", err)
+	}
+	headBefore := gitOutput(t, root, "rev-parse", "HEAD")
+	lockPath := filepath.Join(root, ".git", "index.lock")
+	readyPath := filepath.Join(root, "hook-ready")
+	releasePath := filepath.Join(root, "hook-release")
+	hook := "#!/bin/sh\n" +
+		"rm -f " + shellQuote(lockPath) + "\n" +
+		"printf 'foreign lock\\n' > " + shellQuote(lockPath) + "\n" +
+		": > " + shellQuote(readyPath) + "\n" +
+		"while [ ! -e " + shellQuote(releasePath) + " ]; do :; done\n" +
+		"exit 1\n"
+	hookPath := filepath.Join(root, ".git", "hooks", "pre-commit")
+	mustWriteFile(t, hookPath, hook)
+	if err := os.Chmod(hookPath, 0o755); err != nil {
+		t.Fatalf("Chmod(pre-commit) error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	commitDone := make(chan error, 1)
+	go func() {
+		_, err := service.Commit(ctx, CommitRequest{
+			Message: "Canceled commit",
+			Paths:   []string{"config/demo/app.conf"},
+		})
+		commitDone <- err
+	}()
+
+	waitForPath(t, readyPath)
+	cancel()
+	mustWriteFile(t, releasePath, "release\n")
+	select {
+	case err := <-commitDone:
+		if err == nil || !errors.Is(err, ErrOperationInProgress) {
+			t.Fatalf("Commit(canceled with replacement lock) error = %v, want operation_in_progress", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Commit(canceled) did not return")
+	}
+
+	lockContent, err := os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatalf("ReadFile(replacement index.lock) error = %v", err)
+	}
+	if string(lockContent) != "foreign lock\n" {
+		t.Fatalf("replacement index.lock content = %q, want preserved", lockContent)
+	}
+	indexAfter, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatalf("ReadFile(index after cancellation) error = %v", err)
+	}
+	if string(indexAfter) != string(indexBefore) {
+		t.Fatal("real index changed after canceled commit")
+	}
+	if headAfter := gitOutput(t, root, "rev-parse", "HEAD"); headAfter != headBefore {
+		t.Fatalf("HEAD after cancellation = %q, want %q", headAfter, headBefore)
+	}
+	temporaryIndexes, err := filepath.Glob(filepath.Join(root, ".git", ".stacklab-index-*"))
+	if err != nil {
+		t.Fatalf("Glob(temporary indexes) error = %v", err)
+	}
+	if len(temporaryIndexes) != 0 {
+		t.Fatalf("temporary indexes left after cancellation: %v", temporaryIndexes)
 	}
 }
 
@@ -561,6 +740,49 @@ func runGit(t *testing.T, dir string, args ...string) {
 	if err != nil {
 		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(output))
 	}
+}
+
+func gitOutput(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+
+	cmd := exec.CommandContext(context.Background(), "git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(cmd.Environ(), "GIT_PAGER=cat", "TERM=dumb", "GIT_OPTIONAL_LOCKS=0")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git %s failed: %v", strings.Join(args, " "), err)
+	}
+	return string(output)
+}
+
+func equalStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
+func waitForPath(t *testing.T, path string) {
+	t.Helper()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		} else if !os.IsNotExist(err) {
+			t.Fatalf("Stat(%s) error = %v", path, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", path)
 }
 
 func mustWriteFile(t *testing.T, path, content string) {
