@@ -276,13 +276,26 @@ func (s *Service) Close(ownerID, sessionID, reason string) error {
 	return nil
 }
 
-// Shutdown closes every terminal synchronously so lifecycle hooks complete
-// before the application store is released. Process reaping may finish shortly
-// afterwards, but it no longer touches shared application state.
-func (s *Service) Shutdown(reason string) {
-	if reason == "" {
-		reason = "server_shutdown"
+// CloseOwner terminates every PTY created by an authenticated application
+// session. It is used when that owner session is revoked or expires; detaching
+// would leave a privileged shell alive during the reconnect grace period.
+func (s *Service) CloseOwner(ownerID, reason string) {
+	s.mu.Lock()
+	sessionIDs := make([]string, 0, len(s.owners[ownerID]))
+	for sessionID := range s.owners[ownerID] {
+		sessionIDs = append(sessionIDs, sessionID)
 	}
+	s.mu.Unlock()
+
+	for _, sessionID := range sessionIDs {
+		s.endSession(sessionID, nil, reason)
+	}
+}
+
+// CloseAll terminates every active PTY. Password changes revoke every
+// application session at once, including owners whose WebSocket is currently
+// detached during its reconnect grace period.
+func (s *Service) CloseAll(reason string) {
 	s.mu.Lock()
 	sessionIDs := make([]string, 0, len(s.sessions))
 	for sessionID := range s.sessions {
@@ -293,6 +306,16 @@ func (s *Service) Shutdown(reason string) {
 	for _, sessionID := range sessionIDs {
 		s.endSession(sessionID, nil, reason)
 	}
+}
+
+// Shutdown closes every terminal synchronously so lifecycle hooks complete
+// before the application store is released. Process reaping may finish shortly
+// afterwards, but it no longer touches shared application state.
+func (s *Service) Shutdown(reason string) {
+	if reason == "" {
+		reason = "server_shutdown"
+	}
+	s.CloseAll(reason)
 }
 
 func (s *Service) lookupOwnedSession(ownerID, sessionID string) (*session, error) {

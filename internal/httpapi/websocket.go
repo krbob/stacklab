@@ -62,7 +62,7 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, err := h.auth.AuthenticateRequest(r.Context(), r)
+	session, terminations, unsubscribeSession, err := h.auth.AuthenticateWebSocket(r.Context(), r)
 	if err != nil {
 		http.SetCookie(w, h.auth.ClearSessionCookie())
 		http.Error(w, "Authentication required.", http.StatusUnauthorized)
@@ -71,6 +71,7 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	conn, err := wsUpgrader.Upgrade(w, r, nil)
 	if err != nil {
+		unsubscribeSession()
 		h.logger.Warn("websocket upgrade failed", "err", err)
 		return
 	}
@@ -82,6 +83,7 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	wsConn := &wsConnection{conn: conn}
 	if !h.registerWebSocket(wsConn) {
+		unsubscribeSession()
 		wsConn.close(websocket.CloseGoingAway, "server shutting down")
 		return
 	}
@@ -90,6 +92,23 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		h.unregisterWebSocket(wsConn)
 		wsConn.close(websocket.CloseNormalClosure, "connection closed")
 	}()
+	defer unsubscribeSession()
+
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	wsConn.goRun(func() {
+		select {
+		case <-ctx.Done():
+			return
+		case termination, ok := <-terminations:
+			if !ok {
+				return
+			}
+			wsConn.close(websocket.ClosePolicyViolation, "authentication "+string(termination.Reason))
+			cancel()
+		}
+	})
+
 	connectionID := "conn_" + randomID(18)
 	if err := wsConn.writeJSON(wsServerFrame{
 		Type: "hello",
@@ -104,9 +123,6 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		return
 	}
-
-	ctx, cancel := context.WithCancel(r.Context())
-	defer cancel()
 
 	subscriptions := map[string]*wsSubscription{}
 	defer func() {
@@ -141,6 +157,18 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		var frame wsClientFrame
 		if err := conn.ReadJSON(&frame); err != nil {
 			return
+		}
+		if frame.Type != "pong" {
+			if err := h.auth.TouchSessionActivity(ctx, session.ID); err != nil {
+				h.terminals.CloseOwner(session.ID, "auth_revoked")
+				if errors.Is(err, auth.ErrUnauthorized) {
+					wsConn.close(websocket.ClosePolicyViolation, "authentication revoked")
+				} else {
+					h.logger.Warn("persist websocket session activity failed", "session_id", session.ID, "err", err)
+					wsConn.close(websocket.CloseInternalServerErr, "session persistence failed")
+				}
+				return
+			}
 		}
 
 		switch frame.Type {

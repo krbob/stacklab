@@ -700,6 +700,17 @@ Rules:
 - if attach succeeds, stream continues
 - if attach fails, UI keeps local scrollback and prompts for a new terminal session
 
+### Authentication lifecycle
+
+- an established connection remains bound to the application session used for
+  the upgrade
+- logout, password change, server-side revocation, idle expiry, or absolute
+  expiry closes the connection with close code `1008`
+- PTY sessions owned by the revoked application session are terminated; they
+  must not survive in the detach/reconnect grace period
+- after an authentication close, the client checks `GET /api/session` and
+  returns to the login screen instead of starting an unconditional reconnect
+
 ## Error Codes Important To UI
 
 Suggested WebSocket error codes:

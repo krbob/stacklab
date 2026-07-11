@@ -122,6 +122,11 @@ Rules:
 - backend must validate `Origin`
 - backend must reject unauthorized upgrades before establishing the connection
 - server heartbeat must close dead connections rather than leaving them half-open indefinitely
+- established sockets subscribe to the authenticated session lifecycle; logout,
+  password change, revocation, idle expiry, and absolute expiry close the socket
+  immediately and terminate PTYs owned by that session
+- WebSocket activity extends the in-memory idle lease; SQLite writes are
+  throttled, so frame handling does not query or update the database per frame
 
 ## TLS And Reverse Proxying
 

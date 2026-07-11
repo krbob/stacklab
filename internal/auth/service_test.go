@@ -104,6 +104,90 @@ func TestUpdatePasswordRevokesEveryExistingSession(t *testing.T) {
 	}
 }
 
+func TestLogoutAndPasswordChangePublishSessionTermination(t *testing.T) {
+	t.Parallel()
+
+	t.Run("logout", func(t *testing.T) {
+		ctx := context.Background()
+		service := NewService(testConfig("secret"), openTestStore(t))
+		if err := service.Bootstrap(ctx); err != nil {
+			t.Fatalf("Bootstrap() error = %v", err)
+		}
+		session, err := service.Login(ctx, "secret", "ua", "192.0.2.1")
+		if err != nil {
+			t.Fatalf("Login() error = %v", err)
+		}
+		hookEvents := make(chan SessionTermination, 1)
+		service.SetSessionTerminationHook(func(termination SessionTermination) { hookEvents <- termination })
+		events, unsubscribe := service.sessionLifecycle.Subscribe(session)
+		defer unsubscribe()
+		if err := service.Logout(ctx, session.ID); err != nil {
+			t.Fatalf("Logout() error = %v", err)
+		}
+		if termination := <-events; termination.Reason != SessionTerminationLogout {
+			t.Fatalf("termination reason = %q, want %q", termination.Reason, SessionTerminationLogout)
+		}
+		hookEvent := <-hookEvents
+		if hookEvent.SessionID != session.ID || hookEvent.All || hookEvent.Reason != SessionTerminationLogout {
+			t.Fatalf("logout hook event = %#v", hookEvent)
+		}
+	})
+
+	t.Run("password change", func(t *testing.T) {
+		ctx := context.Background()
+		service := NewService(testConfig("secret"), openTestStore(t))
+		if err := service.Bootstrap(ctx); err != nil {
+			t.Fatalf("Bootstrap() error = %v", err)
+		}
+		session, err := service.Login(ctx, "secret", "ua", "192.0.2.1")
+		if err != nil {
+			t.Fatalf("Login() error = %v", err)
+		}
+		hookEvents := make(chan SessionTermination, 1)
+		service.SetSessionTerminationHook(func(termination SessionTermination) { hookEvents <- termination })
+		events, unsubscribe := service.sessionLifecycle.Subscribe(session)
+		defer unsubscribe()
+		if err := service.UpdatePassword(ctx, "secret", "newsecret"); err != nil {
+			t.Fatalf("UpdatePassword() error = %v", err)
+		}
+		if termination := <-events; termination.Reason != SessionTerminationPasswordChanged {
+			t.Fatalf("termination reason = %q, want %q", termination.Reason, SessionTerminationPasswordChanged)
+		}
+		hookEvent := <-hookEvents
+		if !hookEvent.All || hookEvent.SessionID != "" || hookEvent.Reason != SessionTerminationPasswordChanged {
+			t.Fatalf("password-change hook event = %#v", hookEvent)
+		}
+	})
+}
+
+func TestSessionTerminationHookDoesNotRequireWebSocketSubscriber(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	service := NewService(testConfig("secret"), openTestStore(t))
+	if err := service.Bootstrap(ctx); err != nil {
+		t.Fatalf("Bootstrap() error = %v", err)
+	}
+	session, err := service.Login(ctx, "secret", "ua", "192.0.2.1")
+	if err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+	events := make(chan SessionTermination, 1)
+	service.SetSessionTerminationHook(func(termination SessionTermination) { events <- termination })
+
+	if err := service.Logout(ctx, session.ID); err != nil {
+		t.Fatalf("Logout() error = %v", err)
+	}
+	select {
+	case termination := <-events:
+		if termination.SessionID != session.ID || termination.Reason != SessionTerminationLogout {
+			t.Fatalf("termination = %#v", termination)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for termination hook without WebSocket subscriber")
+	}
+}
+
 func TestAuthenticateRequestRejectsExpiredSession(t *testing.T) {
 	t.Parallel()
 

@@ -350,6 +350,80 @@ func TestCloseSendsExitEventAndCleansUp(t *testing.T) {
 	}
 }
 
+func TestCloseOwnerTerminatesEveryOwnedSession(t *testing.T) {
+	t.Parallel()
+
+	service := NewService(nil, Config{IdleTimeout: time.Minute}, nil)
+	ownedEvents := make([]chan Event, 0, 2)
+	for _, sessionID := range []string{"term-owned-1", "term-owned-2"} {
+		readEnd, writeEnd, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("os.Pipe() error = %v", err)
+		}
+		t.Cleanup(func() { _ = readEnd.Close() })
+		events := make(chan Event, 1)
+		ownedEvents = append(ownedEvents, events)
+		service.sessions[sessionID] = &session{
+			info:      SessionInfo{ID: sessionID},
+			ownerID:   "owner-revoked",
+			process:   &exec.Cmd{},
+			ptyFile:   writeEnd,
+			current:   &attachment{id: "attach-" + sessionID, events: events},
+			idleTimer: time.NewTimer(time.Minute),
+		}
+	}
+	service.owners["owner-revoked"] = map[string]struct{}{
+		"term-owned-1": {},
+		"term-owned-2": {},
+	}
+
+	otherRead, otherWrite, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe(other) error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = otherRead.Close()
+		_ = otherWrite.Close()
+	})
+	service.sessions["term-other"] = &session{
+		info:      SessionInfo{ID: "term-other"},
+		ownerID:   "owner-active",
+		process:   &exec.Cmd{},
+		ptyFile:   otherWrite,
+		idleTimer: time.NewTimer(time.Minute),
+	}
+	service.owners["owner-active"] = map[string]struct{}{"term-other": {}}
+
+	service.CloseOwner("owner-revoked", "auth_logout")
+
+	for index, events := range ownedEvents {
+		select {
+		case event := <-events:
+			if event.Type != "exited" || event.Reason != "auth_logout" {
+				t.Fatalf("owned terminal %d event = %#v", index, event)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for owned terminal %d to close", index)
+		}
+	}
+	service.mu.Lock()
+	_, firstExists := service.sessions["term-owned-1"]
+	_, secondExists := service.sessions["term-owned-2"]
+	_, otherExists := service.sessions["term-other"]
+	service.mu.Unlock()
+	if firstExists || secondExists || !otherExists {
+		t.Fatalf("sessions after CloseOwner: first=%t second=%t other=%t", firstExists, secondExists, otherExists)
+	}
+
+	service.CloseAll("auth_password_changed")
+	service.mu.Lock()
+	_, otherExists = service.sessions["term-other"]
+	service.mu.Unlock()
+	if otherExists {
+		t.Fatal("other owner's terminal remains after CloseAll")
+	}
+}
+
 func TestCloseClosesPTYBeforeTerminatingProcess(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell signal behavior is POSIX-specific")

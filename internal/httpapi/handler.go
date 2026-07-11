@@ -215,6 +215,14 @@ func NewHandlerWithContext(appCtx context.Context, cfg config.Config, logger *sl
 		selfUpdate:      selfUpdateService,
 		wsConnections:   map[*wsConnection]struct{}{},
 	}
+	authService.SetSessionTerminationHook(func(termination auth.SessionTermination) {
+		reason := "auth_" + string(termination.Reason)
+		if termination.All {
+			handler.terminals.CloseAll(reason)
+			return
+		}
+		handler.terminals.CloseOwner(termination.SessionID, reason)
+	})
 
 	handler.registerRoutes()
 	handler.served = handler.withLogging(handler.withSecurityHeaders(handler.mux))
@@ -2848,11 +2856,16 @@ func (h *Handler) Shutdown(ctx context.Context) error {
 		h.workers.Stop()
 	}
 	h.closeWebSockets()
+	var shutdownErrors []error
+	if h.auth != nil {
+		if err := h.auth.Shutdown(ctx); err != nil {
+			shutdownErrors = append(shutdownErrors, err)
+		}
+	}
 	if h.terminals != nil {
 		h.terminals.Shutdown("server_shutdown")
 	}
 
-	var shutdownErrors []error
 	if err := h.waitForWebSockets(ctx); err != nil {
 		shutdownErrors = append(shutdownErrors, err)
 	}

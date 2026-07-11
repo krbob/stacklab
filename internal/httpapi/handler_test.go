@@ -770,6 +770,94 @@ func TestSaveDefinitionWarningPrecedesJobFinished(t *testing.T) {
 	assertPathExists(t, filepath.Join(cfg.RootDir, "stacks", stackID, "compose.yaml"))
 }
 
+func TestWebSocketClosesWhileInFlightWhenSessionIsRevoked(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		path string
+		body string
+	}{
+		{name: "logout", path: "/api/auth/logout", body: `{}`},
+		{name: "password change", path: "/api/settings/password", body: `{"current_password":"secret","new_password":"newsecret"}`},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			handler, _ := newTestHandler(t)
+			server := httptest.NewServer(handler)
+			t.Cleanup(server.Close)
+
+			loginRequest, err := http.NewRequest(http.MethodPost, server.URL+"/api/auth/login", bytes.NewBufferString(`{"password":"secret"}`))
+			if err != nil {
+				t.Fatalf("http.NewRequest(login) error = %v", err)
+			}
+			loginRequest.Header.Set("Origin", server.URL)
+			loginRequest.Header.Set("Content-Type", "application/json")
+			loginResponse, err := server.Client().Do(loginRequest)
+			if err != nil {
+				t.Fatalf("login error = %v", err)
+			}
+			cookies := loginResponse.Cookies()
+			_ = loginResponse.Body.Close()
+			if loginResponse.StatusCode != http.StatusOK || len(cookies) == 0 {
+				t.Fatalf("login status = %d, cookies = %#v", loginResponse.StatusCode, cookies)
+			}
+
+			wsURL, err := url.Parse(server.URL)
+			if err != nil {
+				t.Fatalf("url.Parse(server.URL) error = %v", err)
+			}
+			wsURL.Scheme = strings.Replace(wsURL.Scheme, "http", "ws", 1)
+			wsURL.Path = "/api/ws"
+			header := http.Header{"Origin": []string{server.URL}}
+			for _, cookie := range cookies {
+				header.Add("Cookie", cookie.Name+"="+cookie.Value)
+			}
+			wsConn, response, err := websocket.DefaultDialer.Dial(wsURL.String(), header)
+			if err != nil {
+				if response != nil {
+					_ = response.Body.Close()
+				}
+				t.Fatalf("websocket dial error = %v", err)
+			}
+			defer wsConn.Close()
+			_ = wsConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+			var hello map[string]any
+			if err := wsConn.ReadJSON(&hello); err != nil {
+				t.Fatalf("ReadJSON(hello) error = %v", err)
+			}
+
+			revokeRequest, err := http.NewRequest(http.MethodPost, server.URL+test.path, bytes.NewBufferString(test.body))
+			if err != nil {
+				t.Fatalf("http.NewRequest(revoke) error = %v", err)
+			}
+			revokeRequest.Header.Set("Origin", server.URL)
+			revokeRequest.Header.Set("Content-Type", "application/json")
+			for _, cookie := range cookies {
+				revokeRequest.AddCookie(cookie)
+			}
+			revokeResponse, err := server.Client().Do(revokeRequest)
+			if err != nil {
+				t.Fatalf("revoke request error = %v", err)
+			}
+			_ = revokeResponse.Body.Close()
+			if revokeResponse.StatusCode != http.StatusOK {
+				t.Fatalf("revoke status = %d, want %d", revokeResponse.StatusCode, http.StatusOK)
+			}
+
+			_, _, err = wsConn.ReadMessage()
+			var closeError *websocket.CloseError
+			if !errors.As(err, &closeError) {
+				t.Fatalf("ReadMessage() error = %v, want websocket close error", err)
+			}
+			if closeError.Code != websocket.ClosePolicyViolation {
+				t.Fatalf("websocket close code = %d, want %d", closeError.Code, websocket.ClosePolicyViolation)
+			}
+		})
+	}
+}
+
 func TestWebSocketTerminalAttachMissingSession(t *testing.T) {
 	t.Parallel()
 

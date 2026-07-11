@@ -45,6 +45,10 @@ type Service struct {
 	loginInFlight          map[string]struct{}
 	maxTrackedLoginClients int
 	loginMu                sync.Mutex
+	sessionLifecycle       *sessionLifecycleHub
+	sessionTransitionMu    sync.Mutex
+	sessionTerminationMu   sync.RWMutex
+	sessionTerminationHook func(SessionTermination)
 }
 
 type loginAttemptState struct {
@@ -62,7 +66,7 @@ type Session struct {
 }
 
 func NewService(cfg config.Config, authStore *store.Store) *Service {
-	return &Service{
+	service := &Service{
 		cfg:                    cfg,
 		store:                  authStore,
 		now:                    func() time.Time { return time.Now().UTC() },
@@ -73,6 +77,15 @@ func NewService(cfg config.Config, authStore *store.Store) *Service {
 		loginInFlight:          make(map[string]struct{}),
 		maxTrackedLoginClients: defaultMaxTrackedLoginClients,
 	}
+	service.sessionLifecycle = newSessionLifecycleHub(
+		func() time.Time { return service.now().UTC() },
+		cfg.SessionIdleTimeout,
+		cfg.SessionAbsoluteLifetime,
+		func(sessionID string, reason SessionTerminationReason) {
+			service.expireSession(sessionID, reason)
+		},
+	)
+	return service
 }
 
 func (s *Service) Bootstrap(ctx context.Context) error {
@@ -260,12 +273,15 @@ func (s *Service) Logout(ctx context.Context, sessionID string) error {
 	if sessionID == "" {
 		return ErrUnauthorized
 	}
-	if err := s.store.RevokeSession(ctx, sessionID, time.Now().UTC()); err != nil {
+	s.sessionTransitionMu.Lock()
+	defer s.sessionTransitionMu.Unlock()
+	if err := s.store.RevokeSession(ctx, sessionID, s.now().UTC()); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return ErrUnauthorized
 		}
 		return err
 	}
+	s.terminateSession(sessionID, SessionTerminationLogout)
 	return nil
 }
 
@@ -286,9 +302,44 @@ func (s *Service) UpdatePassword(ctx context.Context, currentPassword, newPasswo
 		return err
 	}
 
+	s.sessionTransitionMu.Lock()
+	defer s.sessionTransitionMu.Unlock()
 	if err := s.store.UpdatePasswordAndRevokeSessions(ctx, credentials.Version, updatedHash, s.now().UTC()); err != nil {
 		if errors.Is(err, store.ErrPasswordVersionChanged) {
 			return ErrInvalidCredentials
+		}
+		return err
+	}
+	s.terminateAllSessions(SessionTerminationPasswordChanged)
+	return nil
+}
+
+func (s *Service) AuthenticateWebSocket(ctx context.Context, r *http.Request) (Session, <-chan SessionTermination, func(), error) {
+	s.sessionTransitionMu.Lock()
+	defer s.sessionTransitionMu.Unlock()
+
+	session, err := s.authenticateRequest(ctx, r)
+	if err != nil {
+		return Session{}, nil, nil, err
+	}
+	terminations, unsubscribe := s.sessionLifecycle.Subscribe(session)
+	return session, terminations, unsubscribe, nil
+}
+
+// TouchSessionActivity extends an active WebSocket's idle lease in memory and
+// only persists it at a bounded interval. It performs no SQLite read.
+func (s *Service) TouchSessionActivity(ctx context.Context, sessionID string) error {
+	expiresAt, shouldPersist, active := s.sessionLifecycle.Touch(sessionID)
+	if !active {
+		return ErrUnauthorized
+	}
+	if !shouldPersist {
+		return nil
+	}
+	if err := s.store.TouchSession(ctx, sessionID, s.now().UTC(), expiresAt); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			s.terminateSession(sessionID, SessionTerminationRevoked)
+			return ErrUnauthorized
 		}
 		return err
 	}
@@ -296,6 +347,12 @@ func (s *Service) UpdatePassword(ctx context.Context, currentPassword, newPasswo
 }
 
 func (s *Service) AuthenticateRequest(ctx context.Context, r *http.Request) (Session, error) {
+	s.sessionTransitionMu.Lock()
+	defer s.sessionTransitionMu.Unlock()
+	return s.authenticateRequest(ctx, r)
+}
+
+func (s *Service) authenticateRequest(ctx context.Context, r *http.Request) (Session, error) {
 	cookie, err := r.Cookie(s.cfg.SessionCookieName)
 	if err != nil || cookie.Value == "" {
 		return Session{}, ErrUnauthorized
@@ -304,21 +361,35 @@ func (s *Service) AuthenticateRequest(ctx context.Context, r *http.Request) (Ses
 	record, err := s.store.SessionAtCurrentPasswordVersion(ctx, cookie.Value)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
+			s.terminateSession(cookie.Value, SessionTerminationRevoked)
 			return Session{}, ErrUnauthorized
 		}
 		return Session{}, err
 	}
 
-	now := time.Now().UTC()
-	if record.RevokedAt != nil || now.After(record.ExpiresAt) || now.After(record.CreatedAt.Add(s.cfg.SessionAbsoluteLifetime)) {
+	now := s.now().UTC()
+	if record.RevokedAt != nil || !now.Before(record.ExpiresAt) || !now.Before(record.CreatedAt.Add(s.cfg.SessionAbsoluteLifetime)) {
 		_ = s.store.RevokeSession(ctx, record.ID, now)
+		reason := SessionTerminationRevoked
+		switch {
+		case !now.Before(record.CreatedAt.Add(s.cfg.SessionAbsoluteLifetime)):
+			reason = SessionTerminationAbsoluteExpired
+		case !now.Before(record.ExpiresAt):
+			reason = SessionTerminationIdleExpired
+		}
+		s.terminateSession(record.ID, reason)
 		return Session{}, ErrUnauthorized
 	}
 
 	nextExpiresAt := minTime(now.Add(s.cfg.SessionIdleTimeout), record.CreatedAt.Add(s.cfg.SessionAbsoluteLifetime))
-	if err := s.store.TouchSession(ctx, record.ID, now, nextExpiresAt); err != nil && !errors.Is(err, store.ErrNotFound) {
+	if err := s.store.TouchSession(ctx, record.ID, now, nextExpiresAt); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			s.terminateSession(record.ID, SessionTerminationRevoked)
+			return Session{}, ErrUnauthorized
+		}
 		return Session{}, err
 	}
+	s.sessionLifecycle.TouchPersisted(record.ID, nextExpiresAt)
 
 	return Session{
 		ID:        record.ID,
@@ -326,6 +397,52 @@ func (s *Service) AuthenticateRequest(ctx context.Context, r *http.Request) (Ses
 		CreatedAt: record.CreatedAt,
 		ExpiresAt: nextExpiresAt,
 	}, nil
+}
+
+func (s *Service) expireSession(sessionID string, reason SessionTerminationReason) {
+	s.sessionTransitionMu.Lock()
+	defer s.sessionTransitionMu.Unlock()
+
+	revokeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = s.store.RevokeSession(revokeCtx, sessionID, s.now().UTC())
+	// A WebSocket may have authenticated between the timer firing and the
+	// persistent revocation. Terminating again closes that race.
+	s.terminateSession(sessionID, reason)
+}
+
+func (s *Service) Shutdown(ctx context.Context) error {
+	if s.sessionLifecycle == nil {
+		return nil
+	}
+	return s.sessionLifecycle.Shutdown(ctx)
+}
+
+// SetSessionTerminationHook connects privileged resources, such as PTYs, to
+// authentication lifecycle events independently of WebSocket attachment state.
+func (s *Service) SetSessionTerminationHook(hook func(SessionTermination)) {
+	s.sessionTerminationMu.Lock()
+	s.sessionTerminationHook = hook
+	s.sessionTerminationMu.Unlock()
+}
+
+func (s *Service) terminateSession(sessionID string, reason SessionTerminationReason) {
+	s.sessionLifecycle.Terminate(sessionID, reason)
+	s.notifySessionTermination(SessionTermination{SessionID: sessionID, Reason: reason})
+}
+
+func (s *Service) terminateAllSessions(reason SessionTerminationReason) {
+	s.sessionLifecycle.TerminateAll(reason)
+	s.notifySessionTermination(SessionTermination{All: true, Reason: reason})
+}
+
+func (s *Service) notifySessionTermination(termination SessionTermination) {
+	s.sessionTerminationMu.RLock()
+	hook := s.sessionTerminationHook
+	s.sessionTerminationMu.RUnlock()
+	if hook != nil {
+		hook(termination)
+	}
 }
 
 func (s *Service) SessionCookie(session Session) *http.Cookie {
