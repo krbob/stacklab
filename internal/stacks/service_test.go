@@ -853,6 +853,78 @@ func TestSaveDefinitionEmptyEnvDoesNotCreateFileWhenMissing(t *testing.T) {
 	assertMissing(t, envPath)
 }
 
+func TestSaveDefinitionRollsBackComposeWhenEnvCommitFails(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	reader := newTestServiceReader(t)
+	stackID := uniqueTestStackID()
+	oldCompose := "services:\n  app:\n    image: nginx:alpine\n"
+	oldEnv := "PORT=8080\n"
+	if err := reader.CreateStack(ctx, CreateStackRequest{
+		StackID:     stackID,
+		ComposeYAML: oldCompose,
+		Env:         oldEnv,
+	}); err != nil {
+		t.Fatalf("CreateStack() error = %v", err)
+	}
+
+	paths := stackPaths(reader.cfg.RootDir, stackID)
+	injectedErr := errors.New("injected env rename failure")
+	reader.renameDefinitionFileForTest = func(oldPath, newPath string) error {
+		if newPath == paths.EnvFilePath {
+			return injectedErr
+		}
+		return os.Rename(oldPath, newPath)
+	}
+
+	_, _, err := reader.SaveDefinition(ctx, stackID, UpdateDefinitionRequest{
+		ComposeYAML: "services:\n  app:\n    image: nginx:stable\n",
+		Env:         "PORT=9090\n",
+	})
+	if !errors.Is(err, injectedErr) {
+		t.Fatalf("SaveDefinition() error = %v, want injected error", err)
+	}
+	assertFileContent(t, paths.ComposeFilePath, oldCompose)
+	assertFileContent(t, paths.EnvFilePath, oldEnv)
+	if matches, globErr := filepath.Glob(filepath.Join(paths.RootPath, ".stacklab-*-*")); globErr != nil || len(matches) != 0 {
+		t.Fatalf("staged definition files after rollback = %v, glob error = %v", matches, globErr)
+	}
+}
+
+func TestCreateStackRemovesPartialStateWhenDefinitionCommitFails(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	reader := newTestServiceReader(t)
+	stackID := uniqueTestStackID()
+	paths := stackPaths(reader.cfg.RootDir, stackID)
+	injectedErr := errors.New("injected env rename failure")
+	reader.renameDefinitionFileForTest = func(oldPath, newPath string) error {
+		if newPath == paths.EnvFilePath {
+			return injectedErr
+		}
+		return os.Rename(oldPath, newPath)
+	}
+
+	err := reader.CreateStack(ctx, CreateStackRequest{
+		StackID:         stackID,
+		ComposeYAML:     "services:\n  app:\n    image: nginx:alpine\n",
+		Env:             "PORT=8080\n",
+		CreateConfigDir: true,
+		CreateDataDir:   true,
+	})
+	if !errors.Is(err, injectedErr) {
+		t.Fatalf("CreateStack() error = %v, want injected error", err)
+	}
+	assertMissing(t, paths.RootPath)
+	assertMissing(t, paths.ConfigPath)
+	assertMissing(t, paths.DataPath)
+	if err := reader.EnsureCreateStackAvailable(ctx, stackID); err != nil {
+		t.Fatalf("EnsureCreateStackAvailable() after rollback error = %v", err)
+	}
+}
+
 func TestSaveDefinitionRejectsStaleRevision(t *testing.T) {
 	t.Parallel()
 
@@ -1052,6 +1124,18 @@ func assertExists(t *testing.T, path string) {
 
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("expected %q to exist, got err = %v", path, err)
+	}
+}
+
+func assertFileContent(t *testing.T, path, want string) {
+	t.Helper()
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", path, err)
+	}
+	if string(content) != want {
+		t.Fatalf("content of %q = %q, want %q", path, string(content), want)
 	}
 }
 

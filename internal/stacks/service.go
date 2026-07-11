@@ -63,9 +63,11 @@ type ServiceReader struct {
 	stats                       *StatsCollector
 	updateStatus                func() map[string]ImageUpdateState
 	cacheUpdateStatuses         func([]store.ImageUpdateStatus)
+	definitionWriteMu           sync.Mutex
 	definitionWarningMu         sync.Mutex
 	definitionWarningLog        map[string]string
 	afterScanDefinitionsForTest func()
+	renameDefinitionFileForTest func(string, string) error
 }
 
 func (s *ServiceReader) AttachStore(appStore *store.Store) {
@@ -497,6 +499,9 @@ func (s *ServiceReader) ResolvedConfigDraft(ctx context.Context, stackID string,
 }
 
 func (s *ServiceReader) SaveDefinition(ctx context.Context, stackID string, request UpdateDefinitionRequest) (ResolvedConfigResponse, StackDefinitionResponse, error) {
+	s.definitionWriteMu.Lock()
+	defer s.definitionWriteMu.Unlock()
+
 	stack, err := s.findStack(ctx, stackID)
 	if err != nil {
 		return ResolvedConfigResponse{}, StackDefinitionResponse{}, err
@@ -511,12 +516,8 @@ func (s *ServiceReader) SaveDefinition(ctx context.Context, stackID string, requ
 		}
 	}
 
-	if err := writeFileAtomic(stack.ComposeFilePath, request.ComposeYAML); err != nil {
-		return ResolvedConfigResponse{}, StackDefinitionResponse{}, fmt.Errorf("write compose file: %w", err)
-	}
-
-	if err := writeEnvFile(stack.EnvFilePath, request.Env); err != nil {
-		return ResolvedConfigResponse{}, StackDefinitionResponse{}, fmt.Errorf("write env file: %w", err)
+	if err := s.writeDefinitionRevision(stack.ComposeFilePath, request.ComposeYAML, stack.EnvFilePath, request.Env); err != nil {
+		return ResolvedConfigResponse{}, StackDefinitionResponse{}, fmt.Errorf("write stack definition: %w", err)
 	}
 
 	preview := ResolvedConfigResponse{
@@ -562,7 +563,10 @@ func (s *ServiceReader) EnsureCreateStackAvailable(ctx context.Context, stackID 
 	return nil
 }
 
-func (s *ServiceReader) CreateStack(ctx context.Context, request CreateStackRequest) error {
+func (s *ServiceReader) CreateStack(ctx context.Context, request CreateStackRequest) (err error) {
+	s.definitionWriteMu.Lock()
+	defer s.definitionWriteMu.Unlock()
+
 	if err := s.EnsureCreateStackAvailable(ctx, request.StackID); err != nil {
 		return err
 	}
@@ -575,25 +579,36 @@ func (s *ServiceReader) CreateStack(ctx context.Context, request CreateStackRequ
 	}
 
 	paths := stackPaths(s.cfg.RootDir, request.StackID)
+	createdPaths := make([]string, 0, 3)
+	defer func() {
+		if err == nil {
+			return
+		}
+		for index := len(createdPaths) - 1; index >= 0; index-- {
+			if cleanupErr := os.RemoveAll(createdPaths[index]); cleanupErr != nil {
+				err = errors.Join(err, fmt.Errorf("remove partial stack path %q: %w", createdPaths[index], cleanupErr))
+			}
+		}
+	}()
 
-	if err := os.MkdirAll(paths.RootPath, 0o755); err != nil {
+	if err := createStackDirectory(paths.RootPath); err != nil {
 		return fmt.Errorf("create stack root: %w", err)
 	}
+	createdPaths = append(createdPaths, paths.RootPath)
 	if request.CreateConfigDir {
-		if err := os.MkdirAll(paths.ConfigPath, 0o755); err != nil {
+		if err := createStackDirectory(paths.ConfigPath); err != nil {
 			return fmt.Errorf("create config dir: %w", err)
 		}
+		createdPaths = append(createdPaths, paths.ConfigPath)
 	}
 	if request.CreateDataDir {
-		if err := os.MkdirAll(paths.DataPath, 0o755); err != nil {
+		if err := createStackDirectory(paths.DataPath); err != nil {
 			return fmt.Errorf("create data dir: %w", err)
 		}
+		createdPaths = append(createdPaths, paths.DataPath)
 	}
-	if err := writeFileAtomic(paths.ComposeFilePath, request.ComposeYAML); err != nil {
-		return fmt.Errorf("write compose file: %w", err)
-	}
-	if err := writeEnvFile(paths.EnvFilePath, request.Env); err != nil {
-		return fmt.Errorf("write env file: %w", err)
+	if err := s.writeDefinitionRevision(paths.ComposeFilePath, request.ComposeYAML, paths.EnvFilePath, request.Env); err != nil {
+		return fmt.Errorf("write stack definition: %w", err)
 	}
 
 	return nil
@@ -1886,8 +1901,164 @@ func writeTempEnvFile(dataDir, content string) (string, func(), error) {
 	}, nil
 }
 
-func writeFileAtomic(path, content string) error {
-	return atomicfile.WriteString(path, content, ".stacklab-*")
+type definitionFileSnapshot struct {
+	path    string
+	content string
+	mode    os.FileMode
+	exists  bool
+}
+
+func createStackDirectory(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	if err := os.Mkdir(path, 0o755); err != nil {
+		if os.IsExist(err) {
+			return ErrConflict
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *ServiceReader) writeDefinitionRevision(composePath, composeContent, envPath, envContent string) error {
+	composeBefore, err := snapshotDefinitionFile(composePath)
+	if err != nil {
+		return fmt.Errorf("snapshot compose file: %w", err)
+	}
+	envBefore, err := snapshotDefinitionFile(envPath)
+	if err != nil {
+		return fmt.Errorf("snapshot env file: %w", err)
+	}
+
+	composeMode := os.FileMode(0o644)
+	if composeBefore.exists {
+		composeMode = composeBefore.mode
+	}
+	stagedCompose, err := stageDefinitionFile(composePath, composeContent, composeMode, ".stacklab-compose-*")
+	if err != nil {
+		return fmt.Errorf("stage compose file: %w", err)
+	}
+	defer func() { _ = os.Remove(stagedCompose) }()
+
+	stagedEnv := ""
+	if envContent != "" || envBefore.exists {
+		stagedEnv, err = stageDefinitionFile(envPath, envContent, 0o600, ".stacklab-env-*")
+		if err != nil {
+			return fmt.Errorf("stage env file: %w", err)
+		}
+		defer func() { _ = os.Remove(stagedEnv) }()
+	}
+
+	renameFile := os.Rename
+	if s.renameDefinitionFileForTest != nil {
+		renameFile = s.renameDefinitionFileForTest
+	}
+	if err := renameFile(stagedCompose, composePath); err != nil {
+		return fmt.Errorf("commit compose file: %w", err)
+	}
+	stagedCompose = ""
+
+	committed := []definitionFileSnapshot{composeBefore}
+	if stagedEnv != "" {
+		if err := renameFile(stagedEnv, envPath); err != nil {
+			return errors.Join(
+				fmt.Errorf("commit env file: %w", err),
+				restoreDefinitionFiles(committed...),
+			)
+		}
+		stagedEnv = ""
+		committed = append(committed, envBefore)
+	}
+
+	if err := syncDefinitionDirectory(filepath.Dir(composePath)); err != nil {
+		return errors.Join(
+			fmt.Errorf("sync stack definition directory: %w", err),
+			restoreDefinitionFiles(committed...),
+		)
+	}
+	return nil
+}
+
+func snapshotDefinitionFile(path string) (definitionFileSnapshot, error) {
+	snapshot := definitionFileSnapshot{path: path}
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return snapshot, nil
+		}
+		return snapshot, err
+	}
+	if !info.Mode().IsRegular() {
+		return snapshot, fmt.Errorf("%q is not a regular file", path)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return snapshot, err
+	}
+	snapshot.content = string(content)
+	snapshot.mode = info.Mode().Perm()
+	snapshot.exists = true
+	return snapshot, nil
+}
+
+func stageDefinitionFile(path, content string, mode os.FileMode, pattern string) (string, error) {
+	file, err := os.CreateTemp(filepath.Dir(path), pattern)
+	if err != nil {
+		return "", err
+	}
+	stagedPath := file.Name()
+	cleanup := func() {
+		_ = file.Close()
+		_ = os.Remove(stagedPath)
+	}
+	if _, err := file.WriteString(content); err != nil {
+		cleanup()
+		return "", err
+	}
+	if err := file.Chmod(mode.Perm()); err != nil {
+		cleanup()
+		return "", err
+	}
+	if err := file.Sync(); err != nil {
+		cleanup()
+		return "", err
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(stagedPath)
+		return "", err
+	}
+	return stagedPath, nil
+}
+
+func restoreDefinitionFiles(snapshots ...definitionFileSnapshot) error {
+	var restoreErr error
+	for index := len(snapshots) - 1; index >= 0; index-- {
+		snapshot := snapshots[index]
+		if snapshot.exists {
+			if err := atomicfile.WriteStringMode(snapshot.path, snapshot.content, ".stacklab-rollback-*", snapshot.mode); err != nil {
+				restoreErr = errors.Join(restoreErr, fmt.Errorf("restore %q: %w", snapshot.path, err))
+			}
+			continue
+		}
+		if err := os.Remove(snapshot.path); err != nil && !os.IsNotExist(err) {
+			restoreErr = errors.Join(restoreErr, fmt.Errorf("remove new file %q: %w", snapshot.path, err))
+			continue
+		}
+		if err := syncDefinitionDirectory(filepath.Dir(snapshot.path)); err != nil {
+			restoreErr = errors.Join(restoreErr, fmt.Errorf("sync restored directory for %q: %w", snapshot.path, err))
+		}
+	}
+	return restoreErr
+}
+
+func syncDefinitionDirectory(path string) error {
+	directory, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	return directory.Sync()
 }
 
 func ensureDefinitionRevision(stack discoveredStack, expected DefinitionRevision) error {
@@ -1922,24 +2093,6 @@ func ensureDefinitionRevision(stack discoveredStack, expected DefinitionRevision
 		return ErrConflict
 	}
 	return nil
-}
-
-func writeEnvFile(path, content string) error {
-	if content == "" {
-		if _, err := os.Stat(path); err == nil {
-			return writeEnvFileAtomic(path, "")
-		} else if os.IsNotExist(err) {
-			return nil
-		} else {
-			return err
-		}
-	}
-
-	return writeEnvFileAtomic(path, content)
-}
-
-func writeEnvFileAtomic(path, content string) error {
-	return atomicfile.WriteStringMode(path, content, ".stacklab-*", 0o600)
 }
 
 func runComposeConfig(ctx context.Context, projectDir, composeArg, envPath, stdinContent string) (string, error) {

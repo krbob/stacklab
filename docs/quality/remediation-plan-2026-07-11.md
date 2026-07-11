@@ -65,7 +65,7 @@ rozszerzania zakresu produktu poza model single-host i Compose-first.
 | UX-03 | done | Objąć drafty pełną ochroną nawigacji | Back/Forward, link, hotkey, command palette, zmiana pliku/katalogu/trybu i programmatic navigation wymagają decyzji; testy wszystkich dróg | `fix(ui): guard all unsaved draft transitions` |
 | UX-04 | done | Ujednolicić potwierdzenia Stop/Down | dialog pokazuje stack, liczbę kontenerów i wpływ na dane; destrukcyjne akcje są wizualnie oddzielone | `fix(ui): confirm disruptive stack actions` |
 | UX-05 | done | Potwierdzać harmonogram usuwający wolumeny | zapis cyklicznego prune volumes wymaga jawnego review; podsumowanie ustawień pozostaje widoczne | `fix(ui): confirm scheduled volume cleanup` |
-| DATA-01 | planned | Zapisywać compose i `.env` jako jedną rewizję | staging obu plików, rollback przy drugim błędzie i fault-injection test; create usuwa częściowy stan | `fix(stacks): commit definition files transactionally` |
+| DATA-01 | done | Zapisywać compose i `.env` jako jedną rewizję | staging obu plików, rollback przy drugim błędzie i fault-injection test; create usuwa częściowy stan | `fix(stacks): commit definition files transactionally` |
 
 ### Release engineering
 
