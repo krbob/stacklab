@@ -42,6 +42,7 @@ The database stores operational state and metadata. It does **not** replace the 
 
 Proposed v1 tables:
 
+- `schema_migrations`
 - `app_settings`
 - `auth_password`
 - `auth_sessions`
@@ -274,6 +275,39 @@ Rules:
 v1 scope:
 
 - does not include stack-scoped files under the managed config workspace in the drift hash
+
+## Schema Migrations
+
+`schema_migrations` is the authoritative, append-only migration history:
+
+| Column | Type | Notes |
+|---|---|---|
+| `version` | `INTEGER PRIMARY KEY` | Contiguous schema version |
+| `name` | `TEXT NOT NULL` | Stable migration identifier |
+| `applied_at` | `TEXT NOT NULL` | ISO 8601 UTC commit time |
+
+Rules:
+
+- every numbered migration runs in its own SQLite transaction;
+- schema changes, data backfills, and the corresponding version row commit or
+  roll back together;
+- an unversioned legacy database is adopted by idempotently applying the full
+  registry and recording every completed version;
+- migration history must be contiguous and names must match the binary's
+  registry;
+- a binary refuses to open a database with a newer schema version instead of
+  attempting a destructive downgrade;
+- migrations are forward-only and additive where practical. Before rolling
+  back application code across a schema-changing release, restore the database
+  backup created for that release or use a binary supporting the recorded
+  schema version.
+
+Current versions:
+
+1. initial operational tables and indexes;
+2. structured progress payloads for job events;
+3. password-generation binding for credentials and sessions;
+4. serialized per-job event sequence with a legacy event backfill.
 
 ## Schema Notes
 

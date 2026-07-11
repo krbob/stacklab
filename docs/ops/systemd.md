@@ -279,7 +279,8 @@ Recommended upgrade flow:
 1. stop the service
 2. unpack the new build into a versioned directory under `/opt/stacklab/app/releases/`
 3. repoint `/opt/stacklab/app/current`
-4. run any schema migrations
+4. let Stacklab run its versioned SQLite migrations on first start of the new
+   binary; a failed or newer-than-supported schema keeps the service down
 5. start the service
 6. verify `GET /api/health`
 

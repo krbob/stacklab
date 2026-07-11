@@ -325,6 +325,138 @@ func TestOpenMigratesAndBackfillsJobEventSequence(t *testing.T) {
 	}
 }
 
+func TestOpenUpgradesPreviousVersionAndPreservesData(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	databasePath := filepath.Join(t.TempDir(), "stacklab.db")
+	db, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	if err := configureSQLite(ctx, db); err != nil {
+		_ = db.Close()
+		t.Fatalf("configureSQLite() error = %v", err)
+	}
+	if err := ensureSchemaMigrationsTable(ctx, db); err != nil {
+		_ = db.Close()
+		t.Fatalf("ensureSchemaMigrationsTable() error = %v", err)
+	}
+	for _, migration := range schemaMigrations[:len(schemaMigrations)-1] {
+		if err := applySchemaMigration(ctx, db, migration); err != nil {
+			_ = db.Close()
+			t.Fatalf("applySchemaMigration(%d) error = %v", migration.version, err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO jobs (id, stack_id, action, state, requested_by, requested_at, started_at)
+		VALUES ('job_previous_version', 'demo', 'up', 'running', 'local', '2026-07-12T10:00:00Z', '2026-07-12T10:00:00Z');
+		INSERT INTO job_events (job_id, sequence, event, state, timestamp) VALUES
+			('job_previous_version', 1, 'job_started', 'running', '2026-07-12T10:00:00Z'),
+			('job_previous_version', 2, 'job_log', 'running', '2026-07-12T10:00:01Z');
+	`); err != nil {
+		_ = db.Close()
+		t.Fatalf("insert previous-version data error = %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close previous-version database error = %v", err)
+	}
+
+	testStore, err := Open(databasePath)
+	if err != nil {
+		t.Fatalf("Open(previous version) error = %v", err)
+	}
+	t.Cleanup(func() { _ = testStore.Close() })
+
+	var migrationCount, maxVersion int
+	if err := testStore.db.QueryRowContext(ctx, `SELECT COUNT(*), MAX(version) FROM schema_migrations`).Scan(&migrationCount, &maxVersion); err != nil {
+		t.Fatalf("load migration version error = %v", err)
+	}
+	if migrationCount != len(schemaMigrations) || maxVersion != currentSchemaVersion {
+		t.Fatalf("migration history = count %d max %d, want %d/%d", migrationCount, maxVersion, len(schemaMigrations), currentSchemaVersion)
+	}
+	appended, err := testStore.AppendJobEvent(ctx, JobEvent{
+		JobID: "job_previous_version", Event: "job_log", State: "running", Timestamp: time.Date(2026, 7, 12, 10, 0, 2, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("AppendJobEvent(after versioned upgrade) error = %v", err)
+	}
+	if appended.Sequence != 3 {
+		t.Fatalf("appended sequence after versioned upgrade = %d, want 3", appended.Sequence)
+	}
+}
+
+func TestApplySchemaMigrationRollsBackSchemaAndVersionOnFailure(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "stacklab.db"))
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = db.Close() })
+	if err := ensureSchemaMigrationsTable(ctx, db); err != nil {
+		t.Fatalf("ensureSchemaMigrationsTable() error = %v", err)
+	}
+
+	injectedErr := errors.New("injected migration failure")
+	migration := schemaMigration{
+		version: 1,
+		name:    "injected_failure",
+		up: func(ctx context.Context, tx *sql.Tx) error {
+			if _, err := tx.ExecContext(ctx, `CREATE TABLE must_rollback (id INTEGER PRIMARY KEY)`); err != nil {
+				return err
+			}
+			return injectedErr
+		},
+	}
+	if err := applySchemaMigration(ctx, db, migration); !errors.Is(err, injectedErr) {
+		t.Fatalf("applySchemaMigration() error = %v, want %v", err, injectedErr)
+	}
+
+	var tableCount, migrationCount int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'must_rollback'`).Scan(&tableCount); err != nil {
+		t.Fatalf("inspect rolled-back table error = %v", err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&migrationCount); err != nil {
+		t.Fatalf("inspect rolled-back version error = %v", err)
+	}
+	if tableCount != 0 || migrationCount != 0 {
+		t.Fatalf("failed migration persisted table/version = %d/%d, want 0/0", tableCount, migrationCount)
+	}
+}
+
+func TestOpenRejectsDatabaseFromNewerSchemaVersion(t *testing.T) {
+	t.Parallel()
+
+	databasePath := filepath.Join(t.TempDir(), "stacklab.db")
+	db, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	if _, err := db.Exec(`
+		CREATE TABLE schema_migrations (
+			version INTEGER PRIMARY KEY,
+			name TEXT NOT NULL,
+			applied_at TEXT NOT NULL
+		);
+		INSERT INTO schema_migrations (version, name, applied_at)
+		VALUES (?, 'future_schema', '2026-07-12T10:00:00Z');
+	`, currentSchemaVersion+1); err != nil {
+		_ = db.Close()
+		t.Fatalf("create future migration history error = %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close future database error = %v", err)
+	}
+
+	if _, err := Open(databasePath); !errors.Is(err, ErrSchemaTooNew) {
+		t.Fatalf("Open(future schema) error = %v, want %v", err, ErrSchemaTooNew)
+	}
+}
+
 func TestUpdatePasswordAndRevokeSessionsIsVersionedAndAtomic(t *testing.T) {
 	t.Parallel()
 
