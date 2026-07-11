@@ -1,5 +1,9 @@
 # UI Review 2026-07 + Final Design "Amber Console v2"
 
+> **Status: dated review snapshot.** Findings were evaluated against the build
+> named below. The current remediation plan and frontend tests supersede its
+> open/closed status.
+
 Audyt live (stacklab.bobinski.net, build 2026.07.0~nightly20260704) — 14 ekranów,
 desktop 1440 i mobile 390, Playwright na produkcji. Pełna wersja z mockupami:
 artefakt "StackLab — przegląd UI i finalny design" (link w rozmowie z 2026-07-04).

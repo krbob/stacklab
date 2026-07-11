@@ -1,5 +1,10 @@
 # Test and CI Rollout Plan
 
+> **Status: historical rollout baseline.** Browser E2E and several CI stages
+> described as missing below have since been implemented. Use
+> `remediation-plan-2026-07-11.md`, `ci-quality-plan.md`, and the checked-in
+> workflows for current work.
+
 ## Purpose
 
 This document turns the broader quality strategy into an execution plan for the next implementation steps.

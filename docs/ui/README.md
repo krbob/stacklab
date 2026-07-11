@@ -10,6 +10,10 @@ When they disagree with newer operator docs or API contracts, prefer:
 - `../ops/install-from-tarball.md`
 - `../api/*.md`
 
+The visual revamp proposals and the dated July review are historical design
+records. Current tokens, components, screenshots, and accessibility tests are
+authoritative for the implemented interface.
+
 ## Documents
 
 - [information-architecture.md](information-architecture.md) — navigation model, screen inventory, URL structure, responsive breakpoints

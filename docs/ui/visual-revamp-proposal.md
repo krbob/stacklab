@@ -1,5 +1,9 @@
 # Visual Revamp Proposal
 
+> **Status: historical design exploration.** The owner selected the later
+> Amber Console direction. See `visual-revamp-proposal-round2.md`; current
+> frontend code and tests define the implemented result.
+
 ## Current State
 
 The current UI is clean, functional, and consistent. Design tokens are well-defined (teal accent, dark blue-gray base, Space Grotesk + JetBrains Mono). Rounded panels with glass-like borders.

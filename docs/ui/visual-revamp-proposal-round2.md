@@ -1,5 +1,9 @@
 # Visual Revamp Proposal — Round 2
 
+> **Status: historical design decision record.** The selected Amber Console
+> direction is implemented; use current frontend tokens and components for
+> exact behavior.
+
 Direction after owner feedback: **dark themes only**, nerd / hacker / homelab character.
 
 **Decision: Variant E "Amber Console" — implemented** (July 2026). Token swap in
