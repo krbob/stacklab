@@ -91,7 +91,7 @@ main() {
         curl \
         passwd \
         perl \
-        python3-minimal \
+        python3 \
         tar >/dev/null
 
       cat >/usr/local/bin/systemctl <<'"'"'EOF'"'"'
@@ -202,7 +202,10 @@ EOF
         fi
         sleep 0.1
       done
-      curl -fsS http://127.0.0.1:18080/stacklab-upgrade-c.tar.gz.sha256 >/dev/null
+      if ! curl -fsS http://127.0.0.1:18080/stacklab-upgrade-c.tar.gz.sha256 >/dev/null; then
+        cat /tmp/stacklab-http.log >&2
+        exit 1
+      fi
       "${artifact_a}/host-tools/upgrade.sh" --no-health-check http://127.0.0.1:18080/stacklab-upgrade-c.tar.gz
       kill "${http_pid}"
       wait "${http_pid}" 2>/dev/null || true
