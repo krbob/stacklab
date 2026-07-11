@@ -3,10 +3,84 @@ package store
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 )
+
+func TestOpenCreatesPrivateDatabaseFiles(t *testing.T) {
+	t.Parallel()
+
+	dataDir := filepath.Join(t.TempDir(), "data")
+	databasePath := filepath.Join(dataDir, "stacklab.db")
+	testStore, err := Open(databasePath)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = testStore.Close() })
+
+	assertPathMode(t, dataDir, 0o700)
+	assertPathMode(t, databasePath, 0o600)
+	for _, suffix := range []string{"-wal", "-shm"} {
+		path := databasePath + suffix
+		if _, err := os.Stat(path); err == nil {
+			assertPathMode(t, path, 0o600)
+		} else if !os.IsNotExist(err) {
+			t.Fatalf("Stat(%s) error = %v", path, err)
+		}
+	}
+}
+
+func TestEnsureDataDirectoryCreatesAndMigratesPrivateMode(t *testing.T) {
+	t.Parallel()
+
+	dataDir := filepath.Join(t.TempDir(), "data")
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(dataDir) error = %v", err)
+	}
+	if err := os.Chmod(dataDir, 0o755); err != nil {
+		t.Fatalf("Chmod(dataDir) error = %v", err)
+	}
+
+	if err := EnsureDataDirectory(dataDir); err != nil {
+		t.Fatalf("EnsureDataDirectory() error = %v", err)
+	}
+	assertPathMode(t, dataDir, 0o700)
+}
+
+func TestSecureDatabaseFileModesMigratesExistingFiles(t *testing.T) {
+	t.Parallel()
+
+	databasePath := filepath.Join(t.TempDir(), "stacklab.db")
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		path := databasePath + suffix
+		if err := os.WriteFile(path, nil, 0o644); err != nil {
+			t.Fatalf("WriteFile(%s) error = %v", path, err)
+		}
+		if err := os.Chmod(path, 0o644); err != nil {
+			t.Fatalf("Chmod(%s) error = %v", path, err)
+		}
+	}
+
+	if err := secureDatabaseFileModes(databasePath); err != nil {
+		t.Fatalf("secureDatabaseFileModes() error = %v", err)
+	}
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		assertPathMode(t, databasePath+suffix, 0o600)
+	}
+}
+
+func assertPathMode(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat(%s) error = %v", path, err)
+	}
+	if got := info.Mode().Perm(); got != want {
+		t.Fatalf("mode(%s) = %04o, want %04o", path, got, want)
+	}
+}
 
 func TestListAuditEntriesPaginatesAndFilters(t *testing.T) {
 	t.Parallel()

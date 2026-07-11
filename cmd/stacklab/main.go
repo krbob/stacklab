@@ -31,6 +31,10 @@ func main() {
 		Level: cfg.LogLevel,
 	}))
 
+	if err := store.EnsureDataDirectory(cfg.DataDir); err != nil {
+		logger.Error("failed to prepare data directory", slog.String("err", err.Error()))
+		os.Exit(1)
+	}
 	authStore, err := store.Open(cfg.DatabasePath)
 	if err != nil {
 		logger.Error("failed to open sqlite store", slog.String("err", err.Error()))

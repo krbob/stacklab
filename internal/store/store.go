@@ -17,6 +17,11 @@ import (
 
 var ErrNotFound = errors.New("not found")
 
+const (
+	databaseDirectoryMode os.FileMode = 0o700
+	databaseFileMode      os.FileMode = 0o600
+)
+
 type Store struct {
 	db *sql.DB
 }
@@ -169,9 +174,29 @@ func (s OperationalRetentionSummary) TotalDeleted() int64 {
 	return s.AuditEntriesDeleted + s.JobsDeleted + s.JobEventsDeleted + s.SessionsDeleted
 }
 
+func EnsureDataDirectory(path string) error {
+	if err := os.MkdirAll(path, databaseDirectoryMode); err != nil {
+		return fmt.Errorf("create data directory: %w", err)
+	}
+	if err := os.Chmod(path, databaseDirectoryMode); err != nil {
+		return fmt.Errorf("secure data directory: %w", err)
+	}
+	return nil
+}
+
 func Open(databasePath string) (*Store, error) {
-	if err := os.MkdirAll(filepath.Dir(databasePath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(databasePath), databaseDirectoryMode); err != nil {
 		return nil, fmt.Errorf("create database directory: %w", err)
+	}
+	file, err := os.OpenFile(databasePath, os.O_CREATE|os.O_RDWR, databaseFileMode)
+	if err != nil {
+		return nil, fmt.Errorf("create database file: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return nil, fmt.Errorf("close database file: %w", err)
+	}
+	if err := secureDatabaseFileModes(databasePath); err != nil {
+		return nil, err
 	}
 
 	db, err := sql.Open("sqlite", databasePath)
@@ -185,8 +210,24 @@ func Open(databasePath string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	if err := secureDatabaseFileModes(databasePath); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 
 	return store, nil
+}
+
+func secureDatabaseFileModes(databasePath string) error {
+	for _, path := range []string{databasePath, databasePath + "-wal", databasePath + "-shm"} {
+		if err := os.Chmod(path, databaseFileMode); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return fmt.Errorf("secure database file %q: %w", path, err)
+		}
+	}
+	return nil
 }
 
 func (s *Store) Close() error {
