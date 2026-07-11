@@ -219,11 +219,23 @@ func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
 	jobEventsResponse := performJSONRequest(t, handler, http.MethodGet, "/api/jobs/"+createPayload.Job.ID+"/events", nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/jobs/"+createPayload.Job.ID+"/events", nil, cookies, jobEventsResponse)
 
-	stackAuditResponse := performJSONRequest(t, handler, http.MethodGet, "/api/stacks/"+stackID+"/audit", nil, cookies)
-	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/stacks/"+stackID+"/audit", nil, cookies, stackAuditResponse)
+	stackAuditPath := "/api/stacks/" + stackID + "/audit?q=contract&result=succeeded&from=2026-01-01T00%3A00%3A00Z&to=2027-01-01T00%3A00%3A00Z&limit=10"
+	assertRequestMatchesOpenAPI(t, contract, http.MethodGet, stackAuditPath, nil, cookies)
+	stackAuditResponse := performJSONRequest(t, handler, http.MethodGet, stackAuditPath, nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, stackAuditPath, nil, cookies, stackAuditResponse)
 
-	auditResponse := performJSONRequest(t, handler, http.MethodGet, "/api/audit", nil, cookies)
-	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/audit", nil, cookies, auditResponse)
+	auditPath := "/api/audit?stack_id=" + stackID + "&q=contract&result=all&from=2026-01-01T00%3A00%3A00Z&to=2027-01-01T00%3A00%3A00Z&limit=10"
+	assertRequestMatchesOpenAPI(t, contract, http.MethodGet, auditPath, nil, cookies)
+	auditResponse := performJSONRequest(t, handler, http.MethodGet, auditPath, nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, auditPath, nil, cookies, auditResponse)
+
+	invalidStackAuditPath := "/api/stacks/" + stackID + "/audit?from=not-a-timestamp"
+	invalidStackAuditResponse := performJSONRequest(t, handler, http.MethodGet, invalidStackAuditPath, nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, invalidStackAuditPath, nil, cookies, invalidStackAuditResponse)
+
+	invalidAuditPath := "/api/audit?result=unknown"
+	invalidAuditResponse := performJSONRequest(t, handler, http.MethodGet, invalidAuditPath, nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, invalidAuditPath, nil, cookies, invalidAuditResponse)
 
 	webhookServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
@@ -425,6 +437,28 @@ func assertResponseMatchesOpenAPI(t *testing.T, contract *openAPIContract, metho
 
 	if err := openapi3filter.ValidateResponse(context.Background(), responseInput); err != nil {
 		t.Fatalf("OpenAPI response validation failed for %s %s: %v; body=%s", method, path, err, response.Body.String())
+	}
+}
+
+func assertRequestMatchesOpenAPI(t *testing.T, contract *openAPIContract, method, path string, requestBody any, cookies []*http.Cookie) {
+	t.Helper()
+
+	request := newOpenAPIValidationRequest(t, method, contractPath(path), requestBody, cookies)
+	route, pathParams, err := contract.router.FindRoute(request)
+	if err != nil {
+		t.Fatalf("FindRoute(%s %s) error = %v", method, path, err)
+	}
+
+	input := &openapi3filter.RequestValidationInput{
+		Request:    request,
+		PathParams: pathParams,
+		Route:      route,
+		Options: &openapi3filter.Options{
+			AuthenticationFunc: openapi3filter.NoopAuthenticationFunc,
+		},
+	}
+	if err := openapi3filter.ValidateRequest(context.Background(), input); err != nil {
+		t.Fatalf("OpenAPI request validation failed for %s %s: %v", method, path, err)
 	}
 }
 

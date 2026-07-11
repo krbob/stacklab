@@ -2006,8 +2006,19 @@ Purpose:
 
 Query parameters:
 
+- `q` optional case-insensitive literal substring matched against action and
+  stack ID, maximum 200 characters
+- `result` optional: `all`, `succeeded`, `failed`, `cancelled`, or `timed_out`;
+  `failed` also includes timed-out operations
+- `from` optional inclusive RFC 3339 `requested_at` bound
+- `to` optional exclusive RFC 3339 `requested_at` bound
 - `cursor` optional pagination cursor
 - `limit` optional, default `50`, max `100`
+
+RFC 3339 offsets are accepted and normalized to UTC. When following
+`next_cursor`, clients must repeat the same filters so subsequent pages remain
+in the same result set. Invalid filters or a non-increasing time range return
+`422 validation_failed`.
 
 Response:
 
@@ -2038,6 +2049,8 @@ Purpose:
 Query parameters:
 
 - `stack_id` optional filter
+- `q`, `result`, `from`, and `to` use the same semantics as the per-stack audit
+  endpoint
 - `cursor` optional pagination cursor
 - `limit` optional, default `50`, max `100`
 

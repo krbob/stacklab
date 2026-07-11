@@ -1214,6 +1214,10 @@ paths:
       tags: [Audit]
       operationId: listStackAudit
       parameters:
+        - $ref: '#/components/parameters/AuditSearch'
+        - $ref: '#/components/parameters/AuditResult'
+        - $ref: '#/components/parameters/AuditFrom'
+        - $ref: '#/components/parameters/AuditTo'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
       responses:
@@ -1227,6 +1231,8 @@ paths:
           $ref: '#/components/responses/ErrorUnauthorized'
         '404':
           $ref: '#/components/responses/ErrorNotFound'
+        '422':
+          $ref: '#/components/responses/ErrorValidationFailed'
   /stacks/{stackId}/actions/{action}:
     parameters:
       - $ref: '#/components/parameters/StackId'
@@ -1267,6 +1273,10 @@ paths:
           required: false
           schema:
             type: string
+        - $ref: '#/components/parameters/AuditSearch'
+        - $ref: '#/components/parameters/AuditResult'
+        - $ref: '#/components/parameters/AuditFrom'
+        - $ref: '#/components/parameters/AuditTo'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
       responses:
@@ -1278,6 +1288,8 @@ paths:
                 $ref: '#/components/schemas/AuditListResponse'
         '401':
           $ref: '#/components/responses/ErrorUnauthorized'
+        '422':
+          $ref: '#/components/responses/ErrorValidationFailed'
   /settings/password:
     post:
       tags: [Settings]
@@ -1539,6 +1551,38 @@ components:
         minimum: 1
         maximum: 100
         default: 50
+    AuditSearch:
+      in: query
+      name: q
+      required: false
+      description: Case-insensitive literal substring matched against the action and stack ID.
+      schema:
+        type: string
+        maxLength: 200
+    AuditResult:
+      in: query
+      name: result
+      required: false
+      description: Result filter. `failed` includes both failed and timed-out operations; `all` is equivalent to omitting the parameter.
+      schema:
+        type: string
+        enum: [all, succeeded, failed, cancelled, timed_out]
+    AuditFrom:
+      in: query
+      name: from
+      required: false
+      description: Inclusive lower `requested_at` bound. RFC 3339 offsets are accepted and normalized to UTC.
+      schema:
+        type: string
+        format: date-time
+    AuditTo:
+      in: query
+      name: to
+      required: false
+      description: Exclusive upper `requested_at` bound. RFC 3339 offsets are accepted and normalized to UTC.
+      schema:
+        type: string
+        format: date-time
     StackAction:
       in: path
       name: action
