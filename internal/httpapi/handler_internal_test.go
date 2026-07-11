@@ -221,7 +221,7 @@ func TestHandlerConfigWorkspaceFileReturnsContentTooLarge(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/api/config/workspace/file?path=large.conf", nil)
 	response := httptest.NewRecorder()
 
-	handler.handleConfigWorkspaceFile(response, request)
+	(&workspaceController{Handler: handler}).handleConfigWorkspaceFile(response, request)
 	if response.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusRequestEntityTooLarge, response.Body.String())
 	}
