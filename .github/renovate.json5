@@ -22,6 +22,20 @@
   prHourlyLimit: 0,
   rebaseWhen: 'behind-base-branch',
   rangeStrategy: 'bump',
+  customManagers: [
+    {
+      customType: 'regex',
+      description: 'Update pinned Go analysis tools used by GitHub Actions.',
+      fileMatch: [
+        '^\\.github/workflows/advisory-static-analysis\\.yml$',
+      ],
+      matchStrings: [
+        'go run (?<depName>honnef\\.co/go/tools)/cmd/staticcheck@(?<currentValue>v\\d+\\.\\d+\\.\\d+)',
+        'go run (?<depName>golang\\.org/x/vuln)/cmd/govulncheck@(?<currentValue>v\\d+\\.\\d+\\.\\d+)',
+      ],
+      datasourceTemplate: 'go',
+    },
+  ],
   packageRules: [
     {
       description: 'Group frontend runtime dependencies into one reviewable PR.',
