@@ -53,7 +53,10 @@ type wsConnection struct {
 	conn      *websocket.Conn
 	writeMu   sync.Mutex
 	closeOnce sync.Once
+	errorOnce sync.Once
 	workers   sync.WaitGroup
+	openedAt  time.Time
+	onError   func()
 }
 
 func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -79,6 +82,7 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := wsUpgrader.Upgrade(w, r, upgradeHeaders)
 	if err != nil {
 		unsubscribeSession()
+		h.serviceMetrics.WebSocketError()
 		h.logger.Warn("websocket upgrade failed", "err", err)
 		return
 	}
@@ -88,7 +92,7 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return conn.SetReadDeadline(time.Now().Add(wsPongWait))
 	})
 
-	wsConn := &wsConnection{conn: conn}
+	wsConn := &wsConnection{conn: conn, onError: h.serviceMetrics.WebSocketError}
 	if !h.registerWebSocket(wsConn) {
 		unsubscribeSession()
 		wsConn.close(websocket.CloseGoingAway, "server shutting down")
@@ -163,6 +167,9 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	for {
 		var frame wsClientFrame
 		if err := conn.ReadJSON(&frame); err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.ClosePolicyViolation) {
+				wsConn.markError()
+			}
 			return
 		}
 		if frame.Type != "pong" {
@@ -401,6 +408,13 @@ func (c *wsConnection) wait() {
 	c.workers.Wait()
 }
 
+func (c *wsConnection) markError() {
+	if c == nil || c.onError == nil {
+		return
+	}
+	c.errorOnce.Do(c.onError)
+}
+
 func (h *Handler) registerWebSocket(conn *wsConnection) bool {
 	h.wsMu.Lock()
 	defer h.wsMu.Unlock()
@@ -410,8 +424,10 @@ func (h *Handler) registerWebSocket(conn *wsConnection) bool {
 	if h.wsConnections == nil {
 		h.wsConnections = map[*wsConnection]struct{}{}
 	}
+	conn.openedAt = time.Now()
 	h.wsConnections[conn] = struct{}{}
 	h.wsWG.Add(1)
+	h.serviceMetrics.WebSocketOpened()
 	return true
 }
 
@@ -420,6 +436,7 @@ func (h *Handler) unregisterWebSocket(conn *wsConnection) {
 	if _, ok := h.wsConnections[conn]; ok {
 		delete(h.wsConnections, conn)
 		h.wsWG.Done()
+		h.serviceMetrics.WebSocketClosed(time.Since(conn.openedAt))
 	}
 	h.wsMu.Unlock()
 }
@@ -542,7 +559,11 @@ func (h *Handler) forwardJobEvents(ctx context.Context, wsConn *wsConnection, st
 func (c *wsConnection) writeJSON(frame wsServerFrame) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
-	return c.conn.WriteJSON(frame)
+	err := c.conn.WriteJSON(frame)
+	if err != nil {
+		c.markError()
+	}
+	return err
 }
 
 func jobEventFrame(streamID string, job store.Job, event store.JobEvent) wsServerFrame {

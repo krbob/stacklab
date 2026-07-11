@@ -94,6 +94,15 @@ func (h *Handler) handleReady(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
+	response := h.evaluateReadiness(ctx)
+	status := http.StatusOK
+	if response.Status != "ok" {
+		status = http.StatusServiceUnavailable
+	}
+	writeJSON(w, status, response)
+}
+
+func (h *Handler) evaluateReadiness(ctx context.Context) readinessResponse {
 	response := readinessResponse{
 		Status:  "ok",
 		Version: stacks.AppVersion,
@@ -111,9 +120,10 @@ func (h *Handler) handleReady(w http.ResponseWriter, r *http.Request) {
 		response.Checks[probe.name] = healthCheckResponse{Status: "ok"}
 	}
 
-	status := http.StatusOK
-	if response.Status != "ok" {
-		status = http.StatusServiceUnavailable
+	checks := make(map[string]string, len(response.Checks))
+	for name, check := range response.Checks {
+		checks[name] = check.Status
 	}
-	writeJSON(w, status, response)
+	h.serviceMetrics.ReadinessChecked(response.Status, checks, time.Now().UTC())
+	return response
 }

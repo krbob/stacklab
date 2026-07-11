@@ -327,6 +327,95 @@ func TestHandlerHealthRoutesSeparateLiveAndReady(t *testing.T) {
 	}
 }
 
+func TestHandlerServiceMetricsAreAuthenticatedAndIncludeReadiness(t *testing.T) {
+	t.Parallel()
+
+	handler, cfg := newTestHandler(t)
+	unauthenticated := performJSONRequest(t, handler, http.MethodGet, "/api/service/metrics", nil, nil)
+	if unauthenticated.Code != http.StatusUnauthorized {
+		t.Fatalf("GET /api/service/metrics without session status = %d, want %d", unauthenticated.Code, http.StatusUnauthorized)
+	}
+	cookies := loginTestUser(t, handler, "test-password")
+	createResponse := performJSONRequest(t, handler, http.MethodPost, "/api/stacks", map[string]any{
+		"stack_id":            "metrics-fixture",
+		"compose_yaml":        "services:\n  app:\n    image: nginx:alpine\n",
+		"env":                 "",
+		"create_config_dir":   false,
+		"create_data_dir":     false,
+		"deploy_after_create": false,
+	}, cookies)
+	if createResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/stacks status = %d, want %d; body=%s", createResponse.Code, http.StatusOK, createResponse.Body.String())
+	}
+
+	failedRequest := performJSONRequest(t, handler, http.MethodGet, "/api/not-implemented", nil, cookies)
+	if failedRequest.Code != http.StatusNotImplemented {
+		t.Fatalf("GET /api/not-implemented status = %d, want %d", failedRequest.Code, http.StatusNotImplemented)
+	}
+
+	response := performJSONRequest(t, handler, http.MethodGet, "/api/service/metrics", nil, cookies)
+	if response.Code != http.StatusOK {
+		t.Fatalf("GET /api/service/metrics status = %d, want %d; body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+	var payload struct {
+		CollectedAt time.Time `json:"collected_at"`
+		Process     struct {
+			StartedAt     time.Time `json:"started_at"`
+			UptimeSeconds int64     `json:"uptime_seconds"`
+		} `json:"process"`
+		HTTP struct {
+			RequestsTotal    uint64 `json:"requests_total"`
+			RequestsInFlight uint64 `json:"requests_in_flight"`
+			ErrorsTotal      uint64 `json:"errors_total"`
+		} `json:"http"`
+		Jobs struct {
+			StartedTotal   uint64 `json:"started_total"`
+			Active         uint64 `json:"active"`
+			CompletedTotal uint64 `json:"completed_total"`
+			ErrorsTotal    uint64 `json:"errors_total"`
+		} `json:"jobs"`
+		WebSockets struct {
+			ConnectionsActive uint64 `json:"connections_active"`
+		} `json:"websockets"`
+		Readiness struct {
+			Status    string            `json:"status"`
+			CheckedAt *time.Time        `json:"checked_at"`
+			Checks    map[string]string `json:"checks"`
+		} `json:"readiness"`
+	}
+	decodeResponse(t, response, &payload)
+	if payload.CollectedAt.IsZero() || payload.Process.StartedAt.IsZero() || payload.Process.UptimeSeconds < 0 {
+		t.Fatalf("unexpected process timestamps: %#v", payload)
+	}
+	if payload.HTTP.RequestsTotal != 4 || payload.HTTP.RequestsInFlight != 1 || payload.HTTP.ErrorsTotal != 1 {
+		t.Fatalf("unexpected HTTP metrics: %#v", payload.HTTP)
+	}
+	if payload.Jobs.StartedTotal != 1 || payload.Jobs.Active != 0 || payload.Jobs.CompletedTotal != 1 || payload.Jobs.ErrorsTotal != 0 || payload.WebSockets.ConnectionsActive != 0 {
+		t.Fatalf("unexpected active metrics: jobs=%#v websockets=%#v", payload.Jobs, payload.WebSockets)
+	}
+	if payload.Readiness.Status != "ok" || payload.Readiness.CheckedAt == nil || payload.Readiness.Checks["database"] != "ok" || payload.Readiness.Checks["frontend"] != "ok" || payload.Readiness.Checks["runtime"] != "ok" {
+		t.Fatalf("unexpected readiness metrics: %#v", payload.Readiness)
+	}
+
+	if err := os.Remove(filepath.Join(cfg.FrontendDistDir, "index.html")); err != nil {
+		t.Fatalf("Remove(frontend index) error = %v", err)
+	}
+	unavailableResponse := performJSONRequest(t, handler, http.MethodGet, "/api/service/metrics", nil, cookies)
+	if unavailableResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/service/metrics while unavailable status = %d, want %d", unavailableResponse.Code, http.StatusOK)
+	}
+	var unavailablePayload struct {
+		Readiness struct {
+			Status string            `json:"status"`
+			Checks map[string]string `json:"checks"`
+		} `json:"readiness"`
+	}
+	decodeResponse(t, unavailableResponse, &unavailablePayload)
+	if unavailablePayload.Readiness.Status != "unavailable" || unavailablePayload.Readiness.Checks["frontend"] != "error" {
+		t.Fatalf("unexpected unavailable readiness metrics: %#v", unavailablePayload.Readiness)
+	}
+}
+
 func TestHandlerRateLimitsRepeatedLoginFailures(t *testing.T) {
 	t.Parallel()
 

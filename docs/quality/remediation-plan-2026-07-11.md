@@ -99,7 +99,7 @@ rozszerzania zakresu produktu poza model single-host i Compose-first.
 | AUTH-06 | done | Walidować politykę haseł i parametry Argon2 | sensowne minimum hasła; parser hasha ma limity memory/iterations/parallelism i nie może panic/OOM | `fix(auth): validate password hash parameters` |
 | HEALTH-01 | done | Rozdzielić liveness i readiness | `/live` sprawdza proces; `/ready` DB, assets i wymagane subsystemy; self-update używa readiness | `feat(health): add component readiness checks` |
 | OBS-01 | done | Dodać correlation/request ID | request ID przechodzi przez log, job start i odpowiedź; możliwość skorelowania błędu UI z journalem | `feat(observability): correlate requests and jobs` |
-| OBS-02 | planned | Eksportować podstawowe metryki procesu | liczba requestów/jobów/WS, czasy, błędy i readiness w lekkim endpointcie zgodnym z zakresem single-host | `feat(observability): expose service metrics` |
+| OBS-02 | done | Eksportować podstawowe metryki procesu | liczba requestów/jobów/WS, czasy, błędy i readiness w lekkim endpointcie zgodnym z zakresem single-host | `feat(observability): expose service metrics` |
 
 ### Architektura i kontrakty
 

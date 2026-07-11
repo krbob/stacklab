@@ -30,6 +30,7 @@ import (
 	"stacklab/internal/requestid"
 	"stacklab/internal/scheduler"
 	"stacklab/internal/selfupdate"
+	"stacklab/internal/servicemetrics"
 	"stacklab/internal/stacks"
 	"stacklab/internal/stackworkspace"
 	"stacklab/internal/store"
@@ -66,6 +67,7 @@ type Handler struct {
 	schedules       schedulerManager
 	selfUpdate      selfUpdateManager
 	readinessChecks []readinessCheck
+	serviceMetrics  *servicemetrics.Collector
 
 	wsMu          sync.Mutex
 	wsClosing     bool
@@ -152,6 +154,8 @@ func NewHandlerWithContext(appCtx context.Context, cfg config.Config, logger *sl
 		appCtx = context.Background()
 	}
 	workers := lifecycle.New(appCtx)
+	serviceMetrics := servicemetrics.New(time.Now().UTC())
+	jobService.SetMetricsObserver(serviceMetrics)
 	stackReader := stacks.NewServiceReader(cfg, logger)
 	stackReader.AttachStore(jobService.Store())
 	statsCollector := stacks.NewStatsCollector(logger)
@@ -216,6 +220,7 @@ func NewHandlerWithContext(appCtx context.Context, cfg config.Config, logger *sl
 		schedules:       scheduleService,
 		selfUpdate:      selfUpdateService,
 		readinessChecks: defaultReadinessChecks(cfg, jobService.Store(), workers.Context()),
+		serviceMetrics:  serviceMetrics,
 		wsConnections:   map[*wsConnection]struct{}{},
 	}
 	authService.SetSessionTerminationHook(func(termination auth.SessionTermination) {
@@ -249,6 +254,7 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("POST /api/auth/login", h.handleLogin)
 	h.mux.HandleFunc("POST /api/auth/logout", h.withAuth(h.handleLogout))
 	h.mux.HandleFunc("GET /api/meta", h.withAuth(h.handleMeta))
+	h.mux.HandleFunc("GET /api/service/metrics", h.withAuth(h.handleServiceMetrics))
 	h.mux.HandleFunc("GET /api/host/overview", h.withAuth(h.handleHostOverview))
 	h.mux.HandleFunc("GET /api/host/metrics", h.withAuth(h.handleHostMetrics))
 	h.mux.HandleFunc("GET /api/host/stacklab-logs", h.withAuth(h.handleStacklabLogs))
@@ -2611,21 +2617,28 @@ func (h *Handler) handleFrontend(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) withLogging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		startedAt := time.Now()
+		h.serviceMetrics.RequestStarted()
 
 		recorder := &statusRecorder{
 			ResponseWriter: w,
 			status:         http.StatusOK,
 		}
+		defer func() {
+			h.serviceMetrics.RequestFinished(time.Since(startedAt), recorder.status)
+		}()
 
 		next.ServeHTTP(recorder, r)
+		duration := time.Since(startedAt)
 
-		h.logger.Info("http request",
-			slog.String("request_id", requestid.FromContext(r.Context())),
-			slog.String("method", r.Method),
-			slog.String("path", r.URL.Path),
-			slog.Int("status", recorder.status),
-			slog.Duration("duration", time.Since(startedAt)),
-		)
+		if h.logger != nil {
+			h.logger.Info("http request",
+				slog.String("request_id", requestid.FromContext(r.Context())),
+				slog.String("method", r.Method),
+				slog.String("path", r.URL.Path),
+				slog.Int("status", recorder.status),
+				slog.Duration("duration", duration),
+			)
+		}
 	})
 }
 

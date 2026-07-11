@@ -4,8 +4,31 @@ import (
 	"testing"
 	"time"
 
+	"stacklab/internal/servicemetrics"
 	"stacklab/internal/stacks"
 )
+
+func TestWebSocketLifecycleUpdatesServiceMetrics(t *testing.T) {
+	t.Parallel()
+
+	collector := servicemetrics.New(time.Now())
+	handler := &Handler{
+		serviceMetrics: collector,
+		wsConnections:  map[*wsConnection]struct{}{},
+	}
+	connection := &wsConnection{onError: collector.WebSocketError}
+	if !handler.registerWebSocket(connection) {
+		t.Fatal("registerWebSocket() = false")
+	}
+	connection.markError()
+	connection.markError()
+	handler.unregisterWebSocket(connection)
+
+	snapshot := collector.Snapshot(time.Now())
+	if snapshot.WebSockets.ConnectionsTotal != 1 || snapshot.WebSockets.ConnectionsActive != 0 || snapshot.WebSockets.ErrorsTotal != 1 {
+		t.Fatalf("WebSocket metrics = %#v", snapshot.WebSockets)
+	}
+}
 
 func TestParseDockerStatsLine(t *testing.T) {
 	t.Parallel()

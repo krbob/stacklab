@@ -9,6 +9,7 @@ security:
   - sessionCookie: []
 tags:
   - name: Health
+  - name: Observability
   - name: Auth
   - name: Meta
   - name: Host
@@ -99,6 +100,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MetaResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+  /service/metrics:
+    get:
+      tags: [Observability]
+      operationId: getServiceMetrics
+      description: Return bounded, process-local service activity metrics. Counters reset when Stacklab restarts.
+      responses:
+        '200':
+          description: Current HTTP, job, WebSocket, and readiness metrics for this Stacklab process.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceMetricsResponse'
         '401':
           $ref: '#/components/responses/ErrorUnauthorized'
   /host/overview:
@@ -1639,6 +1654,115 @@ components:
           additionalProperties:
             $ref: '#/components/schemas/HealthCheckResponse'
       required: [status, version, checks]
+    ServiceMetricsResponse:
+      type: object
+      properties:
+        collected_at:
+          type: string
+          format: date-time
+        process:
+          $ref: '#/components/schemas/ServiceProcessMetrics'
+        http:
+          $ref: '#/components/schemas/ServiceHTTPMetrics'
+        jobs:
+          $ref: '#/components/schemas/ServiceJobMetrics'
+        websockets:
+          $ref: '#/components/schemas/ServiceWebSocketMetrics'
+        readiness:
+          $ref: '#/components/schemas/ServiceReadinessMetrics'
+      required: [collected_at, process, http, jobs, websockets, readiness]
+    ServiceProcessMetrics:
+      type: object
+      properties:
+        started_at:
+          type: string
+          format: date-time
+        uptime_seconds:
+          type: integer
+          minimum: 0
+      required: [started_at, uptime_seconds]
+    ServiceHTTPMetrics:
+      type: object
+      properties:
+        requests_total:
+          type: integer
+          minimum: 0
+        requests_in_flight:
+          type: integer
+          minimum: 0
+        errors_total:
+          type: integer
+          minimum: 0
+        duration_seconds_total:
+          type: number
+          format: double
+          minimum: 0
+        duration_seconds_max:
+          type: number
+          format: double
+          minimum: 0
+      required: [requests_total, requests_in_flight, errors_total, duration_seconds_total, duration_seconds_max]
+    ServiceJobMetrics:
+      type: object
+      properties:
+        started_total:
+          type: integer
+          minimum: 0
+        active:
+          type: integer
+          minimum: 0
+        completed_total:
+          type: integer
+          minimum: 0
+        errors_total:
+          type: integer
+          minimum: 0
+        duration_seconds_total:
+          type: number
+          format: double
+          minimum: 0
+        duration_seconds_max:
+          type: number
+          format: double
+          minimum: 0
+      required: [started_total, active, completed_total, errors_total, duration_seconds_total, duration_seconds_max]
+    ServiceWebSocketMetrics:
+      type: object
+      properties:
+        connections_total:
+          type: integer
+          minimum: 0
+        connections_active:
+          type: integer
+          minimum: 0
+        errors_total:
+          type: integer
+          minimum: 0
+        connection_duration_seconds_total:
+          type: number
+          format: double
+          minimum: 0
+        connection_duration_seconds_max:
+          type: number
+          format: double
+          minimum: 0
+      required: [connections_total, connections_active, errors_total, connection_duration_seconds_total, connection_duration_seconds_max]
+    ServiceReadinessMetrics:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [unknown, ok, unavailable]
+        checked_at:
+          type: string
+          format: date-time
+          nullable: true
+        checks:
+          type: object
+          additionalProperties:
+            type: string
+            enum: [ok, error]
+      required: [status, checked_at, checks]
     SessionResponse:
       type: object
       properties:

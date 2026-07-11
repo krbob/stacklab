@@ -37,6 +37,69 @@ func TestTerminalHookRunsOnFinishSucceeded(t *testing.T) {
 	}
 }
 
+func TestMetricsObserverRunsOnlyForCommittedJobTransitions(t *testing.T) {
+	t.Parallel()
+
+	jobStore := openJobsTestStore(t)
+	service := NewService(jobStore)
+	observer := &recordingMetricsObserver{}
+	service.SetMetricsObserver(observer)
+
+	terminalHookCalls := 0
+	service.SetTerminalHook(func(store.Job) {
+		terminalHookCalls++
+	})
+
+	job, err := service.Start(context.Background(), "demo", "up", "local")
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	job, err = service.FinishFailed(context.Background(), job, "compose_failed", "Compose failed.")
+	if err != nil {
+		t.Fatalf("FinishFailed() error = %v", err)
+	}
+	if _, err := service.FinishFailed(context.Background(), job, "compose_failed", "Compose failed."); err != nil {
+		t.Fatalf("idempotent FinishFailed() error = %v", err)
+	}
+
+	observer.mu.Lock()
+	defer observer.mu.Unlock()
+	if observer.started != 1 || observer.finished != 1 || observer.state != "failed" {
+		t.Fatalf("observer calls = started:%d finished:%d state:%q", observer.started, observer.finished, observer.state)
+	}
+	if observer.finishedAt.Before(observer.startedAt) {
+		t.Fatalf("observer duration is negative: started=%s finished=%s", observer.startedAt, observer.finishedAt)
+	}
+	if terminalHookCalls != 1 {
+		t.Fatalf("terminal hook calls = %d, want 1", terminalHookCalls)
+	}
+}
+
+type recordingMetricsObserver struct {
+	mu         sync.Mutex
+	started    int
+	finished   int
+	startedAt  time.Time
+	finishedAt time.Time
+	state      string
+}
+
+func (o *recordingMetricsObserver) JobStarted(startedAt time.Time) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.started++
+	o.startedAt = startedAt
+}
+
+func (o *recordingMetricsObserver) JobFinished(startedAt, finishedAt time.Time, state string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.finished++
+	o.startedAt = startedAt
+	o.finishedAt = finishedAt
+	o.state = state
+}
+
 func TestStartWithWorkflowPersistsCompleteInitialization(t *testing.T) {
 	t.Parallel()
 

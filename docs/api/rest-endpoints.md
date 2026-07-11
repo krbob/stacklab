@@ -148,6 +148,20 @@ message `unavailable`.
 `GET /api/health` remains an unauthenticated, deprecated alias of `/api/ready`
 for existing installations.
 
+## `GET /api/service/metrics`
+
+Purpose:
+
+- return authenticated, bounded process-local aggregates for HTTP requests,
+  jobs, WebSocket connections, durations, errors, and readiness;
+- provide lightweight diagnostics without retaining per-request or per-job
+  labels.
+
+Counters and durations reset on process restart. The endpoint reuses the
+readiness checks from `/api/ready` and always returns the metrics snapshot with
+`200`; component failure is represented by `readiness.status = unavailable`.
+The complete field semantics are defined in `service-metrics.md`.
+
 ## `GET /api/session`
 
 Purpose:

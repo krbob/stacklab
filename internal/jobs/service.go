@@ -30,7 +30,16 @@ type Service struct {
 	subsByJob        map[string]map[chan store.JobEvent]struct{}
 	activitySubs     map[chan struct{}]struct{}
 	onTerminal       func(store.Job)
+	metricsObserver  MetricsObserver
 	eventLocks       [64]sync.Mutex
+}
+
+// MetricsObserver receives successful lifecycle transitions only. The
+// interface keeps metrics optional and avoids coupling the jobs package to a
+// concrete exporter.
+type MetricsObserver interface {
+	JobStarted(time.Time)
+	JobFinished(startedAt, finishedAt time.Time, state string)
 }
 
 func NewService(jobStore *store.Store) *Service {
@@ -86,6 +95,12 @@ func (s *Service) Store() *store.Store {
 
 func (s *Service) SetTerminalHook(hook func(store.Job)) {
 	s.onTerminal = hook
+}
+
+func (s *Service) SetMetricsObserver(observer MetricsObserver) {
+	s.mu.Lock()
+	s.metricsObserver = observer
+	s.mu.Unlock()
 }
 
 func (s *Service) RegisterCancel(jobID string, cancel context.CancelFunc) func() {
@@ -170,6 +185,7 @@ func (s *Service) start(ctx context.Context, stackID, action, requestedBy string
 	}
 	s.publishLive(initialEvent)
 	s.notifyActivity()
+	s.observeJobStarted(now)
 	return job, nil
 }
 
@@ -229,10 +245,37 @@ func (s *Service) commitTerminalTransition(ctx context.Context, job store.Job, e
 
 	s.publishCommittedEvents(committedEvents)
 	s.unlockAll(job.ID)
+	startedAt := job.RequestedAt
+	if job.StartedAt != nil {
+		startedAt = *job.StartedAt
+	}
+	finishedAt := time.Now().UTC()
+	if job.FinishedAt != nil {
+		finishedAt = *job.FinishedAt
+	}
+	s.observeJobFinished(startedAt, finishedAt, job.State)
 	if s.onTerminal != nil {
 		s.onTerminal(job)
 	}
 	return job, nil
+}
+
+func (s *Service) observeJobStarted(startedAt time.Time) {
+	s.mu.Lock()
+	observer := s.metricsObserver
+	s.mu.Unlock()
+	if observer != nil {
+		observer.JobStarted(startedAt)
+	}
+}
+
+func (s *Service) observeJobFinished(startedAt, finishedAt time.Time, state string) {
+	s.mu.Lock()
+	observer := s.metricsObserver
+	s.mu.Unlock()
+	if observer != nil {
+		observer.JobFinished(startedAt, finishedAt, state)
+	}
 }
 
 func (s *Service) ReconcileInterrupted(ctx context.Context) ([]store.Job, error) {

@@ -51,6 +51,9 @@ func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
 	metaResponse := performJSONRequest(t, handler, http.MethodGet, "/api/meta", nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/meta", nil, cookies, metaResponse)
 
+	serviceMetricsResponse := performJSONRequest(t, handler, http.MethodGet, "/api/service/metrics", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/service/metrics", nil, cookies, serviceMetricsResponse)
+
 	hostMetricsResponse := performJSONRequest(t, handler, http.MethodGet, "/api/host/metrics", nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/host/metrics", nil, cookies, hostMetricsResponse)
 
