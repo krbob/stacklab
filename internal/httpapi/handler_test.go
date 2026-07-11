@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -299,19 +300,21 @@ func TestHandlerCreateAndDeleteStackWithoutRuntime(t *testing.T) {
 		"remove_config":     true,
 		"remove_data":       true,
 	}, cookies)
-	if deleteResponse.Code != http.StatusOK {
-		t.Fatalf("DELETE /api/stacks/%s status = %d, want %d", stackID, deleteResponse.Code, http.StatusOK)
+	if deleteResponse.Code != http.StatusAccepted {
+		t.Fatalf("DELETE /api/stacks/%s status = %d, want %d", stackID, deleteResponse.Code, http.StatusAccepted)
 	}
 	var deletePayload struct {
 		Job struct {
+			ID     string `json:"id"`
 			Action string `json:"action"`
 			State  string `json:"state"`
 		} `json:"job"`
 	}
 	decodeResponse(t, deleteResponse, &deletePayload)
-	if deletePayload.Job.Action != "remove_stack_definition" || deletePayload.Job.State != "succeeded" {
+	if deletePayload.Job.ID == "" || deletePayload.Job.Action != "remove_stack_definition" || deletePayload.Job.State != "running" {
 		t.Fatalf("unexpected delete job payload: %#v", deletePayload.Job)
 	}
+	waitForTestJobState(t, handler, cookies, deletePayload.Job.ID, "succeeded")
 
 	assertPathMissing(t, filepath.Join(cfg.RootDir, "stacks", stackID))
 	assertPathMissing(t, filepath.Join(cfg.RootDir, "config", stackID))
@@ -349,6 +352,77 @@ func TestHandlerCreateAndDeleteStackWithoutRuntime(t *testing.T) {
 	if auditPayload.Items[0].Action != "remove_stack_definition" || auditPayload.Items[1].Action != "create_stack" {
 		t.Fatalf("unexpected audit actions order: %#v", auditPayload.Items)
 	}
+}
+
+func TestHandlerDeleteStackContinuesAfterRequestDisconnect(t *testing.T) {
+	t.Parallel()
+
+	handler, cfg := newTestHandler(t)
+	cookies := loginTestUser(t, handler, "secret")
+	stackID := "fixture-delete-disconnect"
+
+	createResponse := performJSONRequest(t, handler, http.MethodPost, "/api/stacks", map[string]any{
+		"stack_id":            stackID,
+		"compose_yaml":        "services:\n  app:\n    image: nginx:alpine\n",
+		"env":                 "",
+		"create_config_dir":   true,
+		"create_data_dir":     true,
+		"deploy_after_create": false,
+	}, cookies)
+	if createResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/stacks status = %d, want %d", createResponse.Code, http.StatusOK)
+	}
+
+	body, err := json.Marshal(map[string]any{
+		"remove_runtime":    false,
+		"remove_definition": true,
+		"remove_config":     true,
+		"remove_data":       true,
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	requestCtx, cancelRequest := context.WithCancel(context.Background())
+	request := httptest.NewRequest(http.MethodDelete, "http://stacklab.test/api/stacks/"+stackID, bytes.NewReader(body)).WithContext(requestCtx)
+	request.Header.Set("Origin", "http://stacklab.test")
+	request.Header.Set("Content-Type", "application/json")
+	for _, cookie := range cookies {
+		request.AddCookie(cookie)
+	}
+	recorder := &cancelOnWriteHeaderRecorder{ResponseRecorder: httptest.NewRecorder(), cancel: cancelRequest}
+
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("DELETE /api/stacks/%s status = %d, want %d; body=%s", stackID, recorder.Code, http.StatusAccepted, recorder.Body.String())
+	}
+	if !errors.Is(requestCtx.Err(), context.Canceled) {
+		t.Fatalf("request context error = %v, want context.Canceled", requestCtx.Err())
+	}
+	var payload struct {
+		Job struct {
+			ID    string `json:"id"`
+			State string `json:"state"`
+		} `json:"job"`
+	}
+	decodeResponse(t, recorder.ResponseRecorder, &payload)
+	if payload.Job.ID == "" || payload.Job.State != "running" {
+		t.Fatalf("unexpected delete job payload: %#v", payload.Job)
+	}
+
+	waitForTestJobState(t, handler, cookies, payload.Job.ID, "succeeded")
+	assertPathMissing(t, filepath.Join(cfg.RootDir, "stacks", stackID))
+	assertPathMissing(t, filepath.Join(cfg.RootDir, "config", stackID))
+	assertPathMissing(t, filepath.Join(cfg.RootDir, "data", stackID))
+}
+
+type cancelOnWriteHeaderRecorder struct {
+	*httptest.ResponseRecorder
+	cancel context.CancelFunc
+}
+
+func (r *cancelOnWriteHeaderRecorder) WriteHeader(statusCode int) {
+	r.cancel()
+	r.ResponseRecorder.WriteHeader(statusCode)
 }
 
 func TestWebSocketReplaysJobEvents(t *testing.T) {
@@ -918,6 +992,33 @@ func performJSONRequest(t *testing.T, handler http.Handler, method, path string,
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
 	return recorder
+}
+
+func waitForTestJobState(t *testing.T, handler http.Handler, cookies []*http.Cookie, jobID, wantState string) {
+	t.Helper()
+
+	deadline := time.Now().Add(5 * time.Second)
+	lastState := ""
+	for time.Now().Before(deadline) {
+		response := performJSONRequest(t, handler, http.MethodGet, "/api/jobs/"+jobID, nil, cookies)
+		if response.Code == http.StatusOK {
+			var payload struct {
+				Job struct {
+					State string `json:"state"`
+				} `json:"job"`
+			}
+			decodeResponse(t, response, &payload)
+			lastState = payload.Job.State
+			if lastState == wantState {
+				return
+			}
+			if lastState == "failed" || lastState == "cancelled" || lastState == "timed_out" {
+				t.Fatalf("job %q reached %q, want %q", jobID, lastState, wantState)
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("job %q did not reach %q; last state %q", jobID, wantState, lastState)
 }
 
 func decodeResponse(t *testing.T, recorder *httptest.ResponseRecorder, destination any) {

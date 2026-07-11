@@ -336,10 +336,11 @@ func TestIntegrationCreateDeployAndOrphanedLifecycleWithRealDocker(t *testing.T)
 		"remove_config":     false,
 		"remove_data":       false,
 	}, cookies)
-	if removeDefinitionResponse.Code != http.StatusOK {
-		t.Fatalf("DELETE remove_definition-only status = %d, want %d; body=%s", removeDefinitionResponse.Code, http.StatusOK, removeDefinitionResponse.Body.String())
+	if removeDefinitionResponse.Code != http.StatusAccepted {
+		t.Fatalf("DELETE remove_definition-only status = %d, want %d; body=%s", removeDefinitionResponse.Code, http.StatusAccepted, removeDefinitionResponse.Body.String())
 	}
-	assertIntegrationJobSucceeded(t, removeDefinitionResponse, "remove_stack_definition")
+	removeDefinitionJobID := assertIntegrationJobStarted(t, removeDefinitionResponse, "remove_stack_definition")
+	waitForIntegrationJobSucceeded(t, handler, cookies, removeDefinitionJobID)
 
 	orphanedDetail := waitForIntegrationStackRuntimeState(t, handler, cookies, stackID, "orphaned")
 	if orphanedDetail.Stack.Capabilities.CanEditDefinition {
@@ -369,10 +370,11 @@ func TestIntegrationCreateDeployAndOrphanedLifecycleWithRealDocker(t *testing.T)
 		"remove_config":     false,
 		"remove_data":       false,
 	}, cookies)
-	if removeRuntimeResponse.Code != http.StatusOK {
-		t.Fatalf("DELETE remove_runtime-only status = %d, want %d; body=%s", removeRuntimeResponse.Code, http.StatusOK, removeRuntimeResponse.Body.String())
+	if removeRuntimeResponse.Code != http.StatusAccepted {
+		t.Fatalf("DELETE remove_runtime-only status = %d, want %d; body=%s", removeRuntimeResponse.Code, http.StatusAccepted, removeRuntimeResponse.Body.String())
 	}
-	assertIntegrationJobSucceeded(t, removeRuntimeResponse, "remove_stack_definition")
+	removeRuntimeJobID := assertIntegrationJobStarted(t, removeRuntimeResponse, "remove_stack_definition")
+	waitForIntegrationJobSucceeded(t, handler, cookies, removeRuntimeJobID)
 	waitForIntegrationStackAbsent(t, handler, cookies, stackID)
 }
 
@@ -428,7 +430,12 @@ func cleanupIntegrationStack(t *testing.T, handler http.Handler, cookies []*http
 		"remove_config":     true,
 		"remove_data":       true,
 	}, cookies)
-	if response.Code == http.StatusOK || response.Code == http.StatusNotFound {
+	if response.Code == http.StatusAccepted {
+		jobID := assertIntegrationJobStarted(t, response, "remove_stack_definition")
+		waitForIntegrationJobSucceeded(t, handler, cookies, jobID)
+		return
+	}
+	if response.Code == http.StatusNotFound {
 		return
 	}
 
@@ -500,21 +507,6 @@ func assertIntegrationJobStarted(t *testing.T, response *httptest.ResponseRecord
 		t.Fatalf("unexpected job payload: %#v", payload.Job)
 	}
 	return payload.Job.ID
-}
-
-func assertIntegrationJobSucceeded(t *testing.T, response *httptest.ResponseRecorder, wantAction string) {
-	t.Helper()
-
-	var payload struct {
-		Job struct {
-			Action string `json:"action"`
-			State  string `json:"state"`
-		} `json:"job"`
-	}
-	decodeResponse(t, response, &payload)
-	if payload.Job.Action != wantAction || payload.Job.State != "succeeded" {
-		t.Fatalf("unexpected job payload: %#v", payload.Job)
-	}
 }
 
 func waitForIntegrationJobSucceeded(t *testing.T, handler http.Handler, cookies []*http.Cookie, jobID string) {

@@ -1028,7 +1028,7 @@ paths:
             schema:
               $ref: '#/components/schemas/DeleteStackRequest'
       responses:
-        '200':
+        '202':
           description: Stack deletion job accepted.
           content:
             application/json:

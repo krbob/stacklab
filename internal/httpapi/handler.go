@@ -2021,60 +2021,34 @@ func (h *Handler) handleDeleteStack(w http.ResponseWriter, r *http.Request) {
 	workflow := deleteWorkflowSteps(request)
 	if len(workflow) > 0 {
 		workflow = markWorkflowRunning(workflow, 0)
-		job, _ = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
-		_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", "Starting delete workflow step.", "", workflowStepRef(workflow, 0))
-	}
-
-	stepIndex := 0
-	if request.RemoveRuntime {
-		if failed := h.runDeleteStep(r.Context(), &job, &workflow, stepIndex, func(ctx context.Context) error {
-			return h.stackReader.RemoveRuntime(ctx, stackID)
-		}); failed {
-			writeJSON(w, http.StatusOK, map[string]any{"job": job})
+		job, err = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
+		if err != nil {
+			failedJob, finishErr := h.jobs.FinishFailed(r.Context(), job, "remove_stack_prepare_failed", err.Error())
+			if finishErr == nil {
+				job = failedJob
+				_ = h.audit.RecordStackJob(r.Context(), job)
+			}
+			h.logger.Error("prepare delete stack workflow failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to prepare job.", nil)
 			return
 		}
-		stepIndex++
-	}
-	if request.RemoveDefinition {
-		if failed := h.runDeleteStep(r.Context(), &job, &workflow, stepIndex, func(ctx context.Context) error {
-			return h.stackReader.RemoveDefinition(ctx, stackID)
-		}); failed {
-			writeJSON(w, http.StatusOK, map[string]any{"job": job})
-			return
-		}
-		stepIndex++
-	}
-	if request.RemoveConfig {
-		if failed := h.runDeleteStep(r.Context(), &job, &workflow, stepIndex, func(context.Context) error {
-			return h.stackReader.RemoveConfigDir(stackID)
-		}); failed {
-			writeJSON(w, http.StatusOK, map[string]any{"job": job})
-			return
-		}
-		stepIndex++
-	}
-	if request.RemoveData {
-		if failed := h.runDeleteStep(r.Context(), &job, &workflow, stepIndex, func(context.Context) error {
-			return h.stackReader.RemoveDataDir(stackID)
-		}); failed {
-			writeJSON(w, http.StatusOK, map[string]any{"job": job})
-			return
-		}
-		stepIndex++
+		step := workflowStepRef(workflow, 0)
+		_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", "Starting delete workflow step.", "", step)
+		_ = h.jobs.PublishEventWithProgress(r.Context(), job, "job_progress", "Removing selected stack resources.", "", step, &store.JobProgress{
+			Phase:     workflow[0].Action,
+			Completed: 0,
+			Total:     len(workflow),
+			Unit:      "steps",
+			Detail:    "Starting " + workflow[0].Action + ".",
+		})
 	}
 
-	job, err = h.jobs.FinishSucceeded(r.Context(), job)
-	if err != nil {
-		h.logger.Error("finish delete stack job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
-		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to finalize job.", nil)
-		return
-	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"job": job})
 
-	if err := h.audit.RecordStackJob(r.Context(), job); err != nil {
-		h.logger.Warn("record delete stack audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{"job": job})
+	// The destructive workflow is detached from the request and starts only
+	// after the accepted response has been written. A client or proxy disconnect
+	// must not cancel Docker cleanup halfway through or leave the job running.
+	go h.runDeleteStackJob(job, workflow, stackID, request)
 }
 
 func (h *Handler) handlePutDefinition(w http.ResponseWriter, r *http.Request) {
@@ -2894,35 +2868,118 @@ func markWorkflowState(steps []store.JobWorkflowStep, index int, state string) [
 	return steps
 }
 
-func (h *Handler) runDeleteStep(ctx context.Context, job *store.Job, workflow *[]store.JobWorkflowStep, index int, run func(context.Context) error) bool {
-	if err := run(ctx); err != nil {
-		if len(*workflow) > 0 {
-			*workflow = markWorkflowFailed(*workflow, index)
-			updatedJob, updateErr := h.jobs.UpdateWorkflow(ctx, *job, *workflow)
-			if updateErr == nil {
-				*job = updatedJob
-			}
-		}
-		failedJob, finishErr := h.jobs.FinishFailed(ctx, *job, "remove_stack_failed", err.Error())
-		if finishErr == nil {
-			*job = failedJob
-		}
-		_ = h.audit.RecordStackJob(ctx, *job)
-		return true
+func (h *Handler) runDeleteStackJob(job store.Job, workflow []store.JobWorkflowStep, stackID string, request stacks.DeleteStackRequest) {
+	runCtx, cancel := h.stackActionContext()
+	defer cancel()
+	unregisterCancel := h.jobs.RegisterCancel(job.ID, cancel)
+	defer unregisterCancel()
+
+	steps := make([]func(context.Context) error, 0, len(workflow))
+	if request.RemoveRuntime {
+		steps = append(steps, func(ctx context.Context) error {
+			return h.stackReader.RemoveRuntime(ctx, stackID)
+		})
+	}
+	if request.RemoveDefinition {
+		steps = append(steps, func(ctx context.Context) error {
+			return h.stackReader.RemoveDefinition(ctx, stackID)
+		})
+	}
+	if request.RemoveConfig {
+		steps = append(steps, func(context.Context) error {
+			return h.stackReader.RemoveConfigDir(stackID)
+		})
+	}
+	if request.RemoveData {
+		steps = append(steps, func(context.Context) error {
+			return h.stackReader.RemoveDataDir(stackID)
+		})
 	}
 
-	*workflow = markWorkflowSucceeded(*workflow, index)
-	_ = h.jobs.PublishEvent(ctx, *job, "job_step_finished", "Finished delete workflow step.", "", workflowStepRef(*workflow, index))
-	if index+1 < len(*workflow) {
-		*workflow = markWorkflowRunning(*workflow, index+1)
-		_ = h.jobs.PublishEvent(ctx, *job, "job_step_started", "Starting delete workflow step.", "", workflowStepRef(*workflow, index+1))
-	}
-	updatedJob, err := h.jobs.UpdateWorkflow(ctx, *job, *workflow)
-	if err == nil {
-		*job = updatedJob
+	for index, run := range steps {
+		if err := runCtx.Err(); err != nil {
+			h.finishDeleteStackFailure(job, workflow, index, err, err)
+			return
+		}
+		if err := run(runCtx); err != nil {
+			h.finishDeleteStackFailure(job, workflow, index, runCtx.Err(), err)
+			return
+		}
+
+		workflow = markWorkflowSucceeded(workflow, index)
+		if index+1 < len(workflow) {
+			workflow = markWorkflowRunning(workflow, index+1)
+		}
+		if updatedJob, err := h.jobs.UpdateWorkflow(runCtx, job, workflow); err == nil {
+			job = updatedJob
+		} else {
+			h.logger.Warn("update delete stack workflow failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+		}
+		step := workflowStepRef(workflow, index)
+		_ = h.jobs.PublishEvent(runCtx, job, "job_step_finished", "Finished delete workflow step.", "", step)
+		_ = h.jobs.PublishEventWithProgress(runCtx, job, "job_progress", "Removed selected stack resource.", "", step, &store.JobProgress{
+			Phase:     workflow[index].Action,
+			Completed: index + 1,
+			Total:     len(workflow),
+			Unit:      "steps",
+			Detail:    "Finished " + workflow[index].Action + ".",
+		})
+		if index+1 < len(workflow) {
+			nextStep := workflowStepRef(workflow, index+1)
+			_ = h.jobs.PublishEvent(runCtx, job, "job_step_started", "Starting delete workflow step.", "", nextStep)
+		}
 	}
 
-	return false
+	ctx, finishCancel := h.jobFinalizationContext()
+	defer finishCancel()
+	finishedJob, err := h.jobs.FinishSucceeded(ctx, job)
+	if err != nil {
+		h.logger.Error("finish delete stack job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+		return
+	}
+	if err := h.audit.RecordStackJob(ctx, finishedJob); err != nil {
+		h.logger.Warn("record delete stack audit failed", slog.String("job_id", finishedJob.ID), slog.String("err", err.Error()))
+	}
+}
+
+func (h *Handler) finishDeleteStackFailure(job store.Job, workflow []store.JobWorkflowStep, index int, runContextErr, runErr error) {
+	ctx, cancel := h.jobFinalizationContext()
+	defer cancel()
+
+	terminalState := "failed"
+	errorCode := "remove_stack_failed"
+	errorMessage := runErr.Error()
+	stepMessage := "Delete workflow step failed."
+	if errors.Is(runContextErr, context.DeadlineExceeded) || errors.Is(runErr, context.DeadlineExceeded) {
+		terminalState = "timed_out"
+		errorCode = "remove_stack_timed_out"
+		errorMessage = "Stack removal timed out."
+		stepMessage = "Delete workflow step timed out."
+	} else if errors.Is(runContextErr, context.Canceled) || errors.Is(runErr, context.Canceled) {
+		terminalState = "cancelled"
+		errorCode = "remove_stack_cancelled"
+		errorMessage = "Stack removal was cancelled."
+		stepMessage = "Delete workflow step was cancelled."
+	}
+
+	workflow = markWorkflowState(workflow, index, terminalState)
+	if updatedJob, err := h.jobs.UpdateWorkflow(ctx, job, workflow); err == nil {
+		job = updatedJob
+	} else {
+		h.logger.Warn("update failed delete stack workflow failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+	}
+	eventJob := job
+	eventJob.State = terminalState
+	_ = h.jobs.PublishEvent(ctx, eventJob, "job_step_finished", stepMessage, "", workflowStepRef(workflow, index))
+
+	finishedJob, err := h.finishTerminalJob(ctx, job, terminalState, errorCode, errorMessage)
+	if err != nil {
+		h.logger.Error("finish delete stack job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+		return
+	}
+	if err := h.audit.RecordStackJob(ctx, finishedJob); err != nil {
+		h.logger.Warn("record delete stack audit failed", slog.String("job_id", finishedJob.ID), slog.String("err", err.Error()))
+	}
 }
 
 func workflowStepRef(steps []store.JobWorkflowStep, index int) *store.JobEventStep {
