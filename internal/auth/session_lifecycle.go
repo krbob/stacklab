@@ -31,6 +31,14 @@ type trackedSession struct {
 	subscribers      map[uint64]chan SessionTermination
 }
 
+type sessionActivityTouch struct {
+	activityAt         time.Time
+	expiresAt          time.Time
+	expectedLastSeenAt time.Time
+	shouldPersist      bool
+	active             bool
+}
+
 // sessionLifecycleHub is the in-memory lease and revocation fan-out for active
 // transports. SQLite remains authoritative at authentication boundaries; the
 // hub lets an established WebSocket react immediately without querying SQLite
@@ -49,15 +57,11 @@ type sessionLifecycleHub struct {
 }
 
 func newSessionLifecycleHub(now func() time.Time, idleTimeout, absoluteLifetime time.Duration, onExpired func(string, SessionTerminationReason)) *sessionLifecycleHub {
-	persistInterval := idleTimeout / 2
-	if persistInterval <= 0 || persistInterval > time.Minute {
-		persistInterval = time.Minute
-	}
 	return &sessionLifecycleHub{
 		now:              now,
 		idleTimeout:      idleTimeout,
 		absoluteLifetime: absoluteLifetime,
-		persistInterval:  persistInterval,
+		persistInterval:  sessionTouchInterval(idleTimeout),
 		onExpired:        onExpired,
 		sessions:         make(map[string]*trackedSession),
 	}
@@ -74,6 +78,10 @@ func (h *sessionLifecycleHub) Subscribe(session Session) (<-chan SessionTerminat
 	now := h.now().UTC()
 	absoluteDeadline := session.CreatedAt.Add(h.absoluteLifetime)
 	idleDeadline := minTime(session.ExpiresAt, absoluteDeadline)
+	lastPersistedAt := session.LastSeenAt
+	if lastPersistedAt.IsZero() {
+		lastPersistedAt = now
+	}
 	if !idleDeadline.After(now) {
 		reason := SessionTerminationIdleExpired
 		if !absoluteDeadline.After(now) {
@@ -91,12 +99,17 @@ func (h *sessionLifecycleHub) Subscribe(session Session) (<-chan SessionTerminat
 		tracked = &trackedSession{
 			idleDeadline:     idleDeadline,
 			absoluteDeadline: absoluteDeadline,
-			lastPersistedAt:  now,
+			lastPersistedAt:  lastPersistedAt,
 			subscribers:      make(map[uint64]chan SessionTermination),
 		}
 		h.sessions[session.ID] = tracked
-	} else if idleDeadline.After(tracked.idleDeadline) {
-		tracked.idleDeadline = idleDeadline
+	} else {
+		if idleDeadline.After(tracked.idleDeadline) {
+			tracked.idleDeadline = idleDeadline
+		}
+		if lastPersistedAt.After(tracked.lastPersistedAt) {
+			tracked.lastPersistedAt = lastPersistedAt
+		}
 	}
 
 	h.nextSubscriberID++
@@ -114,38 +127,41 @@ func (h *sessionLifecycleHub) Subscribe(session Session) (<-chan SessionTerminat
 	}
 }
 
-// Touch extends the in-memory idle lease. The boolean return values indicate
-// whether the session is active and whether the caller should persist the new
-// deadline. Persistence is throttled independently of WebSocket frame volume.
-func (h *sessionLifecycleHub) Touch(sessionID string) (time.Time, bool, bool) {
+// Touch extends the in-memory idle lease and reserves no persistence state.
+// The caller marks a successful write with TouchPersisted; a failed write is
+// therefore immediately retryable by another active transport.
+func (h *sessionLifecycleHub) Touch(sessionID string) sessionActivityTouch {
 	h.mu.Lock()
 	tracked := h.sessions[sessionID]
 	if tracked == nil || h.closing {
 		h.mu.Unlock()
-		return time.Time{}, false, false
+		return sessionActivityTouch{}
 	}
 	now := h.now().UTC()
 	if reason, expired := tracked.expirationReason(now); expired {
 		h.terminateLocked(sessionID, reason)
 		h.mu.Unlock()
 		h.expirePersistentSession(sessionID, reason)
-		return time.Time{}, false, false
+		return sessionActivityTouch{}
 	}
 
 	tracked.idleDeadline = minTime(now.Add(h.idleTimeout), tracked.absoluteDeadline)
 	shouldPersist := now.Sub(tracked.lastPersistedAt) >= h.persistInterval
-	if shouldPersist {
-		tracked.lastPersistedAt = now
-	}
 	h.scheduleLocked(sessionID, tracked, now)
-	expiresAt := tracked.idleDeadline
+	touch := sessionActivityTouch{
+		activityAt:         now,
+		expiresAt:          tracked.idleDeadline,
+		expectedLastSeenAt: tracked.lastPersistedAt,
+		shouldPersist:      shouldPersist,
+		active:             true,
+	}
 	h.mu.Unlock()
-	return expiresAt, shouldPersist, true
+	return touch
 }
 
-// TouchPersisted updates a tracked transport after a REST authentication has
-// already written the new session deadline to SQLite.
-func (h *sessionLifecycleHub) TouchPersisted(sessionID string, expiresAt time.Time) {
+// TouchLease applies authenticated REST activity to an established transport
+// without claiming that the throttled SQLite write happened.
+func (h *sessionLifecycleHub) TouchLease(sessionID string, expiresAt time.Time) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -154,9 +170,40 @@ func (h *sessionLifecycleHub) TouchPersisted(sessionID string, expiresAt time.Ti
 		return
 	}
 	now := h.now().UTC()
-	tracked.idleDeadline = minTime(expiresAt, tracked.absoluteDeadline)
-	tracked.lastPersistedAt = now
+	deadline := minTime(expiresAt, tracked.absoluteDeadline)
+	if deadline.After(tracked.idleDeadline) {
+		tracked.idleDeadline = deadline
+	}
 	h.scheduleLocked(sessionID, tracked, now)
+}
+
+// TouchPersisted commits a successful SQLite lease write to the in-memory
+// throttle state and keeps active transports on the same deadline.
+func (h *sessionLifecycleHub) TouchPersisted(sessionID string, lastSeenAt, expiresAt time.Time) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	tracked := h.sessions[sessionID]
+	if tracked == nil || h.closing {
+		return
+	}
+	now := h.now().UTC()
+	deadline := minTime(expiresAt, tracked.absoluteDeadline)
+	if deadline.After(tracked.idleDeadline) {
+		tracked.idleDeadline = deadline
+	}
+	if lastSeenAt.After(tracked.lastPersistedAt) {
+		tracked.lastPersistedAt = lastSeenAt
+	}
+	h.scheduleLocked(sessionID, tracked, now)
+}
+
+func sessionTouchInterval(idleTimeout time.Duration) time.Duration {
+	interval := idleTimeout / 2
+	if interval <= 0 || interval > time.Minute {
+		return time.Minute
+	}
+	return interval
 }
 
 func (h *sessionLifecycleHub) Terminate(sessionID string, reason SessionTerminationReason) {

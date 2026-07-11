@@ -70,9 +70,20 @@ type parsedPasswordHash struct {
 	hash       []byte
 }
 
+type serviceStore interface {
+	PasswordHash(context.Context) (string, bool, error)
+	SetPasswordHash(context.Context, string, time.Time) error
+	PasswordCredentials(context.Context) (store.PasswordCredentials, bool, error)
+	CreateSessionAtPasswordVersion(context.Context, store.Session, int) error
+	RevokeSession(context.Context, string, time.Time) error
+	UpdatePasswordAndRevokeSessions(context.Context, int, string, time.Time) error
+	SessionAtCurrentPasswordVersion(context.Context, string) (store.Session, error)
+	TouchSession(context.Context, string, time.Time, time.Time, time.Time) error
+}
+
 type Service struct {
 	cfg                    config.Config
-	store                  *store.Store
+	store                  serviceStore
 	now                    func() time.Time
 	newSessionID           func() (string, error)
 	passwordVerifier       func(string, string) error
@@ -95,10 +106,11 @@ type loginAttemptState struct {
 }
 
 type Session struct {
-	ID        string
-	UserID    string
-	CreatedAt time.Time
-	ExpiresAt time.Time
+	ID         string
+	UserID     string
+	CreatedAt  time.Time
+	LastSeenAt time.Time
+	ExpiresAt  time.Time
 }
 
 func NewService(cfg config.Config, authStore *store.Store) *Service {
@@ -176,10 +188,11 @@ func (s *Service) Login(ctx context.Context, password, userAgent, ipAddress stri
 	}
 
 	session := Session{
-		ID:        sessionID,
-		UserID:    localUserID,
-		CreatedAt: now,
-		ExpiresAt: expiresAt,
+		ID:         sessionID,
+		UserID:     localUserID,
+		CreatedAt:  now,
+		LastSeenAt: now,
+		ExpiresAt:  expiresAt,
 	}
 
 	if err := s.store.CreateSessionAtPasswordVersion(ctx, store.Session{
@@ -363,22 +376,45 @@ func (s *Service) AuthenticateWebSocket(ctx context.Context, r *http.Request) (S
 }
 
 // TouchSessionActivity extends an active WebSocket's idle lease in memory and
-// only persists it at a bounded interval. It performs no SQLite read.
+// only persists it at a bounded interval. The normal path performs no SQLite
+// read; a compare-and-swap conflict is re-read so concurrent activity is not
+// mistaken for revocation.
 func (s *Service) TouchSessionActivity(ctx context.Context, sessionID string) error {
-	expiresAt, shouldPersist, active := s.sessionLifecycle.Touch(sessionID)
-	if !active {
+	touch := s.sessionLifecycle.Touch(sessionID)
+	if !touch.active {
 		return ErrUnauthorized
 	}
-	if !shouldPersist {
+	if !touch.shouldPersist {
 		return nil
 	}
-	if err := s.store.TouchSession(ctx, sessionID, s.now().UTC(), expiresAt); err != nil {
+
+	s.sessionTransitionMu.Lock()
+	defer s.sessionTransitionMu.Unlock()
+
+	if err := s.store.TouchSession(ctx, sessionID, touch.expectedLastSeenAt, touch.activityAt, touch.expiresAt); err != nil {
+		if errors.Is(err, store.ErrSessionChanged) {
+			record, loadErr := s.store.SessionAtCurrentPasswordVersion(ctx, sessionID)
+			if loadErr != nil {
+				if errors.Is(loadErr, store.ErrNotFound) {
+					s.terminateSession(sessionID, SessionTerminationRevoked)
+					return ErrUnauthorized
+				}
+				return loadErr
+			}
+			if reason, invalid := s.invalidSessionReason(record, s.now().UTC()); invalid {
+				s.terminateSession(sessionID, reason)
+				return ErrUnauthorized
+			}
+			s.sessionLifecycle.TouchPersisted(sessionID, record.LastSeenAt, record.ExpiresAt)
+			return nil
+		}
 		if errors.Is(err, store.ErrNotFound) {
 			s.terminateSession(sessionID, SessionTerminationRevoked)
 			return ErrUnauthorized
 		}
 		return err
 	}
+	s.sessionLifecycle.TouchPersisted(sessionID, touch.activityAt, touch.expiresAt)
 	return nil
 }
 
@@ -394,45 +430,66 @@ func (s *Service) authenticateRequest(ctx context.Context, r *http.Request) (Ses
 		return Session{}, ErrUnauthorized
 	}
 
-	record, err := s.store.SessionAtCurrentPasswordVersion(ctx, cookie.Value)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			s.terminateSession(cookie.Value, SessionTerminationRevoked)
+	for attempt := 0; attempt < 2; attempt++ {
+		record, err := s.store.SessionAtCurrentPasswordVersion(ctx, cookie.Value)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				s.terminateSession(cookie.Value, SessionTerminationRevoked)
+				return Session{}, ErrUnauthorized
+			}
+			return Session{}, err
+		}
+
+		now := s.now().UTC()
+		if reason, invalid := s.invalidSessionReason(record, now); invalid {
+			_ = s.store.RevokeSession(ctx, record.ID, now)
+			s.terminateSession(record.ID, reason)
 			return Session{}, ErrUnauthorized
 		}
-		return Session{}, err
-	}
 
-	now := s.now().UTC()
-	if record.RevokedAt != nil || !now.Before(record.ExpiresAt) || !now.Before(record.CreatedAt.Add(s.cfg.SessionAbsoluteLifetime)) {
-		_ = s.store.RevokeSession(ctx, record.ID, now)
-		reason := SessionTerminationRevoked
-		switch {
-		case !now.Before(record.CreatedAt.Add(s.cfg.SessionAbsoluteLifetime)):
-			reason = SessionTerminationAbsoluteExpired
-		case !now.Before(record.ExpiresAt):
-			reason = SessionTerminationIdleExpired
+		nextExpiresAt := minTime(now.Add(s.cfg.SessionIdleTimeout), record.CreatedAt.Add(s.cfg.SessionAbsoluteLifetime))
+		lastSeenAt := record.LastSeenAt
+		persisted := false
+		if now.Sub(record.LastSeenAt) >= sessionTouchInterval(s.cfg.SessionIdleTimeout) {
+			if err := s.store.TouchSession(ctx, record.ID, record.LastSeenAt, now, nextExpiresAt); err != nil {
+				if errors.Is(err, store.ErrSessionChanged) {
+					continue
+				}
+				return Session{}, err
+			}
+			lastSeenAt = now
+			persisted = true
 		}
-		s.terminateSession(record.ID, reason)
-		return Session{}, ErrUnauthorized
-	}
 
-	nextExpiresAt := minTime(now.Add(s.cfg.SessionIdleTimeout), record.CreatedAt.Add(s.cfg.SessionAbsoluteLifetime))
-	if err := s.store.TouchSession(ctx, record.ID, now, nextExpiresAt); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			s.terminateSession(record.ID, SessionTerminationRevoked)
-			return Session{}, ErrUnauthorized
+		if persisted {
+			s.sessionLifecycle.TouchPersisted(record.ID, lastSeenAt, nextExpiresAt)
+		} else {
+			s.sessionLifecycle.TouchLease(record.ID, nextExpiresAt)
 		}
-		return Session{}, err
-	}
-	s.sessionLifecycle.TouchPersisted(record.ID, nextExpiresAt)
 
-	return Session{
-		ID:        record.ID,
-		UserID:    record.UserID,
-		CreatedAt: record.CreatedAt,
-		ExpiresAt: nextExpiresAt,
-	}, nil
+		return Session{
+			ID:         record.ID,
+			UserID:     record.UserID,
+			CreatedAt:  record.CreatedAt,
+			LastSeenAt: lastSeenAt,
+			ExpiresAt:  nextExpiresAt,
+		}, nil
+	}
+
+	return Session{}, fmt.Errorf("authenticate session after concurrent touches: %w", store.ErrSessionChanged)
+}
+
+func (s *Service) invalidSessionReason(record store.Session, now time.Time) (SessionTerminationReason, bool) {
+	if record.RevokedAt != nil {
+		return SessionTerminationRevoked, true
+	}
+	if !now.Before(record.CreatedAt.Add(s.cfg.SessionAbsoluteLifetime)) {
+		return SessionTerminationAbsoluteExpired, true
+	}
+	if !now.Before(record.ExpiresAt) {
+		return SessionTerminationIdleExpired, true
+	}
+	return "", false
 }
 
 func (s *Service) expireSession(sessionID string, reason SessionTerminationReason) {
@@ -481,7 +538,14 @@ func (s *Service) notifySessionTermination(termination SessionTermination) {
 	}
 }
 
+// SessionCookie remains available until the immutable absolute deadline. The
+// shorter sliding idle deadline is authoritative in SQLite and the lifecycle
+// hub; using it as the browser expiry would strand an otherwise active session.
 func (s *Service) SessionCookie(session Session) *http.Cookie {
+	expiresAt := session.ExpiresAt
+	if !session.CreatedAt.IsZero() && s.cfg.SessionAbsoluteLifetime > 0 {
+		expiresAt = session.CreatedAt.Add(s.cfg.SessionAbsoluteLifetime)
+	}
 	return &http.Cookie{
 		Name:     s.cfg.SessionCookieName,
 		Value:    session.ID,
@@ -489,7 +553,7 @@ func (s *Service) SessionCookie(session Session) *http.Cookie {
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
 		Secure:   s.cfg.CookieSecure,
-		Expires:  session.ExpiresAt,
+		Expires:  expiresAt,
 	}
 }
 

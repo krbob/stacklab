@@ -316,10 +316,10 @@ func (h *Handler) registerRoutes() {
 func (h *Handler) handleSession(w http.ResponseWriter, r *http.Request) {
 	session, err := h.auth.AuthenticateRequest(r.Context(), r)
 	if err != nil {
-		http.SetCookie(w, h.auth.ClearSessionCookie())
-		writeError(w, http.StatusUnauthorized, "unauthorized", "Authentication required.", nil)
+		h.writeSessionAuthenticationError(w, err)
 		return
 	}
+	http.SetCookie(w, h.auth.SessionCookie(session))
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"authenticated": true,
@@ -386,8 +386,13 @@ func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.auth.Logout(r.Context(), cookie.Value); err != nil {
-		http.SetCookie(w, h.auth.ClearSessionCookie())
-		writeError(w, http.StatusUnauthorized, "unauthorized", "Authentication required.", nil)
+		if errors.Is(err, auth.ErrUnauthorized) {
+			http.SetCookie(w, h.auth.ClearSessionCookie())
+			writeError(w, http.StatusUnauthorized, "unauthorized", "Authentication required.", nil)
+			return
+		}
+		h.logger.Error("logout session failed", slog.String("err", err.Error()))
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to end session.", nil)
 		return
 	}
 
@@ -2736,14 +2741,25 @@ func writeError(w http.ResponseWriter, status int, code, message string, details
 
 func (h *Handler) withAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if _, err := h.auth.AuthenticateRequest(r.Context(), r); err != nil {
-			http.SetCookie(w, h.auth.ClearSessionCookie())
-			writeError(w, http.StatusUnauthorized, "unauthorized", "Authentication required.", nil)
+		session, err := h.auth.AuthenticateRequest(r.Context(), r)
+		if err != nil {
+			h.writeSessionAuthenticationError(w, err)
 			return
 		}
+		http.SetCookie(w, h.auth.SessionCookie(session))
 
 		next(w, r)
 	}
+}
+
+func (h *Handler) writeSessionAuthenticationError(w http.ResponseWriter, err error) {
+	if errors.Is(err, auth.ErrUnauthorized) {
+		http.SetCookie(w, h.auth.ClearSessionCookie())
+		writeError(w, http.StatusUnauthorized, "unauthorized", "Authentication required.", nil)
+		return
+	}
+	h.logger.Error("validate session failed", slog.String("err", err.Error()))
+	writeError(w, http.StatusInternalServerError, "internal_error", "Failed to validate session.", nil)
 }
 
 func (h *Handler) decorateStackListWithAudit(ctx context.Context, response *stacks.StackListResponse, sortBy string) error {

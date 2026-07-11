@@ -48,21 +48,22 @@ func TestSessionLifecycleHubThrottlesPersistenceAndEnforcesAbsoluteExpiry(t *tes
 	defer unsubscribe()
 
 	now = now.Add(30 * time.Second)
-	expiresAt, persist, active := hub.Touch("session-1")
-	if !active || persist {
-		t.Fatalf("first touch = expires %s, persist %t, active %t; want active without persistence", expiresAt, persist, active)
+	touch := hub.Touch("session-1")
+	if !touch.active || touch.shouldPersist {
+		t.Fatalf("first touch = expires %s, persist %t, active %t; want active without persistence", touch.expiresAt, touch.shouldPersist, touch.active)
 	}
 	now = now.Add(30 * time.Second)
-	_, persist, active = hub.Touch("session-1")
-	if !active || !persist {
-		t.Fatalf("throttled touch persist = %t, active = %t; want true, true", persist, active)
+	touch = hub.Touch("session-1")
+	if !touch.active || !touch.shouldPersist {
+		t.Fatalf("throttled touch persist = %t, active = %t; want true, true", touch.shouldPersist, touch.active)
 	}
+	hub.TouchPersisted("session-1", touch.activityAt, touch.expiresAt)
 
 	// Activity cannot move the lease beyond its original absolute lifetime.
 	now = time.Date(2026, 7, 11, 12, 29, 0, 0, time.UTC)
-	expiresAt, _, active = hub.Touch("session-1")
-	if !active || !expiresAt.Equal(time.Date(2026, 7, 11, 12, 30, 0, 0, time.UTC)) {
-		t.Fatalf("touch near absolute deadline = %s, active %t", expiresAt, active)
+	touch = hub.Touch("session-1")
+	if !touch.active || !touch.expiresAt.Equal(time.Date(2026, 7, 11, 12, 30, 0, 0, time.UTC)) {
+		t.Fatalf("touch near absolute deadline = %s, active %t", touch.expiresAt, touch.active)
 	}
 	now = now.Add(time.Minute)
 	hub.expire("session-1")
@@ -136,7 +137,7 @@ func TestSessionLifecycleHubShutdownWaitsForActiveExpiration(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Shutdown() did not finish after expiration callback")
 	}
-	if _, _, active := hub.Touch("session-1"); active {
+	if hub.Touch("session-1").active {
 		t.Fatal("Touch() kept a session active after shutdown")
 	}
 }

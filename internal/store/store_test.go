@@ -554,6 +554,51 @@ func TestUpdatePasswordAndRevokeSessionsIsVersionedAndAtomic(t *testing.T) {
 	}
 }
 
+func TestTouchSessionAtomicallyAdvancesCurrentLease(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	testStore := openStoreForTest(t)
+	createdAt := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)
+	if err := testStore.SetPasswordHash(ctx, "hash", createdAt); err != nil {
+		t.Fatalf("SetPasswordHash() error = %v", err)
+	}
+	session := Session{
+		ID:              "sliding-session",
+		UserID:          "local",
+		CreatedAt:       createdAt,
+		LastSeenAt:      createdAt,
+		ExpiresAt:       createdAt.Add(10 * time.Minute),
+		PasswordVersion: 1,
+	}
+	if err := testStore.CreateSessionAtPasswordVersion(ctx, session, 1); err != nil {
+		t.Fatalf("CreateSessionAtPasswordVersion() error = %v", err)
+	}
+
+	lastSeenAt := createdAt.Add(time.Minute)
+	expiresAt := lastSeenAt.Add(10 * time.Minute)
+	if err := testStore.TouchSession(ctx, session.ID, session.LastSeenAt, lastSeenAt, expiresAt); err != nil {
+		t.Fatalf("TouchSession() error = %v", err)
+	}
+	record, err := testStore.SessionByID(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("SessionByID() error = %v", err)
+	}
+	if !record.LastSeenAt.Equal(lastSeenAt) || !record.ExpiresAt.Equal(expiresAt) {
+		t.Fatalf("touched lease = last seen %s, expires %s", record.LastSeenAt, record.ExpiresAt)
+	}
+
+	if err := testStore.TouchSession(ctx, session.ID, session.LastSeenAt, lastSeenAt.Add(time.Minute), expiresAt.Add(time.Minute)); !errors.Is(err, ErrSessionChanged) {
+		t.Fatalf("TouchSession(stale snapshot) error = %v, want ErrSessionChanged", err)
+	}
+	if _, err := testStore.db.ExecContext(ctx, `UPDATE auth_password SET password_version = 2 WHERE id = 1`); err != nil {
+		t.Fatalf("advance password version error = %v", err)
+	}
+	if err := testStore.TouchSession(ctx, session.ID, lastSeenAt, lastSeenAt.Add(time.Minute), expiresAt.Add(time.Minute)); !errors.Is(err, ErrSessionChanged) {
+		t.Fatalf("TouchSession(stale password version) error = %v, want ErrSessionChanged", err)
+	}
+}
+
 func TestOpenMigratesSessionPasswordVersion(t *testing.T) {
 	t.Parallel()
 

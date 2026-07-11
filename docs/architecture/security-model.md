@@ -111,6 +111,26 @@ Recommended v1 session limits:
 - app session idle timeout: `12h`
 - app session absolute lifetime: `7d`
 
+SQLite is authoritative for the sliding idle lease. Authenticated activity
+computes a new idle deadline capped by the immutable absolute deadline, but
+persists `last_seen_at` and `expires_at` at a bounded interval: half the idle
+timeout, capped at one minute. The update atomically checks the previous
+`last_seen_at`, the current password generation, and non-revoked state. A
+concurrent touch is re-read rather than misclassified as revocation.
+
+The browser cookie expires at the absolute deadline, not at the last persisted
+idle deadline. Successful REST authentication and the WebSocket upgrade both
+refresh `Set-Cookie`. This prevents a still-active session or long-lived socket
+from losing its browser credential because of an older cookie expiry; an idle
+cookie that remains present is harmless because every request is still checked
+against SQLite.
+
+Storage failures are not authentication failures. A missing, revoked, expired,
+or old-password-generation session produces `401` and clears the cookie. A
+SQLite read or touch failure produces `500`, preserves the cookie, and allows a
+later request to retry. A failed throttled WebSocket persistence does not move
+the in-memory `lastPersistedAt` marker.
+
 Each session records the password generation that authenticated it. A password
 change increments that generation and revokes all existing sessions in the same
 SQLite transaction. The browser's current cookie is cleared and the operator is
@@ -157,6 +177,9 @@ Rules:
   immediately and terminate PTYs owned by that session
 - WebSocket activity extends the in-memory idle lease; SQLite writes are
   throttled, so frame handling does not query or update the database per frame
+- a successful WebSocket upgrade refreshes the same absolute-deadline cookie as
+  REST; an authentication storage failure before upgrade returns `500`, while a
+  persistence failure after upgrade closes the socket with `1011`
 
 ## TLS And Reverse Proxying
 

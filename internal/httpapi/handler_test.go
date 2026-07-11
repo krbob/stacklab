@@ -107,7 +107,11 @@ func TestHandlerLoginSessionAndPasswordUpdate(t *testing.T) {
 		t.Fatalf("POST /api/settings/password status = %d, want %d", passwordResponse.Code, http.StatusOK)
 	}
 	passwordCookies := passwordResponse.Result().Cookies()
-	if len(passwordCookies) == 0 || passwordCookies[0].MaxAge != -1 {
+	cleared := false
+	for _, cookie := range passwordCookies {
+		cleared = cleared || cookie.MaxAge == -1
+	}
+	if !cleared {
 		t.Fatalf("password update did not clear the session cookie: %#v", passwordCookies)
 	}
 	staleSessionResponse := performJSONRequest(t, handler, http.MethodGet, "/api/session", nil, cookies)
@@ -127,6 +131,85 @@ func TestHandlerLoginSessionAndPasswordUpdate(t *testing.T) {
 	}, nil)
 	if newLoginResponse.Code != http.StatusOK {
 		t.Fatalf("POST /api/auth/login(new password) status = %d, want %d", newLoginResponse.Code, http.StatusOK)
+	}
+}
+
+func TestAuthenticatedResponsesRefreshAbsoluteCookieAcrossRESTAndWebSocket(t *testing.T) {
+	handler, cfg := newTestHandler(t)
+	cookies := loginTestUser(t, handler, "test-password")
+	loginCookie := findTestCookie(t, cookies, cfg.SessionCookieName)
+	remaining := time.Until(loginCookie.Expires)
+	if remaining < cfg.SessionAbsoluteLifetime-time.Minute || remaining > cfg.SessionAbsoluteLifetime+time.Minute {
+		t.Fatalf("login cookie lifetime = %s, want approximately %s", remaining, cfg.SessionAbsoluteLifetime)
+	}
+
+	for _, path := range []string{"/api/session", "/api/meta"} {
+		response := performJSONRequest(t, handler, http.MethodGet, path, nil, cookies)
+		if response.Code != http.StatusOK {
+			t.Fatalf("GET %s status = %d, want %d", path, response.Code, http.StatusOK)
+		}
+		refreshed := findTestCookie(t, response.Result().Cookies(), cfg.SessionCookieName)
+		if refreshed.Value != loginCookie.Value || !refreshed.Expires.Equal(loginCookie.Expires) {
+			t.Fatalf("GET %s refreshed cookie = %#v, want session value and absolute expiry %#v", path, refreshed, loginCookie)
+		}
+	}
+
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	wsURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("url.Parse(server.URL) error = %v", err)
+	}
+	wsURL.Scheme = strings.Replace(wsURL.Scheme, "http", "ws", 1)
+	wsURL.Path = "/api/ws"
+	header := http.Header{"Origin": []string{server.URL}}
+	for _, cookie := range cookies {
+		header.Add("Cookie", cookie.Name+"="+cookie.Value)
+	}
+	wsConn, wsResponse, err := websocket.DefaultDialer.Dial(wsURL.String(), header)
+	if err != nil {
+		if wsResponse != nil {
+			_ = wsResponse.Body.Close()
+		}
+		t.Fatalf("websocket.Dial() error = %v", err)
+	}
+	defer wsConn.Close()
+	refreshed := findTestCookie(t, wsResponse.Cookies(), cfg.SessionCookieName)
+	if refreshed.Value != loginCookie.Value || !refreshed.Expires.Equal(loginCookie.Expires) {
+		t.Fatalf("websocket refreshed cookie = %#v, want session value and absolute expiry %#v", refreshed, loginCookie)
+	}
+}
+
+func TestSessionDatabaseFailuresReturn500WithoutClearingCookie(t *testing.T) {
+	handler, cfg := newTestHandler(t)
+	cookies := loginTestUser(t, handler, "test-password")
+
+	for _, path := range []string{"/api/session", "/api/meta", "/api/auth/logout", "/api/ws"} {
+		t.Run(path, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "http://stacklab.test"+path, nil)
+			if path == "/api/auth/logout" {
+				request.Method = http.MethodPost
+			}
+			request.Header.Set("Origin", "http://stacklab.test")
+			for _, cookie := range cookies {
+				request.AddCookie(cookie)
+			}
+			ctx, cancel := context.WithCancel(request.Context())
+			cancel()
+			request = request.WithContext(ctx)
+			response := httptest.NewRecorder()
+
+			handler.ServeHTTP(response, request)
+
+			if response.Code != http.StatusInternalServerError {
+				t.Fatalf("%s status = %d, want %d", path, response.Code, http.StatusInternalServerError)
+			}
+			for _, cookie := range response.Result().Cookies() {
+				if cookie.Name == cfg.SessionCookieName && cookie.MaxAge < 0 {
+					t.Fatalf("%s cleared cookie on database failure: %#v", path, cookie)
+				}
+			}
+		})
 	}
 }
 
@@ -1232,6 +1315,17 @@ func loginTestUser(t *testing.T, handler http.Handler, password string) []*http.
 	}
 
 	return response.Result().Cookies()
+}
+
+func findTestCookie(t *testing.T, cookies []*http.Cookie, name string) *http.Cookie {
+	t.Helper()
+	for _, cookie := range cookies {
+		if cookie.Name == name && cookie.MaxAge >= 0 {
+			return cookie
+		}
+	}
+	t.Fatalf("cookie %q not found in %#v", name, cookies)
+	return nil
 }
 
 func performJSONRequest(t *testing.T, handler http.Handler, method, path string, body any, cookies []*http.Cookie) *httptest.ResponseRecorder {

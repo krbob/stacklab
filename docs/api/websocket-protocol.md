@@ -704,8 +704,15 @@ Rules:
 
 - an established connection remains bound to the application session used for
   the upgrade
+- a successful upgrade refreshes the HTTP-only session cookie to the immutable
+  application-session absolute deadline
+- non-`pong` client activity extends the in-memory idle lease; SQLite
+  persistence uses the same bounded throttle as REST and a failed write remains
+  immediately retryable
 - logout, password change, server-side revocation, idle expiry, or absolute
   expiry closes the connection with close code `1008`
+- a SQLite validation failure before upgrade returns HTTP `500` without
+  clearing the cookie; a persistence failure after upgrade closes with `1011`
 - PTY sessions owned by the revoked application session are terminated; they
   must not survive in the detach/reconnect grace period
 - after an authentication close, the client checks `GET /api/session` and

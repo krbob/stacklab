@@ -77,12 +77,17 @@ paths:
       responses:
         '200':
           description: Current session status.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/RefreshedSessionCookie'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/SessionResponse'
         '401':
           $ref: '#/components/responses/ErrorUnauthorized'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
   /meta:
     get:
       tags: [Meta]
@@ -978,12 +983,17 @@ paths:
       responses:
         '200':
           description: Login succeeded.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/RefreshedSessionCookie'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/LoginResponse'
         '401':
           $ref: '#/components/responses/ErrorUnauthorized'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
   /auth/logout:
     post:
       tags: [Auth]
@@ -997,6 +1007,8 @@ paths:
                 $ref: '#/components/schemas/LogoutResponse'
         '401':
           $ref: '#/components/responses/ErrorUnauthorized'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
   /stacks:
     get:
       tags: [Stacks]
@@ -1464,6 +1476,16 @@ components:
       type: apiKey
       in: cookie
       name: stacklab_session
+      description: Opaque HTTP-only session cookie. Successful authenticated responses refresh it to the immutable absolute session deadline; the server-side idle lease remains authoritative.
+  headers:
+    RefreshedSessionCookie:
+      description: Refreshed Stacklab session cookie with an expiry capped by the absolute session lifetime.
+      schema:
+        type: string
+    RequestID:
+      description: Correlates the response, structured request log, and any job started by the request.
+      schema:
+        type: string
   parameters:
     RequestID:
       in: header
@@ -1509,14 +1531,18 @@ components:
       schema:
         type: string
         enum: [validate, up, down, stop, restart, pull, build, recreate]
-  headers:
-    RequestID:
-      description: Correlates the response, structured request log, and any job started by the request.
-      schema:
-        type: string
   responses:
     ErrorUnauthorized:
       description: Authentication required or invalid session.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ErrorInternal:
+      description: Internal or session-storage failure. Authentication storage failures do not clear the existing cookie.
       headers:
         X-Request-ID:
           $ref: '#/components/headers/RequestID'

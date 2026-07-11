@@ -18,6 +18,7 @@ import (
 var (
 	ErrNotFound               = errors.New("not found")
 	ErrPasswordVersionChanged = errors.New("password version changed")
+	ErrSessionChanged         = errors.New("session changed")
 )
 
 const (
@@ -534,15 +535,23 @@ func (s *Store) SessionAtCurrentPasswordVersion(ctx context.Context, id string) 
 	return session, nil
 }
 
-func (s *Store) TouchSession(ctx context.Context, id string, lastSeenAt, expiresAt time.Time) error {
+// TouchSession atomically advances both timestamps only when the caller's
+// authenticated snapshot is still current. A concurrent touch returns
+// ErrSessionChanged so the caller can re-read instead of treating a valid
+// session as revoked.
+func (s *Store) TouchSession(ctx context.Context, id string, expectedLastSeenAt, lastSeenAt, expiresAt time.Time) error {
 	result, err := s.db.ExecContext(
 		ctx,
 		`UPDATE auth_sessions
 		 SET last_seen_at = ?, expires_at = ?
-		 WHERE id = ? AND revoked_at IS NULL`,
+		 WHERE id = ?
+		   AND revoked_at IS NULL
+		   AND last_seen_at = ?
+		   AND password_version = (SELECT password_version FROM auth_password WHERE id = 1)`,
 		lastSeenAt.UTC().Format(time.RFC3339Nano),
 		expiresAt.UTC().Format(time.RFC3339Nano),
 		id,
+		expectedLastSeenAt.UTC().Format(time.RFC3339Nano),
 	)
 	if err != nil {
 		return fmt.Errorf("touch session: %w", err)
@@ -552,7 +561,7 @@ func (s *Store) TouchSession(ctx context.Context, id string, lastSeenAt, expires
 		return fmt.Errorf("touch session rows affected: %w", err)
 	}
 	if rowsAffected == 0 {
-		return ErrNotFound
+		return ErrSessionChanged
 	}
 	return nil
 }

@@ -64,12 +64,19 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	session, terminations, unsubscribeSession, err := h.auth.AuthenticateWebSocket(r.Context(), r)
 	if err != nil {
-		http.SetCookie(w, h.auth.ClearSessionCookie())
-		http.Error(w, "Authentication required.", http.StatusUnauthorized)
+		if errors.Is(err, auth.ErrUnauthorized) {
+			http.SetCookie(w, h.auth.ClearSessionCookie())
+			http.Error(w, "Authentication required.", http.StatusUnauthorized)
+			return
+		}
+		h.logger.Error("validate websocket session failed", "err", err)
+		http.Error(w, "Failed to validate session.", http.StatusInternalServerError)
 		return
 	}
 
-	conn, err := wsUpgrader.Upgrade(w, r, nil)
+	upgradeHeaders := http.Header{}
+	upgradeHeaders.Add("Set-Cookie", h.auth.SessionCookie(session).String())
+	conn, err := wsUpgrader.Upgrade(w, r, upgradeHeaders)
 	if err != nil {
 		unsubscribeSession()
 		h.logger.Warn("websocket upgrade failed", "err", err)

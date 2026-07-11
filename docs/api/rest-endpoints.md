@@ -29,6 +29,18 @@ Rules:
 - session cookie is HTTP-only
 - unauthenticated requests return `401 Unauthorized`
 - authenticated but forbidden operations return `403 Forbidden`
+- the cookie remains available until the session's absolute deadline; SQLite
+  remains authoritative for the sliding idle deadline
+- every successful authenticated response refreshes `Set-Cookie`, including
+  `GET /api/session`; clients must accept that header
+- REST activity extends the logical idle lease on every request, while SQLite
+  persists `last_seen_at` and `expires_at` at most once per minute (or half the
+  configured idle timeout when shorter)
+- missing, revoked, password-version-invalid, idle-expired, and
+  absolute-expired sessions return `401` and clear the cookie
+- a database failure while validating or persisting an otherwise unknown
+  session returns `500 internal_error` and does not clear the cookie
+- the absolute lifetime is never extended by REST or WebSocket activity
 
 ### Content Type
 

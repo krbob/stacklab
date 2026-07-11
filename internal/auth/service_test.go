@@ -386,6 +386,208 @@ func TestAuthenticateRequestRejectsExpiredSession(t *testing.T) {
 	}
 }
 
+func TestAuthenticateRequestThrottlesSlidingExpiryAndCapsCookieAtAbsoluteLifetime(t *testing.T) {
+	ctx := context.Background()
+	authStore := openTestStore(t)
+	cfg := testConfig("test-password")
+	cfg.SessionIdleTimeout = 10 * time.Minute
+	cfg.SessionAbsoluteLifetime = 30 * time.Minute
+	service := NewService(cfg, authStore)
+	now := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+
+	if err := service.Bootstrap(ctx); err != nil {
+		t.Fatalf("Bootstrap() error = %v", err)
+	}
+	session, err := service.Login(ctx, "test-password", "ua", "192.0.2.1")
+	if err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "http://stacklab.test/api/session", nil)
+	request.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: session.ID})
+
+	absoluteDeadline := now.Add(cfg.SessionAbsoluteLifetime)
+	if cookie := service.SessionCookie(session); !cookie.Expires.Equal(absoluteDeadline) {
+		t.Fatalf("login cookie expiry = %s, want absolute deadline %s", cookie.Expires, absoluteDeadline)
+	}
+
+	now = now.Add(30 * time.Second)
+	authenticated, err := service.AuthenticateRequest(ctx, request)
+	if err != nil {
+		t.Fatalf("AuthenticateRequest(within throttle) error = %v", err)
+	}
+	if !authenticated.ExpiresAt.Equal(now.Add(cfg.SessionIdleTimeout)) {
+		t.Fatalf("logical expiry within throttle = %s, want %s", authenticated.ExpiresAt, now.Add(cfg.SessionIdleTimeout))
+	}
+	record, err := authStore.SessionByID(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("SessionByID(within throttle) error = %v", err)
+	}
+	if !record.LastSeenAt.Equal(session.LastSeenAt) || !record.ExpiresAt.Equal(session.ExpiresAt) {
+		t.Fatalf("session persisted inside throttle: %#v", record)
+	}
+
+	now = session.CreatedAt.Add(time.Minute)
+	authenticated, err = service.AuthenticateRequest(ctx, request)
+	if err != nil {
+		t.Fatalf("AuthenticateRequest(at throttle) error = %v", err)
+	}
+	record, err = authStore.SessionByID(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("SessionByID(after touch) error = %v", err)
+	}
+	if !record.LastSeenAt.Equal(now) || !record.ExpiresAt.Equal(now.Add(cfg.SessionIdleTimeout)) {
+		t.Fatalf("persisted sliding lease = last seen %s, expires %s", record.LastSeenAt, record.ExpiresAt)
+	}
+	if cookie := service.SessionCookie(authenticated); !cookie.Expires.Equal(absoluteDeadline) {
+		t.Fatalf("refreshed cookie expiry = %s, want %s", cookie.Expires, absoluteDeadline)
+	}
+
+	for _, offset := range []time.Duration{10*time.Minute + 30*time.Second, 20 * time.Minute, 29 * time.Minute} {
+		now = session.CreatedAt.Add(offset)
+		authenticated, err = service.AuthenticateRequest(ctx, request)
+		if err != nil {
+			t.Fatalf("AuthenticateRequest(%s) error = %v", offset, err)
+		}
+	}
+	if !authenticated.ExpiresAt.Equal(absoluteDeadline) {
+		t.Fatalf("expiry near absolute lifetime = %s, want %s", authenticated.ExpiresAt, absoluteDeadline)
+	}
+
+	now = absoluteDeadline
+	if _, err := service.AuthenticateRequest(ctx, request); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("AuthenticateRequest(at absolute deadline) error = %v, want ErrUnauthorized", err)
+	}
+}
+
+func TestWebSocketActivitySharesPersistenceThrottleAndRetriesFailedTouch(t *testing.T) {
+	ctx := context.Background()
+	authStore := openTestStore(t)
+	cfg := testConfig("test-password")
+	cfg.SessionIdleTimeout = 10 * time.Minute
+	cfg.SessionAbsoluteLifetime = 30 * time.Minute
+	service := NewService(cfg, authStore)
+	now := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+
+	if err := service.Bootstrap(ctx); err != nil {
+		t.Fatalf("Bootstrap() error = %v", err)
+	}
+	session, err := service.Login(ctx, "test-password", "ua", "192.0.2.1")
+	if err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "http://stacklab.test/api/ws", nil)
+	request.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: session.ID})
+
+	now = now.Add(30 * time.Second)
+	_, _, unsubscribe, err := service.AuthenticateWebSocket(ctx, request)
+	if err != nil {
+		t.Fatalf("AuthenticateWebSocket() error = %v", err)
+	}
+	defer unsubscribe()
+
+	now = session.CreatedAt.Add(45 * time.Second)
+	if err := service.TouchSessionActivity(ctx, session.ID); err != nil {
+		t.Fatalf("TouchSessionActivity(within throttle) error = %v", err)
+	}
+	record, err := authStore.SessionByID(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("SessionByID(within throttle) error = %v", err)
+	}
+	if !record.LastSeenAt.Equal(session.LastSeenAt) {
+		t.Fatalf("websocket touch persisted early at %s", record.LastSeenAt)
+	}
+
+	databaseErr := errors.New("database unavailable")
+	failingStore := &sessionFailureStore{serviceStore: authStore, touchErrors: []error{databaseErr}}
+	service.store = failingStore
+	now = session.CreatedAt.Add(time.Minute)
+	if err := service.TouchSessionActivity(ctx, session.ID); !errors.Is(err, databaseErr) {
+		t.Fatalf("TouchSessionActivity(failed persistence) error = %v, want database error", err)
+	}
+	if err := service.TouchSessionActivity(ctx, session.ID); err != nil {
+		t.Fatalf("TouchSessionActivity(retry) error = %v", err)
+	}
+	if failingStore.touchCalls != 2 {
+		t.Fatalf("TouchSession() calls = %d, want immediate retry after failure", failingStore.touchCalls)
+	}
+	record, err = authStore.SessionByID(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("SessionByID(after retry) error = %v", err)
+	}
+	if !record.LastSeenAt.Equal(now) || !record.ExpiresAt.Equal(now.Add(cfg.SessionIdleTimeout)) {
+		t.Fatalf("websocket persisted lease = last seen %s, expires %s", record.LastSeenAt, record.ExpiresAt)
+	}
+}
+
+func TestAuthenticateRequestPreservesDatabaseFailures(t *testing.T) {
+	ctx := context.Background()
+	authStore := openTestStore(t)
+	cfg := testConfig("test-password")
+	cfg.SessionIdleTimeout = 10 * time.Minute
+	service := NewService(cfg, authStore)
+	now := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+
+	if err := service.Bootstrap(ctx); err != nil {
+		t.Fatalf("Bootstrap() error = %v", err)
+	}
+	session, err := service.Login(ctx, "test-password", "ua", "192.0.2.1")
+	if err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "http://stacklab.test/api/session", nil)
+	request.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: session.ID})
+
+	databaseErr := errors.New("database unavailable")
+	failingStore := &sessionFailureStore{serviceStore: authStore, validationErr: databaseErr}
+	service.store = failingStore
+	if _, err := service.AuthenticateRequest(ctx, request); !errors.Is(err, databaseErr) || errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("AuthenticateRequest(validation failure) error = %v, want database error", err)
+	}
+
+	failingStore.validationErr = nil
+	failingStore.touchErrors = []error{databaseErr}
+	now = now.Add(sessionTouchInterval(cfg.SessionIdleTimeout))
+	if _, err := service.AuthenticateRequest(ctx, request); !errors.Is(err, databaseErr) || errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("AuthenticateRequest(touch failure) error = %v, want database error", err)
+	}
+	if _, err := service.AuthenticateRequest(ctx, request); err != nil {
+		t.Fatalf("AuthenticateRequest(touch retry) error = %v", err)
+	}
+
+	now = now.Add(sessionTouchInterval(cfg.SessionIdleTimeout))
+	failingStore.touchErrors = []error{store.ErrSessionChanged}
+	if _, err := service.AuthenticateRequest(ctx, request); err != nil {
+		t.Fatalf("AuthenticateRequest(concurrent touch retry) error = %v", err)
+	}
+}
+
+type sessionFailureStore struct {
+	serviceStore
+	validationErr error
+	touchErrors   []error
+	touchCalls    int
+}
+
+func (s *sessionFailureStore) SessionAtCurrentPasswordVersion(ctx context.Context, id string) (store.Session, error) {
+	if s.validationErr != nil {
+		return store.Session{}, s.validationErr
+	}
+	return s.serviceStore.SessionAtCurrentPasswordVersion(ctx, id)
+}
+
+func (s *sessionFailureStore) TouchSession(ctx context.Context, id string, expectedLastSeenAt, lastSeenAt, expiresAt time.Time) error {
+	s.touchCalls++
+	if len(s.touchErrors) > 0 {
+		err := s.touchErrors[0]
+		s.touchErrors = s.touchErrors[1:]
+		return err
+	}
+	return s.serviceStore.TouchSession(ctx, id, expectedLastSeenAt, lastSeenAt, expiresAt)
+}
+
 func TestLoginLocksClientAfterRepeatedFailures(t *testing.T) {
 	t.Parallel()
 
