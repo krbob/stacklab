@@ -549,16 +549,19 @@ Recommended job:
 
 ### `coverage-report`
 
+Implementation note: coverage now runs inside the required `backend-test` job
+instead of a separate advisory job. It uploads the full profile, HTML and text
+summaries, and enforces the selected package floors documented in
+`ci-quality-plan.md`; global coverage remains non-gating.
+
 Commands:
 
 ```bash
-go test ./... -coverprofile=coverage.out
-go tool cover -func=coverage.out
+make check-backend-coverage
 ```
 
 Optional later:
 
-- upload artifact
 - PR comment summary
 - package-level trend reporting
 

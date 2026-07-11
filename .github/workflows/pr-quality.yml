@@ -66,8 +66,17 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Run backend tests
-        run: make check-backend-test
+      - name: Run backend tests and coverage gates
+        run: make check-backend-coverage COVERAGE_DIR=coverage
+
+      - name: Upload backend coverage
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: backend-coverage-${{ inputs.source_sha || github.sha }}
+          path: coverage/
+          if-no-files-found: warn
+          retention-days: 14
 
   backend-hygiene:
     name: backend-hygiene

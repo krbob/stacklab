@@ -7,8 +7,8 @@ GO_PACKAGES := ./cmd/... ./internal/...
 GO_FORMAT_PATHS := cmd internal
 
 .PHONY: check check-toolchain check-toolchain-go check-toolchain-node
-.PHONY: check-backend check-backend-test check-backend-hygiene
-.PHONY: backend-test backend-hygiene frontend-dependencies frontend-checks hygiene-checks
+.PHONY: check-backend check-backend-test check-backend-coverage check-backend-hygiene
+.PHONY: backend-test backend-coverage backend-hygiene frontend-dependencies frontend-checks hygiene-checks
 .PHONY: check-frontend check-hygiene
 
 check: check-toolchain backend-test backend-hygiene frontend-dependencies frontend-checks hygiene-checks
@@ -32,6 +32,14 @@ check-backend-test: check-toolchain-go backend-test
 backend-test:
 	@echo "==> Backend tests"
 	@go test $(GO_PACKAGES)
+
+COVERAGE_DIR ?= coverage
+
+check-backend-coverage: check-toolchain-go backend-coverage
+
+backend-coverage:
+	@echo "==> Backend tests and package coverage"
+	@./scripts/quality/check-go-coverage.sh "$(COVERAGE_DIR)"
 
 check-backend-hygiene: check-toolchain-go backend-hygiene
 

@@ -30,7 +30,8 @@ Current observations:
 
 - frontend lint is now green and ready for CI enforcement
 - backend does not yet have a proper static analysis layer beyond compiling and tests
-- backend test coverage exists but is still relatively low and should be treated as a trend, not a merge gate
+- global backend coverage remains a trend, while stable package-focused floors
+  protect the critical and newly covered packages
 - Docker-backed integration tests now cover WebSocket flows and core Compose lifecycle behavior
 - a dedicated GitHub Actions workflow can now run that suite, but it should prove stable before becoming a required gate
 - a representative OpenAPI-backed contract suite now exists for core success-path endpoints
@@ -227,15 +228,26 @@ Once they prove stable and high-signal, some can be promoted to required.
 
 ## Current stance
 
-Coverage should be collected and reported.
+Coverage is collected on every backend CI run and uploaded as a profile, HTML
+report, function report, package table, and Markdown summary. There is no hard
+global threshold: the global value remains a trend signal.
 
-It should not yet be enforced as a hard global threshold.
+CI enforces explicit floors only for packages with stable, behavior-oriented
+tests. The initial floors deliberately leave room for platform-specific and
+concurrent paths while preventing silent loss of the new coverage:
 
-Reasoning:
+| Package | Minimum statement coverage |
+| --- | ---: |
+| `internal/audit` | 90% |
+| `internal/retention` | 95% |
+| `internal/fsmeta` | 95% |
+| `internal/httpapi` | 50% |
+| `internal/selfupdate` | 70% |
+| `internal/jobs` | 85% |
+| `internal/store` | 75% |
 
-- current backend coverage is still modest
-- critical runtime value comes more from the right integration tests than from a bigger percentage
-- a hard threshold too early encourages filler tests
+Raise a floor only after the corresponding tests have been stable on Linux CI;
+do not lower one merely to merge an uncovered regression.
 
 ## Recommended use of coverage
 
@@ -269,17 +281,13 @@ Then improve coverage by adding tests for:
 - runtime stream edge cases
 - integration flows around Docker and WebSockets
 
-## Future policy option
+## Active threshold policy
 
-Later, when coverage is healthier, adopt one of these:
-
-- non-decreasing global coverage
-- non-decreasing coverage for selected critical packages
-- comment-only reporting in PRs without hard failure
-
-Recommendation:
-
-- prefer package-focused or trend-focused coverage policy over a single global threshold
+The selected-package floors above are merge gates. Global coverage remains
+non-gating, so new low-level packages do not create pressure for ornamental
+tests. Future changes may add another package floor or a non-decreasing trend
+check, but should continue to prefer package-focused policy over one global
+percentage.
 
 ## Recommended Command Set
 
@@ -317,9 +325,10 @@ govulncheck ./...
 ## Coverage
 
 ```bash
-go test ./cmd/... ./internal/... -coverprofile=coverage.out
-go tool cover -func=coverage.out
+make check-backend-coverage
 ```
+
+The command writes the same `coverage/` artifact locally that CI uploads.
 
 ## Docker-backed integration
 
@@ -353,8 +362,8 @@ Exact commands may evolve, but the target is:
 
 ### Stage 5: Add coverage reporting
 
-- publish coverage numbers in CI
-- do not enforce hard thresholds yet
+- implemented: publish backend coverage artifacts in CI
+- implemented: enforce stable package-focused floors without a global gate
 
 ### Stage 6: Add pre-release Linux validation
 
@@ -392,5 +401,5 @@ The practical order for Stacklab should be:
 2. add `go vet` and formatting checks
 3. add `staticcheck`
 4. add Docker-backed integration checks on GitHub Actions Linux `x64`
-5. collect coverage as a trend
-6. only later consider stricter coverage or heavier release-environment checks
+5. collect global coverage as a trend and gate stable critical packages
+6. only later consider a global trend gate or heavier release-environment checks
