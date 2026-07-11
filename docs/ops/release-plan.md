@@ -136,7 +136,9 @@ Implemented today:
 
 - `release-build.yml` builds tarball and `.deb` artifacts for `amd64` and `arm64`
 - `deb-package-smoke.yml` validates fresh package install behavior on Debian
-- `tarball-install-smoke.yml` validates tarball install, upgrade, and rollback mechanics through `host-tools/upgrade.sh`
+- `tarball-install-smoke.yml` validates tarball install, verified local and URL
+  upgrades, checksum rejection, and rollback mechanics through
+  `host-tools/upgrade.sh`
 - release workflows run `.deb` and tarball smoke before publishing
 - release workflows run post-publish APT smoke for their channel
 

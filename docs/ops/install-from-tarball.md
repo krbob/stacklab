@@ -38,6 +38,7 @@ Minimum prerequisites:
   - `docker compose`
   - standalone `docker-compose`
 - `tar`
+- `sha256sum` or `shasum`
 - `curl` or `wget`
 
 Recommended packages on Debian-like hosts:
@@ -108,10 +109,15 @@ layout and point at `/opt/stacklab/app/current/bin/...`.
 Example:
 
 ```bash
+sha256sum --check stacklab-2026.04.0-linux-amd64.tar.gz.sha256
 tar -xzf stacklab-2026.04.0-linux-amd64.tar.gz
 cd stacklab-2026.04.0-linux-amd64
 sudo STACKLAB_BOOTSTRAP_PASSWORD='change-me' ./host-tools/upgrade.sh --install-unit
 ```
+
+The archive must not be extracted if checksum verification fails. Running the
+packaged script from an already extracted directory cannot re-verify the source
+archive, so this explicit check is mandatory for a first install.
 
 This does the following:
 
@@ -131,21 +137,38 @@ sudo ./host-tools/upgrade.sh --install-unit --service-user bob --service-group b
 
 ## Upgrade
 
-For upgrades, use the same flow against the new tarball.
+For upgrades, prefer the updater from the currently installed release and pass
+the new tarball directly. Keep the generated `.sha256` file next to the
+archive; the updater requires it and verifies the archive before extraction.
 
 Example:
 
 ```bash
-tar -xzf stacklab-2026.04.1-linux-amd64.tar.gz
-cd stacklab-2026.04.1-linux-amd64
-sudo ./host-tools/upgrade.sh
+sudo /opt/stacklab/app/current/host-tools/upgrade.sh \
+  ./stacklab-2026.04.1-linux-amd64.tar.gz
 ```
 
-Or, without extracting manually:
+The same contract applies to a release URL. The updater downloads both the
+archive and the adjacent `<URL>.sha256` asset:
 
 ```bash
-sudo ./scripts/release/upgrade.sh ./dist/release/stacklab-2026.04.1-linux-amd64.tar.gz
+sudo /opt/stacklab/app/current/host-tools/upgrade.sh \
+  https://github.com/OWNER/stacklab/releases/download/2026.04.1/stacklab-2026.04.1-linux-amd64.tar.gz
 ```
+
+If a sidecar is intentionally delivered through another trusted channel, pass
+its 64-character digest explicitly:
+
+```bash
+sudo /opt/stacklab/app/current/host-tools/upgrade.sh \
+  --sha256 '<expected-sha256>' \
+  ./stacklab-2026.04.1-linux-amd64.tar.gz
+```
+
+For both local files and URLs, a missing checksum, malformed digest, or mismatch
+stops the upgrade before extraction. There is no unchecked fallback. An already
+extracted directory remains accepted for recovery and development workflows;
+the operator must verify its source archive before extraction.
 
 ## Installed Paths
 

@@ -18,6 +18,8 @@ If ARTIFACT is omitted, the script assumes it is being run from an extracted
 artifact copy located under <artifact-root>/host-tools/upgrade.sh.
 
 Options:
+  --sha256 SHA256       Expected SHA-256 for a tarball artifact. If omitted,
+                        <ARTIFACT>.sha256 is required and read locally or fetched.
   --install-unit         Install the example systemd unit and env file if missing.
   --service-name NAME    systemd service name. Default: stacklab
   --service-user USER    systemd service user. Default: stacklab
@@ -93,19 +95,87 @@ fetch_to_temp() {
   local target="$2"
 
   if [[ "${source}" =~ ^https?:// ]]; then
-    log "Downloading artifact from ${source}"
+    log "Downloading ${source}" >&2
     download_http "${source}" "${target}"
   else
+    [[ -f "${source}" ]] || die "file not found: ${source}"
     cp "${source}" "${target}"
+  fi
+}
+
+sha256_file() {
+  local target="$1"
+  local output
+
+  if command -v sha256sum >/dev/null 2>&1; then
+    output="$(sha256sum "${target}")"
+    printf '%s\n' "${output%% *}"
+    return 0
+  fi
+
+  if command -v shasum >/dev/null 2>&1; then
+    output="$(shasum -a 256 "${target}")"
+    printf '%s\n' "${output%% *}"
+    return 0
+  fi
+
+  die "missing required command: sha256sum or shasum"
+}
+
+validate_sha256() {
+  local checksum="$1"
+
+  [[ "${checksum}" =~ ^[[:xdigit:]]{64}$ ]] || die "invalid SHA-256 checksum: expected 64 hexadecimal characters"
+  printf '%s\n' "${checksum}" | tr '[:upper:]' '[:lower:]'
+}
+
+read_expected_sha256() {
+  local checksum_file="$1"
+  local checksum=""
+  local _checksum_name=""
+
+  IFS=$' \t' read -r checksum _checksum_name < "${checksum_file}" || die "could not read SHA-256 checksum from ${checksum_file}"
+  validate_sha256 "${checksum}"
+}
+
+resolve_expected_sha256() {
+  local source="$1"
+  local explicit_checksum="$2"
+  local work_dir="$3"
+
+  if [[ -n "${explicit_checksum}" ]]; then
+    validate_sha256 "${explicit_checksum}"
+    return 0
+  fi
+
+  local checksum_source="${source}.sha256"
+  local checksum_file="${work_dir}/artifact.tar.gz.sha256"
+  fetch_to_temp "${checksum_source}" "${checksum_file}"
+  read_expected_sha256 "${checksum_file}"
+}
+
+verify_sha256() {
+  local target="$1"
+  local expected_checksum="$2"
+  local actual_checksum
+
+  actual_checksum="$(sha256_file "${target}")"
+  if [[ "${actual_checksum}" != "${expected_checksum}" ]]; then
+    die "SHA-256 mismatch for artifact: expected ${expected_checksum}, got ${actual_checksum}"
   fi
 }
 
 extract_artifact() {
   local source="$1"
-  local work_dir="$2"
+  local explicit_checksum="$2"
+  local work_dir="$3"
   local tarball="${work_dir}/artifact.tar.gz"
+  local expected_checksum
 
   fetch_to_temp "${source}" "${tarball}"
+  expected_checksum="$(resolve_expected_sha256 "${source}" "${explicit_checksum}" "${work_dir}")"
+  log "Verifying SHA-256 for ${source}" >&2
+  verify_sha256 "${tarball}" "${expected_checksum}"
   tar -xzf "${tarball}" -C "${work_dir}"
 
   local artifact_root
@@ -231,6 +301,7 @@ ensure_service_account() {
 
 main() {
   local artifact_arg=""
+  local expected_sha256=""
   local install_unit=0
   local service_name="stacklab"
   local service_user="stacklab"
@@ -243,6 +314,11 @@ main() {
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      --sha256)
+        [[ $# -ge 2 ]] || die "--sha256 requires a value"
+        expected_sha256="$2"
+        shift 2
+        ;;
       --install-unit)
         install_unit=1
         shift
@@ -302,16 +378,20 @@ main() {
 
   local work_dir
   work_dir="$(mktemp -d)"
+  # The trap intentionally captures the local path before main returns.
+  # shellcheck disable=SC2064
   trap "rm -rf -- '${work_dir}'" EXIT
 
   local artifact_root=""
   if [[ -n "${artifact_arg}" ]]; then
     if [[ -d "${artifact_arg}" ]]; then
+      [[ -z "${expected_sha256}" ]] || die "--sha256 is only valid for tarball artifacts"
       artifact_root="$(cd "${artifact_arg}" && pwd)"
     else
-      artifact_root="$(extract_artifact "${artifact_arg}" "${work_dir}")"
+      artifact_root="$(extract_artifact "${artifact_arg}" "${expected_sha256}" "${work_dir}")"
     fi
   else
+    [[ -z "${expected_sha256}" ]] || die "--sha256 requires a tarball artifact"
     artifact_root="$(infer_embedded_artifact_root)" || die "no artifact argument provided and could not infer extracted artifact root"
   fi
 

@@ -54,11 +54,17 @@ Record the current release path:
 readlink -f /opt/stacklab/app/current
 ```
 
-Run the packaged upgrade flow:
+Place the release archive and its generated `.sha256` sidecar in the same
+directory, then run the updater from the current release:
 
 ```bash
-sudo ./host-tools/upgrade.sh
+sudo /opt/stacklab/app/current/host-tools/upgrade.sh \
+  ./stacklab-<version>-linux-<arch>.tar.gz
 ```
+
+Confirm separately that a missing sidecar and a deliberately mismatched digest
+both stop before the service is restarted. For a URL-based drill, pass the
+release URL and confirm that the updater also fetches `<URL>.sha256`.
 
 Confirm the new release path:
 
