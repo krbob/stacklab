@@ -390,7 +390,7 @@ function HostMetricsDashboard({
   return (
     <div className="mt-5 flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-lg font-medium text-[var(--text)]">Host metrics</h3>
+        <h2 className="text-lg font-medium text-[var(--text)]">Host metrics</h2>
         <div className="text-xs text-[var(--muted)]">Sampled {sampledAt}</div>
       </div>
 
@@ -960,7 +960,7 @@ function StacklabLogs() {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-lg font-medium text-[var(--text)]">Stacklab logs</h3>
+        <h2 className="text-lg font-medium text-[var(--text)]">Stacklab logs</h2>
 
         <div className="flex flex-wrap items-center gap-2">
           {/* Level filter */}

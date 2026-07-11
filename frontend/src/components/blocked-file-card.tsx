@@ -65,7 +65,7 @@ export function BlockedFileCard({ stateKey, blockedReason, permissions, repairCa
     <div className="flex h-full items-center justify-center rounded border border-[var(--warning)]/20 bg-[var(--warning)]/5">
       <div className="max-w-md p-8 text-center">
         <ShieldAlert className="mx-auto size-10 text-[var(--warning)]" />
-        <h4 className="mt-3 text-base font-medium text-[var(--text)]">File access blocked</h4>
+        <h3 className="mt-3 text-base font-medium text-[var(--text)]">File access blocked</h3>
         <p className="mt-2 text-sm text-[var(--muted)]">
           {reasonMessages[blockedReason ?? ''] ?? 'Stacklab cannot access this file with the current service user.'}
         </p>

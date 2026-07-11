@@ -141,7 +141,7 @@ export function MaintenancePage() {
     <div className="flex flex-col gap-4 lg:flex-row">
       {/* Left: workflow setup */}
       <div className="w-full shrink-0 rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)] lg:flex lg:w-80 lg:flex-col">
-        <h3 className="text-lg font-medium text-[var(--text)]">Update stacks</h3>
+        <h2 className="text-lg font-medium text-[var(--text)]">Update stacks</h2>
         <p className="mt-2 text-xs text-[var(--muted)]">Pull images, build, and restart selected stacks.</p>
 
         {/* Target mode */}
@@ -241,7 +241,7 @@ export function MaintenancePage() {
 
       {/* Right: progress */}
       <div className="flex min-w-0 flex-1 flex-col rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
-        <h3 className="text-lg font-medium text-[var(--text)]">Progress</h3>
+        <h2 className="text-lg font-medium text-[var(--text)]">Progress</h2>
 
         {!jobId && (
           <div className="flex flex-1 items-center justify-center">

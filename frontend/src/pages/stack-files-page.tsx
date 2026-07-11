@@ -195,7 +195,7 @@ export function StackFilesPage() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <div className="flex items-center gap-2">
-                  <h3 className="text-lg font-medium text-[var(--text)]">{selectedFile.name}</h3>
+                  <h2 className="text-lg font-medium text-[var(--text)]">{selectedFile.name}</h2>
                   {isDockerfile(selectedFile.name) && <span className="rounded border border-[var(--panel-border)] px-1.5 py-0.5 text-xs text-[var(--warning)]">build</span>}
                   <span className="rounded-md border border-[var(--panel-border)] px-2 py-0.5 text-xs text-[var(--muted)]">{selectedFile.type.replace('_', ' ')}</span>
                 </div>

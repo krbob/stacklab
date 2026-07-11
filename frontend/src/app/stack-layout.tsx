@@ -4,6 +4,7 @@ import { getStack } from '@/lib/api-client'
 import { useApi } from '@/hooks/use-api'
 import { StackBadge } from '@/components/stack-badge'
 import { cn } from '@/lib/cn'
+import { useStackPageIdentity } from '@/app/stack-page-identity'
 
 interface Tab {
   to: string
@@ -24,13 +25,17 @@ const tabs: Tab[] = [
 export function StackLayout() {
   const { stackId = '' } = useParams()
   const { data, error, loading, refetch } = useApi(() => getStack(stackId), [stackId])
+  const stack = data?.stack.id === stackId ? data.stack : null
 
-  if (loading && !data) {
+  useStackPageIdentity(stack && !error ? { id: stack.id, name: stack.name } : null)
+
+  if (loading && !stack) {
     return (
-      <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+      <section aria-busy="true" className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+        <h1 className="text-3xl font-semibold tracking-[-0.04em] text-[var(--text)]">Stack {stackId}</h1>
+        <p className="mt-2 text-sm text-[var(--muted)]" role="status">Loading stack…</p>
         <div className="animate-pulse space-y-4">
-          <div className="h-8 w-48 rounded bg-[rgba(255,255,255,0.05)]" />
-          <div className="h-4 w-80 rounded bg-[rgba(255,255,255,0.03)]" />
+          <div className="mt-4 h-4 w-80 rounded bg-[rgba(255,255,255,0.03)]" />
           <div className="flex gap-2">
             {[1, 2, 3, 4, 5, 6].map((i) => (
               <div key={i} className="h-9 w-20 rounded-md bg-[rgba(255,255,255,0.03)]" />
@@ -41,17 +46,16 @@ export function StackLayout() {
     )
   }
 
-  if (error || !data) {
+  if (error || !stack) {
     return (
       <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
-        <p className="text-sm text-[var(--danger)]">
+        <h1 className="text-3xl font-semibold tracking-[-0.04em] text-[var(--text)]">Stack {stackId}</h1>
+        <p className="mt-2 text-sm text-[var(--danger)]">
           Failed to load stack: {error?.message ?? 'Unknown error'}
         </p>
       </section>
     )
   }
-
-  const stack = data.stack
 
   return (
     <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
@@ -59,7 +63,7 @@ export function StackLayout() {
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <div className="font-brand text-xs uppercase tracking-[0.28em] text-[var(--accent)]">Stack</div>
-            <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-[var(--text)]">{stack.name}</h2>
+            <h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-[var(--text)]">{stack.name}</h1>
           </div>
 
           <StackBadge
@@ -69,7 +73,7 @@ export function StackLayout() {
           />
         </div>
 
-        <nav className="flex flex-wrap gap-2">
+        <nav aria-label="Stack views" className="flex flex-wrap gap-2">
           {tabs.map(({ to, label, capability }) => {
             const disabled = capability ? !stack.capabilities[capability] : false
 

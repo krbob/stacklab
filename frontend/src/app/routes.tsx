@@ -4,6 +4,7 @@ import { Routes, Route } from 'react-router-dom'
 import { AuthGuard } from '@/components/auth-guard'
 import { RootLayout } from '@/app/root-layout'
 import { StackLayout } from '@/app/stack-layout'
+import { PageMetadataProvider } from '@/app/page-metadata'
 import { LoginPage } from '@/pages/login-page'
 import { NotFoundPage } from '@/pages/not-found-page'
 import { StacksPage } from '@/pages/stacks-page'
@@ -25,36 +26,51 @@ const StackTerminalPage = lazy(() => import('@/pages/stack-terminal-page').then(
 
 export function AppRoutes() {
   return (
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route
-        path="/"
-        element={
-          <AuthGuard>
-            <RootLayout />
-          </AuthGuard>
-        }
-      >
-        <Route index element={<StacksPage />} />
-        <Route path="stacks" element={<StacksPage />} />
-        <Route path="stacks/new" element={<Suspense><CreateStackPage /></Suspense>} />
-        <Route path="host" element={<HostPage />} />
-        <Route path="config" element={<Suspense><ConfigPage /></Suspense>} />
-        <Route path="maintenance" element={<Suspense><MaintenancePage /></Suspense>} />
-        <Route path="docker" element={<Suspense><DockerAdminPage /></Suspense>} />
-        <Route path="audit" element={<GlobalAuditPage />} />
-        <Route path="settings" element={<SettingsPage />} />
-        <Route path="stacks/:stackId" element={<StackLayout />}>
-          <Route index element={<StackOverviewPage />} />
-          <Route path="editor" element={<Suspense><StackEditorPage /></Suspense>} />
-          <Route path="files" element={<Suspense><StackFilesPage /></Suspense>} />
-          <Route path="logs" element={<Suspense><StackLogsPage /></Suspense>} />
-          <Route path="stats" element={<Suspense><StackStatsPage /></Suspense>} />
-          <Route path="terminal" element={<Suspense><StackTerminalPage /></Suspense>} />
-          <Route path="audit" element={<StackAuditPage />} />
+    <PageMetadataProvider>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route
+          path="/"
+          element={
+            <AuthGuard>
+              <RootLayout />
+            </AuthGuard>
+          }
+        >
+          <Route index element={<StacksPage />} />
+          <Route path="stacks" element={<StacksPage />} />
+          <Route path="stacks/new" element={<Suspense fallback={<PageLoading title="Create stack" />}><CreateStackPage /></Suspense>} />
+          <Route path="host" element={<HostPage />} />
+          <Route path="config" element={<Suspense fallback={<PageLoading title="Config" />}><ConfigPage /></Suspense>} />
+          <Route path="maintenance" element={<Suspense fallback={<PageLoading title="Maintenance" />}><MaintenancePage /></Suspense>} />
+          <Route path="docker" element={<Suspense fallback={<PageLoading title="Docker" />}><DockerAdminPage /></Suspense>} />
+          <Route path="audit" element={<GlobalAuditPage />} />
+          <Route path="settings" element={<SettingsPage />} />
+          <Route path="stacks/:stackId" element={<StackLayout />}>
+            <Route index element={<StackOverviewPage />} />
+            <Route path="editor" element={<Suspense fallback={<StackViewLoading title="Editor" />}><StackEditorPage /></Suspense>} />
+            <Route path="files" element={<Suspense fallback={<StackViewLoading title="Files" />}><StackFilesPage /></Suspense>} />
+            <Route path="logs" element={<Suspense fallback={<StackViewLoading title="Logs" />}><StackLogsPage /></Suspense>} />
+            <Route path="stats" element={<Suspense fallback={<StackViewLoading title="Stats" />}><StackStatsPage /></Suspense>} />
+            <Route path="terminal" element={<Suspense fallback={<StackViewLoading title="Terminal" />}><StackTerminalPage /></Suspense>} />
+            <Route path="audit" element={<StackAuditPage />} />
+          </Route>
         </Route>
-      </Route>
-      <Route path="*" element={<NotFoundPage />} />
-    </Routes>
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
+    </PageMetadataProvider>
   )
+}
+
+function PageLoading({ title }: { title: string }) {
+  return (
+    <section aria-busy="true" className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+      <h1 className="text-2xl font-semibold tracking-[-0.04em] text-[var(--text)]">{title}</h1>
+      <p className="mt-2 text-sm text-[var(--muted)]" role="status">Loading…</p>
+    </section>
+  )
+}
+
+function StackViewLoading({ title }: { title: string }) {
+  return <p aria-busy="true" className="text-sm text-[var(--muted)]" role="status">Loading {title.toLowerCase()}…</p>
 }

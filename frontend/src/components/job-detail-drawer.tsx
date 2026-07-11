@@ -114,7 +114,7 @@ function JobDetailDrawerContent({ jobId }: { jobId: string }) {
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[var(--panel-border)] px-5 py-4">
           <div>
-            <h3 className="text-lg font-medium text-[var(--text)]">Job detail</h3>
+            <h2 className="text-lg font-medium text-[var(--text)]">Job detail</h2>
             {job && (
               <div className="mt-1 flex items-center gap-2 text-xs text-[var(--muted)]">
                 <span className="font-mono">{job.action}</span>
@@ -208,7 +208,7 @@ function JobDetailDrawerContent({ jobId }: { jobId: string }) {
               {/* Events / step cards */}
               {retained && events.length > 0 && (
                 <div>
-                  <h4 className="mb-2 text-xs font-medium text-[var(--muted)]">Events</h4>
+                  <h3 className="mb-2 text-xs font-medium text-[var(--muted)]">Events</h3>
                   {events.some((e) => e.step) ? (
                     <StepCards events={events.map(toJobEvent)} />
                   ) : (

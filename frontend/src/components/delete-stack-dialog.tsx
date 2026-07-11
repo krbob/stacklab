@@ -53,7 +53,7 @@ export function DeleteStackDialog({ stackId, stackName, onClose }: DeleteStackDi
         className="w-full max-w-lg rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-6 shadow-[var(--shadow)]"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-lg font-semibold text-[var(--text)]">Remove stack "{stackName}"?</h3>
+        <h2 className="text-lg font-semibold text-[var(--text)]">Remove stack "{stackName}"?</h2>
 
         <div className="mt-4 space-y-3">
           <label className="flex items-center gap-2 text-sm text-[var(--text)]">

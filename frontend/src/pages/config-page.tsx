@@ -295,6 +295,7 @@ export function ConfigPage() {
 
   return (
     <div className="flex flex-col gap-4 lg:flex-row" style={{ minHeight: 'calc(100vh - 120px)' }}>
+      <h1 className="sr-only">Config</h1>
       <UnsavedChangesGuard when={isDirty} />
 
       {/* Workspace panel: desktop sidebar; on mobile a bottom sheet */}
@@ -649,7 +650,7 @@ export function ConfigPage() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <div className="flex items-center gap-2">
-                      <h3 className="text-lg font-medium text-[var(--text)]">{selectedFile.name}</h3>
+                      <h2 className="text-lg font-medium text-[var(--text)]">{selectedFile.name}</h2>
                       <span className="rounded-md border border-[var(--panel-border)] px-2 py-0.5 text-xs text-[var(--muted)]">{selectedFile.type.replace('_', ' ')}</span>
                       {selectedFile.git_ignored && <span className="rounded-md border border-[var(--panel-border)] px-2 py-0.5 text-xs text-[var(--muted)]">ignored</span>}
                     </div>
@@ -719,7 +720,7 @@ export function ConfigPage() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <div className="flex items-center gap-2">
-                      <h3 className="text-lg font-medium text-[var(--text)]">{selectedDiff.path.split('/').pop()}</h3>
+                      <h2 className="text-lg font-medium text-[var(--text)]">{selectedDiff.path.split('/').pop()}</h2>
                       {statusPrefixes[selectedDiff.status] && (
                         <span className={cn('rounded-md border border-[var(--panel-border)] px-2 py-0.5 text-xs', statusPrefixes[selectedDiff.status].color)}>
                           {selectedDiff.status}

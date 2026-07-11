@@ -73,6 +73,29 @@ Entering a stack opens a detail view with tabbed sub-navigation:
 | **Terminal** | `/stacks/:id/terminal` | Container shell sessions (host shell post-MVP) |
 | **History** | `/stacks/:id/audit` | Per-stack audit log |
 
+## Document Metadata And Heading Hierarchy
+
+Every routed screen has exactly one logical `h1`. Global screens receive it
+from the shared page header, stack-scoped screens use the stack name, and
+route-level loading or error states render a provisional `h1` instead of
+leaving the previous screen's heading in place. Screen sections start at `h2`
+and nested subsections use `h3`.
+
+Browser titles are derived from the active route:
+
+- global screen: `<Screen> | Stacklab`
+- resolved stack view: `<View> — <Stack name> (<stack-id>) | Stacklab`
+- stack loading/error fallback: `<View> — <stack-id> | Stacklab`
+- unmatched route: `Page not found | Stacklab`
+
+The route and stack ID update the title before asynchronous stack data is
+available. A successful detail response enriches it with the display name.
+Auth loading, lazy-route loading, API errors, and navigation between two stack
+IDs must never retain the title of the previous screen.
+
+The HTML metadata and PWA manifest describe Stacklab as a host-native control
+panel for Docker Compose stacks, host health, updates, and maintenance.
+
 ## Screen Inventory
 
 ### Global screens

@@ -132,7 +132,7 @@ rozszerzania zakresu produktu poza model single-host i Compose-first.
 | UX-10 | planned | Poprawić nawigację mobile | poziomy tab bar stacka, aktywne `More`, poprawne `/`→`/stacks`, sticky i uporządkowane akcje | `fix(ui): refine mobile navigation` |
 | UX-11 | planned | Usprawnić Maintenance | montowanie zakładek na żądanie, debounce search, widoczny status stacka, wartościowy idle state i ostatnie wykonania | seria `perf(ui): optimize maintenance ...` |
 | UX-12 | planned | Uporządkować Audit i Logs | filtry serwerowe z URL state, zakres dat, poprawne empty states, zachowane `Load more`, eksport/copy/wrap | seria `feat(ui): improve diagnostics ...` |
-| UX-13 | planned | Uporządkować dokument title i nagłówki | jeden `h1` per ekran, tytuł karty zawiera ekran/stack; poprawiona meta description PWA | `fix(a11y): add page titles and heading hierarchy` |
+| UX-13 | done | Uporządkować dokument title i nagłówki | jeden `h1` per ekran, tytuł karty zawiera ekran/stack; poprawiona meta description PWA | `fix(a11y): add page titles and heading hierarchy` |
 | PROD-01 | planned | Wprowadzić wspólny `Review operation` | cel, zakres, wpływ, snapshot i recovery są prezentowane jednolicie dla delete/prune/update/apply | seria `feat(ui): add operation review ...` |
 | PROD-02 | planned | Dodać System Health Center | widoczny stan Backend/Docker/WS, last success, Retry i linki do diagnostyki | `feat(ui): add system health center` |
 | PROD-03 | planned | Podzielić Settings według zadań | Security, Notifications, Automation, Updates i About jako odnajdywalne sekcje/subroutes, także mobile | `refactor(ui): split settings navigation` |

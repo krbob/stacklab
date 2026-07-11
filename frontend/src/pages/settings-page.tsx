@@ -57,7 +57,7 @@ export function SettingsPage() {
       <div className="columns-[26rem] gap-4">
         {/* Password */}
         <SettingsCard>
-          <h3 className="text-sm font-medium text-[var(--text)]">Change password</h3>
+          <h2 className="text-sm font-medium text-[var(--text)]">Change password</h2>
           <form onSubmit={handlePasswordChange} className="mt-3 max-w-md space-y-3">
             <input type="password" autoComplete="current-password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Current password" disabled={saving} className="w-full rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50" />
             <input type="password" autoComplete="new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="New password" disabled={saving} aria-describedby="new-password-requirements" className="w-full rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50" />
@@ -93,7 +93,7 @@ export function SettingsPage() {
         {/* About */}
         {meta && (
           <SettingsCard>
-            <h3 className="text-sm font-medium text-[var(--text)]">About</h3>
+            <h2 className="text-sm font-medium text-[var(--text)]">About</h2>
             <div className="mt-3 grid gap-2 text-sm text-[var(--muted)]">
               <div>Stacklab {meta.app.version}</div>
               <div>Docker Engine {meta.docker.engine_version}</div>
@@ -122,7 +122,7 @@ function SettingsCard({ children }: { children: ReactNode }) {
 function SettingsLoadError({ title, message, onRetry }: { title: string; message: string; onRetry: () => void }) {
   return (
     <div>
-      <h3 className="text-sm font-medium text-[var(--text)]">{title}</h3>
+      <h2 className="text-sm font-medium text-[var(--text)]">{title}</h2>
       <p className="mt-2 text-xs text-[var(--danger)]">{message}</p>
       <button type="button" onClick={onRetry} className="mt-3 rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]">
         Retry
@@ -183,7 +183,7 @@ function HostSettingsSection() {
   return (
     <div>
       <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="text-sm font-medium text-[var(--text)]">Host observability</h3>
+        <h2 className="text-sm font-medium text-[var(--text)]">Host observability</h2>
         {loading && <span className="text-xs text-[var(--muted)]">Loading...</span>}
       </div>
       <div className="space-y-3">
@@ -360,7 +360,7 @@ function NotificationsSection() {
   if (loading) {
     return (
       <div>
-        <h3 className="text-sm font-medium text-[var(--text)]">Notifications</h3>
+        <h2 className="text-sm font-medium text-[var(--text)]">Notifications</h2>
         <div className="mt-3 h-20 animate-pulse rounded-md bg-[rgba(255,255,255,0.03)]" />
       </div>
     )
@@ -372,7 +372,7 @@ function NotificationsSection() {
 
   return (
     <div>
-      <h3 className="text-sm font-medium text-[var(--text)]">Notifications</h3>
+      <h2 className="text-sm font-medium text-[var(--text)]">Notifications</h2>
       <p className="mt-1 text-xs text-[var(--muted)]">Outgoing notifications. Best-effort delivery, no retries.</p>
 
       <div className="mt-3 max-w-lg space-y-4">
@@ -756,7 +756,7 @@ function SchedulesSection() {
   if (loading) {
     return (
       <div>
-        <h3 className="text-sm font-medium text-[var(--text)]">Maintenance schedules</h3>
+        <h2 className="text-sm font-medium text-[var(--text)]">Maintenance schedules</h2>
         <div className="mt-3 h-24 animate-pulse rounded-md bg-[rgba(255,255,255,0.03)]" />
       </div>
     )
@@ -768,7 +768,7 @@ function SchedulesSection() {
 
   return (
     <div>
-      <h3 className="text-sm font-medium text-[var(--text)]">Maintenance schedules</h3>
+      <h2 className="text-sm font-medium text-[var(--text)]">Maintenance schedules</h2>
       <p className="mt-1 text-xs text-[var(--muted)]">Runs in host local time. Reuses the same workflows as manual maintenance.</p>
 
       <div className="mt-3 max-w-lg space-y-4">
@@ -1033,7 +1033,7 @@ function StacklabUpdateSection() {
   if (loading) {
     return (
       <div>
-        <h3 className="text-sm font-medium text-[var(--text)]">Stacklab update</h3>
+        <h2 className="text-sm font-medium text-[var(--text)]">Stacklab update</h2>
         <div className="mt-3 h-20 animate-pulse rounded-md bg-[rgba(255,255,255,0.03)]" />
       </div>
     )
@@ -1042,7 +1042,7 @@ function StacklabUpdateSection() {
   if (error) {
     return (
       <div>
-        <h3 className="text-sm font-medium text-[var(--text)]">Stacklab update</h3>
+        <h2 className="text-sm font-medium text-[var(--text)]">Stacklab update</h2>
         <p className="mt-2 text-xs text-[var(--danger)]">{error}</p>
       </div>
     )
@@ -1056,7 +1056,7 @@ function StacklabUpdateSection() {
 
   return (
     <div>
-      <h3 className="text-sm font-medium text-[var(--text)]">Stacklab update</h3>
+      <h2 className="text-sm font-medium text-[var(--text)]">Stacklab update</h2>
 
       <div className="mt-3 max-w-lg rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4 space-y-3">
         {/* Version info */}

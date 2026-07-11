@@ -74,7 +74,7 @@ export function MaintenanceVolumes() {
     <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 className="text-lg font-medium text-[var(--text)]">Volumes</h3>
+          <h2 className="text-lg font-medium text-[var(--text)]">Volumes</h2>
           <p className="mt-1 text-xs text-[var(--muted)]">{volumes.length} volumes · {unusedCount} unused</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -95,7 +95,7 @@ export function MaintenanceVolumes() {
       {showCreate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowCreate(false)}>
           <div className="w-full max-w-sm rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5" onClick={(e) => e.stopPropagation()}>
-            <h4 className="text-sm font-medium text-[var(--text)]">Create volume</h4>
+            <h3 className="text-sm font-medium text-[var(--text)]">Create volume</h3>
             <input type="text" value={createName} onChange={(e) => setCreateName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleCreate() }} placeholder="Volume name" autoFocus disabled={creating} className="mt-3 w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
             {createError && <p className="mt-2 text-xs text-[var(--danger)]">{createError}</p>}
             <div className="mt-4 flex justify-end gap-2">

@@ -83,7 +83,7 @@ export function ConfirmDialog({
         className="w-full max-w-md rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]"
         onClick={(event) => event.stopPropagation()}
       >
-        <h3 id="confirm-dialog-title" className="text-base font-semibold text-[var(--text)]">{title}</h3>
+        <h2 id="confirm-dialog-title" className="text-base font-semibold text-[var(--text)]">{title}</h2>
         <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{message}</p>
         {items.length > 0 && (
           <ul className="mt-3 space-y-1 rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-3 py-2 text-xs text-[var(--text)]">

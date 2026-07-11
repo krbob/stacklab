@@ -290,7 +290,7 @@ export function StackEditorPage() {
   if (definitionError || !definitionRevision) {
     return (
       <div className="rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-4" role="alert">
-        <h3 className="text-sm font-medium text-[var(--danger)]">Stack definition could not be loaded</h3>
+        <h2 className="text-sm font-medium text-[var(--danger)]">Stack definition could not be loaded</h2>
         <p className="mt-1 text-xs text-[var(--muted)]">{definitionError ?? 'The definition response did not include a revision.'}</p>
         <button
           type="button"

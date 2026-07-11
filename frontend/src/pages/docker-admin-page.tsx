@@ -55,7 +55,7 @@ export function DockerAdminPage() {
 
       {/* Daemon config viewer */}
       <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
-        <h3 className="text-lg font-medium text-[var(--text)]">daemon.json</h3>
+        <h2 className="text-lg font-medium text-[var(--text)]">daemon.json</h2>
 
         {configLoading && <div className="mt-3 h-48 animate-pulse rounded-md bg-[rgba(255,255,255,0.02)]" />}
         {configError && <p className="mt-3 text-sm text-[var(--danger)]">{configError.message}</p>}
@@ -346,7 +346,7 @@ function ManagedSettingsForm({ currentSummary, writeCapability, onApplyDone }: {
 
   return (
     <div>
-      <h3 className="text-lg font-medium text-[var(--text)]">Managed settings</h3>
+      <h2 className="text-lg font-medium text-[var(--text)]">Managed settings</h2>
 
       {/* Preview mode banner */}
       {!writeCapability.supported && (
@@ -490,7 +490,7 @@ function ManagedSettingsForm({ currentSummary, writeCapability, onApplyDone }: {
       {/* Apply progress */}
       {applyJobId && (
         <div className="mt-4 space-y-3">
-          <h4 className="text-sm font-medium text-[var(--text)]">Apply progress</h4>
+          <h3 className="text-sm font-medium text-[var(--text)]">Apply progress</h3>
 
           <div className="flex items-center gap-2 text-xs">
             {!applyTerminal && <span className="inline-block size-2 animate-pulse rounded-full bg-[var(--run)]" />}
@@ -625,7 +625,7 @@ function RegistryAuthSection({
     <div>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="text-lg font-medium text-[var(--text)]">Registry auth</h3>
+          <h2 className="text-lg font-medium text-[var(--text)]">Registry auth</h2>
           <p className="mt-1 text-xs text-[var(--muted)]">
             Authenticate Docker pulls and builds against private registries using Stacklab&apos;s effective Docker client config.
           </p>

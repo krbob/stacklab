@@ -1,7 +1,7 @@
 {
   "name": "Stacklab",
   "short_name": "Stacklab",
-  "description": "Host-native Compose control panel",
+  "description": "Manage Docker Compose stacks, host health, updates, and maintenance from a host-native control panel.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0c0906",

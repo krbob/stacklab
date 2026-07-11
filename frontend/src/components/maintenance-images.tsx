@@ -29,7 +29,7 @@ export function MaintenanceImages() {
     <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 className="text-lg font-medium text-[var(--text)]">Images</h3>
+          <h2 className="text-lg font-medium text-[var(--text)]">Images</h2>
           <p className="mt-1 text-xs text-[var(--muted)]">
             {images.length} images · {formatBytes(totalSize)} total · {unusedCount} unused
           </p>

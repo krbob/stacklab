@@ -60,6 +60,8 @@ describe('StacksPage', () => {
   it('renders tiles with stats, drift badge, and metadata links', async () => {
     renderPage()
 
+    expect(screen.getByRole('heading', { level: 1, name: 'Stacks' })).toBeInTheDocument()
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
     await waitFor(() => expect(screen.getByTestId('stack-card-adguardhome')).toBeInTheDocument())
     expect(screen.getByText('cpu 0.4%')).toBeInTheDocument()
     expect(screen.getByText('mem 89M')).toBeInTheDocument()

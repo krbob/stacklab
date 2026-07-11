@@ -336,6 +336,9 @@ describe('ConfigPage', () => {
 
     renderPage()
 
+    expect(screen.getByRole('heading', { level: 1, name: 'Config' })).toBeInTheDocument()
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+
     fireEvent.click(await screen.findByRole('button', { name: 'demo' }))
     fireEvent.click(await screen.findByRole('button', { name: 'app.conf' }))
 
