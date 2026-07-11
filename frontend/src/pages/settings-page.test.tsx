@@ -299,6 +299,66 @@ describe("SettingsPage", () => {
     });
   });
 
+  it("requires a review before scheduling unused volume deletion", async () => {
+    mockUpdateMaintenanceSchedules.mockResolvedValue({
+      timezone: 'host_local',
+      update: {
+        enabled: false,
+        frequency: 'weekly',
+        time: '03:30',
+        weekdays: ['sat'],
+        target: { mode: 'all' },
+        options: { pull_images: true, build_images: true, remove_orphans: true, prune_after: false, include_volumes: false },
+        status: {},
+      },
+      prune: {
+        enabled: true,
+        frequency: 'weekly',
+        time: '04:30',
+        weekdays: ['sun'],
+        scope: { images: true, build_cache: true, stopped_containers: true, volumes: true },
+        status: {},
+      },
+    });
+
+    render(<SettingsPage />);
+    await screen.findByText("Maintenance schedules");
+
+    fireEvent.click(screen.getByLabelText("Scheduled cleanup"));
+    fireEvent.click(screen.getByLabelText("Unused volumes"));
+    fireEvent.click(screen.getByText("Save schedules"));
+
+    const dialog = screen.getByRole("dialog", { name: "Enable scheduled volume deletion?" });
+    expect(within(dialog).getByText("Scheduled cleanup: weekly on Sun at 04:30")).toBeInTheDocument();
+    expect(within(dialog).getByText("Scope: unused Docker volumes and their data")).toBeInTheDocument();
+    expect(mockUpdateMaintenanceSchedules).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save volume cleanup" }));
+    await waitFor(() => {
+      expect(mockUpdateMaintenanceSchedules).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prune: expect.objectContaining({
+            enabled: true,
+            scope: expect.objectContaining({ volumes: true }),
+          }),
+        }),
+      );
+    });
+  });
+
+  it("does not save scheduled volume deletion when the review is cancelled", async () => {
+    render(<SettingsPage />);
+    await screen.findByText("Maintenance schedules");
+
+    fireEvent.click(screen.getByLabelText("Scheduled cleanup"));
+    fireEvent.click(screen.getByLabelText("Unused volumes"));
+    fireEvent.click(screen.getByText("Save schedules"));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(mockUpdateMaintenanceSchedules).not.toHaveBeenCalled();
+  });
+
   it("blocks maintenance schedule edits when loading schedules fails", async () => {
     mockGetMaintenanceSchedules.mockRejectedValue(new Error("schedule load failed"));
 

@@ -64,7 +64,7 @@ rozszerzania zakresu produktu poza model single-host i Compose-first.
 | UX-02 | done | Zablokować pusty zapis po błędzie ładowania edytora | definicja i resolved preview ładują się niezależnie; Save wymaga poprawnie załadowanej rewizji; błąd ma Retry | `fix(ui): block editor saves until definition loads` |
 | UX-03 | done | Objąć drafty pełną ochroną nawigacji | Back/Forward, link, hotkey, command palette, zmiana pliku/katalogu/trybu i programmatic navigation wymagają decyzji; testy wszystkich dróg | `fix(ui): guard all unsaved draft transitions` |
 | UX-04 | done | Ujednolicić potwierdzenia Stop/Down | dialog pokazuje stack, liczbę kontenerów i wpływ na dane; destrukcyjne akcje są wizualnie oddzielone | `fix(ui): confirm disruptive stack actions` |
-| UX-05 | planned | Potwierdzać harmonogram usuwający wolumeny | zapis cyklicznego prune volumes wymaga jawnego review; podsumowanie ustawień pozostaje widoczne | `fix(ui): confirm scheduled volume cleanup` |
+| UX-05 | done | Potwierdzać harmonogram usuwający wolumeny | zapis cyklicznego prune volumes wymaga jawnego review; podsumowanie ustawień pozostaje widoczne | `fix(ui): confirm scheduled volume cleanup` |
 | DATA-01 | planned | Zapisywać compose i `.env` jako jedną rewizję | staging obu plików, rollback przy drugim błędzie i fault-injection test; create usuwa częściowy stan | `fix(stacks): commit definition files transactionally` |
 
 ### Release engineering

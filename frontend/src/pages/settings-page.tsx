@@ -492,6 +492,12 @@ function NotificationsSection() {
 const ALL_WEEKDAYS: ScheduleWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
 const WEEKDAY_LABELS: Record<ScheduleWeekday, string> = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' }
 
+function describeSchedule(frequency: ScheduleFrequency, time: string, weekdays: ScheduleWeekday[]): string {
+  if (frequency === 'daily') return `daily at ${time}`
+  const days = weekdays.length > 0 ? weekdays.map((day) => WEEKDAY_LABELS[day]).join(', ') : 'no selected days'
+  return `weekly on ${days} at ${time}`
+}
+
 function cleanedExcludedServices(excluded: Record<string, string[]>): Record<string, string[]> | undefined {
   const result: Record<string, string[]> = {}
   for (const [stackId, services] of Object.entries(excluded)) {
@@ -529,6 +535,7 @@ function SchedulesSection() {
   const [expandedServiceStacks, setExpandedServiceStacks] = useState<Set<string>>(new Set())
   const [savingSchedules, setSavingSchedules] = useState(false)
   const [saveResult, setSaveResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [confirmVolumeCleanup, setConfirmVolumeCleanup] = useState(false)
 
   // Update policy
   const [updateEnabled, setUpdateEnabled] = useState(false)
@@ -607,6 +614,18 @@ function SchedulesSection() {
   const hasVisibleExcludedServices = useMemo(() => (
     hasExcludedServices(filteredExcludedServices(updateExcludedServices, visibleUpdateStackIds) ?? {})
   ), [updateExcludedServices, visibleUpdateStackIds])
+  const volumeCleanupSummary = useMemo(() => {
+    const summary: string[] = []
+    if (updateEnabled && updatePrune && updatePruneVol) {
+      const target = updateTargetMode === 'all' ? 'all stacks' : `${updateTargetStacks.length} selected stack(s)`
+      summary.push(`After stack update: ${describeSchedule(updateFreq, updateTime, updateWeekdays)}; ${target}`)
+    }
+    if (pruneEnabled && pruneVolumes) {
+      summary.push(`Scheduled cleanup: ${describeSchedule(pruneFreq, pruneTime, pruneWeekdays)}`)
+    }
+    if (summary.length > 0) summary.push('Scope: unused Docker volumes and their data')
+    return summary
+  }, [pruneEnabled, pruneFreq, pruneTime, pruneVolumes, pruneWeekdays, updateEnabled, updateFreq, updatePrune, updatePruneVol, updateTargetMode, updateTargetStacks.length, updateTime, updateWeekdays])
 
   const ensureServicesLoaded = useCallback((stackId: string) => {
     if (serviceOptions[stackId] || serviceLoading[stackId]) return
@@ -675,12 +694,7 @@ function SchedulesSection() {
     }
   }, [])
 
-  const handleSave = useCallback(async () => {
-    if (loadError) return
-    if (updateTargetMode === 'selected' && updateTargetStacks.length === 0) {
-      setSaveResult({ type: 'error', text: 'Select at least one stack for scheduled updates' })
-      return
-    }
+  const saveSchedules = useCallback(async () => {
     setSavingSchedules(true)
     setSaveResult(null)
     try {
@@ -723,7 +737,20 @@ function SchedulesSection() {
     } finally {
       setSavingSchedules(false)
     }
-  }, [loadError, updateEnabled, updateFreq, updateTime, updateWeekdays, updateTargetMode, updateTargetStacks, visibleUpdateStackIds, updateExcludedServices, updatePull, updateBuild, updateOrphans, updatePrune, updatePruneVol, pruneEnabled, pruneFreq, pruneTime, pruneWeekdays, pruneImages, pruneBuildCache, pruneStopped, pruneVolumes])
+  }, [updateEnabled, updateFreq, updateTime, updateWeekdays, updateTargetMode, updateTargetStacks, visibleUpdateStackIds, updateExcludedServices, updatePull, updateBuild, updateOrphans, updatePrune, updatePruneVol, pruneEnabled, pruneFreq, pruneTime, pruneWeekdays, pruneImages, pruneBuildCache, pruneStopped, pruneVolumes])
+
+  const handleSave = useCallback(() => {
+    if (loadError) return
+    if (updateTargetMode === 'selected' && updateTargetStacks.length === 0) {
+      setSaveResult({ type: 'error', text: 'Select at least one stack for scheduled updates' })
+      return
+    }
+    if (volumeCleanupSummary.length > 0) {
+      setConfirmVolumeCleanup(true)
+      return
+    }
+    void saveSchedules()
+  }, [loadError, saveSchedules, updateTargetMode, updateTargetStacks.length, volumeCleanupSummary.length])
 
   if (loading) {
     return (
@@ -890,6 +917,20 @@ function SchedulesSection() {
           {savingSchedules ? 'Saving...' : 'Save schedules'}
         </button>
       </div>
+
+      {confirmVolumeCleanup && (
+        <ConfirmDialog
+          title="Enable scheduled volume deletion?"
+          message="Unused Docker volumes can contain persistent application data. This cleanup will run automatically without another confirmation."
+          items={volumeCleanupSummary}
+          confirmLabel="Save volume cleanup"
+          onConfirm={() => {
+            setConfirmVolumeCleanup(false)
+            void saveSchedules()
+          }}
+          onCancel={() => setConfirmVolumeCleanup(false)}
+        />
+      )}
     </div>
   )
 }
