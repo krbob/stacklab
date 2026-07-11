@@ -285,6 +285,9 @@ Recommended publication behavior:
 - stable workflow publishes to GitHub Release and APT `stable`
 - nightly workflow publishes to GitHub prerelease and APT `nightly`
 - hotfix workflow publishes to GitHub Release and APT `stable`
+- stable, nightly, hotfix, and manual APT publication share the
+  `apt-pages-publication` concurrency group with cancellation disabled; this
+  serializes every workflow that can update `gh-pages`
 
 Retention policy:
 

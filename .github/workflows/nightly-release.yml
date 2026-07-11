@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: nightly-release-${{ github.workflow }}
+  group: apt-pages-publication
   cancel-in-progress: false
 
 jobs:

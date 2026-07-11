@@ -23,7 +23,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: apt-publish-${{ github.workflow }}-${{ github.ref }}
+  group: apt-pages-publication
   cancel-in-progress: false
 
 jobs:

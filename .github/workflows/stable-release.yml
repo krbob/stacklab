@@ -14,7 +14,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: stable-release-${{ github.workflow }}
+  group: apt-pages-publication
   cancel-in-progress: false
 
 jobs:

@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: hotfix-release-${{ github.workflow }}-${{ github.ref }}
+  group: apt-pages-publication
   cancel-in-progress: false
 
 jobs:
