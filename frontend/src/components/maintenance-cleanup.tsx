@@ -30,7 +30,13 @@ export function MaintenanceCleanup() {
   const [error, setError] = useState<string | null>(null)
   const [confirmCleanup, setConfirmCleanup] = useState(false)
 
-  const { data: preview, loading: previewLoading, refetch: refetchPreview } = useApi(
+  const {
+    data: preview,
+    error: previewError,
+    loading: previewLoading,
+    updatedAt: previewUpdatedAt,
+    refetch: refetchPreview,
+  } = useApi(
     () => getMaintenancePrunePreview({ images: true, build_cache: true, stopped_containers: true, volumes: true }),
     [],
   )
@@ -39,7 +45,10 @@ export function MaintenanceCleanup() {
   const isTerminal = jobState === 'succeeded' || jobState === 'failed' || jobState === 'cancelled' || jobState === 'timed_out'
   const running = startPending || (jobId !== null && !isTerminal)
 
+  const previewReady = preview?.preview != null && previewUpdatedAt != null && !previewLoading && previewError == null
+
   const handlePrune = useCallback(async () => {
+    if (!previewReady) return
     setConfirmCleanup(false)
     setStartPending(true)
     setError(null)
@@ -59,7 +68,7 @@ export function MaintenanceCleanup() {
     } finally {
       setStartPending(false)
     }
-  }, [pruneImages, pruneBuildCache, pruneStopped, pruneVolumes])
+  }, [previewReady, pruneImages, pruneBuildCache, pruneStopped, pruneVolumes])
 
   useEffect(() => {
     if (jobId && jobState === 'succeeded') {
@@ -67,18 +76,23 @@ export function MaintenanceCleanup() {
     }
   }, [jobId, jobState, refetchPreview])
 
+  useEffect(() => {
+    if (!previewReady) setConfirmCleanup(false)
+  }, [previewReady])
+
   const p = preview?.preview
   const volumePreviewItems = p?.volumes.items ?? []
   const volumeConfirmItems = volumePreviewItems.length > 0
     ? volumePreviewItems.slice(0, 8).map((item) => item.reference).concat(volumePreviewItems.length > 8 ? [`+${volumePreviewItems.length - 8} more`] : [])
     : ['No unused external volumes in preview.']
   const requestPrune = useCallback(() => {
+    if (!previewReady) return
     if (pruneVolumes) {
       setConfirmCleanup(true)
       return
     }
     handlePrune()
-  }, [handlePrune, pruneVolumes])
+  }, [handlePrune, previewReady, pruneVolumes])
 
   return (
     <div className="flex flex-col gap-4 lg:flex-row" style={{ minHeight: '400px' }}>
@@ -114,13 +128,25 @@ export function MaintenanceCleanup() {
           </div>
         )}
 
-        {previewLoading && <p className="mt-2 text-xs text-[var(--muted)]">Loading preview...</p>}
+        {previewLoading && <p className="mt-2 text-xs text-[var(--muted)]" role="status">Loading preview...</p>}
+        {previewError && !previewLoading && (
+          <div className="mt-3 rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-3 py-2" role="alert">
+            <p className="text-xs text-[var(--danger)]">Preview failed: {previewError.message}</p>
+            <button
+              type="button"
+              onClick={refetchPreview}
+              className="mt-2 rounded-md border border-[var(--panel-border)] px-2 py-1 text-xs text-[var(--text)] hover:border-[var(--danger)]/40"
+            >
+              Retry preview
+            </button>
+          </div>
+        )}
 
         {/* Prune button */}
         <button
           data-testid="maintenance-prune"
           onClick={requestPrune}
-          disabled={running || (!pruneImages && !pruneBuildCache && !pruneStopped && !pruneVolumes)}
+          disabled={!previewReady || running || (!pruneImages && !pruneBuildCache && !pruneStopped && !pruneVolumes)}
           className="mt-4 w-full rounded-lg border border-[var(--danger)]/30 bg-[var(--danger)]/10 px-4 py-3 text-sm font-medium text-[var(--danger)] transition hover:bg-[var(--danger)]/20 disabled:opacity-40"
         >
           {running ? 'Cleaning...' : 'Run cleanup'}
@@ -153,7 +179,7 @@ export function MaintenanceCleanup() {
         )}
       </div>
 
-      {confirmCleanup && (
+      {confirmCleanup && previewReady && (
         <ConfirmDialog
           title="Run cleanup with volume removal?"
           message="This cleanup includes Docker volumes. Listed unused external volumes will be removed permanently."

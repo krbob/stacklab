@@ -41,6 +41,7 @@ describe('MaintenanceCleanup', () => {
       },
       error: null,
       loading: false,
+      updatedAt: 1,
       refetch: mockRefetch,
     })
 
@@ -149,5 +150,48 @@ describe('MaintenanceCleanup', () => {
         },
       })
     })
+  })
+
+  it.each([
+    ['loading', { data: null, error: null, loading: true, updatedAt: null }],
+    ['failed', { data: null, error: new Error('Docker is unavailable'), loading: false, updatedAt: null }],
+    ['missing', { data: null, error: null, loading: false, updatedAt: null }],
+  ])('does not allow volume cleanup when preview is %s', (_state, apiState) => {
+    mockUseApi.mockReturnValue({ ...apiState, refetch: mockRefetch })
+
+    render(<MaintenanceCleanup />)
+
+    fireEvent.click(screen.getAllByRole('checkbox')[3])
+    const runCleanup = screen.getByTestId('maintenance-prune')
+    expect(runCleanup).toBeDisabled()
+    fireEvent.click(runCleanup)
+
+    expect(screen.queryByRole('dialog', { name: 'Run cleanup with volume removal?' })).not.toBeInTheDocument()
+    expect(mockRunMaintenancePrune).not.toHaveBeenCalled()
+  })
+
+  it('shows a preview error and retries it without allowing cleanup', () => {
+    mockUseApi.mockReturnValue({
+      data: {
+        preview: {
+          images: { count: 2, reclaimable_bytes: 1024 },
+          build_cache: { count: 1, reclaimable_bytes: 2048 },
+          stopped_containers: { count: 0, reclaimable_bytes: 0 },
+          volumes: { count: 1, reclaimable_bytes: 0, items: [{ reference: 'external_media', size_bytes: 0, reason: 'unused_external_volume' }] },
+          total_reclaimable_bytes: 3072,
+        },
+      },
+      error: new Error('Docker is unavailable'),
+      loading: false,
+      updatedAt: 1,
+      refetch: mockRefetch,
+    })
+
+    render(<MaintenanceCleanup />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Preview failed: Docker is unavailable')
+    expect(screen.getByTestId('maintenance-prune')).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry preview' }))
+    expect(mockRefetch).toHaveBeenCalledTimes(1)
   })
 })

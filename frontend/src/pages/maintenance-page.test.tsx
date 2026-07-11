@@ -109,6 +109,7 @@ describe('MaintenancePage', () => {
           },
           error: null,
           loading: false,
+          updatedAt: 1,
           refetch: mockPruneRefetch,
         }
       }
