@@ -306,6 +306,9 @@ func (s *ServiceReader) Get(ctx context.Context, stackID string) (StackDetailRes
 	if !IsValidStackID(stackID) {
 		return StackDetailResponse{}, ErrNotFound
 	}
+	if err := s.validateStackRoot(stackID, true); err != nil {
+		return StackDetailResponse{}, err
+	}
 
 	allStacks, err := s.readStacks(ctx)
 	if err != nil {
@@ -651,6 +654,9 @@ func (s *ServiceReader) RemoveRuntime(ctx context.Context, stackID string) error
 }
 
 func (s *ServiceReader) RemoveDefinition(ctx context.Context, stackID string) error {
+	if err := s.validateStackRoot(stackID, true); err != nil {
+		return err
+	}
 	paths := stackPaths(s.cfg.RootDir, stackID)
 	if err := removeFileIfExists(paths.ComposeFilePath); err != nil {
 		return fmt.Errorf("remove compose file: %w", err)
@@ -675,6 +681,9 @@ func (s *ServiceReader) RecordDeployBaseline(ctx context.Context, stackID, jobID
 	}
 	if !IsValidStackID(stackID) {
 		return ErrNotFound
+	}
+	if err := s.validateStackRoot(stackID, false); err != nil {
+		return err
 	}
 	paths := stackPaths(s.cfg.RootDir, stackID)
 	composeBytes, err := os.ReadFile(paths.ComposeFilePath)
@@ -759,6 +768,9 @@ func (s *ServiceReader) imageRefsForStack(ctx context.Context, stackID string, s
 }
 
 func (s *ServiceReader) RemoveConfigDir(stackID string) error {
+	if !IsValidStackID(stackID) {
+		return ErrNotFound
+	}
 	paths := stackPaths(s.cfg.RootDir, stackID)
 	if err := removeDirIfExists(paths.ConfigPath); err != nil {
 		return fmt.Errorf("remove config dir: %w", err)
@@ -767,6 +779,9 @@ func (s *ServiceReader) RemoveConfigDir(stackID string) error {
 }
 
 func (s *ServiceReader) RemoveDataDir(stackID string) error {
+	if !IsValidStackID(stackID) {
+		return ErrNotFound
+	}
 	paths := stackPaths(s.cfg.RootDir, stackID)
 	if err := removeDirIfExists(paths.DataPath); err != nil {
 		return fmt.Errorf("remove data dir: %w", err)
@@ -874,6 +889,9 @@ func (s *ServiceReader) findStack(ctx context.Context, stackID string) (discover
 	if !IsValidStackID(stackID) {
 		return discoveredStack{}, ErrNotFound
 	}
+	if err := s.validateStackRoot(stackID, true); err != nil {
+		return discoveredStack{}, err
+	}
 
 	allStacks, err := s.readStacks(ctx)
 	if err != nil {
@@ -969,6 +987,12 @@ func (s *ServiceReader) readStacks(ctx context.Context) ([]discoveredStack, erro
 
 	stacks := make([]discoveredStack, 0, len(ids))
 	for id := range ids {
+		if err := s.validateStackRoot(id, true); err != nil {
+			s.logDefinitionWarning("ignored unsafe stack root", id, "root", err)
+			continue
+		}
+		s.clearDefinitionWarning(id, "root")
+
 		stack := discoveredStack{
 			ID:              id,
 			RootPath:        filepath.Join(s.cfg.RootDir, "stacks", id),
@@ -1088,6 +1112,11 @@ func (s *ServiceReader) scanDefinitions() (map[string]definitionSnapshot, error)
 		if !entry.IsDir() || !IsValidStackID(entry.Name()) {
 			continue
 		}
+		if err := s.validateStackRoot(entry.Name(), false); err != nil {
+			s.logDefinitionWarning("ignored unsafe stack root", entry.Name(), "root", err)
+			continue
+		}
+		s.clearDefinitionWarning(entry.Name(), "root")
 
 		stackRoot := filepath.Join(stacksRoot, entry.Name())
 		composePath := filepath.Join(stackRoot, "compose.yaml")
@@ -2242,6 +2271,46 @@ func pathExists(path string) (bool, error) {
 	default:
 		return false, err
 	}
+}
+
+func (s *ServiceReader) validateStackRoot(stackID string, allowMissing bool) error {
+	if !IsValidStackID(stackID) {
+		return ErrNotFound
+	}
+
+	stacksRoot := filepath.Join(s.cfg.RootDir, "stacks")
+	stackRoot := filepath.Join(stacksRoot, stackID)
+	info, err := os.Lstat(stackRoot)
+	if err != nil {
+		if os.IsNotExist(err) && allowMissing {
+			return nil
+		}
+		if os.IsNotExist(err) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("stat stack root: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return fmt.Errorf("%w: stack root must be a real directory", ErrInvalidState)
+	}
+
+	canonicalStacksRoot, err := filepath.EvalSymlinks(stacksRoot)
+	if err != nil {
+		return fmt.Errorf("resolve stacks root: %w", err)
+	}
+	canonicalStackRoot, err := filepath.EvalSymlinks(stackRoot)
+	if err != nil {
+		return fmt.Errorf("resolve stack root: %w", err)
+	}
+	relative, err := filepath.Rel(canonicalStacksRoot, canonicalStackRoot)
+	if err != nil {
+		return fmt.Errorf("compare stack root: %w", err)
+	}
+	if relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("%w: stack root escapes the managed stacks directory", ErrInvalidState)
+	}
+
+	return nil
 }
 
 func stackPaths(rootDir, stackID string) stackPathSet {

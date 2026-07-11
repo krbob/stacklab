@@ -326,18 +326,32 @@ func (s *Service) stackRoot(stackID string) (string, error) {
 		stackRoot = absolute
 	}
 
-	info, err := os.Stat(stackRoot)
+	info, err := os.Lstat(stackRoot)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", ErrNotFound
 		}
 		return "", fmt.Errorf("stat stack root: %w", err)
 	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("%w: stack root must not be a symlink", ErrPathOutsideWorkspace)
+	}
 	if !info.IsDir() {
 		return "", ErrNotFound
 	}
 
-	return stackRoot, nil
+	resolvedRoot, err := filepath.EvalSymlinks(stackRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", ErrNotFound
+		}
+		return "", fmt.Errorf("resolve stack root: %w", err)
+	}
+	if err := ensureWithinRoot(s.rootDir, resolvedRoot); err != nil {
+		return "", err
+	}
+
+	return resolvedRoot, nil
 }
 
 func (s *Service) resolveSaveTarget(stackRoot, normalizedPath string, createParentDirectories bool) (string, error) {

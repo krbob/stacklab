@@ -253,8 +253,18 @@ Rules:
 
 - all file paths must be resolved under the configured Stacklab root
 - reject path traversal and symlink escape attempts
+- a stack root must be a real directory entry, never a symlink, and its resolved
+  path must remain below the canonical `stacks` root
 - destructive operations must be explicit and separately flagged
 - deleting `/opt/stacklab/data/<stack>` is never the default path
+
+Linux `openat2(2)` with `RESOLVE_BENEATH` was evaluated for this boundary. It is
+not the primary mechanism because Stacklab also supports non-Linux development
+and passes stack paths to Docker Compose and narrowly scoped repair helpers,
+which cannot share an `openat2` directory descriptor. Stacklab therefore
+revalidates the stack root with `Lstat` and canonical containment at service
+entry points; a future Linux-only descriptor layer may further reduce TOCTOU
+windows for operations implemented entirely in-process.
 
 ## Privileged Helper Flows
 

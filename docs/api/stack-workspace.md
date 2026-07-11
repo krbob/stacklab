@@ -42,6 +42,8 @@ Rules:
 
 - all API paths are relative to this stack root
 - path traversal outside the root must be rejected
+- the stack root itself must be a real directory below the canonical managed
+  stacks root; a symlinked stack root is rejected
 - symlinks that resolve outside the root must be rejected
 - canonical root files are reserved:
   - `compose.yaml`

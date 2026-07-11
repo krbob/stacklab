@@ -192,6 +192,36 @@ func TestServiceSaveFileRejectsStaleModifiedAt(t *testing.T) {
 	}
 }
 
+func TestServiceSaveFileRejectsSymlinkedStackRoot(t *testing.T) {
+	t.Parallel()
+
+	rootDir := filepath.Join(t.TempDir(), "root")
+	stacksRoot := filepath.Join(rootDir, "stacks")
+	mustMkdirAll(t, stacksRoot)
+	externalRoot := t.TempDir()
+	externalPath := filepath.Join(externalRoot, "secret.conf")
+	mustWriteFile(t, externalPath, "original\n")
+	if err := os.Symlink(externalRoot, filepath.Join(stacksRoot, "demo")); err != nil {
+		t.Fatalf("Symlink(stack root) error = %v", err)
+	}
+
+	service := NewService(config.Config{RootDir: rootDir})
+	_, err := service.SaveFile(context.Background(), "demo", SaveFileRequest{
+		Path:    "secret.conf",
+		Content: "changed\n",
+	})
+	if !errors.Is(err, ErrPathOutsideWorkspace) {
+		t.Fatalf("SaveFile(symlinked stack root) error = %v, want %v", err, ErrPathOutsideWorkspace)
+	}
+	content, readErr := os.ReadFile(externalPath)
+	if readErr != nil {
+		t.Fatalf("ReadFile(external target) error = %v", readErr)
+	}
+	if string(content) != "original\n" {
+		t.Fatalf("external target content = %q, want unchanged", content)
+	}
+}
+
 func TestServicePermissionDiagnostics(t *testing.T) {
 	t.Parallel()
 

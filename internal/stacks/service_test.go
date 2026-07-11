@@ -679,6 +679,39 @@ func TestDeployBaselineDrivesConfigState(t *testing.T) {
 	}
 }
 
+func TestRemoveDefinitionRejectsSymlinkedStackRoot(t *testing.T) {
+	t.Parallel()
+
+	rootDir := filepath.Join(t.TempDir(), "root")
+	stacksRoot := filepath.Join(rootDir, "stacks")
+	if err := os.MkdirAll(stacksRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(stacks root) error = %v", err)
+	}
+	externalRoot := t.TempDir()
+	composePath := filepath.Join(externalRoot, "compose.yaml")
+	envPath := filepath.Join(externalRoot, ".env")
+	if err := os.WriteFile(composePath, []byte("services: {}\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(compose target) error = %v", err)
+	}
+	if err := os.WriteFile(envPath, []byte("SECRET=outside\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(env target) error = %v", err)
+	}
+	if err := os.Symlink(externalRoot, filepath.Join(stacksRoot, "demo")); err != nil {
+		t.Fatalf("Symlink(stack root) error = %v", err)
+	}
+
+	reader := NewServiceReader(config.Config{RootDir: rootDir}, nil)
+	err := reader.RemoveDefinition(context.Background(), "demo")
+	if !errors.Is(err, ErrInvalidState) {
+		t.Fatalf("RemoveDefinition(symlinked stack root) error = %v, want %v", err, ErrInvalidState)
+	}
+	for _, target := range []string{composePath, envPath} {
+		if _, statErr := os.Stat(target); statErr != nil {
+			t.Fatalf("external target %q was changed: %v", target, statErr)
+		}
+	}
+}
+
 func TestGetIncludesImageUpdateRollup(t *testing.T) {
 	t.Parallel()
 

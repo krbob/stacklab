@@ -85,7 +85,7 @@ rozszerzania zakresu produktu poza model single-host i Compose-first.
 
 | ID | Status | Krok | Kryterium odbioru | Planowany commit |
 | --- | --- | --- | --- | --- |
-| FS-01 | planned | Odrzucać symlinkowany root stacka | `Lstat` rootu, kontrola względem kanonicznego stacks root, test escape; ocena `openat2 RESOLVE_BENEATH` | `fix(workspace): reject symlinked stack roots` |
+| FS-01 | done | Odrzucać symlinkowany root stacka | `Lstat` rootu, kontrola względem kanonicznego stacks root, test escape; ocena `openat2 RESOLVE_BENEATH` | `fix(workspace): reject symlinked stack roots` |
 | FS-02 | planned | Limitować odczyty plików i outputów | limit przed alokacją dla workspace, definicji, diffów i Compose; jawny `content_too_large`/`413` | `fix(io): bound workspace and command output` |
 | GIT-01 | planned | Nie usuwać obcego `index.lock` | lock bez udowodnionej własności daje `operation_in_progress`; commit używa bezpiecznego indexu tymczasowego lub transakcji | `fix(git): preserve external index locks` |
 | DATA-02 | planned | Wersjonować migracje SQLite | tabela wersji, transakcja per migracja, test upgrade z poprzedniego schematu i zgodność rollbacku | `refactor(store): add versioned migrations` |

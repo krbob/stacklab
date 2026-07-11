@@ -1833,6 +1833,8 @@ func (h *Handler) handleGetStack(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, stacks.ErrNotFound):
 			writeError(w, http.StatusNotFound, "not_found", "Stack was not found.", nil)
+		case errors.Is(err, stacks.ErrInvalidState):
+			writeError(w, http.StatusConflict, "invalid_state", "Stack root is not a managed directory.", nil)
 		default:
 			h.logger.Error("get stack failed", slog.String("stack_id", r.PathValue("stackId")), slog.String("err", err.Error()))
 			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to load stack.", nil)
@@ -2029,6 +2031,8 @@ func (h *Handler) handleDeleteStack(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, stacks.ErrNotFound):
 			writeError(w, http.StatusNotFound, "not_found", "Stack was not found.", nil)
+		case errors.Is(err, stacks.ErrInvalidState):
+			writeError(w, http.StatusConflict, "invalid_state", "Stack root is not a managed directory.", nil)
 		default:
 			h.logger.Error("preflight delete stack failed", slog.String("stack_id", r.PathValue("stackId")), slog.String("err", err.Error()))
 			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to remove stack.", nil)
