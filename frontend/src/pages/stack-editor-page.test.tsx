@@ -100,7 +100,7 @@ describe('StackEditorPage', () => {
 
     await screen.findByText('✓ Config valid')
     const saveDeploy = screen.getByTestId('editor-save-deploy')
-    expect(saveDeploy).not.toBeDisabled()
+    expect(saveDeploy).toBeDisabled()
 
     fireEvent.click(screen.getByText('Last deployed'))
     await waitFor(() => {
@@ -215,5 +215,55 @@ describe('StackEditorPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
 
     expect(editor).toHaveValue('services:\n  app:\n    image: nginx:alpine\n')
+  })
+
+  it('keeps the loaded definition editable when the optional resolved preview fails', async () => {
+    mockGetResolvedConfig.mockRejectedValue(new Error('Docker is unavailable'))
+
+    render(<StackEditorPage />)
+
+    const editor = await screen.findByLabelText('yaml-editor')
+    expect(editor).toHaveValue('services:\n  app:\n    image: nginx:alpine\n')
+    expect(await screen.findByText('Docker is unavailable')).toBeInTheDocument()
+    expect(screen.getByTestId('editor-save')).toBeDisabled()
+
+    fireEvent.change(editor, {
+      target: { value: 'services:\n  app:\n    image: nginx:edited\n' },
+    })
+    expect(screen.getByTestId('editor-save')).not.toBeDisabled()
+  })
+
+  it('does not render an empty editor when the definition fails and retries the load', async () => {
+    mockGetDefinition
+      .mockRejectedValueOnce(new Error('Definition request failed'))
+      .mockResolvedValueOnce({
+        stack_id: 'demo',
+        files: {
+          compose_yaml: {
+            path: '/srv/stacklab/stacks/demo/compose.yaml',
+            content: 'services:\n  recovered:\n    image: nginx:stable\n',
+            modified_at: '2026-07-09T09:00:00Z',
+          },
+          env: {
+            path: '/srv/stacklab/stacks/demo/.env',
+            content: '',
+            exists: false,
+            modified_at: null,
+          },
+        },
+        config_state: 'in_sync',
+      })
+
+    render(<StackEditorPage />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Definition request failed')
+    expect(screen.queryByLabelText('yaml-editor')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('editor-save')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+    expect(await screen.findByLabelText('yaml-editor')).toHaveValue('services:\n  recovered:\n    image: nginx:stable\n')
+    expect(mockGetDefinition).toHaveBeenCalledTimes(2)
+    expect(screen.getByTestId('editor-save')).toBeDisabled()
   })
 })

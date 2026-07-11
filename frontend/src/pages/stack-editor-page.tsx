@@ -48,6 +48,9 @@ export function StackEditorPage() {
   const [pendingDeploy, setPendingDeploy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loadingDef, setLoadingDef] = useState(true)
+  const [definitionError, setDefinitionError] = useState<string | null>(null)
+  const [definitionLoadAttempt, setDefinitionLoadAttempt] = useState(0)
+  const [loadingResolved, setLoadingResolved] = useState(true)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
 
   const isDirty = composeYaml !== savedCompose || envContent !== savedEnv
@@ -67,14 +70,14 @@ export function StackEditorPage() {
     markDraftStale()
   }, [markDraftStale])
 
-  // Load definition
+  // The editable definition is mandatory. Never expose an editor until it has
+  // loaded successfully, so a request failure cannot look like an empty file.
   useEffect(() => {
     let cancelled = false
     setLoadingDef(true)
-    Promise.all([
-      getDefinition(stack.id),
-      getResolvedConfig(stack.id),
-    ]).then(([def, resolved]) => {
+    setDefinitionError(null)
+    setDefinitionRevision(null)
+    getDefinition(stack.id).then((def) => {
       if (cancelled) return
       setComposeYaml(def.files.compose_yaml.content)
       setSavedCompose(def.files.compose_yaml.content)
@@ -82,6 +85,28 @@ export function StackEditorPage() {
       setSavedEnv(def.files.env.content)
       setEnvExists(def.files.env.exists)
       setDefinitionRevision(revisionFromDefinition(def))
+    }).catch((err) => {
+      if (cancelled) return
+      setDefinitionError(err instanceof Error ? err.message : 'Failed to load stack definition')
+    }).finally(() => {
+      if (!cancelled) setLoadingDef(false)
+    })
+    return () => { cancelled = true }
+  }, [stack.id, definitionLoadAttempt])
+
+  // Resolved config is an optional preview. Its failure must not hide a
+  // successfully loaded definition or replace it with an empty editor.
+  useEffect(() => {
+    let cancelled = false
+    setLoadingResolved(true)
+    setResolvedContent('')
+    setResolvedSource('current')
+    setResolvedError('')
+    setWarnings([])
+    setDraftValidationState('stale')
+    setDraftValidationMessage('Preview current changes before deploy')
+    getResolvedConfig(stack.id).then((resolved) => {
+      if (cancelled) return
       if (resolved.valid && resolved.content) {
         setResolvedContent(resolved.content)
         setResolvedSource('current')
@@ -98,12 +123,12 @@ export function StackEditorPage() {
       }
     }).catch((err) => {
       if (cancelled) return
-      setError(err.message)
+      setResolvedError(err instanceof Error ? err.message : 'Resolved preview is unavailable')
     }).finally(() => {
-      if (!cancelled) setLoadingDef(false)
+      if (!cancelled) setLoadingResolved(false)
     })
     return () => { cancelled = true }
-  }, [stack.id])
+  }, [stack.id, definitionLoadAttempt])
 
   const previewDraft = useCallback(async () => {
     try {
@@ -165,6 +190,7 @@ export function StackEditorPage() {
 
   // Save (and optionally deploy after save completes)
   const handleSave = useCallback(async (deploy: boolean) => {
+    if (!definitionRevision || !isDirty) return
     setSaving(true)
     setError(null)
     setActiveJobId(null)
@@ -196,9 +222,10 @@ export function StackEditorPage() {
     } finally {
       setSaving(false)
     }
-  }, [stack.id, composeYaml, envContent, definitionRevision])
+  }, [stack.id, composeYaml, envContent, definitionRevision, isDirty])
 
   const handleSaveAndDeploy = useCallback(async () => {
+    if (!definitionRevision || !isDirty) return
     if (draftValidationState !== 'valid') {
       setSaving(true)
       const valid = await previewDraft()
@@ -206,7 +233,7 @@ export function StackEditorPage() {
       if (!valid) return
     }
     await handleSave(true)
-  }, [draftValidationState, previewDraft, handleSave])
+  }, [definitionRevision, isDirty, draftValidationState, previewDraft, handleSave])
 
   const handleDiscard = useCallback(() => {
     setComposeYaml(savedCompose)
@@ -260,6 +287,24 @@ export function StackEditorPage() {
     )
   }
 
+  if (definitionError || !definitionRevision) {
+    return (
+      <div className="rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-4" role="alert">
+        <h3 className="text-sm font-medium text-[var(--danger)]">Stack definition could not be loaded</h3>
+        <p className="mt-1 text-xs text-[var(--muted)]">{definitionError ?? 'The definition response did not include a revision.'}</p>
+        <button
+          type="button"
+          onClick={() => setDefinitionLoadAttempt((attempt) => attempt + 1)}
+          className="mt-3 rounded-md border border-[var(--panel-border)] px-3 py-1.5 text-xs text-[var(--text)] hover:border-[var(--danger)]/40"
+        >
+          Retry
+        </button>
+      </div>
+    )
+  }
+
+  const saveDisabled = saving || !isDirty || stack.activity_state === 'locked'
+
   return (
     <div className="flex flex-col gap-3">
       <UnsavedChangesGuard when={isDirty && !saving} />
@@ -300,7 +345,8 @@ export function StackEditorPage() {
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={handlePreview}
-            className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]"
+            disabled={saving}
+            className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)] disabled:opacity-40"
           >
             Preview
           </button>
@@ -322,7 +368,7 @@ export function StackEditorPage() {
           <button
             data-testid="editor-save"
             onClick={() => handleSave(false)}
-            disabled={saving || stack.activity_state === 'locked'}
+            disabled={saveDisabled}
             className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40"
           >
             {saving ? 'Saving...' : 'Save'}
@@ -330,7 +376,7 @@ export function StackEditorPage() {
           <button
             data-testid="editor-save-deploy"
             onClick={handleSaveAndDeploy}
-            disabled={saving || stack.activity_state === 'locked'}
+            disabled={saveDisabled}
             className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40"
           >
             Save & Deploy
@@ -392,7 +438,9 @@ export function StackEditorPage() {
           <div className="mb-2 text-[var(--accent)] text-xs uppercase tracking-wider">
             {resolvedSource === 'last_valid' ? 'Last deployed config' : resolvedSource === 'draft' ? 'Draft resolved config' : 'Resolved config'}
           </div>
-          {resolvedContent ? (
+          {loadingResolved ? (
+            <span role="status">Loading resolved preview...</span>
+          ) : resolvedContent ? (
             <pre className="whitespace-pre-wrap break-words text-[var(--text)]">{resolvedContent}</pre>
           ) : resolvedError ? (
             <pre className="text-[var(--danger)]">{resolvedError}</pre>
