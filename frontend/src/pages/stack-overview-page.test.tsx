@@ -127,6 +127,9 @@ describe('StackOverviewPage', () => {
     const { rerender } = renderOverview()
 
     fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+    expect(screen.getByRole('dialog', { name: 'Stop stack "demo"?' })).toBeInTheDocument()
+    expect(mockInvokeAction).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Stop stack' }))
 
     await waitFor(() => {
       expect(mockInvokeAction).toHaveBeenCalledWith('demo', 'stop')
@@ -138,6 +141,50 @@ describe('StackOverviewPage', () => {
 
     await waitFor(() => {
       expect(mockRefetch).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it('does not stop a stack when confirmation is cancelled', () => {
+    renderOverview()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(mockInvokeAction).not.toHaveBeenCalled()
+  })
+
+  it('explains the data impact before taking a stack down', async () => {
+    outletStack = {
+      ...baseStack,
+      containers: [{
+        id: 'abc123',
+        name: 'demo-web-1',
+        service_name: 'web',
+        image_id: 'sha256:abc',
+        image_ref: 'nginx:alpine',
+        status: 'running',
+        health_status: null,
+        started_at: '2026-01-01T00:00:00Z',
+        ports: [],
+        networks: [],
+      }],
+    }
+    mockInvokeAction.mockResolvedValue({
+      job: { id: 'job_down_1', stack_id: 'demo', action: 'down', state: 'running' },
+    })
+
+    renderOverview()
+    fireEvent.click(screen.getByRole('button', { name: 'Down' }))
+
+    expect(screen.getByRole('dialog', { name: 'Take stack "demo" down?' })).toBeInTheDocument()
+    expect(screen.getByText('1 running container(s)')).toBeInTheDocument()
+    expect(screen.getByText('Persistent volumes are not deleted')).toBeInTheDocument()
+    expect(mockInvokeAction).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Take down' }))
+    await waitFor(() => {
+      expect(mockInvokeAction).toHaveBeenCalledWith('demo', 'down')
     })
   })
 

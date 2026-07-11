@@ -4,6 +4,7 @@ import { FileText, Terminal } from 'lucide-react'
 import { invokeAction, updateStacksMaintenance } from '@/lib/api-client'
 import { useJobStream } from '@/hooks/use-job-stream'
 import type { StackDetailResponse } from '@/lib/api-types'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { DeleteStackDialog } from '@/components/delete-stack-dialog'
 import { ProgressPanel } from '@/components/progress-panel'
 import { cn } from '@/lib/cn'
@@ -22,6 +23,8 @@ const healthIcon: Record<string, string> = {
   unhealthy: '!',
   starting: '~',
 }
+
+type DisruptiveAction = 'stop' | 'down'
 
 export function StackOverviewPage() {
   const { stack, refetch } = useOutletContext<{
@@ -160,6 +163,7 @@ function ActionBar({
 }) {
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [pendingAction, setPendingAction] = useState<DisruptiveAction | null>(null)
   const activeJobStream = useJobStream({ jobId: activeJobId })
   const activeJobState = activeJobStream.state
   const terminalActionState = activeJobState === 'succeeded' || activeJobState === 'failed' || activeJobState === 'cancelled' || activeJobState === 'timed_out'
@@ -210,11 +214,11 @@ function ActionBar({
     onAction()
   }, [onAction])
 
-  const buttons: { label: string; action: string; variant?: 'danger' }[] = [
+  const buttons: { label: string; action: string; variant?: 'danger'; confirmation?: DisruptiveAction }[] = [
     { label: 'Deploy', action: 'up' },
     { label: 'Restart', action: 'restart' },
-    { label: 'Stop', action: 'stop' },
-    { label: 'Down', action: 'down', variant: 'danger' },
+    { label: 'Stop', action: 'stop', confirmation: 'stop' },
+    { label: 'Down', action: 'down', variant: 'danger', confirmation: 'down' },
     { label: 'Pull', action: 'pull' },
     { label: 'Build', action: 'build' },
   ]
@@ -238,7 +242,13 @@ function ActionBar({
             <button
               key={btn.action}
               disabled={locked}
-              onClick={() => handleAction(btn.action)}
+              onClick={() => {
+                if (btn.confirmation) {
+                  setPendingAction(btn.confirmation)
+                  return
+                }
+                void handleAction(btn.action)
+              }}
               className={cn(
                 'rounded-md border px-3 py-1.5 text-xs font-medium transition disabled:opacity-40',
                 btn.variant === 'danger'
@@ -266,6 +276,26 @@ function ActionBar({
         <div className="rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">
           {actionError}
         </div>
+      )}
+
+      {pendingAction && (
+        <ConfirmDialog
+          title={pendingAction === 'stop' ? `Stop stack "${stack.name}"?` : `Take stack "${stack.name}" down?`}
+          message={pendingAction === 'stop'
+            ? 'This stops the running containers. The containers and their data remain available for the next deploy.'
+            : 'This removes the stack containers and Compose networks. Persistent volumes and their data are not deleted.'}
+          items={[
+            `${stack.containers.filter((container) => container.status === 'running').length} running container(s)`,
+            pendingAction === 'stop' ? 'Persistent volumes are preserved' : 'Persistent volumes are not deleted',
+          ]}
+          confirmLabel={pendingAction === 'stop' ? 'Stop stack' : 'Take down'}
+          onConfirm={() => {
+            const action = pendingAction
+            setPendingAction(null)
+            void handleAction(action)
+          }}
+          onCancel={() => setPendingAction(null)}
+        />
       )}
 
       {activeJobId && <ProgressPanel jobId={activeJobId} stream={activeJobStream} onDone={handleJobDone} onClose={() => setActiveJobId(null)} />}
