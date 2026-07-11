@@ -13,30 +13,29 @@ import (
 )
 
 var ErrNotFound = errors.New("job not found")
-var ErrStackLocked = errors.New("stack locked")
 var ErrNotCancellable = errors.New("job is not cancellable")
 
 const selfUpdateReconcileGracePeriod = 2 * time.Hour
 
 type Service struct {
-	store        *store.Store
-	mu           sync.Mutex
-	lockedByID   map[string]string
-	locksByJob   map[string][]string
-	cancelByJob  map[string]context.CancelFunc
-	subsByJob    map[string]map[chan store.JobEvent]struct{}
-	activitySubs map[chan struct{}]struct{}
-	onTerminal   func(store.Job)
+	store            *store.Store
+	mu               sync.Mutex
+	lockedByResource map[Resource]string
+	resourcesByJob   map[string][]Resource
+	cancelByJob      map[string]context.CancelFunc
+	subsByJob        map[string]map[chan store.JobEvent]struct{}
+	activitySubs     map[chan struct{}]struct{}
+	onTerminal       func(store.Job)
 }
 
 func NewService(jobStore *store.Store) *Service {
 	return &Service{
-		store:        jobStore,
-		lockedByID:   map[string]string{},
-		locksByJob:   map[string][]string{},
-		cancelByJob:  map[string]context.CancelFunc{},
-		subsByJob:    map[string]map[chan store.JobEvent]struct{}{},
-		activitySubs: map[chan struct{}]struct{}{},
+		store:            jobStore,
+		lockedByResource: map[Resource]string{},
+		resourcesByJob:   map[string][]Resource{},
+		cancelByJob:      map[string]context.CancelFunc{},
+		subsByJob:        map[string]map[chan store.JobEvent]struct{}{},
+		activitySubs:     map[chan struct{}]struct{}{},
 	}
 }
 
@@ -100,10 +99,10 @@ func (s *Service) RegisterCancel(jobID string, cancel context.CancelFunc) func()
 }
 
 func (s *Service) Start(ctx context.Context, stackID, action, requestedBy string) (store.Job, error) {
-	return s.StartWithLocks(ctx, stackID, action, requestedBy, nil)
+	return s.StartWithResources(ctx, stackID, action, requestedBy)
 }
 
-func (s *Service) StartWithLocks(ctx context.Context, stackID, action, requestedBy string, lockStackIDs []string) (store.Job, error) {
+func (s *Service) StartWithResources(ctx context.Context, stackID, action, requestedBy string, requestedResources ...Resource) (store.Job, error) {
 	now := time.Now().UTC()
 	job := store.Job{
 		ID:          "job_" + randomToken(18),
@@ -115,11 +114,12 @@ func (s *Service) StartWithLocks(ctx context.Context, stackID, action, requested
 		StartedAt:   &now,
 	}
 
-	locks := normalizeLockTargets(stackID, lockStackIDs)
-	if len(locks) > 0 {
-		if err := s.lockMany(job.ID, locks); err != nil {
-			return store.Job{}, err
-		}
+	resources, err := normalizeResources(stackID, requestedResources)
+	if err != nil {
+		return store.Job{}, err
+	}
+	if err := s.lockMany(job.ID, resources); err != nil {
+		return store.Job{}, err
 	}
 	if err := s.store.CreateJob(ctx, job); err != nil {
 		s.unlockAll(job.ID)
@@ -572,45 +572,27 @@ func markWorkflowCancelRequested(steps []store.JobWorkflowStep) []store.JobWorkf
 	return cloned
 }
 
-func normalizeLockTargets(primaryStackID string, additional []string) []string {
-	unique := map[string]struct{}{}
-	if primaryStackID != "" {
-		unique[primaryStackID] = struct{}{}
-	}
-	for _, stackID := range additional {
-		if stackID == "" {
-			continue
-		}
-		unique[stackID] = struct{}{}
-	}
-	if len(unique) == 0 {
-		return nil
-	}
-
-	locks := make([]string, 0, len(unique))
-	for stackID := range unique {
-		locks = append(locks, stackID)
-	}
-	return locks
-}
-
-func (s *Service) lockMany(jobID string, stackIDs []string) error {
+func (s *Service) lockMany(jobID string, resources []Resource) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	acquired := make([]string, 0, len(stackIDs))
-	for _, stackID := range stackIDs {
-		if currentJobID, ok := s.lockedByID[stackID]; ok && currentJobID != "" && currentJobID != jobID {
-			for _, acquiredID := range acquired {
-				delete(s.lockedByID, acquiredID)
+	for _, requested := range resources {
+		for conflicting, currentJobID := range s.lockedByResource {
+			if currentJobID != "" && currentJobID != jobID && ResourcesConflict(requested, conflicting) {
+				return &ResourceConflictError{
+					Reason:           ConflictReasonResourceHeld,
+					Requested:        requested,
+					Conflicting:      conflicting,
+					ConflictingJobID: currentJobID,
+				}
 			}
-			return ErrStackLocked
 		}
-		s.lockedByID[stackID] = jobID
-		acquired = append(acquired, stackID)
 	}
 
-	s.locksByJob[jobID] = acquired
+	for _, resource := range resources {
+		s.lockedByResource[resource] = jobID
+	}
+	s.resourcesByJob[jobID] = append([]Resource(nil), resources...)
 	return nil
 }
 
@@ -618,16 +600,16 @@ func (s *Service) unlockAll(jobID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	stackIDs, ok := s.locksByJob[jobID]
+	resources, ok := s.resourcesByJob[jobID]
 	if !ok {
 		return
 	}
-	for _, stackID := range stackIDs {
-		currentJobID, ok := s.lockedByID[stackID]
+	for _, resource := range resources {
+		currentJobID, ok := s.lockedByResource[resource]
 		if !ok || currentJobID != jobID {
 			continue
 		}
-		delete(s.lockedByID, stackID)
+		delete(s.lockedByResource, resource)
 	}
-	delete(s.locksByJob, jobID)
+	delete(s.resourcesByJob, jobID)
 }

@@ -263,7 +263,7 @@ func TestReconcileInterruptedSkipsActiveSelfUpdate(t *testing.T) {
 	jobStore := openJobsTestStore(t)
 	service := NewService(jobStore)
 
-	job, err := service.Start(context.Background(), "", "self_update_stacklab", "local")
+	job, err := service.StartWithResources(context.Background(), "", "self_update_stacklab", "local", SelfUpdateResource())
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
@@ -299,7 +299,7 @@ func TestReconcileInterruptedFailsStaleSelfUpdate(t *testing.T) {
 	jobStore := openJobsTestStore(t)
 	service := NewService(jobStore)
 
-	job, err := service.Start(context.Background(), "", "self_update_stacklab", "local")
+	job, err := service.StartWithResources(context.Background(), "", "self_update_stacklab", "local", SelfUpdateResource())
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}

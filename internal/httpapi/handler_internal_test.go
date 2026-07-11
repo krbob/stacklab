@@ -671,6 +671,38 @@ func TestHandlerDockerRegistryStatusLoginAndLogout(t *testing.T) {
 	}
 }
 
+func TestHandlerDockerRegistryLoginRejectsStackResourceConflict(t *testing.T) {
+	t.Parallel()
+
+	handler, served, _ := newInternalTestHandler(t)
+	cookies := loginInternalTestUser(t, served, "secret")
+	stackJob, err := handler.jobs.Start(context.Background(), "demo", "pull", "local")
+	if err != nil {
+		t.Fatalf("jobs.Start(stack) error = %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = handler.jobs.FinishSucceeded(context.Background(), stackJob)
+	})
+
+	response := performInternalJSONRequest(t, served, http.MethodPost, "/api/docker/registries/login", map[string]any{
+		"registry": "ghcr.io",
+		"username": "bob",
+		"password": "secret-token",
+	}, cookies)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("POST /api/docker/registries/login status = %d, want %d; body=%s", response.Code, http.StatusConflict, response.Body.String())
+	}
+	var payload struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	decodeInternalResponse(t, response, &payload)
+	if payload.Error.Code != "conflict" {
+		t.Fatalf("conflict error code = %q, want conflict", payload.Error.Code)
+	}
+}
+
 func TestHandlerDockerRegistryLoginCancelsWithAppContext(t *testing.T) {
 	t.Parallel()
 
@@ -918,7 +950,7 @@ func TestHandlerListActiveJobs(t *testing.T) {
 		t.Fatalf("jobs.PublishEvent(stack) error = %v", err)
 	}
 
-	globalJob, err := handler.jobs.Start(context.Background(), "", "update_stacks", "local")
+	globalJob, err := handler.jobs.StartWithResources(context.Background(), "", "update_stacks", "local", jobs.ImageUpdatesResource())
 	if err != nil {
 		t.Fatalf("jobs.Start(global) error = %v", err)
 	}
@@ -1151,9 +1183,9 @@ func TestHandlerImageUpdateCheckRejectsConcurrentRun(t *testing.T) {
 	handler, served, _ := newInternalTestHandler(t)
 	cookies := loginInternalTestUser(t, served, "secret")
 
-	lockingJob, err := handler.jobs.StartWithLocks(context.Background(), "", "check_image_updates", "local", []string{imageUpdateCheckLockTarget})
+	lockingJob, err := handler.jobs.StartWithResources(context.Background(), "", "check_image_updates", "local", jobs.ImageUpdatesResource())
 	if err != nil {
-		t.Fatalf("StartWithLocks(locking image check) error = %v", err)
+		t.Fatalf("StartWithResources(locking image check) error = %v", err)
 	}
 	t.Cleanup(func() {
 		_, _ = handler.jobs.FinishSucceeded(context.Background(), lockingJob)

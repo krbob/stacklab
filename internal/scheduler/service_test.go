@@ -59,7 +59,7 @@ func (f *fakeRunner) RunUpdate(ctx context.Context, request maintenancejobs.Upda
 	}, nil
 }
 
-func (f *fakeRunner) RunPrune(ctx context.Context, request maintenancejobs.PruneRequest, requestedBy string, lockStackIDs []string) (store.Job, error) {
+func (f *fakeRunner) RunPrune(ctx context.Context, request maintenancejobs.PruneRequest, requestedBy string, managedStackIDs []string) (store.Job, error) {
 	f.pruneCalls++
 	f.pruneReq = request
 	if f.pruneDone != nil {

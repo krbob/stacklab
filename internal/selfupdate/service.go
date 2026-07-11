@@ -30,7 +30,6 @@ const (
 	unsupportedInstallMessage  = "Stacklab self-update is only available for APT installs."
 	packageManagerErrorMessage = "APT package metadata is unavailable on this host."
 	systemdRunPath             = "/usr/bin/systemd-run"
-	selfUpdateLockTarget       = "__self_update_stacklab__"
 )
 
 var (
@@ -196,9 +195,9 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest, requestedBy s
 		}
 	}
 
-	job, err := s.jobs.StartWithLocks(ctx, "", "self_update_stacklab", requestedBy, []string{selfUpdateLockTarget})
+	job, err := s.jobs.StartWithResources(ctx, "", "self_update_stacklab", requestedBy, jobs.SelfUpdateResource())
 	if err != nil {
-		if errors.Is(err, jobs.ErrStackLocked) {
+		if errors.Is(err, jobs.ErrResourceConflict) {
 			return ApplyResponse{}, fmt.Errorf("%w: a Stacklab self-update job is already running", ErrInvalidState)
 		}
 		return ApplyResponse{}, err

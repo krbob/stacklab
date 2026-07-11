@@ -31,7 +31,7 @@ const (
 type runner interface {
 	ResolveTargetStacks(ctx context.Context, mode string, stackIDs []string) ([]string, error)
 	RunUpdate(ctx context.Context, request maintenancejobs.UpdateRequest, requestedBy string) (store.Job, error)
-	RunPrune(ctx context.Context, request maintenancejobs.PruneRequest, requestedBy string, lockStackIDs []string) (store.Job, error)
+	RunPrune(ctx context.Context, request maintenancejobs.PruneRequest, requestedBy string, managedStackIDs []string) (store.Job, error)
 }
 
 type stackLister interface {
@@ -210,7 +210,7 @@ func (s *Service) evaluatePrune(ctx context.Context, config PruneScheduleConfig,
 	go func() {
 		defer s.workerWG.Done()
 		defer s.finish("prune")
-		lockStackIDs, err := s.listManagedStackIDs(ctx)
+		managedStackIDs, err := s.listManagedStackIDs(ctx)
 		if err != nil {
 			s.recordScheduleFailure(ctx, "prune", dueAt, err)
 			return
@@ -219,7 +219,7 @@ func (s *Service) evaluatePrune(ctx context.Context, config PruneScheduleConfig,
 			Scope:       config.Scope,
 			Trigger:     "scheduled",
 			ScheduleKey: "prune",
-		}, "scheduler", lockStackIDs)
+		}, "scheduler", managedStackIDs)
 		s.finalizeScheduledRun(ctx, "prune", dueAt, job, runErr)
 	}()
 }
@@ -241,7 +241,7 @@ func (s *Service) finalizeScheduledRun(ctx context.Context, scheduleKey string, 
 	}
 	if runErr != nil {
 		switch {
-		case errors.Is(runErr, jobs.ErrStackLocked):
+		case errors.Is(runErr, jobs.ErrResourceConflict):
 			result = "skipped"
 			message = "Another maintenance job was already running."
 		default:

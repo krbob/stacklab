@@ -215,13 +215,13 @@ func (s *Service) StartUpdate(ctx context.Context, request UpdateRequest, reques
 		return store.Job{}, UpdateRun{}, err
 	}
 	managedStackIDs := append([]string(nil), targetStackIDs...)
-	lockStackIDs := targetStackIDs
+	resourceStackIDs := targetStackIDs
 	if request.Options.PruneAfter && request.Options.IncludeVolumes {
 		managedStackIDs, err = s.listManagedStackIDs(ctx)
 		if err != nil {
 			return store.Job{}, UpdateRun{}, err
 		}
-		lockStackIDs = managedStackIDs
+		resourceStackIDs = managedStackIDs
 	}
 	serviceTargets, err := s.resolveUpdateServiceTargets(ctx, targetStackIDs, request.Target.ExcludedServices)
 	if err != nil {
@@ -233,7 +233,11 @@ func (s *Service) StartUpdate(ctx context.Context, request UpdateRequest, reques
 		return store.Job{}, UpdateRun{}, err
 	}
 
-	job, err := s.jobs.StartWithLocks(ctx, "", "update_stacks", requestedBy, lockStackIDs)
+	resources := jobs.StackResources(resourceStackIDs)
+	if len(resources) == 0 {
+		resources = []jobs.Resource{jobs.GlobalResource()}
+	}
+	job, err := s.jobs.StartWithResources(ctx, "", "update_stacks", requestedBy, resources...)
 	if err != nil {
 		return store.Job{}, UpdateRun{}, err
 	}
@@ -328,21 +332,21 @@ func (s *Service) ExecuteUpdate(ctx context.Context, job store.Job, run UpdateRu
 	return job, nil
 }
 
-func (s *Service) RunPrune(ctx context.Context, request PruneRequest, requestedBy string, lockStackIDs []string) (store.Job, error) {
-	job, run, err := s.StartPrune(ctx, request, requestedBy, lockStackIDs)
+func (s *Service) RunPrune(ctx context.Context, request PruneRequest, requestedBy string, managedStackIDs []string) (store.Job, error) {
+	job, run, err := s.StartPrune(ctx, request, requestedBy, managedStackIDs)
 	if err != nil {
 		return store.Job{}, err
 	}
 	return s.ExecutePrune(ctx, job, run)
 }
 
-func (s *Service) StartPrune(ctx context.Context, request PruneRequest, requestedBy string, lockStackIDs []string) (store.Job, PruneRun, error) {
+func (s *Service) StartPrune(ctx context.Context, request PruneRequest, requestedBy string, managedStackIDs []string) (store.Job, PruneRun, error) {
 	if !request.Scope.Images && !request.Scope.BuildCache && !request.Scope.StoppedContainers && !request.Scope.Volumes {
 		return store.Job{}, PruneRun{}, errors.New("at least one prune scope must be enabled")
 	}
 
 	workflow := buildPruneWorkflow(request.Scope)
-	job, err := s.jobs.StartWithLocks(ctx, "", "prune", requestedBy, lockStackIDs)
+	job, err := s.jobs.StartWithResources(ctx, "", "prune", requestedBy, jobs.GlobalResource())
 	if err != nil {
 		return store.Job{}, PruneRun{}, err
 	}
@@ -362,7 +366,7 @@ func (s *Service) StartPrune(ctx context.Context, request PruneRequest, requeste
 
 	return job, PruneRun{
 		Request:        request,
-		TargetStackIDs: append([]string(nil), lockStackIDs...),
+		TargetStackIDs: append([]string(nil), managedStackIDs...),
 		Workflow:       append([]store.JobWorkflowStep(nil), workflow...),
 	}, nil
 }

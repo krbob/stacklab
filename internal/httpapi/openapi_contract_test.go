@@ -186,7 +186,7 @@ func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
 	})
 	jobService := jobs.NewService(jobStore)
 
-	activeJob, err := jobService.Start(context.Background(), "", "update_stacks", "local")
+	activeJob, err := jobService.StartWithResources(context.Background(), "", "update_stacks", "local", jobs.ImageUpdatesResource())
 	if err != nil {
 		t.Fatalf("jobs.Start(active) error = %v", err)
 	}

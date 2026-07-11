@@ -39,8 +39,6 @@ import (
 	"time"
 )
 
-const imageUpdateCheckLockTarget = "__image_update_check__"
-
 type Handler struct {
 	appCtx          context.Context
 	workers         *lifecycle.Manager
@@ -513,8 +511,12 @@ func (h *Handler) handleDockerRegistryLogin(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	job, err := h.jobs.Start(r.Context(), "", "docker_registry_login", "local")
+	job, err := h.jobs.StartWithResources(r.Context(), "", "docker_registry_login", "local", jobs.DockerRegistryResource())
 	if err != nil {
+		if errors.Is(err, jobs.ErrResourceConflict) {
+			writeError(w, http.StatusConflict, "conflict", "Another Docker registry or stack mutation is already running.", nil)
+			return
+		}
 		h.logger.Error("start docker registry login job failed", slog.String("registry", request.Registry), slog.String("err", err.Error()))
 		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create job.", nil)
 		return
@@ -560,8 +562,12 @@ func (h *Handler) handleDockerRegistryLogout(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	job, err := h.jobs.Start(r.Context(), "", "docker_registry_logout", "local")
+	job, err := h.jobs.StartWithResources(r.Context(), "", "docker_registry_logout", "local", jobs.DockerRegistryResource())
 	if err != nil {
+		if errors.Is(err, jobs.ErrResourceConflict) {
+			writeError(w, http.StatusConflict, "conflict", "Another Docker registry or stack mutation is already running.", nil)
+			return
+		}
 		h.logger.Error("start docker registry logout job failed", slog.String("registry", request.Registry), slog.String("err", err.Error()))
 		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create job.", nil)
 		return
@@ -1065,9 +1071,9 @@ func (h *Handler) handleImageUpdatesCheck(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	job, err := h.jobs.StartWithLocks(r.Context(), "", "check_image_updates", "local", []string{imageUpdateCheckLockTarget})
+	job, err := h.jobs.StartWithResources(r.Context(), "", "check_image_updates", "local", jobs.ImageUpdatesResource())
 	if err != nil {
-		if errors.Is(err, jobs.ErrStackLocked) {
+		if errors.Is(err, jobs.ErrResourceConflict) {
 			writeError(w, http.StatusConflict, "conflict", "Another image update check is already running.", nil)
 			return
 		}
@@ -1181,7 +1187,7 @@ func (h *Handler) handleUpdateStacksMaintenance(w http.ResponseWriter, r *http.R
 			writeError(w, http.StatusNotFound, "not_found", err.Error(), nil)
 		case errors.Is(err, stacks.ErrInvalidState):
 			writeError(w, http.StatusConflict, "invalid_state", err.Error(), nil)
-		case errors.Is(err, jobs.ErrStackLocked):
+		case errors.Is(err, jobs.ErrResourceConflict):
 			writeError(w, http.StatusConflict, "stack_locked", "Another job is already mutating one of the selected stacks.", nil)
 		default:
 			h.logger.Error("run maintenance job failed", slog.String("err", err.Error()))
@@ -1516,7 +1522,7 @@ func (h *Handler) handleMaintenancePrune(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	lockStackIDs, err := h.listManagedStackIDs(r.Context())
+	managedStackIDs, err := h.listManagedStackIDs(r.Context())
 	if err != nil {
 		h.logger.Error("list managed stacks for prune failed", slog.String("err", err.Error()))
 		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to prepare prune workflow.", nil)
@@ -1526,10 +1532,10 @@ func (h *Handler) handleMaintenancePrune(w http.ResponseWriter, r *http.Request)
 	job, run, err := h.maintenanceJobs.StartPrune(r.Context(), maintenancejobs.PruneRequest{
 		Scope:   request.Scope,
 		Trigger: "manual",
-	}, "local", lockStackIDs)
+	}, "local", managedStackIDs)
 	if err != nil {
 		switch {
-		case errors.Is(err, jobs.ErrStackLocked):
+		case errors.Is(err, jobs.ErrResourceConflict):
 			writeError(w, http.StatusConflict, "conflict", "Another global or stack maintenance job is already running.", nil)
 		default:
 			h.logger.Error("run prune job failed", slog.String("err", err.Error()))
@@ -1624,17 +1630,10 @@ func (h *Handler) handleDockerAdminApplyDaemonConfig(w http.ResponseWriter, r *h
 		return
 	}
 
-	lockStackIDs, err := h.listManagedStackIDs(r.Context())
-	if err != nil {
-		h.logger.Error("list managed stacks for docker daemon apply failed", slog.String("err", err.Error()))
-		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to prepare Docker daemon apply workflow.", nil)
-		return
-	}
-
-	job, err := h.jobs.StartWithLocks(r.Context(), "", "apply_docker_daemon_config", "local", lockStackIDs)
+	job, err := h.jobs.StartWithResources(r.Context(), "", "apply_docker_daemon_config", "local", jobs.DockerDaemonResource())
 	if err != nil {
 		switch {
-		case errors.Is(err, jobs.ErrStackLocked):
+		case errors.Is(err, jobs.ErrResourceConflict):
 			writeError(w, http.StatusConflict, "conflict", "Another global or stack maintenance job is already running.", nil)
 		default:
 			h.logger.Error("start docker daemon apply job failed", slog.String("err", err.Error()))
@@ -1650,6 +1649,9 @@ func (h *Handler) handleDockerAdminApplyDaemonConfig(w http.ResponseWriter, r *h
 	}
 	updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow)
 	if updateErr != nil {
+		finishCtx, cancel := h.jobFinalizationContext()
+		_, _ = h.jobs.FinishFailed(finishCtx, job, "docker_daemon_apply_prepare_failed", updateErr.Error())
+		cancel()
 		h.logger.Error("initialize docker daemon apply workflow failed", slog.String("job_id", job.ID), slog.String("err", updateErr.Error()))
 		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to initialize Docker daemon apply workflow.", nil)
 		return
@@ -1901,7 +1903,7 @@ func (h *Handler) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 	job, err := h.jobs.Start(r.Context(), request.StackID, "create_stack", "local")
 	if err != nil {
 		switch {
-		case errors.Is(err, jobs.ErrStackLocked):
+		case errors.Is(err, jobs.ErrResourceConflict):
 			writeError(w, http.StatusConflict, "stack_locked", "Another job is already mutating this stack.", nil)
 		default:
 			h.logger.Error("start create stack job failed", slog.String("stack_id", request.StackID), slog.String("err", err.Error()))
@@ -2069,7 +2071,7 @@ func (h *Handler) handleDeleteStack(w http.ResponseWriter, r *http.Request) {
 	job, err := h.jobs.Start(r.Context(), stackID, "remove_stack_definition", "local")
 	if err != nil {
 		switch {
-		case errors.Is(err, jobs.ErrStackLocked):
+		case errors.Is(err, jobs.ErrResourceConflict):
 			writeError(w, http.StatusConflict, "stack_locked", "Another job is already mutating this stack.", nil)
 		default:
 			h.logger.Error("start delete stack job failed", slog.String("stack_id", stackID), slog.String("err", err.Error()))
@@ -2130,7 +2132,7 @@ func (h *Handler) handlePutDefinition(w http.ResponseWriter, r *http.Request) {
 	job, err := h.jobs.Start(r.Context(), r.PathValue("stackId"), "save_definition", "local")
 	if err != nil {
 		switch {
-		case errors.Is(err, jobs.ErrStackLocked):
+		case errors.Is(err, jobs.ErrResourceConflict):
 			writeError(w, http.StatusConflict, "stack_locked", "Another job is already mutating this stack.", nil)
 		default:
 			h.logger.Error("start save_definition job failed", slog.String("stack_id", r.PathValue("stackId")), slog.String("err", err.Error()))
@@ -2556,7 +2558,7 @@ func (h *Handler) handleRunStackAction(w http.ResponseWriter, r *http.Request) {
 	job, err := h.jobs.Start(r.Context(), stackID, action, "local")
 	if err != nil {
 		switch {
-		case errors.Is(err, jobs.ErrStackLocked):
+		case errors.Is(err, jobs.ErrResourceConflict):
 			writeError(w, http.StatusConflict, "stack_locked", "Another job is already mutating this stack.", nil)
 		default:
 			h.logger.Error("start stack action job failed", slog.String("stack_id", stackID), slog.String("action", action), slog.String("err", err.Error()))

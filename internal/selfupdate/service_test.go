@@ -253,8 +253,8 @@ func TestApplyRejectsWhenSelfUpdateLockHeld(t *testing.T) {
 		t.Fatalf("WriteFile(helper) error = %v", err)
 	}
 	jobService := jobs.NewService(appStore)
-	if _, err := jobService.StartWithLocks(context.Background(), "", "other_self_update_owner", "local", []string{selfUpdateLockTarget}); err != nil {
-		t.Fatalf("StartWithLocks(lock holder) error = %v", err)
+	if _, err := jobService.StartWithResources(context.Background(), "", "other_self_update_owner", "local", jobs.SelfUpdateResource()); err != nil {
+		t.Fatalf("StartWithResources(lock holder) error = %v", err)
 	}
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
