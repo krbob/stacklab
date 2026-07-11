@@ -89,7 +89,8 @@ Recommended environment variables:
 | `STACKLAB_LOG_LEVEL` | `info` | Log level |
 | `STACKLAB_HOST_PUBLIC_IP_LOOKUP_ENABLED` | `false` | Optional default for Host public IP lookup before the setting is saved in Stacklab |
 | `STACKLAB_COOKIE_SECURE` | `true` | Set the session cookie `Secure` flag for HTTPS deployments; Debian package installs enable this by default |
-| `STACKLAB_TRUSTED_PROXIES` | `127.0.0.1/32` | Comma-separated proxy IP/CIDR list allowed to supply `X-Forwarded-For` and `X-Forwarded-Proto` |
+| `STACKLAB_TRUSTED_PROXIES` | `127.0.0.1/32` | Comma-separated direct proxy IP/CIDR allowlist |
+| `STACKLAB_TRUSTED_PROXY_SECRET` | `long random value` | Shared hop secret required before forwarded client/protocol headers are accepted |
 | `HOME` | `/var/lib/stacklab/home` | Stable writable home for Compose and service runtime |
 | `DOCKER_CONFIG` | `/var/lib/stacklab/docker` | Writable Docker config path when `ProtectHome=true` |
 
@@ -215,6 +216,36 @@ Typical deployment:
 - Stacklab binds to `127.0.0.1:8080`
 - reverse proxy terminates TLS
 - reverse proxy forwards to Stacklab
+
+Forwarded headers affect login rate limiting and secure-cookie diagnostics, so
+Stacklab accepts them only when two checks pass: the direct peer matches
+`STACKLAB_TRUSTED_PROXIES`, and the proxy supplies the exact
+`X-Stacklab-Proxy-Secret` configured as `STACKLAB_TRUSTED_PROXY_SECRET`. This
+second check is required even for a loopback proxy; otherwise any local process
+could forge `X-Forwarded-For` and rotate limiter identities.
+
+Generate a separate value for this hop, for example with
+`openssl rand -hex 32`, store it in the private Stacklab environment file and
+the reverse proxy's protected configuration, and make the proxy **overwrite**
+any client-supplied secret header. A minimal nginx location includes:
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Host $http_host;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Stacklab-Proxy-Secret "replace-with-the-same-random-value";
+}
+```
+
+If either Stacklab setting or the injected header is absent/wrong, forwarded
+headers are ignored and the direct peer is the limiter identity. A correctly
+configured proxy therefore separates real client IPs, while an untrusted local
+request cannot evade lockout by supplying arbitrary forwarding headers.
 
 Special case:
 

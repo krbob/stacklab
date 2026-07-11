@@ -387,11 +387,13 @@ func TestServiceClientIPTrustsForwardedForOnlyFromConfiguredProxy(t *testing.T) 
 
 	cfg := testConfig("secret")
 	cfg.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
+	cfg.TrustedProxySecret = "proxy-secret"
 	service := NewService(cfg, openTestStore(t))
 
 	trusted := httptest.NewRequest(http.MethodPost, "http://stacklab.test/api/auth/login", nil)
 	trusted.RemoteAddr = "10.1.2.3:4567"
 	trusted.Header.Set("X-Forwarded-For", "203.0.113.10, 10.1.2.3")
+	trusted.Header.Set(trustedProxySecretHeader, cfg.TrustedProxySecret)
 	if got := service.ClientIP(trusted); got != "203.0.113.10" {
 		t.Fatalf("ClientIP(trusted proxy) = %q, want 203.0.113.10", got)
 	}
@@ -399,6 +401,7 @@ func TestServiceClientIPTrustsForwardedForOnlyFromConfiguredProxy(t *testing.T) 
 	spoofed := httptest.NewRequest(http.MethodPost, "http://stacklab.test/api/auth/login", nil)
 	spoofed.RemoteAddr = "10.1.2.3:4567"
 	spoofed.Header.Set("X-Forwarded-For", "198.51.100.250, 203.0.113.10, 10.2.3.4")
+	spoofed.Header.Set(trustedProxySecretHeader, cfg.TrustedProxySecret)
 	if got := service.ClientIP(spoofed); got != "203.0.113.10" {
 		t.Fatalf("ClientIP(spoofed forwarded chain) = %q, want 203.0.113.10", got)
 	}
@@ -406,6 +409,7 @@ func TestServiceClientIPTrustsForwardedForOnlyFromConfiguredProxy(t *testing.T) 
 	allTrusted := httptest.NewRequest(http.MethodPost, "http://stacklab.test/api/auth/login", nil)
 	allTrusted.RemoteAddr = "10.1.2.3:4567"
 	allTrusted.Header.Set("X-Forwarded-For", "10.9.8.7, 10.2.3.4")
+	allTrusted.Header.Set(trustedProxySecretHeader, cfg.TrustedProxySecret)
 	if got := service.ClientIP(allTrusted); got != "10.1.2.3" {
 		t.Fatalf("ClientIP(all trusted forwarded chain) = %q, want remote proxy 10.1.2.3", got)
 	}
@@ -413,6 +417,7 @@ func TestServiceClientIPTrustsForwardedForOnlyFromConfiguredProxy(t *testing.T) 
 	untrusted := httptest.NewRequest(http.MethodPost, "http://stacklab.test/api/auth/login", nil)
 	untrusted.RemoteAddr = "198.51.100.20:4567"
 	untrusted.Header.Set("X-Forwarded-For", "203.0.113.10")
+	untrusted.Header.Set(trustedProxySecretHeader, cfg.TrustedProxySecret)
 	if got := service.ClientIP(untrusted); got != "198.51.100.20" {
 		t.Fatalf("ClientIP(untrusted proxy) = %q, want 198.51.100.20", got)
 	}
@@ -422,8 +427,74 @@ func TestServiceClientIPTrustsForwardedForOnlyFromConfiguredProxy(t *testing.T) 
 	singleIP := httptest.NewRequest(http.MethodPost, "http://stacklab.test/api/auth/login", nil)
 	singleIP.RemoteAddr = "192.0.2.10:4567"
 	singleIP.Header.Set("X-Forwarded-For", "2001:db8::42")
+	singleIP.Header.Set(trustedProxySecretHeader, cfg.TrustedProxySecret)
 	if got := service.ClientIP(singleIP); got != "2001:db8::42" {
 		t.Fatalf("ClientIP(single trusted proxy) = %q, want 2001:db8::42", got)
+	}
+}
+
+func TestServiceClientIPRejectsSpoofedForwardedForWithoutProxySecret(t *testing.T) {
+	t.Parallel()
+
+	cfg := testConfig("secret")
+	cfg.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}
+	cfg.TrustedProxySecret = "proxy-secret"
+	service := NewService(cfg, openTestStore(t))
+
+	for _, presentedSecret := range []string{"", "wrong-secret"} {
+		request := httptest.NewRequest(http.MethodPost, "http://stacklab.test/api/auth/login", nil)
+		request.RemoteAddr = "127.0.0.1:4567"
+		request.Header.Set("X-Forwarded-For", "203.0.113.200")
+		request.Header.Set(trustedProxySecretHeader, presentedSecret)
+		if got := service.ClientIP(request); got != "127.0.0.1" {
+			t.Fatalf("ClientIP(local spoof with secret %q) = %q, want direct peer", presentedSecret, got)
+		}
+	}
+}
+
+func TestLoginRateLimitSeparatesAuthenticatedProxyClientsButBoundsLocalSpoofing(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	cfg := testConfig("secret")
+	cfg.LoginMaxFailures = 2
+	cfg.LoginFailureWindow = time.Minute
+	cfg.LoginLockoutDuration = time.Hour
+	cfg.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}
+	cfg.TrustedProxySecret = "proxy-secret"
+	service := NewService(cfg, openTestStore(t))
+	if err := service.Bootstrap(ctx); err != nil {
+		t.Fatalf("Bootstrap() error = %v", err)
+	}
+
+	clientIP := func(forwardedFor, secret string) string {
+		request := httptest.NewRequest(http.MethodPost, "http://stacklab.test/api/auth/login", nil)
+		request.RemoteAddr = "127.0.0.1:4567"
+		request.Header.Set("X-Forwarded-For", forwardedFor)
+		request.Header.Set(trustedProxySecretHeader, secret)
+		return service.ClientIP(request)
+	}
+
+	firstClient := clientIP("203.0.113.10", cfg.TrustedProxySecret)
+	secondClient := clientIP("203.0.113.11", cfg.TrustedProxySecret)
+	for attempt := 0; attempt < cfg.LoginMaxFailures; attempt++ {
+		if _, err := service.Login(ctx, "wrong", "ua", firstClient); !errors.Is(err, ErrInvalidCredentials) {
+			t.Fatalf("Login(first proxied client, attempt %d) error = %v", attempt+1, err)
+		}
+	}
+	if _, err := service.Login(ctx, "secret", "ua", secondClient); err != nil {
+		t.Fatalf("Login(second proxied client) error = %v", err)
+	}
+
+	// Without the shared header, changing X-Forwarded-For does not create new
+	// limiter identities: every attempt remains bound to the direct loopback peer.
+	for attempt, spoofedIP := range []string{"198.51.100.1", "198.51.100.2"} {
+		if _, err := service.Login(ctx, "wrong", "ua", clientIP(spoofedIP, "")); !errors.Is(err, ErrInvalidCredentials) {
+			t.Fatalf("Login(local spoof, attempt %d) error = %v", attempt+1, err)
+		}
+	}
+	if _, err := service.Login(ctx, "secret", "ua", clientIP("198.51.100.3", "")); !errors.Is(err, ErrTooManyAttempts) {
+		t.Fatalf("Login(local spoof after lockout) error = %v, want ErrTooManyAttempts", err)
 	}
 }
 
@@ -432,11 +503,13 @@ func TestServiceSecureRequestTrustsForwardedProtoOnlyFromConfiguredProxy(t *test
 
 	cfg := testConfig("secret")
 	cfg.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
+	cfg.TrustedProxySecret = "proxy-secret"
 	service := NewService(cfg, openTestStore(t))
 
 	trusted := httptest.NewRequest(http.MethodPost, "http://stacklab.test/api/auth/login", nil)
 	trusted.RemoteAddr = "10.1.2.3:4567"
 	trusted.Header.Set("X-Forwarded-Proto", "https")
+	trusted.Header.Set(trustedProxySecretHeader, cfg.TrustedProxySecret)
 	if !service.SecureRequest(trusted) {
 		t.Fatal("SecureRequest(trusted proxy with https proto) = false, want true")
 	}
@@ -444,6 +517,7 @@ func TestServiceSecureRequestTrustsForwardedProtoOnlyFromConfiguredProxy(t *test
 	untrusted := httptest.NewRequest(http.MethodPost, "http://stacklab.test/api/auth/login", nil)
 	untrusted.RemoteAddr = "198.51.100.20:4567"
 	untrusted.Header.Set("X-Forwarded-Proto", "https")
+	untrusted.Header.Set(trustedProxySecretHeader, cfg.TrustedProxySecret)
 	if service.SecureRequest(untrusted) {
 		t.Fatal("SecureRequest(untrusted proxy with https proto) = true, want false")
 	}

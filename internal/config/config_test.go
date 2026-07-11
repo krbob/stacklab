@@ -41,3 +41,12 @@ func TestLoadTrustedProxiesParsesIPsAndCIDRs(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadTrustedProxySecret(t *testing.T) {
+	t.Setenv("STACKLAB_TRUSTED_PROXY_SECRET", "proxy-shared-secret")
+
+	cfg := Load()
+	if cfg.TrustedProxySecret != "proxy-shared-secret" {
+		t.Fatalf("TrustedProxySecret = %q, want configured secret", cfg.TrustedProxySecret)
+	}
+}

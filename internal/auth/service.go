@@ -32,6 +32,7 @@ const (
 	localUserID                         = "local"
 	defaultLoginVerificationConcurrency = 2
 	defaultMaxTrackedLoginClients       = 4096
+	trustedProxySecretHeader            = "X-Stacklab-Proxy-Secret"
 )
 
 type Service struct {
@@ -471,29 +472,31 @@ func (s *Service) ClearSessionCookie() *http.Cookie {
 }
 
 func (s *Service) ClientIP(r *http.Request) string {
-	return clientIP(r, s.cfg.TrustedProxies)
+	return clientIP(r, s.cfg.TrustedProxies, s.cfg.TrustedProxySecret)
 }
 
 func (s *Service) SecureRequest(r *http.Request) bool {
-	return secureRequest(r, s.cfg.TrustedProxies)
+	return secureRequest(r, s.cfg.TrustedProxies, s.cfg.TrustedProxySecret)
 }
 
 func ClientIP(r *http.Request) string {
-	return clientIP(r, nil)
+	return clientIP(r, nil, "")
 }
 
-func clientIP(r *http.Request, trustedProxies []netip.Prefix) string {
+func clientIP(r *http.Request, trustedProxies []netip.Prefix, trustedProxySecret string) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err == nil {
-		if trustedForwardedIP := trustedForwardedFor(host, r.Header.Get("X-Forwarded-For"), trustedProxies); trustedForwardedIP != "" {
-			return trustedForwardedIP
+		if trustedProxyRequest(host, r.Header.Get(trustedProxySecretHeader), trustedProxies, trustedProxySecret) {
+			if trustedForwardedIP := trustedForwardedFor(r.Header.Get("X-Forwarded-For"), trustedProxies); trustedForwardedIP != "" {
+				return trustedForwardedIP
+			}
 		}
 		return host
 	}
 	return r.RemoteAddr
 }
 
-func secureRequest(r *http.Request, trustedProxies []netip.Prefix) bool {
+func secureRequest(r *http.Request, trustedProxies []netip.Prefix, trustedProxySecret string) bool {
 	if r.TLS != nil {
 		return true
 	}
@@ -501,15 +504,25 @@ func secureRequest(r *http.Request, trustedProxies []netip.Prefix) bool {
 	if err != nil {
 		host = r.RemoteAddr
 	}
-	return trustedForwardedProto(host, r.Header.Get("X-Forwarded-Proto"), trustedProxies) == "https"
+	if !trustedProxyRequest(host, r.Header.Get(trustedProxySecretHeader), trustedProxies, trustedProxySecret) {
+		return false
+	}
+	return trustedForwardedProto(r.Header.Get("X-Forwarded-Proto")) == "https"
 }
 
-func trustedForwardedFor(remoteHost, headerValue string, trustedProxies []netip.Prefix) string {
-	if len(trustedProxies) == 0 || strings.TrimSpace(headerValue) == "" {
-		return ""
+func trustedProxyRequest(remoteHost, presentedSecret string, trustedProxies []netip.Prefix, expectedSecret string) bool {
+	if len(trustedProxies) == 0 || expectedSecret == "" || len(presentedSecret) != len(expectedSecret) {
+		return false
 	}
 	remoteAddr, err := netip.ParseAddr(strings.TrimSpace(remoteHost))
 	if err != nil || !isTrustedProxy(remoteAddr, trustedProxies) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(presentedSecret), []byte(expectedSecret)) == 1
+}
+
+func trustedForwardedFor(headerValue string, trustedProxies []netip.Prefix) string {
+	if strings.TrimSpace(headerValue) == "" {
 		return ""
 	}
 	parts := strings.Split(headerValue, ",")
@@ -526,12 +539,8 @@ func trustedForwardedFor(remoteHost, headerValue string, trustedProxies []netip.
 	return ""
 }
 
-func trustedForwardedProto(remoteHost, headerValue string, trustedProxies []netip.Prefix) string {
-	if len(trustedProxies) == 0 || strings.TrimSpace(headerValue) == "" {
-		return ""
-	}
-	remoteAddr, err := netip.ParseAddr(strings.TrimSpace(remoteHost))
-	if err != nil || !isTrustedProxy(remoteAddr, trustedProxies) {
+func trustedForwardedProto(headerValue string) string {
+	if strings.TrimSpace(headerValue) == "" {
 		return ""
 	}
 	parts := strings.Split(headerValue, ",")

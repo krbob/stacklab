@@ -37,6 +37,7 @@ type Config struct {
 	SessionAbsoluteLifetime      time.Duration
 	CookieSecure                 bool
 	TrustedProxies               []netip.Prefix
+	TrustedProxySecret           string
 	LoginMaxFailures             int
 	LoginFailureWindow           time.Duration
 	LoginLockoutDuration         time.Duration
@@ -74,6 +75,7 @@ func Load() Config {
 		SessionAbsoluteLifetime:      parseDuration(getenv("STACKLAB_SESSION_ABSOLUTE_LIFETIME", "168h"), 7*24*time.Hour),
 		CookieSecure:                 parseBool(getenv("STACKLAB_COOKIE_SECURE", "false")),
 		TrustedProxies:               parseTrustedProxies(getenv("STACKLAB_TRUSTED_PROXIES", "")),
+		TrustedProxySecret:           getenv("STACKLAB_TRUSTED_PROXY_SECRET", ""),
 		LoginMaxFailures:             parseInt(getenv("STACKLAB_LOGIN_MAX_FAILURES", "5"), 5),
 		LoginFailureWindow:           parseDuration(getenv("STACKLAB_LOGIN_FAILURE_WINDOW", "5m"), 5*time.Minute),
 		LoginLockoutDuration:         parseDuration(getenv("STACKLAB_LOGIN_LOCKOUT_DURATION", "5m"), 5*time.Minute),
