@@ -2199,9 +2199,15 @@ Response:
 
 ```json
 {
-  "updated": true
+  "updated": true,
+  "reauthentication_required": true
 }
 ```
+
+The password update increments the password generation and revokes every
+existing session atomically. The response clears the current session cookie;
+the client must return to the login screen and authenticate with the new
+password.
 
 ## `GET /api/settings/notifications`
 

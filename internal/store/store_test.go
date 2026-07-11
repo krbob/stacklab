@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -68,6 +69,126 @@ func TestSecureDatabaseFileModesMigratesExistingFiles(t *testing.T) {
 	}
 	for _, suffix := range []string{"", "-wal", "-shm"} {
 		assertPathMode(t, databasePath+suffix, 0o600)
+	}
+}
+
+func TestUpdatePasswordAndRevokeSessionsIsVersionedAndAtomic(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	testStore := openStoreForTest(t)
+	now := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)
+	if err := testStore.SetPasswordHash(ctx, "old-hash", now); err != nil {
+		t.Fatalf("SetPasswordHash() error = %v", err)
+	}
+	credentials, configured, err := testStore.PasswordCredentials(ctx)
+	if err != nil || !configured {
+		t.Fatalf("PasswordCredentials() = %#v, %t, %v", credentials, configured, err)
+	}
+
+	session := Session{
+		ID:              "session-before-password-change",
+		UserID:          "local",
+		CreatedAt:       now,
+		LastSeenAt:      now,
+		ExpiresAt:       now.Add(time.Hour),
+		PasswordVersion: credentials.Version,
+	}
+	if err := testStore.CreateSessionAtPasswordVersion(ctx, session, credentials.Version); err != nil {
+		t.Fatalf("CreateSessionAtPasswordVersion() error = %v", err)
+	}
+
+	if err := testStore.UpdatePasswordAndRevokeSessions(ctx, credentials.Version, "new-hash", now.Add(time.Minute)); err != nil {
+		t.Fatalf("UpdatePasswordAndRevokeSessions() error = %v", err)
+	}
+	updated, configured, err := testStore.PasswordCredentials(ctx)
+	if err != nil || !configured {
+		t.Fatalf("PasswordCredentials(updated) = %#v, %t, %v", updated, configured, err)
+	}
+	if updated.Hash != "new-hash" || updated.Version != credentials.Version+1 {
+		t.Fatalf("updated credentials = %#v, want new hash and version %d", updated, credentials.Version+1)
+	}
+	record, err := testStore.SessionByID(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("SessionByID() error = %v", err)
+	}
+	if record.RevokedAt == nil {
+		t.Fatal("session was not revoked in password update transaction")
+	}
+	if _, err := testStore.SessionAtCurrentPasswordVersion(ctx, session.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("SessionAtCurrentPasswordVersion(old session) error = %v, want ErrNotFound", err)
+	}
+
+	if err := testStore.UpdatePasswordAndRevokeSessions(ctx, credentials.Version, "stale-write", now.Add(2*time.Minute)); !errors.Is(err, ErrPasswordVersionChanged) {
+		t.Fatalf("UpdatePasswordAndRevokeSessions(stale) error = %v, want ErrPasswordVersionChanged", err)
+	}
+	afterStaleWrite, _, err := testStore.PasswordCredentials(ctx)
+	if err != nil {
+		t.Fatalf("PasswordCredentials(after stale write) error = %v", err)
+	}
+	if afterStaleWrite != updated {
+		t.Fatalf("credentials changed after rejected stale write: got %#v, want %#v", afterStaleWrite, updated)
+	}
+	if err := testStore.CreateSessionAtPasswordVersion(ctx, Session{
+		ID:         "stale-session",
+		UserID:     "local",
+		CreatedAt:  now,
+		LastSeenAt: now,
+		ExpiresAt:  now.Add(time.Hour),
+	}, credentials.Version); !errors.Is(err, ErrPasswordVersionChanged) {
+		t.Fatalf("CreateSessionAtPasswordVersion(stale) error = %v, want ErrPasswordVersionChanged", err)
+	}
+}
+
+func TestOpenMigratesSessionPasswordVersion(t *testing.T) {
+	t.Parallel()
+
+	databasePath := filepath.Join(t.TempDir(), "stacklab.db")
+	db, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	_, err = db.Exec(`
+		CREATE TABLE auth_password (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			password_hash TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			password_version INTEGER NOT NULL DEFAULT 1
+		);
+		CREATE TABLE auth_sessions (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			last_seen_at TEXT NOT NULL,
+			expires_at TEXT NOT NULL,
+			user_agent TEXT,
+			ip_address TEXT,
+			revoked_at TEXT
+		);
+		INSERT INTO auth_password (id, password_hash, updated_at, password_version)
+		VALUES (1, 'hash', '2026-07-11T12:00:00Z', 1);
+		INSERT INTO auth_sessions (id, user_id, created_at, last_seen_at, expires_at, user_agent, ip_address)
+		VALUES ('legacy-session', 'local', '2026-07-11T12:00:00Z', '2026-07-11T12:00:00Z', '2026-07-11T13:00:00Z', '', '');
+	`)
+	if err != nil {
+		_ = db.Close()
+		t.Fatalf("create legacy schema error = %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close legacy database error = %v", err)
+	}
+
+	testStore, err := Open(databasePath)
+	if err != nil {
+		t.Fatalf("Open(legacy database) error = %v", err)
+	}
+	t.Cleanup(func() { _ = testStore.Close() })
+	record, err := testStore.SessionAtCurrentPasswordVersion(context.Background(), "legacy-session")
+	if err != nil {
+		t.Fatalf("SessionAtCurrentPasswordVersion(legacy session) error = %v", err)
+	}
+	if record.PasswordVersion != 1 {
+		t.Fatalf("legacy session password version = %d, want 1", record.PasswordVersion)
 	}
 }
 
@@ -507,4 +628,15 @@ func stringPtr(value string) *string {
 
 func timePtr(value time.Time) *time.Time {
 	return &value
+}
+
+func openStoreForTest(t *testing.T) *Store {
+	t.Helper()
+
+	testStore, err := Open(filepath.Join(t.TempDir(), "stacklab.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = testStore.Close() })
+	return testStore
 }

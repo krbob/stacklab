@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsPage } from "./settings-page";
+import { useAuth } from "@/hooks/use-auth";
 
 const mockGetMeta = vi.fn();
 const mockChangePassword = vi.fn();
@@ -16,6 +17,13 @@ const mockGetStack = vi.fn();
 const mockGetStacklabUpdateOverview = vi.fn();
 const mockApplyStacklabUpdate = vi.fn();
 const mockOpenJob = vi.fn();
+const mockRequireReauthentication = vi.fn();
+
+vi.mock("@/hooks/use-auth", () => ({
+  useAuth: vi.fn(),
+}));
+
+const mockUseAuth = vi.mocked(useAuth);
 
 vi.mock("@/lib/api-client", () => ({
   getMeta: () => mockGetMeta(),
@@ -53,6 +61,14 @@ describe("SettingsPage", () => {
     mockApplyStacklabUpdate.mockReset();
     mockGetStack.mockReset();
     mockOpenJob.mockReset();
+    mockRequireReauthentication.mockReset();
+    mockUseAuth.mockReturnValue({
+      status: "authenticated",
+      session: null,
+      login: vi.fn(),
+      logout: vi.fn(),
+      requireReauthentication: mockRequireReauthentication,
+    });
 
     mockGetMeta.mockResolvedValue({
       app: { name: "Stacklab", version: "0.1.0-dev" },
@@ -138,6 +154,19 @@ describe("SettingsPage", () => {
         supported: true,
       },
     });
+  });
+
+  it("requires a fresh login after changing the password", async () => {
+    mockChangePassword.mockResolvedValue({ updated: true, reauthentication_required: true });
+    render(<SettingsPage />);
+
+    const passwordCard = screen.getByText("Change password").closest("section") ?? document.body;
+    fireEvent.change(within(passwordCard).getByPlaceholderText("Current password"), { target: { value: "secret" } });
+    fireEvent.change(within(passwordCard).getByPlaceholderText("New password"), { target: { value: "newsecret" } });
+    fireEvent.change(within(passwordCard).getByPlaceholderText("Confirm new password"), { target: { value: "newsecret" } });
+    fireEvent.click(within(passwordCard).getByRole("button", { name: "Update password" }));
+
+    await waitFor(() => expect(mockRequireReauthentication).toHaveBeenCalledWith("password_changed"));
   });
 
   it("renders notifications section with loaded settings", async () => {

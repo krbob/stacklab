@@ -105,14 +105,14 @@ func (s *Service) Login(ctx context.Context, password, userAgent, ipAddress stri
 	}
 	defer release()
 
-	passwordHash, configured, err := s.store.PasswordHash(ctx)
+	credentials, configured, err := s.store.PasswordCredentials(ctx)
 	if err != nil {
 		return Session{}, err
 	}
-	if !configured || passwordHash == "" {
+	if !configured || credentials.Hash == "" {
 		return Session{}, ErrNotConfigured
 	}
-	if err := s.passwordVerifier(passwordHash, password); err != nil {
+	if err := s.passwordVerifier(credentials.Hash, password); err != nil {
 		s.recordLoginFailure(ipAddress, now)
 		return Session{}, ErrInvalidCredentials
 	}
@@ -133,15 +133,19 @@ func (s *Service) Login(ctx context.Context, password, userAgent, ipAddress stri
 		ExpiresAt: expiresAt,
 	}
 
-	if err := s.store.CreateSession(ctx, store.Session{
-		ID:         session.ID,
-		UserID:     session.UserID,
-		CreatedAt:  now,
-		LastSeenAt: now,
-		ExpiresAt:  expiresAt,
-		UserAgent:  userAgent,
-		IPAddress:  ipAddress,
-	}); err != nil {
+	if err := s.store.CreateSessionAtPasswordVersion(ctx, store.Session{
+		ID:              session.ID,
+		UserID:          session.UserID,
+		CreatedAt:       now,
+		LastSeenAt:      now,
+		ExpiresAt:       expiresAt,
+		UserAgent:       userAgent,
+		IPAddress:       ipAddress,
+		PasswordVersion: credentials.Version,
+	}, credentials.Version); err != nil {
+		if errors.Is(err, store.ErrPasswordVersionChanged) {
+			return Session{}, ErrInvalidCredentials
+		}
 		return Session{}, err
 	}
 
@@ -266,14 +270,14 @@ func (s *Service) Logout(ctx context.Context, sessionID string) error {
 }
 
 func (s *Service) UpdatePassword(ctx context.Context, currentPassword, newPassword string) error {
-	passwordHash, configured, err := s.store.PasswordHash(ctx)
+	credentials, configured, err := s.store.PasswordCredentials(ctx)
 	if err != nil {
 		return err
 	}
-	if !configured || passwordHash == "" {
+	if !configured || credentials.Hash == "" {
 		return ErrNotConfigured
 	}
-	if err := verifyPassword(passwordHash, currentPassword); err != nil {
+	if err := verifyPassword(credentials.Hash, currentPassword); err != nil {
 		return ErrInvalidCredentials
 	}
 
@@ -282,7 +286,13 @@ func (s *Service) UpdatePassword(ctx context.Context, currentPassword, newPasswo
 		return err
 	}
 
-	return s.store.SetPasswordHash(ctx, updatedHash, time.Now().UTC())
+	if err := s.store.UpdatePasswordAndRevokeSessions(ctx, credentials.Version, updatedHash, s.now().UTC()); err != nil {
+		if errors.Is(err, store.ErrPasswordVersionChanged) {
+			return ErrInvalidCredentials
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *Service) AuthenticateRequest(ctx context.Context, r *http.Request) (Session, error) {
@@ -291,7 +301,7 @@ func (s *Service) AuthenticateRequest(ctx context.Context, r *http.Request) (Ses
 		return Session{}, ErrUnauthorized
 	}
 
-	record, err := s.store.SessionByID(ctx, cookie.Value)
+	record, err := s.store.SessionAtCurrentPasswordVersion(ctx, cookie.Value)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return Session{}, ErrUnauthorized

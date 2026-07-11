@@ -87,7 +87,7 @@ Suggested columns:
 | `id` | `INTEGER PRIMARY KEY CHECK (id = 1)` | Singleton row |
 | `password_hash` | `TEXT NOT NULL` | Argon2id hash |
 | `updated_at` | `TEXT NOT NULL` | ISO 8601 UTC |
-| `password_version` | `INTEGER NOT NULL DEFAULT 1` | Future migration support |
+| `password_version` | `INTEGER NOT NULL DEFAULT 1` | Credential generation incremented on password change |
 
 Rules:
 
@@ -110,6 +110,7 @@ Suggested columns:
 | `user_agent` | `TEXT` | Optional forensic context |
 | `ip_address` | `TEXT` | Optional forensic context |
 | `revoked_at` | `TEXT` | Null if active |
+| `password_version` | `INTEGER NOT NULL DEFAULT 1` | Credential generation verified when the session was created |
 
 Indexes:
 
@@ -119,6 +120,8 @@ Indexes:
 Rules:
 
 - expired or revoked sessions are invalid
+- a session is invalid when its password version differs from the current credential generation
+- changing the password increments the generation and revokes all sessions in the same transaction
 - WebSocket upgrade and REST requests resolve through this table or an equivalent server-side session store
 
 ## `jobs`

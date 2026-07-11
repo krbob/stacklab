@@ -544,7 +544,7 @@ export function runMaintenancePrune(payload: MaintenancePruneRequest): Promise<{
   })
 }
 
-export function changePassword(currentPassword: string, newPassword: string): Promise<{ updated: boolean }> {
+export function changePassword(currentPassword: string, newPassword: string): Promise<{ updated: boolean; reauthentication_required: boolean }> {
   return request('/api/settings/password', {
     method: 'POST',
     body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),

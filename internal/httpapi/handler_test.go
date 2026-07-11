@@ -76,6 +76,14 @@ func TestHandlerLoginSessionAndPasswordUpdate(t *testing.T) {
 	if passwordResponse.Code != http.StatusOK {
 		t.Fatalf("POST /api/settings/password status = %d, want %d", passwordResponse.Code, http.StatusOK)
 	}
+	passwordCookies := passwordResponse.Result().Cookies()
+	if len(passwordCookies) == 0 || passwordCookies[0].MaxAge != -1 {
+		t.Fatalf("password update did not clear the session cookie: %#v", passwordCookies)
+	}
+	staleSessionResponse := performJSONRequest(t, handler, http.MethodGet, "/api/session", nil, cookies)
+	if staleSessionResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("GET /api/session with pre-change cookie status = %d, want %d", staleSessionResponse.Code, http.StatusUnauthorized)
+	}
 
 	oldLoginResponse := performJSONRequest(t, handler, http.MethodPost, "/api/auth/login", map[string]any{
 		"password": "secret",

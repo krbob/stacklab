@@ -68,6 +68,7 @@ describe('RootLayout keyboard navigation', () => {
       session: null,
       login: vi.fn(),
       logout: vi.fn(),
+      requireReauthentication: vi.fn(),
     })
     mockGetActiveJobs.mockResolvedValue({
       items: [],

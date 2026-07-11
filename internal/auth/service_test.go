@@ -60,12 +60,47 @@ func TestServiceBootstrapLoginAuthenticateAndUpdatePassword(t *testing.T) {
 	if err := service.UpdatePassword(ctx, "secret", "newsecret"); err != nil {
 		t.Fatalf("UpdatePassword() error = %v", err)
 	}
+	if _, err := service.AuthenticateRequest(ctx, request); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("AuthenticateRequest(old session after password update) error = %v, want ErrUnauthorized", err)
+	}
 
 	if _, err := service.Login(ctx, "secret", "ua", "127.0.0.1"); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("Login(old password) error = %v, want ErrInvalidCredentials", err)
 	}
 	if _, err := service.Login(ctx, "newsecret", "ua", "127.0.0.1"); err != nil {
 		t.Fatalf("Login(new password) error = %v", err)
+	}
+}
+
+func TestUpdatePasswordRevokesEveryExistingSession(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	authStore := openTestStore(t)
+	service := NewService(testConfig("secret"), authStore)
+	if err := service.Bootstrap(ctx); err != nil {
+		t.Fatalf("Bootstrap() error = %v", err)
+	}
+
+	first, err := service.Login(ctx, "secret", "first", "192.0.2.1")
+	if err != nil {
+		t.Fatalf("Login(first) error = %v", err)
+	}
+	second, err := service.Login(ctx, "secret", "second", "192.0.2.2")
+	if err != nil {
+		t.Fatalf("Login(second) error = %v", err)
+	}
+
+	if err := service.UpdatePassword(ctx, "secret", "newsecret"); err != nil {
+		t.Fatalf("UpdatePassword() error = %v", err)
+	}
+
+	for _, session := range []Session{first, second} {
+		request := httptest.NewRequest(http.MethodGet, "http://stacklab.test/api/session", nil)
+		request.AddCookie(service.SessionCookie(session))
+		if _, err := service.AuthenticateRequest(ctx, request); !errors.Is(err, ErrUnauthorized) {
+			t.Fatalf("AuthenticateRequest(%s) error = %v, want ErrUnauthorized", session.ID, err)
+		}
 	}
 }
 

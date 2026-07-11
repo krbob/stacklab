@@ -3093,7 +3093,9 @@ components:
       properties:
         updated:
           type: boolean
-      required: [updated]
+        reauthentication_required:
+          type: boolean
+      required: [updated, reauthentication_required]
     NotificationEventToggles:
       type: object
       properties:

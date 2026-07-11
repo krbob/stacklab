@@ -5,14 +5,15 @@ import type { MetaResponse, MaintenanceSchedulesResponse, ScheduleFrequency, Sch
 import { cn } from '@/lib/cn'
 import { PageHeader } from '@/components/page-header'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { useAuth } from '@/hooks/use-auth'
 
 export function SettingsPage() {
+  const { requireReauthentication } = useAuth()
   const [meta, setMeta] = useState<MetaResponse | null>(null)
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [passwordError, setPasswordError] = useState<string | null>(null)
-  const [passwordSuccess, setPasswordSuccess] = useState(false)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -32,19 +33,15 @@ export function SettingsPage() {
 
     setSaving(true)
     setPasswordError(null)
-    setPasswordSuccess(false)
     try {
       await changePassword(currentPassword, newPassword)
-      setPasswordSuccess(true)
-      setCurrentPassword('')
-      setNewPassword('')
-      setConfirmPassword('')
+      requireReauthentication('password_changed')
     } catch (err) {
       setPasswordError(err instanceof Error ? err.message : 'Failed to change password')
     } finally {
       setSaving(false)
     }
-  }, [currentPassword, newPassword, confirmPassword])
+  }, [currentPassword, newPassword, confirmPassword, requireReauthentication])
 
   return (
     <div className="flex flex-col gap-4">
@@ -62,7 +59,6 @@ export function SettingsPage() {
             <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="New password" disabled={saving} className="w-full rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50" />
             <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirm new password" disabled={saving} className="w-full rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50" />
             {passwordError && <p className="text-sm text-[var(--danger)]">{passwordError}</p>}
-            {passwordSuccess && <p className="text-sm text-[var(--ok)]">Password updated</p>}
             <button type="submit" disabled={saving || !currentPassword || !newPassword || !confirmPassword} className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40">
               {saving ? 'Updating...' : 'Update password'}
             </button>

@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 import { ApiClientError } from '@/lib/api-client'
 import { useAuth } from '@/hooks/use-auth'
 
 export function LoginPage() {
   const { status, login } = useAuth()
+  const location = useLocation()
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -52,6 +53,9 @@ export function LoginPage() {
         <p className="mt-4 max-w-lg text-sm leading-6 text-[var(--muted)]">
           Single-user access. Enter your password to continue.
         </p>
+        {location.state?.reason === 'password_changed' && (
+          <p className="mt-4 text-sm text-[var(--ok)]">Password updated. Log in again with your new password.</p>
+        )}
 
         <form onSubmit={handleSubmit} className="mt-8 space-y-4">
           <label className="block">

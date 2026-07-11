@@ -28,6 +28,7 @@ describe('LoginPage', () => {
       session: null,
       login: mockLogin,
       logout: vi.fn(),
+      requireReauthentication: vi.fn(),
     })
   })
 

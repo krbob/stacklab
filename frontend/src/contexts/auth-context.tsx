@@ -12,6 +12,7 @@ interface AuthState {
 export interface AuthContextValue extends AuthState {
   login: (password: string) => Promise<void>
   logout: () => Promise<void>
+  requireReauthentication: (reason?: 'password_changed' | 'session_expired') => void
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -56,8 +57,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     navigate('/login', { replace: true })
   }, [navigate])
 
+  const requireReauthentication = useCallback((reason?: 'password_changed' | 'session_expired') => {
+    setState({ status: 'unauthenticated', session: null })
+    navigate('/login', { replace: true, state: reason ? { reason } : undefined })
+  }, [navigate])
+
   return (
-    <AuthContext.Provider value={{ ...state, login, logout }}>
+    <AuthContext.Provider value={{ ...state, login, logout, requireReauthentication }}>
       {children}
     </AuthContext.Provider>
   )

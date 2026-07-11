@@ -2549,8 +2549,10 @@ func (h *Handler) handleUpdatePassword(w http.ResponseWriter, r *http.Request) {
 		h.logger.Warn("record password update audit failed", slog.String("err", err.Error()))
 	}
 
+	http.SetCookie(w, h.auth.ClearSessionCookie())
 	writeJSON(w, http.StatusOK, map[string]any{
-		"updated": true,
+		"updated":                   true,
+		"reauthentication_required": true,
 	})
 }
 

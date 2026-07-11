@@ -81,6 +81,12 @@ Recommended v1 session limits:
 - app session idle timeout: `12h`
 - app session absolute lifetime: `7d`
 
+Each session records the password generation that authenticated it. A password
+change increments that generation and revokes all existing sessions in the same
+SQLite transaction. The browser's current cookie is cleared and the operator is
+sent through a fresh login, so a password change is also an explicit account
+recovery boundary.
+
 Rules:
 
 - session expiry should force re-login

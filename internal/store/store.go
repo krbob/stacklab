@@ -15,7 +15,10 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-var ErrNotFound = errors.New("not found")
+var (
+	ErrNotFound               = errors.New("not found")
+	ErrPasswordVersionChanged = errors.New("password version changed")
+)
 
 const (
 	databaseDirectoryMode os.FileMode = 0o700
@@ -27,14 +30,20 @@ type Store struct {
 }
 
 type Session struct {
-	ID         string
-	UserID     string
-	CreatedAt  time.Time
-	LastSeenAt time.Time
-	ExpiresAt  time.Time
-	UserAgent  string
-	IPAddress  string
-	RevokedAt  *time.Time
+	ID              string
+	UserID          string
+	CreatedAt       time.Time
+	LastSeenAt      time.Time
+	ExpiresAt       time.Time
+	UserAgent       string
+	IPAddress       string
+	RevokedAt       *time.Time
+	PasswordVersion int
+}
+
+type PasswordCredentials struct {
+	Hash    string
+	Version int
 }
 
 type Job struct {
@@ -252,7 +261,8 @@ func (s *Store) migrate(ctx context.Context) error {
 			expires_at TEXT NOT NULL,
 			user_agent TEXT,
 			ip_address TEXT,
-			revoked_at TEXT
+			revoked_at TEXT,
+			password_version INTEGER NOT NULL DEFAULT 1
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires_at ON auth_sessions (expires_at);`,
 		`CREATE INDEX IF NOT EXISTS idx_auth_sessions_revoked_at ON auth_sessions (revoked_at);`,
@@ -335,6 +345,7 @@ func (s *Store) migrate(ctx context.Context) error {
 	// EXISTS, so tolerate the duplicate-column error on re-runs.
 	additiveColumns := []string{
 		`ALTER TABLE job_events ADD COLUMN progress_json TEXT`,
+		`ALTER TABLE auth_sessions ADD COLUMN password_version INTEGER NOT NULL DEFAULT 1`,
 	}
 	for _, statement := range additiveColumns {
 		if _, err := s.db.ExecContext(ctx, statement); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
@@ -346,15 +357,20 @@ func (s *Store) migrate(ctx context.Context) error {
 }
 
 func (s *Store) PasswordHash(ctx context.Context) (string, bool, error) {
-	var passwordHash string
-	err := s.db.QueryRowContext(ctx, `SELECT password_hash FROM auth_password WHERE id = 1`).Scan(&passwordHash)
+	credentials, configured, err := s.PasswordCredentials(ctx)
+	return credentials.Hash, configured, err
+}
+
+func (s *Store) PasswordCredentials(ctx context.Context) (PasswordCredentials, bool, error) {
+	var credentials PasswordCredentials
+	err := s.db.QueryRowContext(ctx, `SELECT password_hash, password_version FROM auth_password WHERE id = 1`).Scan(&credentials.Hash, &credentials.Version)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		return "", false, nil
+		return PasswordCredentials{}, false, nil
 	case err != nil:
-		return "", false, fmt.Errorf("load password hash: %w", err)
+		return PasswordCredentials{}, false, fmt.Errorf("load password credentials: %w", err)
 	default:
-		return passwordHash, true, nil
+		return credentials, true, nil
 	}
 }
 
@@ -369,6 +385,51 @@ func (s *Store) SetPasswordHash(ctx context.Context, passwordHash string, update
 	)
 	if err != nil {
 		return fmt.Errorf("store password hash: %w", err)
+	}
+	return nil
+}
+
+// UpdatePasswordAndRevokeSessions changes the credential generation and revokes
+// every session in one transaction. The expected version prevents two password
+// changes that both verified the same old password from committing.
+func (s *Store) UpdatePasswordAndRevokeSessions(ctx context.Context, expectedVersion int, passwordHash string, updatedAt time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin password update: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	timestamp := updatedAt.UTC().Format(time.RFC3339Nano)
+	result, err := tx.ExecContext(
+		ctx,
+		`UPDATE auth_password
+		 SET password_hash = ?, updated_at = ?, password_version = password_version + 1
+		 WHERE id = 1 AND password_version = ?`,
+		passwordHash,
+		timestamp,
+		expectedVersion,
+	)
+	if err != nil {
+		return fmt.Errorf("update password: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update password rows affected: %w", err)
+	}
+	if rowsAffected != 1 {
+		return ErrPasswordVersionChanged
+	}
+
+	if _, err := tx.ExecContext(
+		ctx,
+		`UPDATE auth_sessions SET revoked_at = ? WHERE revoked_at IS NULL`,
+		timestamp,
+	); err != nil {
+		return fmt.Errorf("revoke sessions after password update: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit password update: %w", err)
 	}
 	return nil
 }
@@ -403,10 +464,14 @@ func (s *Store) SetAppSetting(ctx context.Context, key, valueJSON string, update
 }
 
 func (s *Store) CreateSession(ctx context.Context, session Session) error {
+	passwordVersion := session.PasswordVersion
+	if passwordVersion <= 0 {
+		passwordVersion = 1
+	}
 	_, err := s.db.ExecContext(
 		ctx,
-		`INSERT INTO auth_sessions (id, user_id, created_at, last_seen_at, expires_at, user_agent, ip_address, revoked_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
+		`INSERT INTO auth_sessions (id, user_id, created_at, last_seen_at, expires_at, user_agent, ip_address, revoked_at, password_version)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
 		session.ID,
 		session.UserID,
 		session.CreatedAt.UTC().Format(time.RFC3339Nano),
@@ -414,9 +479,43 @@ func (s *Store) CreateSession(ctx context.Context, session Session) error {
 		session.ExpiresAt.UTC().Format(time.RFC3339Nano),
 		session.UserAgent,
 		session.IPAddress,
+		passwordVersion,
 	)
 	if err != nil {
 		return fmt.Errorf("create session: %w", err)
+	}
+	return nil
+}
+
+// CreateSessionAtPasswordVersion only creates a session if the verified
+// password generation is still current. This closes the race between password
+// verification and a concurrent password change.
+func (s *Store) CreateSessionAtPasswordVersion(ctx context.Context, session Session, passwordVersion int) error {
+	result, err := s.db.ExecContext(
+		ctx,
+		`INSERT INTO auth_sessions (id, user_id, created_at, last_seen_at, expires_at, user_agent, ip_address, revoked_at, password_version)
+		 SELECT ?, ?, ?, ?, ?, ?, ?, NULL, ?
+		 FROM auth_password
+		 WHERE id = 1 AND password_version = ?`,
+		session.ID,
+		session.UserID,
+		session.CreatedAt.UTC().Format(time.RFC3339Nano),
+		session.LastSeenAt.UTC().Format(time.RFC3339Nano),
+		session.ExpiresAt.UTC().Format(time.RFC3339Nano),
+		session.UserAgent,
+		session.IPAddress,
+		passwordVersion,
+		passwordVersion,
+	)
+	if err != nil {
+		return fmt.Errorf("create versioned session: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("create versioned session rows affected: %w", err)
+	}
+	if rowsAffected != 1 {
+		return ErrPasswordVersionChanged
 	}
 	return nil
 }
@@ -430,7 +529,7 @@ func (s *Store) SessionByID(ctx context.Context, id string) (Session, error) {
 	session := Session{}
 	err := s.db.QueryRowContext(
 		ctx,
-		`SELECT id, user_id, created_at, last_seen_at, expires_at, user_agent, ip_address, revoked_at
+		`SELECT id, user_id, created_at, last_seen_at, expires_at, user_agent, ip_address, revoked_at, password_version
 		 FROM auth_sessions
 		 WHERE id = ?`,
 		id,
@@ -443,12 +542,68 @@ func (s *Store) SessionByID(ctx context.Context, id string) (Session, error) {
 		&session.UserAgent,
 		&session.IPAddress,
 		&rawRevokedAt,
+		&session.PasswordVersion,
 	)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		return Session{}, ErrNotFound
 	case err != nil:
 		return Session{}, fmt.Errorf("load session: %w", err)
+	}
+
+	session.CreatedAt, err = time.Parse(time.RFC3339Nano, rawCreatedAt)
+	if err != nil {
+		return Session{}, fmt.Errorf("parse created_at: %w", err)
+	}
+	session.LastSeenAt, err = time.Parse(time.RFC3339Nano, rawLastSeenAt)
+	if err != nil {
+		return Session{}, fmt.Errorf("parse last_seen_at: %w", err)
+	}
+	session.ExpiresAt, err = time.Parse(time.RFC3339Nano, rawExpiresAt)
+	if err != nil {
+		return Session{}, fmt.Errorf("parse expires_at: %w", err)
+	}
+	if rawRevokedAt.Valid {
+		revokedAt, err := time.Parse(time.RFC3339Nano, rawRevokedAt.String)
+		if err != nil {
+			return Session{}, fmt.Errorf("parse revoked_at: %w", err)
+		}
+		session.RevokedAt = &revokedAt
+	}
+
+	return session, nil
+}
+
+func (s *Store) SessionAtCurrentPasswordVersion(ctx context.Context, id string) (Session, error) {
+	var rawCreatedAt string
+	var rawLastSeenAt string
+	var rawExpiresAt string
+	var rawRevokedAt sql.NullString
+
+	session := Session{}
+	err := s.db.QueryRowContext(
+		ctx,
+		`SELECT s.id, s.user_id, s.created_at, s.last_seen_at, s.expires_at, s.user_agent, s.ip_address, s.revoked_at, s.password_version
+		 FROM auth_sessions s
+		 JOIN auth_password p ON p.id = 1 AND p.password_version = s.password_version
+		 WHERE s.id = ?`,
+		id,
+	).Scan(
+		&session.ID,
+		&session.UserID,
+		&rawCreatedAt,
+		&rawLastSeenAt,
+		&rawExpiresAt,
+		&session.UserAgent,
+		&session.IPAddress,
+		&rawRevokedAt,
+		&session.PasswordVersion,
+	)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return Session{}, ErrNotFound
+	case err != nil:
+		return Session{}, fmt.Errorf("load current-version session: %w", err)
 	}
 
 	session.CreatedAt, err = time.Parse(time.RFC3339Nano, rawCreatedAt)

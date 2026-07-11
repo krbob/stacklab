@@ -35,6 +35,7 @@ describe('AuthGuard', () => {
       session: null,
       login: vi.fn(),
       logout: vi.fn(),
+      requireReauthentication: vi.fn(),
     })
 
     renderWithGuard()
@@ -48,6 +49,7 @@ describe('AuthGuard', () => {
       session: null,
       login: vi.fn(),
       logout: vi.fn(),
+      requireReauthentication: vi.fn(),
     })
 
     renderWithGuard()
@@ -65,6 +67,7 @@ describe('AuthGuard', () => {
       },
       login: vi.fn(),
       logout: vi.fn(),
+      requireReauthentication: vi.fn(),
     })
 
     renderWithGuard()
