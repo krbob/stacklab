@@ -118,3 +118,59 @@ jobs:
 
       - name: Run go vet
         run: go vet ./cmd/... ./internal/...
+
+  repository-hygiene:
+    name: repository-hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout complete history
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify source revision
+        env:
+          EXPECTED_SHA: ${{ inputs.source_sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+
+      - name: Setup Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24.18.0
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install pinned ShellCheck
+        env:
+          SHELLCHECK_VERSION: v0.11.0
+          SHELLCHECK_ARCHIVE_SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="${RUNNER_TEMP}/shellcheck.tar.xz"
+          bin_dir="${RUNNER_TEMP}/repository-hygiene-bin"
+          curl --fail --silent --show-error --location \
+            --output "${archive}" \
+            "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          printf '%s  %s\n' "${SHELLCHECK_ARCHIVE_SHA256}" "${archive}" | sha256sum --check
+          tar -xJf "${archive}" -C "${RUNNER_TEMP}"
+          mkdir -p "${bin_dir}"
+          install -m 0755 \
+            "${RUNNER_TEMP}/shellcheck-${SHELLCHECK_VERSION}/shellcheck" \
+            "${bin_dir}/shellcheck"
+          echo "${bin_dir}" >> "${GITHUB_PATH}"
+
+      - name: Run repository hygiene checks
+        run: ./scripts/quality/check-repository-hygiene.sh

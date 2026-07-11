@@ -36,6 +36,7 @@ Current observations:
 - a representative OpenAPI-backed contract suite now exists for core success-path endpoints
 - advisory GitHub Actions checks now exist for `staticcheck` and `govulncheck`
 - an advisory browser E2E workflow now exists for lightweight Playwright smoke
+- repository hygiene is enforced with actionlint, ShellCheck, full-history secret scanning, production dependency audit, and zero-warning ESLint
 
 ## Quality Principles
 
@@ -70,7 +71,8 @@ These should run on every PR and complete quickly.
 - `npm ci`
 - `npm test`
 - `npm run typecheck`
-- `npm run lint`
+- `npm audit --omit=dev`
+- `npm run lint` (`eslint --max-warnings=0`)
 - `npm run build`
 
 ### Backend
@@ -178,10 +180,14 @@ These should become branch-protection requirements first:
 - backend tests
 - backend `go vet`
 - formatting check for Go
+- repository hygiene (`repository-hygiene`)
 
 Then add:
 
 - Docker-backed integration suite
+
+The repository hygiene job and its local equivalent are documented in
+[`repository-hygiene.md`](repository-hygiene.md).
 
 Why not require everything immediately:
 

@@ -116,7 +116,7 @@ rozszerzania zakresu produktu poza model single-host i Compose-first.
 | --- | --- | --- | --- | --- |
 | QA-01 | planned | Podnieść pokrycie krytycznych pakietów | coverage artifact w CI; progi dla `httpapi`, `selfupdate`, `jobs`, `store`; testy `audit`, `retention`, `fsmeta` | seria `test(...): cover ...` |
 | QA-02 | planned | Rozszerzyć browser E2E | desktop i mobile Chromium; Settings, schedules, Docker Admin, Git, Files, terminal/logs/stats; preflight Docker i użyteczny trace | seria `test(e2e): cover ...` |
-| QA-03 | planned | Włączyć dodatkowe bramki statyczne | actionlint, ShellCheck, secret scan, npm production audit i `eslint --max-warnings=0` | `ci: enforce repository hygiene checks` |
+| QA-03 | done | Włączyć dodatkowe bramki statyczne | actionlint, ShellCheck, secret scan, npm production audit i `eslint --max-warnings=0` | `ci: enforce repository hygiene checks` |
 | QA-04 | planned | Usunąć flake testów schedulera | lokalizacja czasu jako zależność, pełne oczekiwanie na finalizację; wielokrotny race run jest stabilny | `test(scheduler): isolate local time state` |
 | DX-01 | planned | Ujednolicić toolchain i jedno polecenie check | zgodne wersje Go/Node w docs i plikach narzędzi; `make check`/równoważne nie skanuje `frontend/node_modules` jako Go | `build: add reproducible developer checks` |
 | DX-02 | planned | Uporządkować dokumentację i governance | aktualny indeks docs; historyczne plany oznaczone; `SECURITY.md`, `CONTRIBUTING.md`, `CODEOWNERS`, licencja po decyzji właściciela | seria `docs: ...` |

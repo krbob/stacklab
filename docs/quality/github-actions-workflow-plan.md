@@ -161,6 +161,22 @@ Purpose:
 - enforce formatting
 - catch basic Go correctness issues not covered by tests
 
+### `repository-hygiene`
+
+Command:
+
+```bash
+./scripts/quality/check-repository-hygiene.sh
+```
+
+Purpose:
+
+- validate workflow syntax with actionlint
+- statically check tracked shell and Debian maintainer scripts with ShellCheck
+- scan the complete Git history for secrets with narrow fixture/lockfile exceptions
+- reject vulnerable production npm dependencies
+- enforce zero ESLint warnings
+
 ## Required check recommendation
 
 These job names should eventually become required:
@@ -168,6 +184,7 @@ These job names should eventually become required:
 - `frontend-quality`
 - `backend-test`
 - `backend-hygiene`
+- `repository-hygiene`
 
 ## Notes
 

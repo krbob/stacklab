@@ -75,13 +75,13 @@ function JobDetailDrawerContent({ jobId }: { jobId: string }) {
   const terminal = job ? ['succeeded', 'failed', 'cancelled', 'timed_out'].includes(job.state) : true
 
   useEffect(() => {
-    if (!job || terminal) return
+    if (terminal) return
     const interval = window.setInterval(() => {
       refetchJob()
       refetchEvents()
     }, 1000)
     return () => window.clearInterval(interval)
-  }, [job?.id, job?.state, terminal, refetchJob, refetchEvents])
+  }, [terminal, refetchJob, refetchEvents])
 
   async function handleCancel() {
     if (!job || canceling) return

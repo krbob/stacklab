@@ -46,9 +46,10 @@ export function GlobalActivity({ variant = 'sidebar' }: { variant?: 'sidebar' | 
   const removalTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
 
   useEffect(() => {
+    const removalTimers = removalTimersRef.current
     return () => {
-      removalTimersRef.current.forEach((timer) => clearTimeout(timer))
-      removalTimersRef.current.clear()
+      removalTimers.forEach((timer) => clearTimeout(timer))
+      removalTimers.clear()
     }
   }, [])
 

@@ -1,0 +1,23 @@
+title = "Stacklab secret scanning"
+
+[extend]
+useDefault = true
+
+# Extend only the generic rule so a path match can never suppress findings from
+# stronger rules (for example AWS or GitHub tokens). The extracted secret must
+# exactly match one of the deterministic fixture values below.
+[[rules]]
+id = "generic-api-key"
+
+[[rules.allowlists]]
+description = "Deterministic credentials used only by tests and smoke fixtures"
+condition = "AND"
+paths = [
+  '''^internal/.+_test\.go$''',
+  '''^frontend/(?:src|e2e)/.+(?:\.test)?\.[cm]?[jt]sx?$''',
+  '''^scripts/(?:e2e|release)/.+\.sh$''',
+]
+regexTarget = "secret"
+regexes = [
+  '''^(?:safe-token|secret-token|should-not-be-read|stacklab-(?:dev|e2e|smoke)|smoke-pass|change-me(?:-test-password)?)$''',
+]
