@@ -1,12 +1,13 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { useOutletContext } from 'react-router-dom'
+import { createMemoryRouter, RouterProvider, useOutletContext } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { getDefinition, getResolvedConfig, invokeAction, resolveConfigDraft, saveDefinition } from '@/lib/api-client'
 import { StackEditorPage } from './stack-editor-page'
 
-vi.mock('react-router-dom', () => ({
-  useOutletContext: vi.fn(),
-}))
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
+  return { ...actual, useOutletContext: vi.fn() }
+})
 
 vi.mock('@/lib/api-client', () => ({
   getDefinition: vi.fn(),
@@ -36,6 +37,11 @@ const mockGetResolvedConfig = vi.mocked(getResolvedConfig)
 const mockResolveConfigDraft = vi.mocked(resolveConfigDraft)
 const mockSaveDefinition = vi.mocked(saveDefinition)
 const mockInvokeAction = vi.mocked(invokeAction)
+
+function renderPage() {
+  const router = createMemoryRouter([{ path: '/', element: <StackEditorPage /> }])
+  return render(<RouterProvider router={router} />)
+}
 
 const stack = {
   id: 'demo',
@@ -96,7 +102,7 @@ describe('StackEditorPage', () => {
   })
 
   it('marks draft validation stale after editing a last deployed preview', async () => {
-    render(<StackEditorPage />)
+    renderPage()
 
     await screen.findByText('✓ Config valid')
     const saveDeploy = screen.getByTestId('editor-save-deploy')
@@ -129,7 +135,7 @@ describe('StackEditorPage', () => {
       job: { id: 'job-save-deploy', stack_id: 'demo', action: 'save_definition', state: 'running' },
     })
 
-    render(<StackEditorPage />)
+    renderPage()
 
     await screen.findByText('✓ Config valid')
     fireEvent.change(screen.getByLabelText('yaml-editor'), {
@@ -160,7 +166,7 @@ describe('StackEditorPage', () => {
       },
     })
 
-    render(<StackEditorPage />)
+    renderPage()
 
     await screen.findByText('✓ Config valid')
     fireEvent.change(screen.getByLabelText('yaml-editor'), {
@@ -180,7 +186,7 @@ describe('StackEditorPage', () => {
       job: { id: 'job-save', stack_id: 'demo', action: 'save_definition', state: 'succeeded' },
     })
 
-    render(<StackEditorPage />)
+    renderPage()
 
     await screen.findByText('✓ Config valid')
     fireEvent.change(screen.getByLabelText('yaml-editor'), {
@@ -200,7 +206,7 @@ describe('StackEditorPage', () => {
   })
 
   it('requires confirmation before discarding editor changes', async () => {
-    render(<StackEditorPage />)
+    renderPage()
 
     await screen.findByText('✓ Config valid')
     const editor = screen.getByLabelText('yaml-editor')
@@ -220,7 +226,7 @@ describe('StackEditorPage', () => {
   it('keeps the loaded definition editable when the optional resolved preview fails', async () => {
     mockGetResolvedConfig.mockRejectedValue(new Error('Docker is unavailable'))
 
-    render(<StackEditorPage />)
+    renderPage()
 
     const editor = await screen.findByLabelText('yaml-editor')
     expect(editor).toHaveValue('services:\n  app:\n    image: nginx:alpine\n')
@@ -254,7 +260,7 @@ describe('StackEditorPage', () => {
         config_state: 'in_sync',
       })
 
-    render(<StackEditorPage />)
+    renderPage()
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Definition request failed')
     expect(screen.queryByLabelText('yaml-editor')).not.toBeInTheDocument()

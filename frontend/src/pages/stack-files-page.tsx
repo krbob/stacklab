@@ -9,6 +9,7 @@ import { BlockedFileCard } from '@/components/blocked-file-card'
 import { cn } from '@/lib/cn'
 import { UnsavedChangesGuard } from '@/components/unsaved-changes-guard'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { usePendingAction } from '@/hooks/use-pending-action'
 
 const RESERVED_ROOT_FILES = ['compose.yaml', '.env']
 
@@ -44,6 +45,12 @@ export function StackFilesPage() {
   )
 
   const isDirty = selectedFile?.type === 'text_file' && editContent !== (selectedFile.content ?? '')
+  const {
+    hasPendingAction,
+    requestAction,
+    cancelPendingAction,
+    confirmPendingAction,
+  } = usePendingAction(isDirty)
 
   const openFile = useCallback(async (path: string) => {
     setFileLoading(true)
@@ -104,12 +111,34 @@ export function StackFilesPage() {
     }
   }, [stack.id, treePath, newFileName, refetchTree, openFile])
 
+  const requestDiscardingAction = useCallback((action: () => void) => {
+    requestAction(() => {
+      if (selectedFile) setEditContent(selectedFile.content ?? '')
+      action()
+    })
+  }, [requestAction, selectedFile])
+
+  const requestOpenFile = useCallback((path: string) => {
+    if (selectedFile?.path === path) return
+    requestDiscardingAction(() => { void openFile(path) })
+  }, [openFile, requestDiscardingAction, selectedFile?.path])
+
+  const requestNavigateDir = useCallback((path: string) => {
+    if (treePath === path) return
+    requestDiscardingAction(() => navigateDir(path))
+  }, [navigateDir, requestDiscardingAction, treePath])
+
+  const requestCreateFile = useCallback(() => {
+    if (!newFileName.trim()) return
+    requestDiscardingAction(() => { void handleCreateFile() })
+  }, [handleCreateFile, newFileName, requestDiscardingAction])
+
   const treeEntries = treeData?.items ?? []
   const parentPath = treeData?.parent_path ?? null
 
   return (
     <div className="flex flex-col gap-4 lg:flex-row" style={{ minHeight: '400px' }}>
-      <UnsavedChangesGuard when={isDirty && !saving} />
+      <UnsavedChangesGuard when={isDirty} />
 
       {/* Tree panel */}
       <div className="w-full shrink-0 overflow-y-auto lg:w-56">
@@ -122,7 +151,7 @@ export function StackFilesPage() {
         {!treeLoading && !treeError && (
           <nav className="space-y-0.5">
             {parentPath !== null && (
-              <button onClick={() => navigateDir(parentPath)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-[var(--muted)] transition hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]">
+              <button onClick={() => requestNavigateDir(parentPath)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-[var(--muted)] transition hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]">
                 <Folder className="size-3.5" /><span>.. (up)</span>
               </button>
             )}
@@ -132,8 +161,8 @@ export function StackFilesPage() {
                 entry={entry}
                 isRoot={treePath === ''}
                 isSelected={selectedFile?.path === entry.path}
-                onOpenFile={openFile}
-                onNavigateDir={navigateDir}
+                onOpenFile={requestOpenFile}
+                onNavigateDir={requestNavigateDir}
                 onGoToEditor={() => navigate('../editor', { relative: 'path' })}
               />
             ))}
@@ -145,7 +174,7 @@ export function StackFilesPage() {
             )}
             {creatingFile && (
               <div className="px-2 py-1">
-                <input type="text" value={newFileName} onChange={(e) => setNewFileName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFile(); if (e.key === 'Escape') setCreatingFile(false) }} placeholder="filename" autoFocus className="w-full rounded border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
+                <input type="text" value={newFileName} onChange={(e) => setNewFileName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') requestCreateFile(); if (e.key === 'Escape') setCreatingFile(false) }} placeholder="filename" autoFocus className="w-full rounded border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
               </div>
             )}
           </nav>
@@ -226,6 +255,17 @@ export function StackFilesPage() {
             setEditContent(selectedFile.content ?? '')
             setConfirmDiscard(false)
           }}
+        />
+      )}
+
+      {hasPendingAction && selectedFile && (
+        <ConfirmDialog
+          title={`Discard changes to "${selectedFile.name}"?`}
+          message="Continue with the selected action and discard this file's unsaved changes."
+          items={[selectedFile.path]}
+          confirmLabel="Discard and continue"
+          onCancel={cancelPendingAction}
+          onConfirm={confirmPendingAction}
         />
       )}
     </div>

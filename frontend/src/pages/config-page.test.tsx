@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConfigPage } from './config-page'
 import type {
@@ -285,11 +285,8 @@ const blockedGitDiff: GitDiffResponse = {
 }
 
 function renderPage() {
-  return render(
-    <MemoryRouter>
-      <ConfigPage />
-    </MemoryRouter>,
-  )
+  const router = createMemoryRouter([{ path: '*', element: <ConfigPage /> }])
+  return { router, ...render(<RouterProvider router={router} />) }
 }
 
 describe('ConfigPage', () => {
@@ -374,6 +371,98 @@ describe('ConfigPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
 
     expect(editor).toHaveValue('server_name old.local;\n')
+  })
+
+  it('keeps a config draft when another file is selected until the pending action is confirmed', async () => {
+    const workerFile: ConfigFileResponse = {
+      ...fileBefore,
+      path: 'demo/worker.conf',
+      name: 'worker.conf',
+      content: 'worker_processes 1;\n',
+    }
+    mockGetConfigTree
+      .mockResolvedValueOnce(rootTree)
+      .mockResolvedValueOnce({
+        ...demoTree,
+        items: [
+          ...demoTree.items,
+          { ...demoTree.items[0], name: 'worker.conf', path: 'demo/worker.conf' },
+        ],
+      })
+    mockGetConfigFile
+      .mockResolvedValueOnce(fileBefore)
+      .mockResolvedValueOnce(workerFile)
+
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'demo' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'app.conf' }))
+    const editor = await screen.findByLabelText('yaml-editor')
+    fireEvent.change(editor, { target: { value: 'server_name draft.local;\n' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'worker.conf' }))
+    expect(screen.getByRole('dialog', { name: 'Discard changes to "app.conf"?' })).toBeInTheDocument()
+    expect(mockGetConfigFile).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(editor).toHaveValue('server_name draft.local;\n')
+    expect(mockGetConfigFile).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'worker.conf' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Discard and continue' }))
+
+    await waitFor(() => expect(mockGetConfigFile).toHaveBeenLastCalledWith('demo/worker.conf'))
+    expect(editor).toHaveValue('worker_processes 1;\n')
+  })
+
+  it('does not leave the current config directory with an unsaved file without confirmation', async () => {
+    mockGetConfigTree
+      .mockResolvedValueOnce(rootTree)
+      .mockResolvedValueOnce(demoTree)
+      .mockResolvedValueOnce(rootTree)
+    mockGetConfigFile.mockResolvedValue(fileBefore)
+
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'demo' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'app.conf' }))
+    fireEvent.change(await screen.findByLabelText('yaml-editor'), { target: { value: 'server_name draft.local;\n' } })
+
+    fireEvent.click(screen.getByRole('button', { name: '.. (up)' }))
+    expect(screen.getByRole('dialog', { name: 'Discard changes to "app.conf"?' })).toBeInTheDocument()
+    expect(mockGetConfigTree).toHaveBeenCalledTimes(2)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard and continue' }))
+
+    await waitFor(() => expect(mockGetConfigTree).toHaveBeenCalledTimes(3))
+    expect(screen.queryByLabelText('yaml-editor')).not.toBeInTheDocument()
+  })
+
+  it('protects a config draft when switching from Files to Changes mode', async () => {
+    mockGetConfigTree
+      .mockResolvedValueOnce(rootTree)
+      .mockResolvedValueOnce(demoTree)
+    mockGetConfigFile.mockResolvedValue(fileBefore)
+
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'demo' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'app.conf' }))
+    const editor = await screen.findByLabelText('yaml-editor')
+    fireEvent.change(editor, { target: { value: 'server_name draft.local;\n' } })
+
+    fireEvent.click(screen.getByRole('button', { name: /^Changes/ }))
+    expect(screen.getByRole('dialog', { name: 'Discard changes to "app.conf"?' })).toBeInTheDocument()
+    expect(mockGetGitWorkspaceStatus).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(editor).toHaveValue('server_name draft.local;\n')
+
+    fireEvent.click(screen.getByRole('button', { name: /^Changes/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Discard and continue' }))
+
+    expect(await screen.findByText('main')).toBeInTheDocument()
+    expect(mockGetGitWorkspaceStatus).toHaveBeenCalledTimes(1)
   })
 
   it('marks git-ignored config entries and selected files', async () => {

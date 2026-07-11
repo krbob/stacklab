@@ -11,6 +11,7 @@ import { BottomSheet } from '@/components/bottom-sheet'
 import { cn } from '@/lib/cn'
 import { UnsavedChangesGuard } from '@/components/unsaved-changes-guard'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { usePendingAction } from '@/hooks/use-pending-action'
 
 type Mode = 'files' | 'changes'
 
@@ -55,6 +56,12 @@ export function ConfigPage() {
   const [newFileName, setNewFileName] = useState('')
 
   const isDirty = selectedFile?.type === 'text_file' && editContent !== (selectedFile.content ?? '')
+  const {
+    hasPendingAction,
+    requestAction,
+    cancelPendingAction,
+    confirmPendingAction,
+  } = usePendingAction(isDirty)
 
   // --- Changes mode state ---
   const [gitItems, setGitItems] = useState<GitStatusItem[]>([])
@@ -259,9 +266,36 @@ export function ConfigPage() {
     }
   }, [])
 
+  const requestDiscardingAction = useCallback((action: () => void) => {
+    requestAction(() => {
+      if (selectedFile) setEditContent(selectedFile.content ?? '')
+      action()
+    })
+  }, [requestAction, selectedFile])
+
+  const requestOpenFile = useCallback((path: string) => {
+    if (selectedFile?.path === path) return
+    requestDiscardingAction(() => { void openFile(path) })
+  }, [openFile, requestDiscardingAction, selectedFile?.path])
+
+  const requestNavigateDir = useCallback((path: string) => {
+    if (treePath === path) return
+    requestDiscardingAction(() => navigateDir(path))
+  }, [navigateDir, requestDiscardingAction, treePath])
+
+  const requestModeSwitch = useCallback((newMode: Mode) => {
+    if (mode === newMode) return
+    requestDiscardingAction(() => handleModeSwitch(newMode))
+  }, [handleModeSwitch, mode, requestDiscardingAction])
+
+  const requestCreateFile = useCallback(() => {
+    if (!newFileName.trim()) return
+    requestDiscardingAction(() => { void handleCreateFile() })
+  }, [handleCreateFile, newFileName, requestDiscardingAction])
+
   return (
     <div className="flex flex-col gap-4 lg:flex-row" style={{ minHeight: 'calc(100vh - 120px)' }}>
-      <UnsavedChangesGuard when={isDirty && !saving} />
+      <UnsavedChangesGuard when={isDirty} />
 
       {/* Workspace panel: desktop sidebar; on mobile a bottom sheet */}
       <div className="hidden w-64 shrink-0 flex-col rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-[var(--shadow)] lg:flex">
@@ -273,7 +307,7 @@ export function ConfigPage() {
         {/* Mode toggle */}
         <div className="mb-3 flex gap-1">
           <button
-            onClick={() => handleModeSwitch('files')}
+            onClick={() => requestModeSwitch('files')}
             className={cn(
               'flex-1 rounded-md border px-3 py-1.5 text-xs transition',
               mode === 'files'
@@ -284,7 +318,7 @@ export function ConfigPage() {
             Files
           </button>
           <button
-            onClick={() => handleModeSwitch('changes')}
+            onClick={() => requestModeSwitch('changes')}
             disabled={!gitAvailable && !gitLoading}
             title={!gitAvailable ? (gitReason ?? 'Git not available') : undefined}
             className={cn(
@@ -312,7 +346,7 @@ export function ConfigPage() {
             {!treeLoading && !treeError && (
               <nav className="flex-1 space-y-0.5 overflow-y-auto">
                 {parentPath !== null && (
-                  <button onClick={() => navigateDir(parentPath)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-[var(--muted)] transition hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]">
+                  <button onClick={() => requestNavigateDir(parentPath)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-[var(--muted)] transition hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]">
                     <Folder className="size-3.5" /><span>.. (up)</span>
                   </button>
                 )}
@@ -321,7 +355,7 @@ export function ConfigPage() {
                   const isDir = entry.type === 'directory'
                   const isSelected = selectedFile?.path === entry.path
                   return (
-                    <button key={entry.path} onClick={() => isDir ? navigateDir(entry.path) : openFile(entry.path)} className={cn('flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition', isSelected ? 'bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'text-[var(--muted)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]', entry.git_ignored && !isSelected && 'opacity-55')}>
+                    <button key={entry.path} onClick={() => isDir ? requestNavigateDir(entry.path) : requestOpenFile(entry.path)} className={cn('flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition', isSelected ? 'bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'text-[var(--muted)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]', entry.git_ignored && !isSelected && 'opacity-55')}>
                       {entry.stack_id && isDir && treePath === '' ? <FolderKanban className="size-3.5 text-[var(--accent)]" /> : <Icon className="size-3.5" />}
                       <span className="min-w-0 flex-1 truncate text-left">{entry.name}</span>
                       {entry.git_ignored && <span aria-hidden="true" className="shrink-0 rounded border border-[var(--panel-border)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]">ignored</span>}
@@ -336,7 +370,7 @@ export function ConfigPage() {
                 )}
                 {creatingFile && (
                   <div className="flex items-center gap-1 px-2 py-1">
-                    <input type="text" value={newFileName} onChange={(e) => setNewFileName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFile(); if (e.key === 'Escape') setCreatingFile(false) }} placeholder="filename" autoFocus className="w-full rounded border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
+                    <input type="text" value={newFileName} onChange={(e) => setNewFileName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') requestCreateFile(); if (e.key === 'Escape') setCreatingFile(false) }} placeholder="filename" autoFocus className="w-full rounded border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
                   </div>
                 )}
               </nav>
@@ -443,7 +477,7 @@ export function ConfigPage() {
         {/* Mode toggle */}
         <div className="mb-3 flex gap-1">
           <button
-            onClick={() => handleModeSwitch('files')}
+            onClick={() => requestModeSwitch('files')}
             className={cn(
               'flex-1 rounded-md border px-3 py-1.5 text-xs transition',
               mode === 'files'
@@ -454,7 +488,7 @@ export function ConfigPage() {
             Files
           </button>
           <button
-            onClick={() => handleModeSwitch('changes')}
+            onClick={() => requestModeSwitch('changes')}
             disabled={!gitAvailable && !gitLoading}
             title={!gitAvailable ? (gitReason ?? 'Git not available') : undefined}
             className={cn(
@@ -482,7 +516,7 @@ export function ConfigPage() {
             {!treeLoading && !treeError && (
               <nav className="flex-1 space-y-0.5 overflow-y-auto">
                 {parentPath !== null && (
-                  <button onClick={() => navigateDir(parentPath)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-[var(--muted)] transition hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]">
+                  <button onClick={() => requestNavigateDir(parentPath)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-[var(--muted)] transition hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]">
                     <Folder className="size-3.5" /><span>.. (up)</span>
                   </button>
                 )}
@@ -491,7 +525,7 @@ export function ConfigPage() {
                   const isDir = entry.type === 'directory'
                   const isSelected = selectedFile?.path === entry.path
                   return (
-                    <button key={entry.path} onClick={() => isDir ? navigateDir(entry.path) : openFile(entry.path)} className={cn('flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition', isSelected ? 'bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'text-[var(--muted)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]', entry.git_ignored && !isSelected && 'opacity-55')}>
+                    <button key={entry.path} onClick={() => isDir ? requestNavigateDir(entry.path) : requestOpenFile(entry.path)} className={cn('flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition', isSelected ? 'bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'text-[var(--muted)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]', entry.git_ignored && !isSelected && 'opacity-55')}>
                       {entry.stack_id && isDir && treePath === '' ? <FolderKanban className="size-3.5 text-[var(--accent)]" /> : <Icon className="size-3.5" />}
                       <span className="min-w-0 flex-1 truncate text-left">{entry.name}</span>
                       {entry.git_ignored && <span aria-hidden="true" className="shrink-0 rounded border border-[var(--panel-border)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]">ignored</span>}
@@ -506,7 +540,7 @@ export function ConfigPage() {
                 )}
                 {creatingFile && (
                   <div className="flex items-center gap-1 px-2 py-1">
-                    <input type="text" value={newFileName} onChange={(e) => setNewFileName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFile(); if (e.key === 'Escape') setCreatingFile(false) }} placeholder="filename" autoFocus className="w-full rounded border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
+                    <input type="text" value={newFileName} onChange={(e) => setNewFileName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') requestCreateFile(); if (e.key === 'Escape') setCreatingFile(false) }} placeholder="filename" autoFocus className="w-full rounded border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
                   </div>
                 )}
               </nav>
@@ -755,6 +789,17 @@ export function ConfigPage() {
             handleDiscard()
             setConfirmDiscard(false)
           }}
+        />
+      )}
+
+      {hasPendingAction && selectedFile && (
+        <ConfirmDialog
+          title={`Discard changes to "${selectedFile.name}"?`}
+          message="Continue with the selected action and discard this file's unsaved changes."
+          items={[selectedFile.path]}
+          confirmLabel="Discard and continue"
+          onCancel={cancelPendingAction}
+          onConfirm={confirmPendingAction}
         />
       )}
     </div>

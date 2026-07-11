@@ -307,7 +307,7 @@ export function StackEditorPage() {
 
   return (
     <div className="flex flex-col gap-3">
-      <UnsavedChangesGuard when={isDirty && !saving} />
+      <UnsavedChangesGuard when={isDirty} />
 
       {error && (
         <div className="rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">

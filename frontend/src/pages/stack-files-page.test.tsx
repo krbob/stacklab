@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { StackFilesPage } from './stack-files-page'
 import type {
@@ -6,7 +7,6 @@ import type {
   StackWorkspaceTreeResponse,
 } from '@/lib/api-types'
 
-const mockNavigate = vi.fn()
 const mockGetStackWorkspaceTree = vi.fn()
 const mockGetStackWorkspaceFile = vi.fn()
 const mockSaveStackWorkspaceFile = vi.fn()
@@ -21,7 +21,6 @@ vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
   return {
     ...actual,
-    useNavigate: () => mockNavigate,
     useOutletContext: () => ({
       stack: { id: 'demo' },
     }),
@@ -156,9 +155,16 @@ const dockerfileAfter: StackWorkspaceFileResponse = {
   modified_at: '2026-04-09T10:01:00Z',
 }
 
+function renderPage() {
+  const router = createMemoryRouter(
+    [{ path: '*', element: <StackFilesPage /> }],
+    { initialEntries: ['/stacks/demo/files'] },
+  )
+  return { router, ...render(<RouterProvider router={router} />) }
+}
+
 describe('StackFilesPage', () => {
   beforeEach(() => {
-    mockNavigate.mockReset()
     mockGetStackWorkspaceTree.mockReset()
     mockGetStackWorkspaceFile.mockReset()
     mockSaveStackWorkspaceFile.mockReset()
@@ -166,14 +172,14 @@ describe('StackFilesPage', () => {
 
   it('shows reserved root files and redirects them to the Editor tab', async () => {
     mockGetStackWorkspaceTree.mockResolvedValue(rootTree)
-    render(<StackFilesPage />)
+    const { router } = renderPage()
 
     const composeButton = await screen.findByRole('button', { name: /compose\.yaml/i })
     expect(screen.getByRole('button', { name: /\.env/i })).toBeInTheDocument()
     expect(screen.getByText('Dockerfile')).toBeInTheDocument()
 
     fireEvent.click(composeButton)
-    expect(mockNavigate).toHaveBeenCalledWith('../editor', { relative: 'path' })
+    expect(router.state.location.pathname).toBe('/stacks/demo/editor')
   })
 
   it('renders blocked files with the blocked file card', async () => {
@@ -192,7 +198,7 @@ describe('StackFilesPage', () => {
     })
     mockGetStackWorkspaceFile.mockResolvedValue(blockedFile)
 
-    render(<StackFilesPage />)
+    renderPage()
 
     fireEvent.click(await screen.findByRole('button', { name: /secret\.key/i }))
 
@@ -216,7 +222,7 @@ describe('StackFilesPage', () => {
       audit_action: 'save_stack_file',
     })
 
-    render(<StackFilesPage />)
+    renderPage()
 
     fireEvent.click(await screen.findByRole('button', { name: /Dockerfile/i }))
     const editor = await screen.findByLabelText('stack-file-editor')
@@ -233,7 +239,7 @@ describe('StackFilesPage', () => {
     mockGetStackWorkspaceTree.mockResolvedValue(rootTree)
     mockGetStackWorkspaceFile.mockResolvedValue(dockerfileBefore)
 
-    render(<StackFilesPage />)
+    renderPage()
 
     fireEvent.click(await screen.findByRole('button', { name: /Dockerfile/i }))
     const editor = await screen.findByLabelText('stack-file-editor')
@@ -246,5 +252,77 @@ describe('StackFilesPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
 
     expect(editor).toHaveValue('FROM alpine:3.20\n')
+  })
+
+  it('keeps a stack file draft until opening another file is confirmed', async () => {
+    const nginxFile: StackWorkspaceFileResponse = {
+      ...dockerfileBefore,
+      path: 'nginx.conf',
+      name: 'nginx.conf',
+      content: 'worker_processes 1;\n',
+    }
+    mockGetStackWorkspaceTree.mockResolvedValue({
+      ...rootTree,
+      items: [
+        ...rootTree.items,
+        { ...rootTree.items[2], name: 'nginx.conf', path: 'nginx.conf' },
+      ],
+    })
+    mockGetStackWorkspaceFile
+      .mockResolvedValueOnce(dockerfileBefore)
+      .mockResolvedValueOnce(nginxFile)
+
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Dockerfile/i }))
+    const editor = await screen.findByLabelText('stack-file-editor')
+    fireEvent.change(editor, { target: { value: 'FROM alpine:edge\n' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'nginx.conf' }))
+    expect(screen.getByRole('dialog', { name: 'Discard changes to "Dockerfile"?' })).toBeInTheDocument()
+    expect(mockGetStackWorkspaceFile).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(editor).toHaveValue('FROM alpine:edge\n')
+    expect(mockGetStackWorkspaceFile).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'nginx.conf' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Discard and continue' }))
+
+    await waitFor(() => expect(mockGetStackWorkspaceFile).toHaveBeenLastCalledWith('demo', 'nginx.conf'))
+    expect(editor).toHaveValue('worker_processes 1;\n')
+  })
+
+  it('does not enter another stack directory with an unsaved file without confirmation', async () => {
+    const directoryEntry = {
+      ...rootTree.items[2],
+      name: 'configs',
+      path: 'configs',
+      type: 'directory' as const,
+      size_bytes: 0,
+    }
+    mockGetStackWorkspaceTree
+      .mockResolvedValueOnce({ ...rootTree, items: [...rootTree.items, directoryEntry] })
+      .mockResolvedValueOnce({
+        ...rootTree,
+        current_path: 'configs',
+        parent_path: '',
+        items: [],
+      })
+    mockGetStackWorkspaceFile.mockResolvedValue(dockerfileBefore)
+
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Dockerfile/i }))
+    fireEvent.change(await screen.findByLabelText('stack-file-editor'), { target: { value: 'FROM alpine:edge\n' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'configs' }))
+    expect(screen.getByRole('dialog', { name: 'Discard changes to "Dockerfile"?' })).toBeInTheDocument()
+    expect(mockGetStackWorkspaceTree).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard and continue' }))
+
+    await waitFor(() => expect(mockGetStackWorkspaceTree).toHaveBeenLastCalledWith('demo', 'configs'))
+    expect(screen.queryByLabelText('stack-file-editor')).not.toBeInTheDocument()
   })
 })
