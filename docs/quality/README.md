@@ -4,6 +4,7 @@ This section defines testing strategy, observability, and acceptance criteria.
 
 ## Documents
 
+- [remediation-plan-2026-07-11.md](remediation-plan-2026-07-11.md) — prioritized implementation plan from the July code, security, operations, and UX review
 - [acceptance-criteria.md](acceptance-criteria.md) — MVP acceptance criteria and non-acceptance conditions
 - [ci-quality-plan.md](ci-quality-plan.md) — planned CI quality gates, static analysis, linting, and coverage policy
 - [test-rollout-plan.md](test-rollout-plan.md) — concrete next-step rollout plan for tests, CI, contract validation, and runtime integration coverage
