@@ -180,7 +180,7 @@ func TestHandlerServesTemplatesImageStatusFrontendAndFallbacks(t *testing.T) {
 		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	fallbackResponse := httptest.NewRecorder()
-	fallback.handleFrontend(fallbackResponse, httptest.NewRequest(http.MethodGet, "http://stacklab.test/", nil))
+	(&systemController{Handler: fallback}).handleFrontend(fallbackResponse, httptest.NewRequest(http.MethodGet, "http://stacklab.test/", nil))
 	if fallbackResponse.Code != http.StatusOK || !strings.Contains(fallbackResponse.Body.String(), "Frontend assets have not been built") {
 		t.Fatalf("frontend fallback = %d %q", fallbackResponse.Code, fallbackResponse.Body.String())
 	}
