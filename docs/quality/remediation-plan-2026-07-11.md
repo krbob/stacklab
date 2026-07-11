@@ -39,7 +39,7 @@ rozszerzania zakresu produktu poza model single-host i Compose-first.
 
 | ID | Status | Krok | Kryterium odbioru | Planowany commit |
 | --- | --- | --- | --- | --- |
-| AUTH-01 | planned | Ograniczyć współbieżne hashowanie haseł | globalny limit Argon2, limit in-flight per klient, mały limit body loginu, bounded cleanup liczników i test równoległego burstu | `fix(auth): bound concurrent login work` |
+| AUTH-01 | done | Ograniczyć współbieżne hashowanie haseł | globalny limit Argon2, limit in-flight per klient, mały limit body loginu, bounded cleanup liczników i test równoległego burstu | `fix(auth): bound concurrent login work` |
 | AUTH-02 | planned | Uporządkować model rate limitingu za proxy | udokumentowany i testowany model direct peer/XFF; brak globalnego lockoutu za prawidłowo skonfigurowanym proxy; brak możliwości prostego spoofingu z portu lokalnego | `fix(auth): harden proxied login rate limiting` |
 | AUTH-03 | planned | Unieważniać sesje po zmianie hasła | wersja hasła jest atomowo zwiększana; poprzednie sesje tracą ważność; UI przechodzi do ponownego logowania | `fix(auth): revoke sessions on password change` |
 | AUTH-04 | planned | Zamykać aktywne WS i terminale po revocation/expiry | logout, zmiana hasła i absolute lifetime zamykają WS oraz PTY; test integracyjny obejmuje połączenie w locie | `fix(auth): enforce session lifetime on websockets` |

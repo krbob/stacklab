@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -132,6 +133,115 @@ func TestLoginLocksClientAfterRepeatedFailures(t *testing.T) {
 	now = now.Add(cfg.LoginLockoutDuration + time.Nanosecond)
 	if _, err := service.Login(ctx, "secret", "ua", "127.0.0.1"); err != nil {
 		t.Fatalf("Login(after lockout) error = %v", err)
+	}
+}
+
+func TestLoginLimitsConcurrentPasswordVerificationGlobally(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	authStore := openTestStore(t)
+	if err := authStore.SetPasswordHash(ctx, "fixture-hash", time.Now().UTC()); err != nil {
+		t.Fatalf("SetPasswordHash() error = %v", err)
+	}
+	service := NewService(testConfig(""), authStore)
+	service.loginVerificationSlots = make(chan struct{}, 1)
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var verificationCalls atomic.Int32
+	service.passwordVerifier = func(_, _ string) error {
+		verificationCalls.Add(1)
+		close(started)
+		<-release
+		return ErrInvalidCredentials
+	}
+
+	firstResult := make(chan error, 1)
+	go func() {
+		_, err := service.Login(ctx, "wrong", "ua", "192.0.2.1")
+		firstResult <- err
+	}()
+	<-started
+
+	if _, err := service.Login(ctx, "wrong", "ua", "192.0.2.2"); !errors.Is(err, ErrTooManyAttempts) {
+		t.Fatalf("Login(while global verifier is busy) error = %v, want ErrTooManyAttempts", err)
+	}
+	if got := verificationCalls.Load(); got != 1 {
+		t.Fatalf("password verification calls = %d, want 1", got)
+	}
+
+	close(release)
+	if err := <-firstResult; !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("Login(first request) error = %v, want ErrInvalidCredentials", err)
+	}
+}
+
+func TestLoginLimitsConcurrentPasswordVerificationPerClient(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	authStore := openTestStore(t)
+	if err := authStore.SetPasswordHash(ctx, "fixture-hash", time.Now().UTC()); err != nil {
+		t.Fatalf("SetPasswordHash() error = %v", err)
+	}
+	service := NewService(testConfig(""), authStore)
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	service.passwordVerifier = func(_, _ string) error {
+		close(started)
+		<-release
+		return ErrInvalidCredentials
+	}
+
+	firstResult := make(chan error, 1)
+	go func() {
+		_, err := service.Login(ctx, "wrong", "ua", "192.0.2.1")
+		firstResult <- err
+	}()
+	<-started
+
+	if _, err := service.Login(ctx, "wrong", "ua", "192.0.2.1"); !errors.Is(err, ErrTooManyAttempts) {
+		t.Fatalf("Login(while client verifier is busy) error = %v, want ErrTooManyAttempts", err)
+	}
+
+	close(release)
+	if err := <-firstResult; !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("Login(first request) error = %v, want ErrInvalidCredentials", err)
+	}
+}
+
+func TestLoginAttemptTrackingIsBoundedAndPrunesExpiredClients(t *testing.T) {
+	t.Parallel()
+
+	service := NewService(testConfig(""), openTestStore(t))
+	service.maxTrackedLoginClients = 2
+	service.cfg.LoginFailureWindow = time.Minute
+	now := time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC)
+
+	service.recordLoginFailure("192.0.2.1", now)
+	service.recordLoginFailure("192.0.2.2", now.Add(time.Second))
+	service.recordLoginFailure("192.0.2.3", now.Add(2*time.Second))
+
+	service.loginMu.Lock()
+	_, oldestStillTracked := service.loginAttempts["192.0.2.1"]
+	trackedCount := len(service.loginAttempts)
+	service.loginMu.Unlock()
+	if trackedCount != 2 {
+		t.Fatalf("tracked login clients = %d, want 2", trackedCount)
+	}
+	if oldestStillTracked {
+		t.Fatal("oldest login client was not evicted")
+	}
+
+	service.recordLoginFailure("192.0.2.4", now.Add(2*time.Minute))
+	service.loginMu.Lock()
+	trackedCount = len(service.loginAttempts)
+	_, newClientTracked := service.loginAttempts["192.0.2.4"]
+	service.loginMu.Unlock()
+	if trackedCount != 1 || !newClientTracked {
+		t.Fatalf("tracked login clients after expiry = %d, new client tracked = %t; want 1, true", trackedCount, newClientTracked)
 	}
 }
 

@@ -28,21 +28,30 @@ var (
 	ErrTooManyAttempts    = errors.New("too many login attempts")
 )
 
-const localUserID = "local"
+const (
+	localUserID                         = "local"
+	defaultLoginVerificationConcurrency = 2
+	defaultMaxTrackedLoginClients       = 4096
+)
 
 type Service struct {
-	cfg           config.Config
-	store         *store.Store
-	now           func() time.Time
-	newSessionID  func() (string, error)
-	loginAttempts map[string]loginAttemptState
-	loginMu       sync.Mutex
+	cfg                    config.Config
+	store                  *store.Store
+	now                    func() time.Time
+	newSessionID           func() (string, error)
+	passwordVerifier       func(string, string) error
+	loginVerificationSlots chan struct{}
+	loginAttempts          map[string]loginAttemptState
+	loginInFlight          map[string]struct{}
+	maxTrackedLoginClients int
+	loginMu                sync.Mutex
 }
 
 type loginAttemptState struct {
 	FirstFailedAt time.Time
 	FailedCount   int
 	LockedUntil   time.Time
+	UpdatedAt     time.Time
 }
 
 type Session struct {
@@ -54,11 +63,15 @@ type Session struct {
 
 func NewService(cfg config.Config, authStore *store.Store) *Service {
 	return &Service{
-		cfg:           cfg,
-		store:         authStore,
-		now:           func() time.Time { return time.Now().UTC() },
-		newSessionID:  func() (string, error) { return randomToken(32) },
-		loginAttempts: make(map[string]loginAttemptState),
+		cfg:                    cfg,
+		store:                  authStore,
+		now:                    func() time.Time { return time.Now().UTC() },
+		newSessionID:           func() (string, error) { return randomToken(32) },
+		passwordVerifier:       verifyPassword,
+		loginVerificationSlots: make(chan struct{}, defaultLoginVerificationConcurrency),
+		loginAttempts:          make(map[string]loginAttemptState),
+		loginInFlight:          make(map[string]struct{}),
+		maxTrackedLoginClients: defaultMaxTrackedLoginClients,
 	}
 }
 
@@ -86,6 +99,11 @@ func (s *Service) Login(ctx context.Context, password, userAgent, ipAddress stri
 	if s.loginLocked(ipAddress, now) {
 		return Session{}, ErrTooManyAttempts
 	}
+	release, err := s.acquireLoginVerification(ctx, ipAddress)
+	if err != nil {
+		return Session{}, err
+	}
+	defer release()
 
 	passwordHash, configured, err := s.store.PasswordHash(ctx)
 	if err != nil {
@@ -94,7 +112,7 @@ func (s *Service) Login(ctx context.Context, password, userAgent, ipAddress stri
 	if !configured || passwordHash == "" {
 		return Session{}, ErrNotConfigured
 	}
-	if err := verifyPassword(passwordHash, password); err != nil {
+	if err := s.passwordVerifier(passwordHash, password); err != nil {
 		s.recordLoginFailure(ipAddress, now)
 		return Session{}, ErrInvalidCredentials
 	}
@@ -130,35 +148,101 @@ func (s *Service) Login(ctx context.Context, password, userAgent, ipAddress stri
 	return session, nil
 }
 
+func (s *Service) acquireLoginVerification(ctx context.Context, ipAddress string) (func(), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	select {
+	case s.loginVerificationSlots <- struct{}{}:
+	default:
+		return nil, ErrTooManyAttempts
+	}
+
+	key := loginAttemptKey(ipAddress)
+	s.loginMu.Lock()
+	if _, exists := s.loginInFlight[key]; exists {
+		s.loginMu.Unlock()
+		<-s.loginVerificationSlots
+		return nil, ErrTooManyAttempts
+	}
+	s.loginInFlight[key] = struct{}{}
+	s.loginMu.Unlock()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			s.loginMu.Lock()
+			delete(s.loginInFlight, key)
+			s.loginMu.Unlock()
+			<-s.loginVerificationSlots
+		})
+	}, nil
+}
+
 func (s *Service) loginLocked(ipAddress string, now time.Time) bool {
 	key := loginAttemptKey(ipAddress)
 	s.loginMu.Lock()
 	defer s.loginMu.Unlock()
 
-	attempt := s.loginAttempts[key]
-	if attempt.LockedUntil.After(now) {
-		return true
+	attempt, exists := s.loginAttempts[key]
+	if !exists {
+		return false
 	}
-	if !attempt.LockedUntil.IsZero() || (attempt.FailedCount > 0 && now.Sub(attempt.FirstFailedAt) > s.loginFailureWindow()) {
+	if loginAttemptExpired(attempt, now, s.loginFailureWindow()) {
 		delete(s.loginAttempts, key)
+		return false
 	}
-	return false
+	return attempt.LockedUntil.After(now)
 }
 
 func (s *Service) recordLoginFailure(ipAddress string, now time.Time) {
 	key := loginAttemptKey(ipAddress)
 	s.loginMu.Lock()
 	defer s.loginMu.Unlock()
+	s.pruneLoginAttemptsLocked(now)
 
-	attempt := s.loginAttempts[key]
+	attempt, exists := s.loginAttempts[key]
 	if attempt.FailedCount == 0 || now.Sub(attempt.FirstFailedAt) > s.loginFailureWindow() {
 		attempt = loginAttemptState{FirstFailedAt: now}
 	}
 	attempt.FailedCount++
+	attempt.UpdatedAt = now
 	if attempt.FailedCount >= s.loginMaxFailures() {
 		attempt.LockedUntil = now.Add(s.loginLockoutDuration())
 	}
+	if !exists && len(s.loginAttempts) >= s.maxTrackedClients() {
+		s.evictOldestLoginAttemptLocked()
+	}
 	s.loginAttempts[key] = attempt
+}
+
+func (s *Service) pruneLoginAttemptsLocked(now time.Time) {
+	for key, attempt := range s.loginAttempts {
+		if loginAttemptExpired(attempt, now, s.loginFailureWindow()) {
+			delete(s.loginAttempts, key)
+		}
+	}
+}
+
+func loginAttemptExpired(attempt loginAttemptState, now time.Time, failureWindow time.Duration) bool {
+	if !attempt.LockedUntil.IsZero() {
+		return !attempt.LockedUntil.After(now)
+	}
+	return attempt.FailedCount > 0 && now.Sub(attempt.FirstFailedAt) > failureWindow
+}
+
+func (s *Service) evictOldestLoginAttemptLocked() {
+	oldestKey := ""
+	var oldestUpdatedAt time.Time
+	for key, attempt := range s.loginAttempts {
+		if oldestKey == "" || attempt.UpdatedAt.Before(oldestUpdatedAt) || (attempt.UpdatedAt.Equal(oldestUpdatedAt) && key < oldestKey) {
+			oldestKey = key
+			oldestUpdatedAt = attempt.UpdatedAt
+		}
+	}
+	if oldestKey != "" {
+		delete(s.loginAttempts, oldestKey)
+	}
 }
 
 func (s *Service) clearLoginFailures(ipAddress string) {
@@ -379,6 +463,13 @@ func (s *Service) loginLockoutDuration() time.Duration {
 		return 5 * time.Minute
 	}
 	return s.cfg.LoginLockoutDuration
+}
+
+func (s *Service) maxTrackedClients() int {
+	if s.maxTrackedLoginClients <= 0 {
+		return defaultMaxTrackedLoginClients
+	}
+	return s.maxTrackedLoginClients
 }
 
 func hashPassword(password string) (string, error) {

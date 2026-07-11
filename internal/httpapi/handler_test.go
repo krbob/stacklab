@@ -148,6 +148,38 @@ func TestHandlerRateLimitsRepeatedLoginFailures(t *testing.T) {
 	}
 }
 
+func TestHandlerRejectsOversizedLoginBody(t *testing.T) {
+	t.Parallel()
+
+	const loginBodyLimit int64 = 4 << 10
+	handler, _ := newTestHandler(t)
+	body := `{"password":"` + strings.Repeat("x", int(loginBodyLimit)) + `"}`
+	request := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("POST /api/auth/login oversized status = %d, want %d", response.Code, http.StatusRequestEntityTooLarge)
+	}
+	var payload struct {
+		Error struct {
+			Code    string `json:"code"`
+			Details struct {
+				MaxBytes int64 `json:"max_bytes"`
+			} `json:"details"`
+		} `json:"error"`
+	}
+	decodeResponse(t, response, &payload)
+	if payload.Error.Code != "request_too_large" {
+		t.Fatalf("error code = %q, want request_too_large", payload.Error.Code)
+	}
+	if payload.Error.Details.MaxBytes != loginBodyLimit {
+		t.Fatalf("max_bytes = %d, want %d", payload.Error.Details.MaxBytes, loginBodyLimit)
+	}
+}
+
 func TestHandlerNotificationSettingsAndTestWebhook(t *testing.T) {
 	t.Parallel()
 

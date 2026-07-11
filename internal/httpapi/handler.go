@@ -313,8 +313,8 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		Password string `json:"password"`
 	}
-	if err := decodeJSON(w, r, &request); err != nil {
-		writeDecodeJSONError(w, err)
+	if err := decodeJSONWithLimit(w, r, &request, maxLoginJSONBodyBytes); err != nil {
+		writeDecodeJSONErrorWithLimit(w, err, maxLoginJSONBodyBytes)
 		return
 	}
 
@@ -2642,7 +2642,10 @@ type statusRecorder struct {
 	status int
 }
 
-const maxJSONBodyBytes int64 = 16 << 20
+const (
+	maxJSONBodyBytes      int64 = 16 << 20
+	maxLoginJSONBodyBytes int64 = 4 << 10
+)
 
 var errRequestBodyTooLarge = errors.New("request body too large")
 
@@ -2675,7 +2678,11 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, destination any) error {
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxJSONBodyBytes))
+	return decodeJSONWithLimit(w, r, destination, maxJSONBodyBytes)
+}
+
+func decodeJSONWithLimit(w http.ResponseWriter, r *http.Request, destination any, maxBytes int64) error {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBytes))
 	decoder.DisallowUnknownFields()
 	err := decoder.Decode(destination)
 	if err == nil {
@@ -2689,9 +2696,13 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, destination any) error {
 }
 
 func writeDecodeJSONError(w http.ResponseWriter, err error) {
+	writeDecodeJSONErrorWithLimit(w, err, maxJSONBodyBytes)
+}
+
+func writeDecodeJSONErrorWithLimit(w http.ResponseWriter, err error, maxBytes int64) {
 	if errors.Is(err, errRequestBodyTooLarge) {
 		writeError(w, http.StatusRequestEntityTooLarge, "request_too_large", "Request body is too large.", map[string]any{
-			"max_bytes": maxJSONBodyBytes,
+			"max_bytes": maxBytes,
 		})
 		return
 	}
