@@ -42,8 +42,8 @@ test.describe('Global Audit', () => {
       await expect(row.getByText('save_definition')).toBeVisible()
 
       await row.click()
-      const drawer = page.locator('div.fixed.inset-y-0.right-0')
-      await expect(drawer.getByText('Job detail')).toBeVisible()
+      const drawer = page.getByRole('dialog', { name: 'Job detail' })
+      await expect(drawer.getByRole('heading', { name: 'Job detail', exact: true })).toBeVisible()
       await expect(drawer).toContainText('save_definition')
       await expect(drawer).toContainText(AUDIT_STACK)
       await page.keyboard.press('Escape')

@@ -26,20 +26,20 @@ test.describe('Maintenance', () => {
     await page.goto('/maintenance')
     await expect(page).toHaveURL(/\/maintenance/)
 
-    await page.getByRole('button', { name: 'Images' }).click()
+    await page.getByRole('tab', { name: 'Images' }).click()
     const imagesSection = page.getByRole('heading', { name: 'Images' }).locator('xpath=ancestor::section[1]')
     await expect(imagesSection).toBeVisible()
     await expect(imagesSection.getByRole('link', { name: STACK_ID })).toBeVisible({ timeout: 20_000 })
 
-    await page.getByRole('button', { name: 'Networks' }).click()
+    await page.getByRole('tab', { name: 'Networks' }).click()
     await expect(page.getByRole('heading', { name: 'Networks' })).toBeVisible()
     await expect(page.getByText(`${STACK_ID}_default`)).toBeVisible({ timeout: 20_000 })
 
-    await page.getByRole('button', { name: 'Volumes' }).click()
+    await page.getByRole('tab', { name: 'Volumes' }).click()
     await expect(page.getByRole('heading', { name: 'Volumes' })).toBeVisible()
     await expect(page.getByText(`${STACK_ID}_worker-data`, { exact: true })).toBeVisible({ timeout: 20_000 })
 
-    await page.getByRole('button', { name: 'Cleanup' }).click()
+    await page.getByRole('tab', { name: 'Cleanup' }).click()
     await expect(page.getByRole('heading', { name: 'Cleanup' })).toBeVisible()
     await expect(page.getByText('Total reclaimable:')).toBeVisible({ timeout: 20_000 })
 
@@ -55,7 +55,9 @@ test.describe('Maintenance', () => {
     await page.getByTestId('maintenance-prune').click()
     await expect(page.getByTestId('maintenance-prune')).toHaveText('Cleaning...', { timeout: 5_000 })
 
-    const pruneJob = await (await pruneResponse).json()
+    const pruneResult = await pruneResponse
+    expect(pruneResult.ok()).toBeTruthy()
+    const pruneJob = await pruneResult.json()
     await waitForJobById(page, pruneJob.job.id)
     await expect(page.getByTestId('maintenance-prune')).toHaveText('Run cleanup', { timeout: 20_000 })
   })
