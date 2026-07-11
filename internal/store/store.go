@@ -29,6 +29,10 @@ type Store struct {
 	db *sql.DB
 }
 
+type sqlExecutor interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
 type Session struct {
 	ID              string
 	UserID          string
@@ -675,6 +679,35 @@ func (s *Store) RevokeSession(ctx context.Context, id string, revokedAt time.Tim
 }
 
 func (s *Store) CreateJob(ctx context.Context, job Job) error {
+	return createJob(ctx, s.db, job)
+}
+
+// CreateJobWithInitialEvent persists the complete visible job initialization
+// boundary. A caller never observes a running job without its workflow or
+// first retained event.
+func (s *Store) CreateJobWithInitialEvent(ctx context.Context, job Job, event JobEvent) error {
+	if event.JobID != job.ID || event.Sequence != 1 {
+		return errors.New("initial job event must use the job id and sequence 1")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin job initialization: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if err := createJob(ctx, tx, job); err != nil {
+		return err
+	}
+	if err := createJobEvent(ctx, tx, event); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit job initialization: %w", err)
+	}
+	return nil
+}
+
+func createJob(ctx context.Context, executor sqlExecutor, job Job) error {
 	var workflowJSON sql.NullString
 	if job.Workflow != nil {
 		workflowBytes, err := json.Marshal(job.Workflow)
@@ -693,7 +726,7 @@ func (s *Store) CreateJob(ctx context.Context, job Job) error {
 		finishedAt = sql.NullString{String: job.FinishedAt.UTC().Format(time.RFC3339Nano), Valid: true}
 	}
 
-	_, err := s.db.ExecContext(
+	_, err := executor.ExecContext(
 		ctx,
 		`INSERT INTO jobs (id, stack_id, action, state, requested_by, requested_at, started_at, finished_at, workflow_json, error_code, error_message)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -850,6 +883,10 @@ func (s *Store) NextJobEventSequence(ctx context.Context, jobID string) (int, er
 }
 
 func (s *Store) CreateJobEvent(ctx context.Context, event JobEvent) error {
+	return createJobEvent(ctx, s.db, event)
+}
+
+func createJobEvent(ctx context.Context, executor sqlExecutor, event JobEvent) error {
 	var stepJSON sql.NullString
 	if event.Step != nil {
 		encoded, err := json.Marshal(event.Step)
@@ -868,7 +905,7 @@ func (s *Store) CreateJobEvent(ctx context.Context, event JobEvent) error {
 		progressJSON = sql.NullString{String: string(encoded), Valid: true}
 	}
 
-	_, err := s.db.ExecContext(
+	_, err := executor.ExecContext(
 		ctx,
 		`INSERT INTO job_events (job_id, sequence, event, state, message, data, step_json, progress_json, timestamp)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,

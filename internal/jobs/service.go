@@ -105,7 +105,15 @@ func (s *Service) Start(ctx context.Context, stackID, action, requestedBy string
 }
 
 func (s *Service) StartWithResources(ctx context.Context, stackID, action, requestedBy string, requestedResources ...Resource) (store.Job, error) {
-	return s.start(ctx, stackID, action, requestedBy, requestedResources, false)
+	return s.start(ctx, stackID, action, requestedBy, requestedResources, false, nil)
+}
+
+func (s *Service) StartWithWorkflow(ctx context.Context, stackID, action, requestedBy string, workflow []store.JobWorkflowStep) (store.Job, error) {
+	return s.start(ctx, stackID, action, requestedBy, nil, false, workflow)
+}
+
+func (s *Service) StartWithResourcesAndWorkflow(ctx context.Context, stackID, action, requestedBy string, workflow []store.JobWorkflowStep, requestedResources ...Resource) (store.Job, error) {
+	return s.start(ctx, stackID, action, requestedBy, requestedResources, false, workflow)
 }
 
 // StartDraining atomically starts an unscoped job and installs an exclusive
@@ -113,10 +121,14 @@ func (s *Service) StartWithResources(ctx context.Context, stackID, action, reque
 // resource; once installed, all new jobs fail until the drain job reaches a
 // terminal state or the process restarts.
 func (s *Service) StartDraining(ctx context.Context, action, requestedBy string, barrier Resource) (store.Job, error) {
-	return s.start(ctx, "", action, requestedBy, []Resource{barrier}, true)
+	return s.start(ctx, "", action, requestedBy, []Resource{barrier}, true, nil)
 }
 
-func (s *Service) start(ctx context.Context, stackID, action, requestedBy string, requestedResources []Resource, draining bool) (store.Job, error) {
+func (s *Service) StartDrainingWithWorkflow(ctx context.Context, action, requestedBy string, barrier Resource, workflow []store.JobWorkflowStep) (store.Job, error) {
+	return s.start(ctx, "", action, requestedBy, []Resource{barrier}, true, workflow)
+}
+
+func (s *Service) start(ctx context.Context, stackID, action, requestedBy string, requestedResources []Resource, draining bool, workflow []store.JobWorkflowStep) (store.Job, error) {
 	now := time.Now().UTC()
 	job := store.Job{
 		ID:          "job_" + randomToken(18),
@@ -127,6 +139,17 @@ func (s *Service) start(ctx context.Context, stackID, action, requestedBy string
 		RequestedAt: now,
 		StartedAt:   &now,
 	}
+	if len(workflow) > 0 {
+		job.Workflow = &store.JobWorkflow{Steps: append([]store.JobWorkflowStep(nil), workflow...)}
+	}
+	initialEvent := store.JobEvent{
+		JobID:     job.ID,
+		Sequence:  1,
+		Event:     "job_started",
+		State:     job.State,
+		Message:   "Job started.",
+		Timestamp: now,
+	}
 
 	resources, err := normalizeResources(stackID, requestedResources)
 	if err != nil {
@@ -135,14 +158,12 @@ func (s *Service) start(ctx context.Context, stackID, action, requestedBy string
 	if err := s.lockMany(job.ID, resources, draining); err != nil {
 		return store.Job{}, err
 	}
-	if err := s.store.CreateJob(ctx, job); err != nil {
+	if err := s.store.CreateJobWithInitialEvent(ctx, job, initialEvent); err != nil {
 		s.unlockAll(job.ID)
 		return store.Job{}, err
 	}
-	if err := s.PublishEvent(ctx, job, "job_started", "Job started.", "", nil); err != nil {
-		s.unlockAll(job.ID)
-		return store.Job{}, err
-	}
+	s.publishLive(initialEvent)
+	s.notifyActivity()
 	return job, nil
 }
 

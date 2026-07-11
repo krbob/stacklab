@@ -511,7 +511,8 @@ func (h *Handler) handleDockerRegistryLogin(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	job, err := h.jobs.StartWithResources(r.Context(), "", "docker_registry_login", "local", jobs.DockerRegistryResource())
+	workflow := []store.JobWorkflowStep{{Action: "docker_login", State: "running"}}
+	job, err := h.jobs.StartWithResourcesAndWorkflow(r.Context(), "", "docker_registry_login", "local", workflow, jobs.DockerRegistryResource())
 	if err != nil {
 		if errors.Is(err, jobs.ErrResourceConflict) {
 			writeError(w, http.StatusConflict, "conflict", "Another Docker registry or stack mutation is already running.", nil)
@@ -519,22 +520,6 @@ func (h *Handler) handleDockerRegistryLogin(w http.ResponseWriter, r *http.Reque
 		}
 		h.logger.Error("start docker registry login job failed", slog.String("registry", request.Registry), slog.String("err", err.Error()))
 		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create job.", nil)
-		return
-	}
-
-	workflow := []store.JobWorkflowStep{{Action: "docker_login", State: "running"}}
-	job, err = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
-	if err != nil {
-		failedJob, finishErr := h.jobs.FinishFailed(r.Context(), job, "docker_registry_login_prepare_failed", err.Error())
-		if finishErr == nil {
-			job = failedJob
-			_ = h.recordDockerRegistryAudit(r.Context(), "docker_registry_login", job, map[string]any{
-				"registry": request.Registry,
-				"username": request.Username,
-			})
-		}
-		h.logger.Error("prepare docker registry login job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
-		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to prepare job.", nil)
 		return
 	}
 
@@ -562,7 +547,8 @@ func (h *Handler) handleDockerRegistryLogout(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	job, err := h.jobs.StartWithResources(r.Context(), "", "docker_registry_logout", "local", jobs.DockerRegistryResource())
+	workflow := []store.JobWorkflowStep{{Action: "docker_logout", State: "running"}}
+	job, err := h.jobs.StartWithResourcesAndWorkflow(r.Context(), "", "docker_registry_logout", "local", workflow, jobs.DockerRegistryResource())
 	if err != nil {
 		if errors.Is(err, jobs.ErrResourceConflict) {
 			writeError(w, http.StatusConflict, "conflict", "Another Docker registry or stack mutation is already running.", nil)
@@ -570,21 +556,6 @@ func (h *Handler) handleDockerRegistryLogout(w http.ResponseWriter, r *http.Requ
 		}
 		h.logger.Error("start docker registry logout job failed", slog.String("registry", request.Registry), slog.String("err", err.Error()))
 		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create job.", nil)
-		return
-	}
-
-	workflow := []store.JobWorkflowStep{{Action: "docker_logout", State: "running"}}
-	job, err = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
-	if err != nil {
-		failedJob, finishErr := h.jobs.FinishFailed(r.Context(), job, "docker_registry_logout_prepare_failed", err.Error())
-		if finishErr == nil {
-			job = failedJob
-			_ = h.recordDockerRegistryAudit(r.Context(), "docker_registry_logout", job, map[string]any{
-				"registry": request.Registry,
-			})
-		}
-		h.logger.Error("prepare docker registry logout job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
-		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to prepare job.", nil)
 		return
 	}
 
@@ -1630,7 +1601,12 @@ func (h *Handler) handleDockerAdminApplyDaemonConfig(w http.ResponseWriter, r *h
 		return
 	}
 
-	job, err := h.jobs.StartWithResources(r.Context(), "", "apply_docker_daemon_config", "local", jobs.DockerDaemonResource())
+	workflow := []store.JobWorkflowStep{
+		{Action: "validate_config", State: "running"},
+		{Action: "apply_and_restart", State: "queued"},
+		{Action: "verify_recovery", State: "queued"},
+	}
+	job, err := h.jobs.StartWithResourcesAndWorkflow(r.Context(), "", "apply_docker_daemon_config", "local", workflow, jobs.DockerDaemonResource())
 	if err != nil {
 		switch {
 		case errors.Is(err, jobs.ErrResourceConflict):
@@ -1642,21 +1618,6 @@ func (h *Handler) handleDockerAdminApplyDaemonConfig(w http.ResponseWriter, r *h
 		return
 	}
 
-	workflow := []store.JobWorkflowStep{
-		{Action: "validate_config", State: "running"},
-		{Action: "apply_and_restart", State: "queued"},
-		{Action: "verify_recovery", State: "queued"},
-	}
-	updatedJob, updateErr := h.jobs.UpdateWorkflow(r.Context(), job, workflow)
-	if updateErr != nil {
-		finishCtx, cancel := h.jobFinalizationContext()
-		_, _ = h.jobs.FinishFailed(finishCtx, job, "docker_daemon_apply_prepare_failed", updateErr.Error())
-		cancel()
-		h.logger.Error("initialize docker daemon apply workflow failed", slog.String("job_id", job.ID), slog.String("err", updateErr.Error()))
-		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to initialize Docker daemon apply workflow.", nil)
-		return
-	}
-	job = updatedJob
 	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", "Starting Docker daemon config validation.", "", workflowStepRef(workflow, 0))
 	if len(validateResponse.ChangedKeys) > 0 {
 		_ = h.jobs.PublishEvent(r.Context(), job, "job_log", "Validated Docker daemon config preview.", strings.Join(validateResponse.ChangedKeys, ", "), workflowStepRef(workflow, 0))
@@ -1900,7 +1861,8 @@ func (h *Handler) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	job, err := h.jobs.Start(r.Context(), request.StackID, "create_stack", "local")
+	workflow := createWorkflowSteps(request.DeployAfterCreate)
+	job, err := h.jobs.StartWithWorkflow(r.Context(), request.StackID, "create_stack", "local", workflow)
 	if err != nil {
 		switch {
 		case errors.Is(err, jobs.ErrResourceConflict):
@@ -1912,8 +1874,6 @@ func (h *Handler) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	workflow := createWorkflowSteps(request.DeployAfterCreate)
-	job, _ = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
 	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", "Creating stack files.", "", workflowStepRef(workflow, 0))
 
 	if err := h.stackReader.CreateStack(r.Context(), request); err != nil {
@@ -2068,7 +2028,11 @@ func (h *Handler) handleDeleteStack(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stackID := r.PathValue("stackId")
-	job, err := h.jobs.Start(r.Context(), stackID, "remove_stack_definition", "local")
+	workflow := deleteWorkflowSteps(request)
+	if len(workflow) > 0 {
+		workflow = markWorkflowRunning(workflow, 0)
+	}
+	job, err := h.jobs.StartWithWorkflow(r.Context(), stackID, "remove_stack_definition", "local", workflow)
 	if err != nil {
 		switch {
 		case errors.Is(err, jobs.ErrResourceConflict):
@@ -2080,20 +2044,7 @@ func (h *Handler) handleDeleteStack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	workflow := deleteWorkflowSteps(request)
 	if len(workflow) > 0 {
-		workflow = markWorkflowRunning(workflow, 0)
-		job, err = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
-		if err != nil {
-			failedJob, finishErr := h.jobs.FinishFailed(r.Context(), job, "remove_stack_prepare_failed", err.Error())
-			if finishErr == nil {
-				job = failedJob
-				_ = h.audit.RecordStackJob(r.Context(), job)
-			}
-			h.logger.Error("prepare delete stack workflow failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
-			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to prepare job.", nil)
-			return
-		}
 		step := workflowStepRef(workflow, 0)
 		_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", "Starting delete workflow step.", "", step)
 		_ = h.jobs.PublishEventWithProgress(r.Context(), job, "job_progress", "Removing selected stack resources.", "", step, &store.JobProgress{
@@ -2555,7 +2506,8 @@ func (h *Handler) handleRunStackAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	job, err := h.jobs.Start(r.Context(), stackID, action, "local")
+	workflow := stackActionWorkflow(stackID, action)
+	job, err := h.jobs.StartWithWorkflow(r.Context(), stackID, action, "local", workflow)
 	if err != nil {
 		switch {
 		case errors.Is(err, jobs.ErrResourceConflict):
@@ -2567,20 +2519,6 @@ func (h *Handler) handleRunStackAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	workflow := stackActionWorkflow(stackID, action)
-	job, err = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
-	if err != nil {
-		failedJob, finishErr := h.jobs.FinishFailed(r.Context(), job, "stack_action_prepare_failed", err.Error())
-		if finishErr == nil {
-			job = failedJob
-			if auditErr := h.audit.RecordStackJob(r.Context(), job); auditErr != nil {
-				h.logger.Warn("record failed stack action audit failed", slog.String("job_id", job.ID), slog.String("err", auditErr.Error()))
-			}
-		}
-		h.logger.Error("prepare stack action job failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
-		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to prepare job.", nil)
-		return
-	}
 	step := workflowStepRef(workflow, 0)
 	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", "Starting stack action "+action+".", "", step)
 	_ = h.jobs.PublishEvent(r.Context(), job, "job_progress", "Running stack action "+action+".", "", step)

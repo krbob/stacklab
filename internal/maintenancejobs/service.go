@@ -233,25 +233,19 @@ func (s *Service) StartUpdate(ctx context.Context, request UpdateRequest, reques
 		return store.Job{}, UpdateRun{}, err
 	}
 
+	if len(workflow) > 0 {
+		workflow = markWorkflowRunning(workflow, 0)
+	}
 	resources := jobs.StackResources(resourceStackIDs)
 	if len(resources) == 0 {
 		resources = []jobs.Resource{jobs.GlobalResource()}
 	}
-	job, err := s.jobs.StartWithResources(ctx, "", "update_stacks", requestedBy, resources...)
+	job, err := s.jobs.StartWithResourcesAndWorkflow(ctx, "", "update_stacks", requestedBy, workflow, resources...)
 	if err != nil {
 		return store.Job{}, UpdateRun{}, err
 	}
 
 	if len(workflow) > 0 {
-		workflow = markWorkflowRunning(workflow, 0)
-		updatedJob, updateErr := s.jobs.UpdateWorkflow(ctx, job, workflow)
-		if updateErr != nil {
-			finishCtx, cancel := jobFinalizationContext()
-			defer cancel()
-			_, _ = s.jobs.FinishFailed(finishCtx, job, "update_stacks_prepare_failed", updateErr.Error())
-			return store.Job{}, UpdateRun{}, updateErr
-		}
-		job = updatedJob
 		_ = s.jobs.PublishEvent(ctx, job, "job_step_started", updateStepMessage("Starting", workflow[0]), "", workflowStepRef(workflow, 0))
 	}
 
@@ -346,21 +340,15 @@ func (s *Service) StartPrune(ctx context.Context, request PruneRequest, requeste
 	}
 
 	workflow := buildPruneWorkflow(request.Scope)
-	job, err := s.jobs.StartWithResources(ctx, "", "prune", requestedBy, jobs.GlobalResource())
+	if len(workflow) > 0 {
+		workflow = markWorkflowRunning(workflow, 0)
+	}
+	job, err := s.jobs.StartWithResourcesAndWorkflow(ctx, "", "prune", requestedBy, workflow, jobs.GlobalResource())
 	if err != nil {
 		return store.Job{}, PruneRun{}, err
 	}
 
 	if len(workflow) > 0 {
-		workflow = markWorkflowRunning(workflow, 0)
-		updatedJob, updateErr := s.jobs.UpdateWorkflow(ctx, job, workflow)
-		if updateErr != nil {
-			finishCtx, cancel := jobFinalizationContext()
-			defer cancel()
-			_, _ = s.jobs.FinishFailed(finishCtx, job, "prune_prepare_failed", updateErr.Error())
-			return store.Job{}, PruneRun{}, updateErr
-		}
-		job = updatedJob
 		_ = s.jobs.PublishEvent(ctx, job, "job_step_started", pruneStepMessage("Starting", workflow[0]), "", workflowStepRef(workflow, 0))
 	}
 

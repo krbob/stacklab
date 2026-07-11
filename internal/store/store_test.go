@@ -72,6 +72,96 @@ func TestSecureDatabaseFileModesMigratesExistingFiles(t *testing.T) {
 	}
 }
 
+func TestCreateJobWithInitialEventPersistsWorkflowAtomically(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	testStore := openTestStore(t)
+	now := time.Date(2026, 7, 12, 10, 0, 0, 0, time.UTC)
+	job := Job{
+		ID:          "job_atomic_start",
+		StackID:     "demo",
+		Action:      "up",
+		State:       "running",
+		RequestedBy: "local",
+		RequestedAt: now,
+		StartedAt:   &now,
+		Workflow: &JobWorkflow{Steps: []JobWorkflowStep{
+			{Action: "pull", State: "running", TargetStackID: "demo"},
+			{Action: "up", State: "queued", TargetStackID: "demo"},
+		}},
+	}
+	event := JobEvent{
+		JobID:     job.ID,
+		Sequence:  1,
+		Event:     "job_started",
+		State:     job.State,
+		Message:   "Job started.",
+		Timestamp: now,
+	}
+
+	if err := testStore.CreateJobWithInitialEvent(ctx, job, event); err != nil {
+		t.Fatalf("CreateJobWithInitialEvent() error = %v", err)
+	}
+	stored, err := testStore.JobByID(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("JobByID() error = %v", err)
+	}
+	if stored.Workflow == nil || len(stored.Workflow.Steps) != 2 || stored.Workflow.Steps[0].State != "running" {
+		t.Fatalf("stored workflow = %#v", stored.Workflow)
+	}
+	events, err := testStore.ListJobEvents(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("ListJobEvents() error = %v", err)
+	}
+	if len(events) != 1 || events[0].Sequence != 1 || events[0].Event != "job_started" {
+		t.Fatalf("stored events = %#v", events)
+	}
+}
+
+func TestCreateJobWithInitialEventRollsBackOnInjectedEventFailure(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	testStore := openTestStore(t)
+	if _, err := testStore.db.ExecContext(ctx, `
+		CREATE TRIGGER fail_initial_job_event
+		BEFORE INSERT ON job_events
+		WHEN NEW.job_id = 'job_injected_failure'
+		BEGIN
+			SELECT RAISE(FAIL, 'injected initial event failure');
+		END;
+	`); err != nil {
+		t.Fatalf("create fault-injection trigger error = %v", err)
+	}
+	now := time.Date(2026, 7, 12, 10, 0, 0, 0, time.UTC)
+	job := Job{
+		ID:          "job_injected_failure",
+		StackID:     "demo",
+		Action:      "up",
+		State:       "running",
+		RequestedBy: "local",
+		RequestedAt: now,
+		StartedAt:   &now,
+		Workflow:    &JobWorkflow{Steps: []JobWorkflowStep{{Action: "up", State: "running"}}},
+	}
+	event := JobEvent{JobID: job.ID, Sequence: 1, Event: "job_started", State: "running", Timestamp: now}
+
+	if err := testStore.CreateJobWithInitialEvent(ctx, job, event); err == nil {
+		t.Fatal("CreateJobWithInitialEvent() error = nil, want injected error")
+	}
+	if _, err := testStore.JobByID(ctx, job.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("JobByID(after rollback) error = %v, want ErrNotFound", err)
+	}
+	events, err := testStore.ListJobEvents(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("ListJobEvents(after rollback) error = %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("events after rollback = %#v, want none", events)
+	}
+}
+
 func TestUpdatePasswordAndRevokeSessionsIsVersionedAndAtomic(t *testing.T) {
 	t.Parallel()
 

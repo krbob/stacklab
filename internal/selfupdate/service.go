@@ -185,20 +185,14 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest, requestedBy s
 		return ApplyResponse{}, fmt.Errorf("%w: available version changed from %s to %s", ErrInvalidState, expected, overview.Package.CandidateVersion)
 	}
 
-	job, err := s.jobs.StartDraining(ctx, "self_update_stacklab", requestedBy, jobs.SelfUpdateResource())
+	workflow := buildWorkflow(request.RefreshPackageIndex)
+	job, err := s.jobs.StartDrainingWithWorkflow(ctx, "self_update_stacklab", requestedBy, jobs.SelfUpdateResource(), workflow)
 	if err != nil {
 		if errors.Is(err, jobs.ErrResourceConflict) {
 			return ApplyResponse{}, fmt.Errorf("%w: another mutating job is active; retry the Stacklab self-update after it finishes", ErrInvalidState)
 		}
 		return ApplyResponse{}, err
 	}
-	workflow := buildWorkflow(request.RefreshPackageIndex)
-	job, err = s.jobs.UpdateWorkflow(ctx, job, workflow)
-	if err != nil {
-		job, _ = s.jobs.FinishFailed(ctx, job, "self_update_prepare_failed", err.Error())
-		return ApplyResponse{}, err
-	}
-
 	startedAt := s.now()
 	if err := s.saveRuntimeState(ctx, runtimeState{
 		JobID:            job.ID,

@@ -35,6 +35,68 @@ func TestTerminalHookRunsOnFinishSucceeded(t *testing.T) {
 	}
 }
 
+func TestStartWithWorkflowPersistsCompleteInitialization(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	jobStore := openJobsTestStore(t)
+	service := NewService(jobStore)
+	workflow := []store.JobWorkflowStep{
+		{Action: "pull", State: "running", TargetStackID: "demo"},
+		{Action: "up", State: "queued", TargetStackID: "demo"},
+	}
+
+	job, err := service.StartWithWorkflow(ctx, "demo", "update", "local", workflow)
+	if err != nil {
+		t.Fatalf("StartWithWorkflow() error = %v", err)
+	}
+	if job.Workflow == nil || len(job.Workflow.Steps) != 2 {
+		t.Fatalf("started job workflow = %#v", job.Workflow)
+	}
+	stored, err := jobStore.JobByID(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("JobByID() error = %v", err)
+	}
+	if stored.Workflow == nil || len(stored.Workflow.Steps) != 2 || stored.Workflow.Steps[0].Action != "pull" {
+		t.Fatalf("stored workflow = %#v", stored.Workflow)
+	}
+	events, err := jobStore.ListJobEvents(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("ListJobEvents() error = %v", err)
+	}
+	if len(events) != 1 || events[0].Event != "job_started" || events[0].Sequence != 1 {
+		t.Fatalf("initial events = %#v", events)
+	}
+}
+
+func TestStartFailureReleasesLocksAndLeavesNoRunningJob(t *testing.T) {
+	t.Parallel()
+
+	jobStore := openJobsTestStore(t)
+	service := NewService(jobStore)
+	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := service.StartWithWorkflow(cancelledCtx, "demo", "up", "local", []store.JobWorkflowStep{{Action: "up", State: "running"}}); err == nil {
+		t.Fatal("StartWithWorkflow(cancelled context) error = nil, want error")
+	}
+	active, err := jobStore.ListActiveJobs(context.Background())
+	if err != nil {
+		t.Fatalf("ListActiveJobs() error = %v", err)
+	}
+	if len(active) != 0 {
+		t.Fatalf("active jobs after failed start = %#v", active)
+	}
+
+	job, err := service.Start(context.Background(), "demo", "up", "local")
+	if err != nil {
+		t.Fatalf("Start(after failed initialization) error = %v", err)
+	}
+	if _, err := service.FinishSucceeded(context.Background(), job); err != nil {
+		t.Fatalf("FinishSucceeded() error = %v", err)
+	}
+}
+
 func TestFinishTimedOutMarksTerminalState(t *testing.T) {
 	t.Parallel()
 
