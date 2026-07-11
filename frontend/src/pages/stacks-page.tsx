@@ -25,7 +25,7 @@ const stateLabels: Record<string, { label: string; className: string }> = {
   error: { label: 'Error', className: 'text-[var(--danger)]' },
   orphaned: { label: 'Orphaned', className: 'text-[var(--danger)]' },
   stopped: { label: 'Stopped', className: 'text-stone-400' },
-  defined: { label: 'Defined', className: 'text-stone-500' },
+  defined: { label: 'Defined', className: 'text-[var(--muted)]' },
 }
 
 function hasProblem(stack: StackListItem): boolean {
@@ -69,7 +69,7 @@ function StackTile({ stack }: { stack: StackListItem }) {
         <StackGlyph name={stack.name} icon={stack.metadata?.icon} />
         <span className="min-w-0 truncate font-mono text-sm font-semibold text-[var(--text)]">{stack.name}</span>
         {stack.updates?.state === 'available' && (
-          <span className="shrink-0 rounded border border-[rgba(245,165,36,0.4)] px-1 font-mono text-[9px] font-bold uppercase tracking-wide text-[var(--accent)]">
+          <span className="shrink-0 rounded border border-[rgba(245,165,36,0.4)] px-1 font-mono text-xs font-bold uppercase tracking-wide text-[var(--accent)]">
             update
           </span>
         )}
@@ -78,15 +78,15 @@ function StackTile({ stack }: { stack: StackListItem }) {
         </span>
       </div>
 
-      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[11px] text-[var(--muted)]">
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-xs text-[var(--muted)]">
         <span>
           {stack.service_count.running}/{stack.service_count.defined} services
         </span>
         {stack.config_state === 'drifted' && (
-          <span className="rounded border border-[rgba(245,165,36,0.35)] px-1 text-[10px] uppercase tracking-wide text-[var(--accent)]">drift</span>
+          <span className="rounded border border-[rgba(245,165,36,0.35)] px-1 text-xs uppercase tracking-wide text-[var(--accent)]">drift</span>
         )}
         {stack.config_state === 'invalid' && (
-          <span className="rounded border border-[var(--danger)]/40 px-1 text-[10px] uppercase tracking-wide text-[var(--danger)]">invalid</span>
+          <span className="rounded border border-[var(--danger)]/40 px-1 text-xs uppercase tracking-wide text-[var(--danger)]">invalid</span>
         )}
         {unhealthy > 0 && (
           <span className="text-[var(--warning)]">{unhealthy} unhealthy</span>
@@ -94,7 +94,7 @@ function StackTile({ stack }: { stack: StackListItem }) {
       </div>
 
       {stack.stats && (
-        <div className="mt-2 flex items-center gap-2 font-mono text-[11px] tabular-nums text-[var(--muted)]">
+        <div className="mt-2 flex items-center gap-2 font-mono text-xs tabular-nums text-[var(--muted)]">
           <span>cpu {stack.stats.cpu_percent.toFixed(1)}%</span>
           <span
             role="progressbar"
@@ -115,7 +115,7 @@ function StackTile({ stack }: { stack: StackListItem }) {
       )}
 
       {(stack.last_action || links.length > 0) && (
-        <div className="mt-2 flex items-center gap-2 font-mono text-[11px] text-[var(--muted)]">
+        <div className="mt-2 flex items-center gap-2 font-mono text-xs text-[var(--muted)]">
           {stack.last_action && (
             <span className={cn('min-w-0 truncate', stack.last_action.result === 'failed' && 'text-[var(--danger)]')}>
               last: {stack.last_action.action} ({stack.last_action.result})
@@ -149,7 +149,7 @@ function StackGlyph({ name, icon }: { name: string; icon?: string }) {
   return (
     <span
       aria-hidden
-      className="flex size-5 shrink-0 items-center justify-center rounded border border-[rgba(245,165,36,0.25)] bg-[rgba(245,165,36,0.08)] font-mono text-[10px] font-bold text-[var(--accent)]"
+      className="flex size-5 shrink-0 items-center justify-center rounded border border-[rgba(245,165,36,0.25)] bg-[rgba(245,165,36,0.08)] font-mono text-xs font-bold text-[var(--accent)]"
     >
       {letter}
     </span>

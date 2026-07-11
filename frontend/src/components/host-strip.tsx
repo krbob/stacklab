@@ -29,7 +29,7 @@ export function HostStrip() {
   const primary = activeJobs[0] ?? null
 
   return (
-    <div className="hidden items-center gap-4 rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-2 font-mono text-[11px] text-[var(--muted)] shadow-[var(--shadow)] lg:flex">
+    <div className="hidden items-center gap-4 rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-2 font-mono text-xs text-[var(--muted)] shadow-[var(--shadow)] lg:flex">
       {meta && (
         <>
           <span className="text-[var(--accent)]">stacklab {meta.app.version}</span>

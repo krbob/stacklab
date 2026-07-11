@@ -153,7 +153,7 @@ export function ProgressPanel({ jobId, stream, onDone, onClose }: ProgressPanelP
       {/* Structured progress meter (latest wins) */}
       {latestProgress && state === 'running' && latestProgress.total > 0 && (
         <div className="mt-3">
-          <div className="flex items-center gap-2 font-mono text-[11px] tabular-nums text-[var(--muted)]">
+          <div className="flex items-center gap-2 font-mono text-xs tabular-nums text-[var(--muted)]">
             <span className="shrink-0" aria-hidden="true">
               {latestProgress.completed}/{latestProgress.total} {latestProgress.unit}
             </span>
@@ -174,7 +174,7 @@ export function ProgressPanel({ jobId, stream, onDone, onClose }: ProgressPanelP
             </span>
           </div>
           {latestProgress.detail && (
-            <div className="mt-1 truncate font-mono text-[10px] text-[var(--muted)] opacity-70">{latestProgress.detail}</div>
+            <div className="mt-1 truncate font-mono text-xs text-[var(--muted)]">{latestProgress.detail}</div>
           )}
         </div>
       )}

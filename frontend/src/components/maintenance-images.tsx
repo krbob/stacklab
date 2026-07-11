@@ -48,7 +48,7 @@ export function MaintenanceImages() {
             </button>
           ))}
 
-          <span className="text-stone-700">|</span>
+          <span className="text-[var(--muted)]">|</span>
 
           {/* Origin filter */}
           {(['all', 'stack_managed', 'external'] as const).map((v) => (
@@ -109,7 +109,7 @@ function ImageRow({ image }: { image: MaintenanceImageItem }) {
         <div className="flex items-center gap-2">
           <span className="truncate font-mono text-[var(--text)]">{image.reference || `${image.repository}:${image.tag}`}</span>
           {image.is_dangling && <span className="shrink-0 text-[var(--warning)]">dangling</span>}
-          {image.is_unused && <span className="shrink-0 text-stone-500">unused</span>}
+          {image.is_unused && <span className="shrink-0 text-[var(--muted)]">unused</span>}
         </div>
         <div className="mt-1 flex flex-wrap gap-3 text-[var(--muted)]">
           <span>{formatBytes(image.size_bytes)}</span>

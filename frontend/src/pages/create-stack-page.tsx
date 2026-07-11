@@ -169,7 +169,7 @@ export function CreateStackPage() {
                   <span className="flex items-center justify-between gap-3">
                     <span className="text-sm font-medium">{template.name}</span>
                     {template.variables && template.variables.length > 0 && (
-                      <span className="shrink-0 rounded border border-[var(--panel-border)] px-1.5 py-0.5 text-[10px] uppercase tracking-normal text-[var(--muted)]">
+                      <span className="shrink-0 rounded border border-[var(--panel-border)] px-1.5 py-0.5 text-xs uppercase tracking-normal text-[var(--muted)]">
                         {template.variables.length} vars
                       </span>
                     )}
@@ -198,9 +198,9 @@ export function CreateStackPage() {
                       className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
                     />
                     {variable.required && (templateVariables[variable.name] ?? '').trim() === '' && (
-                      <span className="mt-1 block text-[10px] text-[var(--danger)]">{variable.label || variable.name} is required.</span>
+                      <span className="mt-1 block text-xs text-[var(--danger)]">{variable.label || variable.name} is required.</span>
                     )}
-                    {variable.description && <span className="mt-1 block text-[10px] text-[var(--muted)]">{variable.description}</span>}
+                    {variable.description && <span className="mt-1 block text-xs text-[var(--muted)]">{variable.description}</span>}
                   </label>
                 ))}
               </div>

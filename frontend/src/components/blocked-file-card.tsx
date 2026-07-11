@@ -109,14 +109,14 @@ export function BlockedFileCard({ stateKey, blockedReason, permissions, repairCa
                 Repair recursively
               </label>
             )}
-            <p className="text-[10px] text-[var(--muted)]">
+            <p className="text-xs text-[var(--muted)]">
               Uses the configured workspace helper. Limited to managed roots.
             </p>
           </div>
         )}
 
         {repairCapability && !repairCapability.supported && (
-          <p className="mt-4 text-[10px] text-[var(--muted)]">
+          <p className="mt-4 text-xs text-[var(--muted)]">
             Automatic repair is not available. {repairCapability.reason}
           </p>
         )}
@@ -134,8 +134,8 @@ export function BlockedFileCard({ stateKey, blockedReason, permissions, repairCa
 
             <div className="mt-2 grid grid-cols-[auto_1fr_1fr] gap-x-3 gap-y-0.5 font-mono">
               <span className="text-[var(--muted)]" />
-              <span className="text-stone-500">Before</span>
-              <span className="text-stone-500">After</span>
+              <span className="text-[var(--muted)]">Before</span>
+              <span className="text-[var(--muted)]">After</span>
 
               <span className="text-[var(--muted)]">Owner</span>
               <span className="text-[var(--muted)]">{repairResult.target_permissions_before.owner_name ?? '—'}</span>
@@ -164,7 +164,7 @@ export function BlockedFileCard({ stateKey, blockedReason, permissions, repairCa
               <button
                 type="button"
                 onClick={() => setRepairResult(null)}
-                className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-[10px] text-[var(--muted)] transition hover:text-[var(--text)]"
+                className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] transition hover:text-[var(--text)]"
               >
                 Done
               </button>

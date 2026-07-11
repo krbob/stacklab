@@ -84,7 +84,7 @@ export function MaintenanceNetworks() {
           {(['all', 'used', 'unused'] as const).map((v) => (
             <button key={v} onClick={() => setUsage(v)} aria-pressed={usage === v} className={cn('rounded-md border px-2.5 py-1 text-xs transition', usage === v ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}>{v}</button>
           ))}
-          <span className="text-stone-700">|</span>
+          <span className="text-[var(--muted)]">|</span>
           {(['all', 'stack_managed', 'external'] as const).map((v) => (
             <button key={v} onClick={() => setOrigin(v)} aria-pressed={origin === v} className={cn('rounded-md border px-2.5 py-1 text-xs transition', origin === v ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}>{v.replace('_', ' ')}</button>
           ))}
@@ -120,7 +120,7 @@ export function MaintenanceNetworks() {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className="font-mono text-[var(--text)]">{net.name}</span>
-                {net.is_unused && <span className="text-stone-500">unused</span>}
+                {net.is_unused && <span className="text-[var(--muted)]">unused</span>}
                 {net.internal && <span className="text-[var(--warning)]">internal</span>}
                 {net.source === 'external' && <span className="text-[var(--muted)]">external</span>}
               </div>

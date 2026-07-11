@@ -43,7 +43,7 @@ function SidebarContent({ onNavigate, logout }: { onNavigate?: () => void; logou
           >
             <Icon className="size-4" />
             <span>{label}</span>
-            <kbd className="ml-auto rounded border border-[rgba(255,255,255,0.1)] px-1 font-mono text-[9px] text-[var(--dim,#6E6757)]">{index + 1}</kbd>
+            <kbd className="ml-auto rounded border border-[rgba(255,255,255,0.1)] px-1 font-mono text-xs text-[var(--dim)]">{index + 1}</kbd>
           </NavLink>
         ))}
       </nav>
@@ -188,7 +188,7 @@ export function RootLayout() {
             to={to}
             className={({ isActive }) =>
               [
-                'flex flex-col items-center gap-1 py-2 text-[10px] font-medium transition',
+                'flex flex-col items-center gap-1 py-2 text-xs font-medium transition',
                 isActive ? 'text-[var(--accent)]' : 'text-[var(--muted)]',
               ].join(' ')
             }
@@ -205,7 +205,7 @@ export function RootLayout() {
           aria-expanded={mobileNavOpen}
           aria-pressed={moreActive}
           className={[
-            'flex flex-col items-center gap-1 py-2 text-[10px] font-medium transition',
+            'flex flex-col items-center gap-1 py-2 text-xs font-medium transition',
             mobileNavOpen || moreActive ? 'text-[var(--accent)]' : 'text-[var(--muted)]',
           ].join(' ')}
         >

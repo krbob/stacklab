@@ -184,7 +184,7 @@ export function CommandPalette() {
               )}
             >
               <span className={cn('font-mono', entry.kind === 'stack' && 'font-semibold')}>{entry.label}</span>
-              <span className="ml-auto font-mono text-[10px] uppercase tracking-wide opacity-60">{entry.hint}</span>
+              <span className="ml-auto font-mono text-xs uppercase tracking-wide text-[var(--muted)]">{entry.hint}</span>
             </button>
           ))}
         </div>

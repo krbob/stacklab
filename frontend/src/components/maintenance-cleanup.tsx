@@ -16,7 +16,7 @@ const stepStatusColors: Record<string, string> = {
   running: 'text-[var(--run)]',
   succeeded: 'text-[var(--ok)]',
   failed: 'text-[var(--danger)]',
-  queued: 'text-stone-500',
+  queued: 'text-[var(--muted)]',
 }
 
 export function MaintenanceCleanup() {

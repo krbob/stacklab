@@ -359,10 +359,10 @@ export function ConfigPage() {
                   const isDir = entry.type === 'directory'
                   const isSelected = selectedFile?.path === entry.path
                   return (
-                    <button key={entry.path} onClick={() => isDir ? requestNavigateDir(entry.path) : requestOpenFile(entry.path)} className={cn('flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition', isSelected ? 'bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'text-[var(--muted)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]', entry.git_ignored && !isSelected && 'opacity-55')}>
+                    <button key={entry.path} onClick={() => isDir ? requestNavigateDir(entry.path) : requestOpenFile(entry.path)} className={cn('flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition', isSelected ? 'bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'text-[var(--muted)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]', entry.git_ignored && !isSelected && 'opacity-80')}>
                       {entry.stack_id && isDir && treePath === '' ? <FolderKanban className="size-3.5 text-[var(--accent)]" /> : <Icon className="size-3.5" />}
                       <span className="min-w-0 flex-1 truncate text-left">{entry.name}</span>
-                      {entry.git_ignored && <span aria-hidden="true" className="shrink-0 rounded border border-[var(--panel-border)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]">ignored</span>}
+                      {entry.git_ignored && <span aria-hidden="true" className="shrink-0 rounded border border-[var(--panel-border)] px-1.5 py-0.5 text-xs text-[var(--muted)]">ignored</span>}
                     </button>
                   )
                 })}
@@ -531,10 +531,10 @@ export function ConfigPage() {
                   const isDir = entry.type === 'directory'
                   const isSelected = selectedFile?.path === entry.path
                   return (
-                    <button key={entry.path} onClick={() => isDir ? requestNavigateDir(entry.path) : requestOpenFile(entry.path)} className={cn('flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition', isSelected ? 'bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'text-[var(--muted)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]', entry.git_ignored && !isSelected && 'opacity-55')}>
+                    <button key={entry.path} onClick={() => isDir ? requestNavigateDir(entry.path) : requestOpenFile(entry.path)} className={cn('flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition', isSelected ? 'bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'text-[var(--muted)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]', entry.git_ignored && !isSelected && 'opacity-80')}>
                       {entry.stack_id && isDir && treePath === '' ? <FolderKanban className="size-3.5 text-[var(--accent)]" /> : <Icon className="size-3.5" />}
                       <span className="min-w-0 flex-1 truncate text-left">{entry.name}</span>
-                      {entry.git_ignored && <span aria-hidden="true" className="shrink-0 rounded border border-[var(--panel-border)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]">ignored</span>}
+                      {entry.git_ignored && <span aria-hidden="true" className="shrink-0 rounded border border-[var(--panel-border)] px-1.5 py-0.5 text-xs text-[var(--muted)]">ignored</span>}
                     </button>
                   )
                 })}

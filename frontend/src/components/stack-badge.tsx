@@ -6,7 +6,7 @@ const runtimeStyles: Record<DisplayState, { dot: string; label: string; text: st
   stopped: { dot: 'bg-stone-500', label: 'Stopped', text: 'text-stone-400' },
   partial: { dot: 'bg-[var(--warning)]', label: 'Partial', text: 'text-[var(--warning)]' },
   error: { dot: 'bg-[var(--danger)]', label: 'Error', text: 'text-[var(--danger)]' },
-  defined: { dot: 'bg-stone-600 border border-stone-500', label: 'Defined', text: 'text-stone-500' },
+  defined: { dot: 'bg-stone-600 border border-stone-500', label: 'Defined', text: 'text-[var(--muted)]' },
   orphaned: { dot: 'bg-red-500', label: 'Orphaned', text: 'text-[var(--danger)]' },
 }
 

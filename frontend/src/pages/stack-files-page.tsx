@@ -295,7 +295,7 @@ function TreeRow({ entry, isRoot, isSelected, onOpenFile, onNavigateDir, onGoToE
       >
         <Icon className="size-3.5" />
         <span className="truncate">{entry.name}</span>
-        <span className="ml-auto text-[10px]">→ Editor</span>
+        <span className="ml-auto text-xs">→ Editor</span>
       </button>
     )
   }

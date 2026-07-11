@@ -403,7 +403,7 @@ function NotificationsSection() {
           </label>
           <div className="space-y-2">
             <div>
-              <label className="mb-1 block text-[10px] text-[var(--muted)]">Bot token {botTokenConfigured && !telegramBotToken && <span className="text-[var(--ok)]">(configured)</span>}</label>
+              <label className="mb-1 block text-xs text-[var(--muted)]">Bot token {botTokenConfigured && !telegramBotToken && <span className="text-[var(--ok)]">(configured)</span>}</label>
               <div className="flex gap-2">
                 <input
                   type={showBotToken ? 'text' : 'password'}
@@ -412,13 +412,13 @@ function NotificationsSection() {
                   placeholder={botTokenConfigured ? '(leave empty to keep current)' : '123456:ABC-DEF1234'}
                   className="min-w-0 flex-1 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
                 />
-                <button onClick={() => setShowBotToken(!showBotToken)} aria-pressed={showBotToken} className="rounded-md border border-[var(--panel-border)] px-2 py-1 text-[10px] text-[var(--muted)] hover:text-[var(--text)]">
+                <button onClick={() => setShowBotToken(!showBotToken)} aria-pressed={showBotToken} className="rounded-md border border-[var(--panel-border)] px-2 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]">
                   {showBotToken ? 'Hide' : 'Show'}
                 </button>
               </div>
             </div>
             <div>
-              <label className="mb-1 block text-[10px] text-[var(--muted)]">Chat ID</label>
+              <label className="mb-1 block text-xs text-[var(--muted)]">Chat ID</label>
               <input type="text" value={telegramChatId} onChange={(e) => setTelegramChatId(e.target.value)} placeholder="-1001234567890" className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
             </div>
           </div>
@@ -431,7 +431,7 @@ function NotificationsSection() {
         {/* Events */}
         <div className="space-y-3">
           <div>
-            <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-[var(--muted)]">Jobs</div>
+            <div className="mb-1 text-xs font-medium uppercase tracking-wider text-[var(--muted)]">Jobs</div>
             <div className="space-y-1.5">
               <label className="flex items-center gap-2 text-xs text-[var(--text)]">
                 <input type="checkbox" checked={jobFailed} onChange={(e) => setJobFailed(e.target.checked)} className="rounded" />
@@ -444,7 +444,7 @@ function NotificationsSection() {
             </div>
           </div>
           <div>
-            <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-[var(--muted)]">Maintenance</div>
+            <div className="mb-1 text-xs font-medium uppercase tracking-wider text-[var(--muted)]">Maintenance</div>
             <div className="space-y-1.5">
               <label className="flex items-center gap-2 text-xs text-[var(--text)]">
                 <input type="checkbox" checked={maintenanceSucceeded} onChange={(e) => setMaintenanceSucceeded(e.target.checked)} className="rounded" />
@@ -457,7 +457,7 @@ function NotificationsSection() {
             </div>
           </div>
           <div>
-            <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-[var(--muted)]">Runtime</div>
+            <div className="mb-1 text-xs font-medium uppercase tracking-wider text-[var(--muted)]">Runtime</div>
             <div className="space-y-1.5">
               <label className="flex items-center gap-2 text-xs text-[var(--text)]">
                 <input type="checkbox" checked={runtimeHealthDegraded} onChange={(e) => setRuntimeHealthDegraded(e.target.checked)} className="rounded" />
@@ -470,7 +470,7 @@ function NotificationsSection() {
             </div>
           </div>
           <div>
-            <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-[var(--muted)]">Stacklab</div>
+            <div className="mb-1 text-xs font-medium uppercase tracking-wider text-[var(--muted)]">Stacklab</div>
             <div className="space-y-1.5">
               <label className="flex items-center gap-2 text-xs text-[var(--text)]">
                 <input type="checkbox" checked={serviceError} onChange={(e) => setServiceError(e.target.checked)} className="rounded" />
@@ -845,16 +845,16 @@ function SchedulesSection() {
                         onClick={() => toggleServiceStack(stackId)}
                         className="flex w-full items-center justify-between gap-2 rounded border border-[var(--panel-border)] px-2 py-1.5 text-left text-xs text-[var(--text)]"
                       >
-                        <span className="font-mono text-[10px] uppercase tracking-wide text-[var(--muted)]">{stackId}</span>
-                        <span className="text-[10px] text-[var(--muted)]">{expanded ? 'Hide' : 'Show'}</span>
+                        <span className="font-mono text-xs uppercase tracking-wide text-[var(--muted)]">{stackId}</span>
+                        <span className="text-xs text-[var(--muted)]">{expanded ? 'Hide' : 'Show'}</span>
                       </button>
                       {expanded && (
                         <div className="flex flex-wrap gap-2 pt-1">
                           {serviceLoading[stackId] ? (
-                            <span className="text-[10px] text-[var(--muted)]">Loading...</span>
+                            <span className="text-xs text-[var(--muted)]">Loading...</span>
                           ) : services.length > 0 ? (
                             services.map((serviceName) => (
-                              <label key={serviceName} className="flex items-center gap-1.5 rounded border border-[var(--panel-border)] px-2 py-1 text-[10px] text-[var(--text)]">
+                              <label key={serviceName} className="flex items-center gap-1.5 rounded border border-[var(--panel-border)] px-2 py-1 text-xs text-[var(--text)]">
                                 <input
                                   type="checkbox"
                                   checked={(updateExcludedServices[stackId] ?? []).includes(serviceName)}
@@ -865,7 +865,7 @@ function SchedulesSection() {
                               </label>
                             ))
                           ) : (
-                            <span className="text-[10px] text-[var(--muted)]">No services.</span>
+                            <span className="text-xs text-[var(--muted)]">No services.</span>
                           )}
                         </div>
                       )}
@@ -956,7 +956,7 @@ function WeekdayPicker({ value, onChange }: { value: ScheduleWeekday[]; onChange
         <button
           key={d}
           onClick={() => onChange(value.includes(d) ? value.filter((w) => w !== d) : [...value, d])}
-          className={cn('rounded-md border px-2 py-1 text-[10px] transition', value.includes(d) ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
+          className={cn('rounded-md border px-2 py-1 text-xs transition', value.includes(d) ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
         >
           {WEEKDAY_LABELS[d]}
         </button>
@@ -971,7 +971,7 @@ function ScheduleStatusFooter({ status, onOpenJob }: { status?: MaintenanceSched
   const resultColors: Record<string, string> = { succeeded: 'text-[var(--ok)]', failed: 'text-[var(--danger)]', skipped: 'text-[var(--warning)]', running: 'text-[var(--run)]' }
 
   return (
-    <div className="border-t border-[var(--panel-border)] pt-2 font-mono text-[10px] text-[var(--muted)]">
+    <div className="border-t border-[var(--panel-border)] pt-2 font-mono text-xs text-[var(--muted)]">
       {status.next_run_at && <div>Next: {new Date(status.next_run_at).toLocaleString()}</div>}
       {status.last_result && (
         <div className="flex items-center gap-2">
@@ -1109,7 +1109,7 @@ function StacklabUpdateSection() {
 
         {/* Runtime status */}
         {runtime && (runtime.result || runtimeRunning) && (
-          <div className="border-t border-[var(--panel-border)] pt-2 font-mono text-[10px] text-[var(--muted)]">
+          <div className="border-t border-[var(--panel-border)] pt-2 font-mono text-xs text-[var(--muted)]">
             <div className="flex items-center gap-2">
               <span>Last: <span className={runtime.result === 'succeeded' ? 'text-[var(--ok)]' : runtime.result === 'failed' ? 'text-[var(--danger)]' : 'text-[var(--run)]'}>{runtime.result || 'running'}</span></span>
               {runtime.finished_at && <span>{new Date(runtime.finished_at).toLocaleString()}</span>}

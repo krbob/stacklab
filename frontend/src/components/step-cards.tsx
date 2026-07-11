@@ -29,7 +29,7 @@ const statusLabel: Record<string, { text: string; color: string }> = {
   running: { text: 'Running', color: 'text-[var(--run)]' },
   succeeded: { text: 'Done', color: 'text-[var(--ok)]' },
   failed: { text: 'Failed', color: 'text-[var(--danger)]' },
-  queued: { text: 'Queued', color: 'text-stone-500' },
+  queued: { text: 'Queued', color: 'text-[var(--muted)]' },
 }
 
 function formatElapsed(startMs: number, endMs: number): string {
@@ -116,7 +116,7 @@ function StepCard({ step }: { step: StepData }) {
       {/* Structured progress meter (running steps with streaming data) */}
       {step.progress && step.state === 'running' && step.progress.total > 0 && (
         <div className="mt-2">
-          <div className="flex items-center gap-2 font-mono text-[11px] tabular-nums text-[var(--muted)]">
+          <div className="flex items-center gap-2 font-mono text-xs tabular-nums text-[var(--muted)]">
             <span className="shrink-0" aria-hidden="true">
               {step.progress.completed}/{step.progress.total} {step.progress.unit}
             </span>
@@ -137,7 +137,7 @@ function StepCard({ step }: { step: StepData }) {
             </span>
           </div>
           {step.progress.detail && (
-            <div className="mt-1 truncate font-mono text-[10px] text-[var(--muted)] opacity-70">{step.progress.detail}</div>
+            <div className="mt-1 truncate font-mono text-xs text-[var(--muted)]">{step.progress.detail}</div>
           )}
         </div>
       )}

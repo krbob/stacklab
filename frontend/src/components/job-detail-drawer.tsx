@@ -10,7 +10,7 @@ import { cn } from '@/lib/cn'
 import { StatusMessage } from '@/components/status-message'
 
 const stateColors: Record<string, string> = {
-  queued: 'text-stone-500',
+  queued: 'text-[var(--muted)]',
   running: 'text-[var(--run)]',
   succeeded: 'text-[var(--ok)]',
   failed: 'text-[var(--danger)]',

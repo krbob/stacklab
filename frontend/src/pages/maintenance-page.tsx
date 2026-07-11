@@ -27,7 +27,7 @@ const stepStatusColors: Record<string, string> = {
   running: 'text-[var(--run)]',
   succeeded: 'text-[var(--ok)]',
   failed: 'text-[var(--danger)]',
-  queued: 'text-stone-500',
+  queued: 'text-[var(--muted)]',
 }
 
 export function MaintenancePage() {
@@ -303,7 +303,7 @@ function StackCheckbox({ stack, checked, onChange, disabled }: {
 }) {
   const stateColors: Record<string, string> = {
     running: 'text-[var(--ok)]',
-    stopped: 'text-stone-500',
+    stopped: 'text-[var(--muted)]',
     partial: 'text-[var(--warning)]',
     error: 'text-[var(--danger)]',
     defined: 'text-[var(--muted)]',

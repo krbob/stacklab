@@ -662,7 +662,7 @@ function processSourceTitle(process: NonNullable<HostMetricSample['processes']>[
 
 function processSourceClass(process: NonNullable<HostMetricSample['processes']>['items'][number]): string {
   return cn(
-    'inline-flex max-w-full items-center rounded border px-2 py-0.5 text-[11px]',
+    'inline-flex max-w-full items-center rounded border px-2 py-0.5 text-xs',
     process.container?.stack_id
       ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.10)] text-[var(--text)]'
       : process.container
@@ -962,7 +962,7 @@ function StacklabLogs() {
     : entries
 
   const levelColor: Record<string, string> = {
-    debug: 'text-stone-500',
+    debug: 'text-[var(--muted)]',
     info: 'text-[var(--muted)]',
     warn: 'text-[var(--warning)]',
     error: 'text-[var(--danger)]',
