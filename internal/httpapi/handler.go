@@ -264,77 +264,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) registerRoutes() {
-	h.mux.HandleFunc("GET /api/live", h.handleLive)
-	h.mux.HandleFunc("GET /api/ready", h.handleReady)
-	h.mux.HandleFunc("GET /api/health", h.handleReady)
-	h.mux.HandleFunc("GET /api/ws", h.handleWebSocket)
-	h.mux.HandleFunc("GET /api/session", h.handleSession)
-	h.mux.HandleFunc("POST /api/auth/login", h.handleLogin)
-	h.mux.HandleFunc("POST /api/auth/logout", h.withAuth(h.handleLogout))
-	h.mux.HandleFunc("GET /api/meta", h.withAuth(h.handleMeta))
-	h.mux.HandleFunc("GET /api/service/metrics", h.withAuth(h.handleServiceMetrics))
-	h.mux.HandleFunc("GET /api/host/overview", h.withAuth(h.handleHostOverview))
-	h.mux.HandleFunc("GET /api/host/metrics", h.withAuth(h.handleHostMetrics))
-	h.mux.HandleFunc("GET /api/host/stacklab-logs", h.withAuth(h.handleStacklabLogs))
-	h.mux.HandleFunc("GET /api/docker/admin/overview", h.withAuth(h.handleDockerAdminOverview))
-	h.mux.HandleFunc("GET /api/docker/admin/daemon-config", h.withAuth(h.handleDockerAdminDaemonConfig))
-	h.mux.HandleFunc("POST /api/docker/admin/daemon-config/validate", h.withAuth(h.handleDockerAdminValidateDaemonConfig))
-	h.mux.HandleFunc("POST /api/docker/admin/daemon-config/apply", h.withAuth(h.handleDockerAdminApplyDaemonConfig))
-	h.mux.HandleFunc("GET /api/docker/registries", h.withAuth(h.handleDockerRegistryStatus))
-	h.mux.HandleFunc("POST /api/docker/registries/login", h.withAuth(h.handleDockerRegistryLogin))
-	h.mux.HandleFunc("POST /api/docker/registries/logout", h.withAuth(h.handleDockerRegistryLogout))
-	h.mux.HandleFunc("GET /api/stacklab/update/overview", h.withAuth(h.handleStacklabUpdateOverview))
-	h.mux.HandleFunc("POST /api/stacklab/update/apply", h.withAuth(h.handleStacklabUpdateApply))
-	h.mux.HandleFunc("GET /api/config/workspace/tree", h.withAuth(h.handleConfigWorkspaceTree))
-	h.mux.HandleFunc("GET /api/config/workspace/file", h.withAuth(h.handleConfigWorkspaceFile))
-	h.mux.HandleFunc("PUT /api/config/workspace/file", h.withAuth(h.handlePutConfigWorkspaceFile))
-	h.mux.HandleFunc("POST /api/config/workspace/repair-permissions", h.withAuth(h.handleRepairConfigWorkspacePermissions))
-	h.mux.HandleFunc("GET /api/git/workspace/status", h.withAuth(h.handleGitWorkspaceStatus))
-	h.mux.HandleFunc("GET /api/git/workspace/diff", h.withAuth(h.handleGitWorkspaceDiff))
-	h.mux.HandleFunc("POST /api/git/workspace/commit", h.withAuth(h.handleGitWorkspaceCommit))
-	h.mux.HandleFunc("POST /api/git/workspace/push", h.withAuth(h.handleGitWorkspacePush))
-	h.mux.HandleFunc("POST /api/maintenance/update-stacks", h.withAuth(h.handleUpdateStacksMaintenance))
-	h.mux.HandleFunc("GET /api/maintenance/images", h.withAuth(h.handleMaintenanceImages))
-	h.mux.HandleFunc("GET /api/templates", h.withAuth(h.handleTemplates))
-	h.mux.HandleFunc("GET /api/maintenance/image-updates", h.withAuth(h.handleImageUpdatesList))
-	h.mux.HandleFunc("POST /api/maintenance/image-updates/check", h.withAuth(h.handleImageUpdatesCheck))
-	h.mux.HandleFunc("GET /api/maintenance/networks", h.withAuth(h.handleMaintenanceNetworks))
-	h.mux.HandleFunc("POST /api/maintenance/networks", h.withAuth(h.handleCreateMaintenanceNetwork))
-	h.mux.HandleFunc("DELETE /api/maintenance/networks/{name}", h.withAuth(h.handleDeleteMaintenanceNetwork))
-	h.mux.HandleFunc("GET /api/maintenance/volumes", h.withAuth(h.handleMaintenanceVolumes))
-	h.mux.HandleFunc("POST /api/maintenance/volumes", h.withAuth(h.handleCreateMaintenanceVolume))
-	h.mux.HandleFunc("DELETE /api/maintenance/volumes/{name}", h.withAuth(h.handleDeleteMaintenanceVolume))
-	h.mux.HandleFunc("GET /api/maintenance/prune-preview", h.withAuth(h.handleMaintenancePrunePreview))
-	h.mux.HandleFunc("POST /api/maintenance/prune", h.withAuth(h.handleMaintenancePrune))
-	h.mux.HandleFunc("GET /api/jobs/active", h.withAuth(h.handleListActiveJobs))
-	h.mux.HandleFunc("GET /api/jobs/{jobId}/events", h.withAuth(h.handleListJobEvents))
-	h.mux.HandleFunc("POST /api/jobs/{jobId}/cancel", h.withAuth(h.handleCancelJob))
-	h.mux.HandleFunc("GET /api/stacks", h.withAuth(h.handleListStacks))
-	h.mux.HandleFunc("POST /api/stacks", h.withAuth(h.handleCreateStack))
-	h.mux.HandleFunc("GET /api/stacks/{stackId}", h.withAuth(h.handleGetStack))
-	h.mux.HandleFunc("DELETE /api/stacks/{stackId}", h.withAuth(h.handleDeleteStack))
-	h.mux.HandleFunc("GET /api/stacks/{stackId}/definition", h.withAuth(h.handleGetDefinition))
-	h.mux.HandleFunc("PUT /api/stacks/{stackId}/definition", h.withAuth(h.handlePutDefinition))
-	h.mux.HandleFunc("GET /api/stacks/{stackId}/workspace/tree", h.withAuth(h.handleStackWorkspaceTree))
-	h.mux.HandleFunc("GET /api/stacks/{stackId}/workspace/file", h.withAuth(h.handleStackWorkspaceFile))
-	h.mux.HandleFunc("PUT /api/stacks/{stackId}/workspace/file", h.withAuth(h.handlePutStackWorkspaceFile))
-	h.mux.HandleFunc("POST /api/stacks/{stackId}/workspace/repair-permissions", h.withAuth(h.handleRepairStackWorkspacePermissions))
-	h.mux.HandleFunc("GET /api/stacks/{stackId}/resolved-config", h.withAuth(h.handleGetResolvedConfig))
-	h.mux.HandleFunc("POST /api/stacks/{stackId}/resolved-config", h.withAuth(h.handlePostResolvedConfig))
-	h.mux.HandleFunc("POST /api/stacks/{stackId}/actions/{action}", h.withAuth(h.handleRunStackAction))
-	h.mux.HandleFunc("GET /api/stacks/{stackId}/audit", h.withAuth(h.handleListStackAudit))
-	h.mux.HandleFunc("GET /api/audit", h.withAuth(h.handleListAudit))
-	h.mux.HandleFunc("GET /api/settings/notifications", h.withAuth(h.handleGetNotificationSettings))
-	h.mux.HandleFunc("PUT /api/settings/notifications", h.withAuth(h.handleUpdateNotificationSettings))
-	h.mux.HandleFunc("POST /api/settings/notifications/test", h.withAuth(h.handleSendNotificationTest))
-	h.mux.HandleFunc("GET /api/settings/host", h.withAuth(h.handleGetHostSettings))
-	h.mux.HandleFunc("PUT /api/settings/host", h.withAuth(h.handleUpdateHostSettings))
-	h.mux.HandleFunc("GET /api/settings/maintenance-schedules", h.withAuth(h.handleGetMaintenanceSchedules))
-	h.mux.HandleFunc("PUT /api/settings/maintenance-schedules", h.withAuth(h.handleUpdateMaintenanceSchedules))
-	h.mux.HandleFunc("POST /api/settings/password", h.withAuth(h.handleUpdatePassword))
-	h.mux.HandleFunc("GET /api/jobs/{jobId}", h.withAuth(h.handleGetJob))
-	h.mux.HandleFunc("/api/", h.withAuth(h.handleAPINotImplemented))
-	h.mux.HandleFunc("/", h.handleFrontend)
+	controllers := []routeController{
+		&authController{Handler: h},
+		&systemController{Handler: h},
+		&workspaceController{Handler: h},
+		&maintenanceController{Handler: h},
+		&stackController{Handler: h},
+		&operationsController{Handler: h},
+		&settingsController{Handler: h},
+	}
+	for _, controller := range controllers {
+		controller.registerRoutes(h.mux)
+	}
 }
 
 func (h *Handler) handleSession(w http.ResponseWriter, r *http.Request) {
