@@ -18,17 +18,18 @@ This repository is the source tree that later gets deployed under `/opt/stacklab
 
 ## Tooling Requirements
 
-Recommended local tools:
+Required local tools:
 
-- Go `1.25+`
-- Node.js `22 LTS+`
-- npm `10+`
+- Go `1.26.5` from `go.mod`
+- Node.js `24.18.0` from `.nvmrc`
+- the npm version bundled with that Node.js release
+- GNU Make
+- ShellCheck `0.11.0` for repository hygiene
 - Docker Engine
 - Compose v2 available as either `docker compose` or standalone `docker-compose`
 
 Helpful but optional:
 
-- `make`
 - `just`
 - `watchexec`
 
@@ -82,7 +83,7 @@ Expected run commands:
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
@@ -115,6 +116,20 @@ Rules:
 - keep test stacks isolated under `.local/`
 
 ## Local Test Workflow
+
+Before handing off a change, run the complete source-tree baseline from the
+repository root:
+
+```bash
+make check
+```
+
+This verifies the active toolchain, backend tests and hygiene, frontend tests,
+typecheck and build, then delegates repository hygiene to the existing QA-03
+script. Go commands are explicitly limited to `cmd` and `internal`, so they do
+not traverse `frontend/node_modules`. See
+[`../quality/developer-checks.md`](../quality/developer-checks.md) for focused
+targets and the canonical version declarations.
 
 Recommended daily workflow:
 

@@ -102,25 +102,21 @@ Runner:
 
 Setup:
 
-- Node `24.15.0`
+- Node `24.18.0` from `.nvmrc`
 - npm cache enabled
 
 Commands:
 
 ```bash
-cd frontend
-npm ci
-npm run typecheck
-npm run lint
-npm run build
+make check-frontend
 ```
 
 Purpose:
 
 - validate frontend correctness
 - keep TypeScript strictness enforced
-- keep frontend lint green
 - ensure production build keeps working
+- leave zero-warning ESLint enforcement to `repository-hygiene`
 
 ### `backend-test`
 
@@ -130,13 +126,13 @@ Runner:
 
 Setup:
 
-- Go `1.26.3`
+- Go `1.26.5` from `go.mod`
 - Go module cache enabled
 
 Commands:
 
 ```bash
-go test ./cmd/... ./internal/...
+make check-backend-test
 ```
 
 Purpose:
@@ -152,8 +148,7 @@ Runner:
 Commands:
 
 ```bash
-test -z "$(gofmt -l cmd internal)"
-go vet ./cmd/... ./internal/...
+make check-backend-hygiene
 ```
 
 Purpose:
@@ -166,7 +161,7 @@ Purpose:
 Command:
 
 ```bash
-./scripts/quality/check-repository-hygiene.sh
+make check-hygiene
 ```
 
 Purpose:
@@ -222,8 +217,8 @@ This is preferred over a VM for normal PR validation.
 
 Setup:
 
-- Node `24.15.0`
-- Go `1.26.3`
+- Node `24.18.0` from `.nvmrc`
+- Go `1.26.5` from `go.mod`
 - Docker and Compose available on runner
 
 Recommended preparation:
@@ -331,7 +326,7 @@ It should stay intentionally small and focus on critical end-user paths rather t
 
 Setup:
 
-- Node `24.15.0`
+- Node `24.18.0` from `.nvmrc`
 - Go from `go.mod`
 - Playwright Chromium installed on the runner
 
@@ -395,8 +390,8 @@ Runner:
 
 Setup:
 
-- Node `24.15.0`
-- Go `1.26.3`
+- Node `24.18.0` from `.nvmrc`
+- Go `1.26.5` from `go.mod`
 
 Commands:
 

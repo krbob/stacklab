@@ -20,19 +20,21 @@ explicit version and verifies its pinned SHA-256 before extraction.
 
 ## Local Command
 
-Install frontend dependencies first:
+Run the standalone hygiene target, which installs frontend dependencies and
+validates the toolchain first:
 
 ```bash
-npm --prefix frontend ci
+make check-hygiene
 ```
 
-Then run the same checks as CI from the repository root:
+The underlying QA-03 command remains directly available when dependencies are
+already installed:
 
 ```bash
 ./scripts/quality/check-repository-hygiene.sh
 ```
 
-The command requires the repository Go and Node toolchains plus ShellCheck
+Both commands require the repository Go and Node toolchains plus ShellCheck
 `0.11.0`. actionlint and Gitleaks are resolved by Go at the versions embedded
 in the script.
 

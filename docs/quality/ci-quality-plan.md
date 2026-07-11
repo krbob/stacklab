@@ -283,6 +283,16 @@ Recommendation:
 
 ## Recommended Command Set
 
+The canonical local baseline is:
+
+```bash
+make check
+```
+
+It composes the backend, frontend, and repository hygiene commands below with
+the exact Go and Node versions documented in
+[`developer-checks.md`](developer-checks.md).
+
 ## Frontend
 
 ```bash

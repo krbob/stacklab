@@ -30,7 +30,7 @@ Odniesienie do kryteriów akceptacji: `docs/quality/acceptance-criteria.md`
 
 - Linux `amd64` (docelowo też sprawdzenie `arm64`, jeśli dostępne), root/sudo
 - Docker Engine + Compose v2 (`docker compose` lub `docker-compose`)
-- Go `1.25+`, Node.js `22 LTS+`, npm `10+` (do budowy frontendu i backendu ze
+- Go `1.26.5`, Node.js `24.18.0` z dołączonym npm (do budowy frontendu i backendu ze
   źródeł) — **albo** zainstalowany pakiet `.deb`/tarball, jeśli testujemy tor
   produkcyjny
 - Dostęp do internetu (image updates, pull obrazów, ewentualnie APT self-update)

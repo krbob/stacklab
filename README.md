@@ -77,8 +77,10 @@ Canonical host layout for tarball installs:
 
 ### Prerequisites
 
-- Go
-- Node.js + npm
+- Go `1.26.5`
+- Node.js `24.18.0` with its bundled npm
+- GNU Make
+- ShellCheck `0.11.0` for the full local quality gate
 - Docker Engine
 - Compose v2 available as either `docker compose` or standalone `docker-compose`
 
@@ -159,21 +161,17 @@ See:
 
 ## Tests
 
-Backend:
+Run the reproducible backend, frontend, and repository hygiene baseline from
+the repository root:
 
 ```bash
-go test ./...
+make check
 ```
 
-Frontend:
-
-```bash
-cd frontend
-npm test
-npm run typecheck
-npm run lint
-npm run build
-```
+Focused targets are available as `make check-backend`, `make check-frontend`,
+and `make check-hygiene`. See
+[`docs/quality/developer-checks.md`](docs/quality/developer-checks.md) for the
+toolchain contract and exact command scope.
 
 ## Screenshots
 
