@@ -3,10 +3,14 @@ package imageupdates
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
+	"net/url"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -147,6 +151,154 @@ func TestCheckImageTreatsAnyMatchingLocalRepoDigestAsUpToDate(t *testing.T) {
 	}
 	if status.RemoteDigest != currentDigest {
 		t.Fatalf("remote digest = %q, want %q", status.RemoteDigest, currentDigest)
+	}
+}
+
+func TestRemoteDigestUsesValidatedBearerChallengeAndEncodedQuery(t *testing.T) {
+	const currentDigest = "sha256:current"
+
+	var manifestRequests atomic.Int32
+	var registry *httptest.Server
+	registry = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v2/example/app/manifests/latest":
+			manifestRequests.Add(1)
+			if r.Header.Get("Authorization") != "Bearer safe-token" {
+				w.Header().Set("WWW-Authenticate", `Bearer realm="`+registry.URL+`/token?existing=keep",service="registry.example&admin=true",scope="repository:example/app:pull&other=1"`)
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			w.Header().Set("Docker-Content-Digest", currentDigest)
+			w.WriteHeader(http.StatusOK)
+		case "/token":
+			if got := r.URL.Query().Get("existing"); got != "keep" {
+				t.Errorf("existing query = %q, want keep", got)
+			}
+			if got := r.URL.Query().Get("service"); got != "registry.example&admin=true" {
+				t.Errorf("service query = %q", got)
+			}
+			if got := r.URL.Query().Get("scope"); got != "repository:example/app:pull&other=1" {
+				t.Errorf("scope query = %q", got)
+			}
+			_, _ = io.WriteString(w, `{"access_token":"safe-token"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(registry.Close)
+
+	service := &Service{client: registry.Client()}
+	registryHost := strings.TrimPrefix(registry.URL, "https://")
+	digest, err := service.remoteDigest(context.Background(), registryHost+"/example/app:latest")
+	if err != nil {
+		t.Fatalf("remoteDigest() error = %v", err)
+	}
+	if digest != currentDigest {
+		t.Fatalf("remoteDigest() = %q, want %q", digest, currentDigest)
+	}
+	if got := manifestRequests.Load(); got != 2 {
+		t.Fatalf("manifest request count = %d, want 2", got)
+	}
+}
+
+func TestRemoteDigestRejectsPrivateTokenRealmOutsideExplicitRegistryEndpoint(t *testing.T) {
+	var tokenEndpointHit atomic.Bool
+	tokenEndpoint := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		tokenEndpointHit.Store(true)
+		_, _ = io.WriteString(w, `{"token":"should-not-be-read"}`)
+	}))
+	t.Cleanup(tokenEndpoint.Close)
+
+	var registry *httptest.Server
+	registry = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="`+tokenEndpoint.URL+`/token",service="registry.test"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(registry.Close)
+
+	service := &Service{client: registry.Client()}
+	registryHost := strings.TrimPrefix(registry.URL, "https://")
+	if _, err := service.remoteDigest(context.Background(), registryHost+"/example/app:latest"); err == nil || !strings.Contains(err.Error(), "disallowed address") {
+		t.Fatalf("remoteDigest() error = %v, want disallowed private token endpoint", err)
+	}
+	if tokenEndpointHit.Load() {
+		t.Fatal("disallowed token endpoint received a request")
+	}
+}
+
+func TestRemoteDigestValidatesTokenRedirects(t *testing.T) {
+	var redirectTargetHit atomic.Bool
+	redirectTarget := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		redirectTargetHit.Store(true)
+		_, _ = io.WriteString(w, `{"token":"should-not-be-read"}`)
+	}))
+	t.Cleanup(redirectTarget.Close)
+
+	var registry *httptest.Server
+	registry = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/token" {
+			http.Redirect(w, r, redirectTarget.URL+"/token", http.StatusFound)
+			return
+		}
+		w.Header().Set("WWW-Authenticate", `Bearer realm="`+registry.URL+`/token",service="registry.test"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(registry.Close)
+
+	service := &Service{client: registry.Client()}
+	registryHost := strings.TrimPrefix(registry.URL, "https://")
+	if _, err := service.remoteDigest(context.Background(), registryHost+"/example/app:latest"); err == nil || !strings.Contains(err.Error(), "reject registry redirect") {
+		t.Fatalf("remoteDigest() error = %v, want rejected redirect", err)
+	}
+	if redirectTargetHit.Load() {
+		t.Fatal("disallowed redirect target received a request")
+	}
+}
+
+func TestRemoteDigestBoundsTokenResponse(t *testing.T) {
+	var registry *httptest.Server
+	registry = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/token" {
+			_, _ = io.WriteString(w, `{"token":"`+strings.Repeat("x", maxRegistryTokenResponseBytes)+`"}`)
+			return
+		}
+		w.Header().Set("WWW-Authenticate", `Bearer realm="`+registry.URL+`/token",service="registry.test"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(registry.Close)
+
+	service := &Service{client: registry.Client()}
+	registryHost := strings.TrimPrefix(registry.URL, "https://")
+	if _, err := service.remoteDigest(context.Background(), registryHost+"/example/app:latest"); err == nil || !strings.Contains(err.Error(), "response exceeds") {
+		t.Fatalf("remoteDigest() error = %v, want bounded response error", err)
+	}
+}
+
+func TestRegistryRequestPolicyRejectsHTTPPrivateAuthAndDNSRebinding(t *testing.T) {
+	lookupCalls := 0
+	lookup := func(_ context.Context, host string) ([]netip.Addr, error) {
+		lookupCalls++
+		if host != "registry.example" {
+			return []netip.Addr{netip.MustParseAddr("127.0.0.1")}, nil
+		}
+		if lookupCalls == 1 {
+			return []netip.Addr{netip.MustParseAddr("8.8.8.8")}, nil
+		}
+		return []netip.Addr{netip.MustParseAddr("127.0.0.1")}, nil
+	}
+	registryURL, err := url.Parse("https://registry.example/v2/example/app/manifests/latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := newRegistryRequestPolicy(context.Background(), registryURL, lookup)
+	if err != nil {
+		t.Fatalf("newRegistryRequestPolicy() error = %v", err)
+	}
+	if err := policy.validateURL(context.Background(), "https://registry.example/token"); err == nil || !strings.Contains(err.Error(), "disallowed address") {
+		t.Fatalf("validateURL(rebound host) error = %v, want disallowed address", err)
+	}
+	if err := policy.validateURL(context.Background(), "http://registry.example/token"); err == nil || !strings.Contains(err.Error(), "HTTPS") {
+		t.Fatalf("validateURL(http) error = %v, want HTTPS error", err)
 	}
 }
 

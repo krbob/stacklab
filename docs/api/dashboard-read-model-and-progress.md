@@ -74,9 +74,13 @@ Promotes the backlog item "image update checks that can notify when a registry
 tag resolves to a new digest".
 
 - New job action `check_image_updates` (workflow, host-scoped): for each unique
-  `image_ref` used by managed stacks, resolve the remote manifest digest
-  (registry HEAD request, honoring the existing registry auth config) and
-  compare with the local image digest.
+  `image_ref` used by managed stacks, resolve the remote manifest digest through
+  an anonymous registry HEAD request and compare it with the local digest.
+  Requests require HTTPS. Public registry and token endpoints are resolved and
+  checked again on every redirect and dial. A private endpoint is allowed only
+  when its exact `host:port` appears in `image_ref`; its token challenge cannot
+  widen that access to another private host or port. Registries requiring
+  credentials or a separate private auth endpoint report `unknown`.
 - Persistence: SQLite table `image_update_status`
   (`image_ref`, `local_digest`, `remote_digest`, `state`, `checked_at`),
   bounded by existing retention machinery.

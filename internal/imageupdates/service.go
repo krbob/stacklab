@@ -1,16 +1,24 @@
 // Package imageupdates resolves whether locally pulled images are behind
 // their registry tags (dashboard read-model contract, Slice B). v1 checks
-// public registries anonymously; images that need credentials or use build
-// mode report state "unknown".
+// registries anonymously; images that need credentials or use build mode
+// report state "unknown". Private registry endpoints explicitly named in an
+// image reference are supported, while authentication challenges remain
+// constrained to prevent registries from turning token lookup into SSRF.
 package imageupdates
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/netip"
+	"net/url"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +30,10 @@ const (
 	StateUpToDate  = "up_to_date"
 	StateAvailable = "available"
 	StateUnknown   = "unknown"
+
+	maxRegistryResponseHeaderBytes = 64 << 10
+	maxRegistryTokenResponseBytes  = 64 << 10
+	maxRegistryTokenBytes          = 16 << 10
 )
 
 const manifestAcceptHeader = "application/vnd.docker.distribution.manifest.list.v2+json, " +
@@ -29,10 +41,23 @@ const manifestAcceptHeader = "application/vnd.docker.distribution.manifest.list.
 	"application/vnd.docker.distribution.manifest.v2+json, " +
 	"application/vnd.oci.image.manifest.v1+json"
 
+var nonPublicRegistryPrefixes = []netip.Prefix{
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("192.0.2.0/24"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("198.51.100.0/24"),
+	netip.MustParsePrefix("203.0.113.0/24"),
+	netip.MustParsePrefix("64:ff9b:1::/48"),
+	netip.MustParsePrefix("100::/64"),
+	netip.MustParsePrefix("2001:db8::/32"),
+}
+
 type Service struct {
-	logger *slog.Logger
-	store  *store.Store
-	client *http.Client
+	logger      *slog.Logger
+	store       *store.Store
+	client      *http.Client
+	lookupNetIP func(ctx context.Context, host string) ([]netip.Addr, error)
 	// runDocker is injectable for tests; production shells out to the docker CLI
 	// like the rest of the runtime integration.
 	runDocker func(ctx context.Context, args ...string) ([]byte, error)
@@ -46,6 +71,9 @@ func NewService(logger *slog.Logger, dataStore *store.Store) *Service {
 		logger: logger,
 		store:  dataStore,
 		client: &http.Client{Timeout: 15 * time.Second},
+		lookupNetIP: func(ctx context.Context, host string) ([]netip.Addr, error) {
+			return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+		},
 		runDocker: func(ctx context.Context, args ...string) ([]byte, error) {
 			return exec.CommandContext(ctx, "docker", args...).Output()
 		},
@@ -198,8 +226,16 @@ func containsDigest(digests []string, candidate string) bool {
 func (s *Service) remoteDigest(ctx context.Context, imageRef string) (string, error) {
 	registry, repository, tag := splitImageRef(imageRef)
 
-	manifestURL := fmt.Sprintf("https://%s/v2/%s/manifests/%s", registry, repository, tag)
-	digest, challenge, err := s.headManifest(ctx, manifestURL, "")
+	manifestURL, err := buildManifestURL(registry, repository, tag)
+	if err != nil {
+		return "", err
+	}
+	client, policy, err := s.registryHTTPClient(ctx, manifestURL)
+	if err != nil {
+		return "", err
+	}
+	defer client.CloseIdleConnections()
+	digest, challenge, err := s.headManifest(ctx, client, policy, manifestURL, "")
 	if err != nil {
 		return "", err
 	}
@@ -210,11 +246,11 @@ func (s *Service) remoteDigest(ctx context.Context, imageRef string) (string, er
 		return "", fmt.Errorf("registry did not return a digest")
 	}
 
-	token, err := s.fetchAnonymousToken(ctx, challenge)
+	token, err := s.fetchAnonymousToken(ctx, client, policy, challenge)
 	if err != nil {
 		return "", err
 	}
-	digest, _, err = s.headManifest(ctx, manifestURL, token)
+	digest, _, err = s.headManifest(ctx, client, policy, manifestURL, token)
 	if err != nil {
 		return "", err
 	}
@@ -230,8 +266,11 @@ type bearerChallenge struct {
 	Scope   string
 }
 
-func (s *Service) headManifest(ctx context.Context, url, token string) (string, *bearerChallenge, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+func (s *Service) headManifest(ctx context.Context, client *http.Client, policy *registryRequestPolicy, requestURL, token string) (string, *bearerChallenge, error) {
+	if err := policy.validateURL(ctx, requestURL); err != nil {
+		return "", nil, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodHead, requestURL, nil)
 	if err != nil {
 		return "", nil, err
 	}
@@ -240,7 +279,7 @@ func (s *Service) headManifest(ctx context.Context, url, token string) (string, 
 		request.Header.Set("Authorization", "Bearer "+token)
 	}
 
-	response, err := s.client.Do(request)
+	response, err := client.Do(request)
 	if err != nil {
 		return "", nil, err
 	}
@@ -264,16 +303,19 @@ func (s *Service) headManifest(ctx context.Context, url, token string) (string, 
 	}
 }
 
-func (s *Service) fetchAnonymousToken(ctx context.Context, challenge *bearerChallenge) (string, error) {
-	url := challenge.Realm + "?service=" + challenge.Service
-	if challenge.Scope != "" {
-		url += "&scope=" + challenge.Scope
-	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+func (s *Service) fetchAnonymousToken(ctx context.Context, client *http.Client, policy *registryRequestPolicy, challenge *bearerChallenge) (string, error) {
+	tokenURL, err := buildTokenURL(challenge)
 	if err != nil {
 		return "", err
 	}
-	response, err := s.client.Do(request)
+	if err := policy.validateParsedURL(ctx, tokenURL); err != nil {
+		return "", err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, tokenURL.String(), nil)
+	if err != nil {
+		return "", err
+	}
+	response, err := client.Do(request)
 	if err != nil {
 		return "", err
 	}
@@ -282,17 +324,297 @@ func (s *Service) fetchAnonymousToken(ctx context.Context, challenge *bearerChal
 		return "", fmt.Errorf("token endpoint returned status %d", response.StatusCode)
 	}
 
+	if response.ContentLength > maxRegistryTokenResponseBytes {
+		return "", fmt.Errorf("token endpoint response exceeds %d bytes", maxRegistryTokenResponseBytes)
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxRegistryTokenResponseBytes+1))
+	if err != nil {
+		return "", fmt.Errorf("read token endpoint response: %w", err)
+	}
+	if len(body) > maxRegistryTokenResponseBytes {
+		return "", fmt.Errorf("token endpoint response exceeds %d bytes", maxRegistryTokenResponseBytes)
+	}
 	var payload struct {
 		Token       string `json:"token"`
 		AccessToken string `json:"access_token"`
 	}
-	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+	if err := json.Unmarshal(body, &payload); err != nil {
 		return "", err
 	}
-	if payload.Token != "" {
-		return payload.Token, nil
+	token := payload.Token
+	if token == "" {
+		token = payload.AccessToken
 	}
-	return payload.AccessToken, nil
+	if token == "" {
+		return "", fmt.Errorf("token endpoint response did not contain a token")
+	}
+	if len(token) > maxRegistryTokenBytes {
+		return "", fmt.Errorf("registry token exceeds %d bytes", maxRegistryTokenBytes)
+	}
+	return token, nil
+}
+
+func buildManifestURL(registry, repository, tag string) (string, error) {
+	base, err := url.Parse("https://" + registry)
+	if err != nil {
+		return "", fmt.Errorf("parse registry URL: %w", err)
+	}
+	if base.User != nil || base.Hostname() == "" || base.Path != "" || base.RawQuery != "" || base.Fragment != "" {
+		return "", fmt.Errorf("invalid registry authority %q", registry)
+	}
+	base.Path = "/v2/" + repository + "/manifests/" + tag
+	return base.String(), nil
+}
+
+func buildTokenURL(challenge *bearerChallenge) (*url.URL, error) {
+	if challenge == nil {
+		return nil, fmt.Errorf("registry token challenge is missing")
+	}
+	tokenURL, err := url.Parse(challenge.Realm)
+	if err != nil {
+		return nil, fmt.Errorf("parse registry token realm: %w", err)
+	}
+	values := tokenURL.Query()
+	values.Set("service", challenge.Service)
+	if challenge.Scope != "" {
+		values.Set("scope", challenge.Scope)
+	}
+	tokenURL.RawQuery = values.Encode()
+	return tokenURL, nil
+}
+
+type registryEndpoint struct {
+	host string
+	port string
+	key  string
+}
+
+type registryRequestPolicy struct {
+	lookupNetIP            func(context.Context, string) ([]netip.Addr, error)
+	pinnedPrivateEndpoints map[string]map[netip.Addr]struct{}
+}
+
+func (s *Service) registryHTTPClient(ctx context.Context, manifestURL string) (*http.Client, *registryRequestPolicy, error) {
+	parsedManifestURL, err := url.Parse(manifestURL)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse manifest URL: %w", err)
+	}
+	lookupNetIP := s.lookupNetIP
+	if lookupNetIP == nil {
+		lookupNetIP = func(ctx context.Context, host string) ([]netip.Addr, error) {
+			return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+		}
+	}
+	policy, err := newRegistryRequestPolicy(ctx, parsedManifestURL, lookupNetIP)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	template := s.client
+	if template == nil {
+		template = &http.Client{Timeout: 15 * time.Second}
+	}
+	baseTransport := template.Transport
+	if baseTransport == nil {
+		baseTransport = http.DefaultTransport
+	}
+	transport, ok := baseTransport.(*http.Transport)
+	if !ok {
+		return nil, nil, fmt.Errorf("registry HTTP client transport must be *http.Transport")
+	}
+	secureTransport := transport.Clone()
+	secureTransport.Proxy = nil
+	secureTransport.DialContext = policy.dialContext
+	secureTransport.DialTLS = nil
+	secureTransport.DialTLSContext = nil
+	secureTransport.MaxResponseHeaderBytes = maxRegistryResponseHeaderBytes
+
+	client := &http.Client{
+		Transport: secureTransport,
+		Timeout:   template.Timeout,
+	}
+	originalCheckRedirect := template.CheckRedirect
+	client.CheckRedirect = func(request *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return fmt.Errorf("registry redirect limit exceeded")
+		}
+		if err := policy.validateParsedURL(request.Context(), request.URL); err != nil {
+			return fmt.Errorf("reject registry redirect: %w", err)
+		}
+		if originalCheckRedirect != nil {
+			return originalCheckRedirect(request, via)
+		}
+		return nil
+	}
+	return client, policy, nil
+}
+
+func newRegistryRequestPolicy(ctx context.Context, registryURL *url.URL, lookupNetIP func(context.Context, string) ([]netip.Addr, error)) (*registryRequestPolicy, error) {
+	endpoint, err := parseRegistryEndpoint(registryURL)
+	if err != nil {
+		return nil, err
+	}
+	policy := &registryRequestPolicy{
+		lookupNetIP:            lookupNetIP,
+		pinnedPrivateEndpoints: make(map[string]map[netip.Addr]struct{}),
+	}
+	addresses, err := policy.lookupEndpoint(ctx, endpoint)
+	if err != nil {
+		return nil, err
+	}
+	nonPublicCount := 0
+	for _, address := range addresses {
+		if isNonPublicAddress(address) {
+			nonPublicCount++
+		}
+	}
+	if nonPublicCount > 0 && nonPublicCount != len(addresses) {
+		return nil, fmt.Errorf("registry endpoint %q resolves to a mix of public and non-public addresses", endpoint.key)
+	}
+	if nonPublicCount == len(addresses) {
+		// Naming a private registry in the image reference is the explicit opt-in.
+		// Pin its exact endpoint and addresses for this lookup; a challenge cannot
+		// widen that permission to another LAN host or port.
+		pinned := make(map[netip.Addr]struct{}, len(addresses))
+		for _, address := range addresses {
+			pinned[address] = struct{}{}
+		}
+		policy.pinnedPrivateEndpoints[endpoint.key] = pinned
+	}
+	return policy, nil
+}
+
+func (p *registryRequestPolicy) validateURL(ctx context.Context, rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("parse registry URL: %w", err)
+	}
+	return p.validateParsedURL(ctx, parsed)
+}
+
+func (p *registryRequestPolicy) validateParsedURL(ctx context.Context, parsed *url.URL) error {
+	endpoint, err := parseRegistryEndpoint(parsed)
+	if err != nil {
+		return err
+	}
+	addresses, err := p.lookupEndpoint(ctx, endpoint)
+	if err != nil {
+		return err
+	}
+	return p.validateEndpointAddresses(endpoint, addresses)
+}
+
+func parseRegistryEndpoint(parsed *url.URL) (registryEndpoint, error) {
+	if parsed == nil || !strings.EqualFold(parsed.Scheme, "https") {
+		return registryEndpoint{}, fmt.Errorf("registry URL must use HTTPS")
+	}
+	if parsed.Opaque != "" || parsed.User != nil || parsed.Hostname() == "" || parsed.Fragment != "" {
+		return registryEndpoint{}, fmt.Errorf("registry URL contains an invalid authority")
+	}
+	host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
+	if host == "" {
+		return registryEndpoint{}, fmt.Errorf("registry URL host is empty")
+	}
+	port := parsed.Port()
+	if port == "" {
+		port = "443"
+	}
+	portNumber, err := strconv.Atoi(port)
+	if err != nil || portNumber < 1 || portNumber > 65535 {
+		return registryEndpoint{}, fmt.Errorf("registry URL has an invalid port")
+	}
+	return registryEndpoint{
+		host: host,
+		port: port,
+		key:  net.JoinHostPort(host, port),
+	}, nil
+}
+
+func (p *registryRequestPolicy) lookupEndpoint(ctx context.Context, endpoint registryEndpoint) ([]netip.Addr, error) {
+	if literal, err := netip.ParseAddr(endpoint.host); err == nil {
+		return []netip.Addr{literal.Unmap()}, nil
+	}
+	addresses, err := p.lookupNetIP(ctx, endpoint.host)
+	if err != nil {
+		return nil, fmt.Errorf("resolve registry endpoint %q: %w", endpoint.key, err)
+	}
+	result := make([]netip.Addr, 0, len(addresses))
+	seen := make(map[netip.Addr]struct{}, len(addresses))
+	for _, address := range addresses {
+		address = address.Unmap()
+		if !address.IsValid() {
+			continue
+		}
+		if _, exists := seen[address]; exists {
+			continue
+		}
+		seen[address] = struct{}{}
+		result = append(result, address)
+	}
+	if len(result) == 0 {
+		return nil, fmt.Errorf("registry endpoint %q did not resolve to an IP address", endpoint.key)
+	}
+	return result, nil
+}
+
+func (p *registryRequestPolicy) validateEndpointAddresses(endpoint registryEndpoint, addresses []netip.Addr) error {
+	if pinned, ok := p.pinnedPrivateEndpoints[endpoint.key]; ok {
+		for _, address := range addresses {
+			if _, allowed := pinned[address]; !allowed {
+				return fmt.Errorf("private registry endpoint %q changed address during the request", endpoint.key)
+			}
+		}
+		return nil
+	}
+	for _, address := range addresses {
+		if isNonPublicAddress(address) {
+			return fmt.Errorf("registry endpoint %q resolves to disallowed address %s", endpoint.key, address)
+		}
+	}
+	return nil
+}
+
+func (p *registryRequestPolicy) dialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, fmt.Errorf("parse registry dial address: %w", err)
+	}
+	endpoint := registryEndpoint{
+		host: strings.ToLower(strings.TrimSuffix(host, ".")),
+		port: port,
+		key:  net.JoinHostPort(strings.ToLower(strings.TrimSuffix(host, ".")), port),
+	}
+	addresses, err := p.lookupEndpoint(ctx, endpoint)
+	if err != nil {
+		return nil, err
+	}
+	if err := p.validateEndpointAddresses(endpoint, addresses); err != nil {
+		return nil, err
+	}
+
+	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
+	dialErrors := make([]error, 0, len(addresses))
+	for _, resolvedAddress := range addresses {
+		connection, err := dialer.DialContext(ctx, network, net.JoinHostPort(resolvedAddress.String(), port))
+		if err == nil {
+			return connection, nil
+		}
+		dialErrors = append(dialErrors, err)
+	}
+	return nil, fmt.Errorf("dial registry endpoint %q: %w", endpoint.key, errors.Join(dialErrors...))
+}
+
+func isNonPublicAddress(address netip.Addr) bool {
+	address = address.Unmap()
+	if !address.IsGlobalUnicast() || address.IsPrivate() {
+		return true
+	}
+	for _, prefix := range nonPublicRegistryPrefixes {
+		if prefix.Contains(address) {
+			return true
+		}
+	}
+	return false
 }
 
 func parseBearerChallenge(header string) *bearerChallenge {
