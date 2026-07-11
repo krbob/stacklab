@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getStacks } from '@/lib/api-client'
 import { cn } from '@/lib/cn'
@@ -29,7 +29,11 @@ export function CommandPalette() {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(0)
   const [stackEntries, setStackEntries] = useState<PaletteEntry[]>([])
+  const [loadingStacks, setLoadingStacks] = useState(false)
+  const [loadError, setLoadError] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const listboxId = useId()
+  const instructionsId = useId()
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -46,11 +50,17 @@ export function CommandPalette() {
 
   useEffect(() => {
     if (!open) return
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    let cancelled = false
     setQuery('')
     setSelected(0)
+    setStackEntries([])
+    setLoadingStacks(true)
+    setLoadError(false)
     inputRef.current?.focus()
     getStacks()
-      .then((response) =>
+      .then((response) => {
+        if (cancelled) return
         setStackEntries(
           response.items.map((stack) => ({
             kind: 'stack' as const,
@@ -58,9 +68,19 @@ export function CommandPalette() {
             hint: stack.display_state,
             to: `/stacks/${stack.id}`,
           })),
-        ),
-      )
-      .catch(() => {})
+        )
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError(true)
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingStacks(false)
+      })
+
+    return () => {
+      cancelled = true
+      previousFocus?.focus()
+    }
   }, [open])
 
   const entries = useMemo(() => {
@@ -78,6 +98,13 @@ export function CommandPalette() {
     navigate(entry.to)
   }
 
+  const selectedOptionId = entries[selected] ? `${listboxId}-option-${selected}` : undefined
+  const resultAnnouncement = loadingStacks
+    ? 'Loading stacks.'
+    : loadError
+      ? `${entries.length} navigation options available. Stack list unavailable.`
+      : `${entries.length} ${entries.length === 1 ? 'result' : 'results'} available.`
+
   return (
     <div className="fixed inset-0 z-[60]">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setOpen(false)} aria-hidden />
@@ -85,12 +112,25 @@ export function CommandPalette() {
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
+        onKeyDown={(event) => {
+          if (event.key === 'Tab') {
+            event.preventDefault()
+            inputRef.current?.focus()
+          }
+        }}
         className="absolute inset-x-4 top-[15vh] mx-auto max-w-lg overflow-hidden rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] shadow-[0_24px_60px_rgba(0,0,0,0.6)]"
       >
         <input
           ref={inputRef}
           data-testid="palette-input"
           type="text"
+          role="combobox"
+          aria-label="Search commands"
+          aria-autocomplete="list"
+          aria-expanded="true"
+          aria-controls={listboxId}
+          aria-activedescendant={selectedOptionId}
+          aria-describedby={instructionsId}
           value={query}
           onChange={(e) => {
             setQuery(e.target.value)
@@ -103,6 +143,12 @@ export function CommandPalette() {
             } else if (e.key === 'ArrowUp') {
               e.preventDefault()
               setSelected((current) => Math.max(current - 1, 0))
+            } else if (e.key === 'Home') {
+              e.preventDefault()
+              setSelected(0)
+            } else if (e.key === 'End') {
+              e.preventDefault()
+              setSelected(Math.max(entries.length - 1, 0))
             } else if (e.key === 'Enter') {
               e.preventDefault()
               activate(entries[selected])
@@ -111,14 +157,26 @@ export function CommandPalette() {
           placeholder="Jump to stack or section…"
           className="w-full border-b border-[var(--panel-border)] bg-transparent px-4 py-3 font-mono text-sm text-[var(--text)] outline-none placeholder:text-[var(--muted)]"
         />
-        <div className="max-h-[45vh] overflow-y-auto p-1.5">
+        <p id={instructionsId} className="sr-only">Use arrow keys to choose an option, then press Enter.</p>
+        <div
+          id={listboxId}
+          role="listbox"
+          aria-label="Commands"
+          aria-busy={loadingStacks}
+          className="max-h-[45vh] overflow-y-auto p-1.5"
+        >
           {entries.length === 0 && (
             <div className="px-3 py-4 text-center text-xs text-[var(--muted)]">No matches</div>
           )}
           {entries.map((entry, index) => (
             <button
               key={entry.to + entry.label}
+              id={`${listboxId}-option-${index}`}
+              role="option"
+              aria-selected={index === selected}
+              tabIndex={-1}
               onClick={() => activate(entry)}
+              onMouseDown={(event) => event.preventDefault()}
               onMouseEnter={() => setSelected(index)}
               className={cn(
                 'flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition',
@@ -129,6 +187,9 @@ export function CommandPalette() {
               <span className="ml-auto font-mono text-[10px] uppercase tracking-wide opacity-60">{entry.hint}</span>
             </button>
           ))}
+        </div>
+        <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          {resultAnnouncement}
         </div>
       </div>
     </div>

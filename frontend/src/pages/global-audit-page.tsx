@@ -79,6 +79,7 @@ export function GlobalAuditPage() {
           <button
             key={value}
             onClick={() => setResult(value)}
+            aria-pressed={result === value}
             className={cn(
               'rounded-md border px-3 py-1.5 text-xs capitalize transition',
               result === value

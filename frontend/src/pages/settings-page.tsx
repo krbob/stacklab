@@ -6,6 +6,7 @@ import { cn } from '@/lib/cn'
 import { PageHeader } from '@/components/page-header'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useAuth } from '@/hooks/use-auth'
+import { StatusMessage } from '@/components/status-message'
 
 const PASSWORD_MINIMUM_LENGTH = 12
 const PASSWORD_MAXIMUM_LENGTH = 256
@@ -63,7 +64,7 @@ export function SettingsPage() {
             <input type="password" autoComplete="new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="New password" disabled={saving} aria-describedby="new-password-requirements" className="w-full rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50" />
             <p id="new-password-requirements" className="text-xs text-[var(--muted)]">Use {PASSWORD_MINIMUM_LENGTH}–{PASSWORD_MAXIMUM_LENGTH} characters.</p>
             <input type="password" autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirm new password" disabled={saving} className="w-full rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50" />
-            {passwordError && <p className="text-sm text-[var(--danger)]">{passwordError}</p>}
+            {passwordError && <StatusMessage className="text-sm text-[var(--danger)]">{passwordError}</StatusMessage>}
             <button type="submit" disabled={saving || !currentPassword || !newPassword || !confirmPassword} className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40">
               {saving ? 'Updating...' : 'Update password'}
             </button>
@@ -181,10 +182,10 @@ function HostSettingsSection() {
   }
 
   return (
-    <div>
+    <div aria-busy={loading || savingHost}>
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="text-sm font-medium text-[var(--text)]">Host observability</h2>
-        {loading && <span className="text-xs text-[var(--muted)]">Loading...</span>}
+        {loading && <span className="text-xs text-[var(--muted)]" role="status" aria-live="polite">Loading...</span>}
       </div>
       <div className="space-y-3">
         <label className="flex items-start gap-3 text-sm text-[var(--text)]">
@@ -205,7 +206,7 @@ function HostSettingsSection() {
           <button type="button" onClick={handleSave} disabled={loading || savingHost || !isDirty} className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40">
             {savingHost ? 'Saving...' : 'Save host settings'}
           </button>
-          {saveResult && <span className={cn('text-xs', saveResult.type === 'success' ? 'text-[var(--ok)]' : 'text-[var(--danger)]')}>{saveResult.text}</span>}
+          {saveResult && <StatusMessage className={cn('text-xs', saveResult.type === 'success' ? 'text-[var(--ok)]' : 'text-[var(--danger)]')}>{saveResult.text}</StatusMessage>}
         </div>
       </div>
     </div>
@@ -359,9 +360,9 @@ function NotificationsSection() {
 
   if (loading) {
     return (
-      <div>
+      <div aria-busy="true">
         <h2 className="text-sm font-medium text-[var(--text)]">Notifications</h2>
-        <div className="mt-3 h-20 animate-pulse rounded-md bg-[rgba(255,255,255,0.03)]" />
+        <div className="mt-3 h-20 animate-pulse rounded-md bg-[rgba(255,255,255,0.03)]"><span className="sr-only" role="status" aria-live="polite">Loading notification settings...</span></div>
       </div>
     )
   }
@@ -388,7 +389,7 @@ function NotificationsSection() {
             Webhook
           </label>
           <input type="url" value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} placeholder="https://hooks.example.com/stacklab" className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
-          {webhookTestResult && <p className={webhookTestResult.type === 'success' ? 'text-xs text-[var(--ok)]' : 'text-xs text-[var(--danger)]'}>{webhookTestResult.text}</p>}
+          {webhookTestResult && <StatusMessage className={webhookTestResult.type === 'success' ? 'text-xs text-[var(--ok)]' : 'text-xs text-[var(--danger)]'}>{webhookTestResult.text}</StatusMessage>}
           <button onClick={handleTestWebhook} disabled={testingWebhook || !webhookUrl.trim()} className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)] disabled:opacity-40">
             {testingWebhook ? 'Sending...' : 'Send test'}
           </button>
@@ -411,7 +412,7 @@ function NotificationsSection() {
                   placeholder={botTokenConfigured ? '(leave empty to keep current)' : '123456:ABC-DEF1234'}
                   className="min-w-0 flex-1 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
                 />
-                <button onClick={() => setShowBotToken(!showBotToken)} className="rounded-md border border-[var(--panel-border)] px-2 py-1 text-[10px] text-[var(--muted)] hover:text-[var(--text)]">
+                <button onClick={() => setShowBotToken(!showBotToken)} aria-pressed={showBotToken} className="rounded-md border border-[var(--panel-border)] px-2 py-1 text-[10px] text-[var(--muted)] hover:text-[var(--text)]">
                   {showBotToken ? 'Hide' : 'Show'}
                 </button>
               </div>
@@ -421,7 +422,7 @@ function NotificationsSection() {
               <input type="text" value={telegramChatId} onChange={(e) => setTelegramChatId(e.target.value)} placeholder="-1001234567890" className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
             </div>
           </div>
-          {telegramTestResult && <p className={telegramTestResult.type === 'success' ? 'text-xs text-[var(--ok)]' : 'text-xs text-[var(--danger)]'}>{telegramTestResult.text}</p>}
+          {telegramTestResult && <StatusMessage className={telegramTestResult.type === 'success' ? 'text-xs text-[var(--ok)]' : 'text-xs text-[var(--danger)]'}>{telegramTestResult.text}</StatusMessage>}
           <button onClick={handleTestTelegram} disabled={testingTelegram || (!telegramBotToken && !botTokenConfigured) || !telegramChatId.trim()} className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)] disabled:opacity-40">
             {testingTelegram ? 'Sending...' : 'Send test'}
           </button>
@@ -480,7 +481,7 @@ function NotificationsSection() {
         </div>
 
         {/* Save feedback */}
-        {saveResult && <p className={saveResult.type === 'success' ? 'text-xs text-[var(--ok)]' : 'text-xs text-[var(--danger)]'}>{saveResult.text}</p>}
+        {saveResult && <StatusMessage className={saveResult.type === 'success' ? 'text-xs text-[var(--ok)]' : 'text-xs text-[var(--danger)]'}>{saveResult.text}</StatusMessage>}
 
         <button onClick={handleSave} disabled={savingNotif || !isDirty} className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-xs text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40">
           {savingNotif ? 'Saving...' : 'Save'}
@@ -755,9 +756,9 @@ function SchedulesSection() {
 
   if (loading) {
     return (
-      <div>
+      <div aria-busy="true">
         <h2 className="text-sm font-medium text-[var(--text)]">Maintenance schedules</h2>
-        <div className="mt-3 h-24 animate-pulse rounded-md bg-[rgba(255,255,255,0.03)]" />
+        <div className="mt-3 h-24 animate-pulse rounded-md bg-[rgba(255,255,255,0.03)]"><span className="sr-only" role="status" aria-live="polite">Loading maintenance schedules...</span></div>
       </div>
     )
   }
@@ -912,7 +913,7 @@ function SchedulesSection() {
           <ScheduleStatusFooter status={data?.prune.status} onOpenJob={openJob} />
         </div>
 
-        {saveResult && <p className={saveResult.type === 'success' ? 'text-xs text-[var(--ok)]' : 'text-xs text-[var(--danger)]'}>{saveResult.text}</p>}
+        {saveResult && <StatusMessage className={saveResult.type === 'success' ? 'text-xs text-[var(--ok)]' : 'text-xs text-[var(--danger)]'}>{saveResult.text}</StatusMessage>}
 
         <button onClick={handleSave} disabled={savingSchedules} className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-xs text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40">
           {savingSchedules ? 'Saving...' : 'Save schedules'}
@@ -1032,9 +1033,9 @@ function StacklabUpdateSection() {
 
   if (loading) {
     return (
-      <div>
+      <div aria-busy="true">
         <h2 className="text-sm font-medium text-[var(--text)]">Stacklab update</h2>
-        <div className="mt-3 h-20 animate-pulse rounded-md bg-[rgba(255,255,255,0.03)]" />
+        <div className="mt-3 h-20 animate-pulse rounded-md bg-[rgba(255,255,255,0.03)]"><span className="sr-only" role="status" aria-live="polite">Loading update status...</span></div>
       </div>
     )
   }

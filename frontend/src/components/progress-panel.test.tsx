@@ -32,6 +32,7 @@ describe('ProgressPanel', () => {
     mockUseJobStream.mockReturnValue({ events: [], state: null, clear: vi.fn() })
     render(<ProgressPanel jobId="job_123" />)
     expect(screen.getByText('Pending')).toBeInTheDocument()
+    expect(screen.getByRole('status').closest('[aria-busy]')).toHaveAttribute('aria-busy', 'true')
   })
 
   it('shows running state', () => {
@@ -45,7 +46,11 @@ describe('ProgressPanel', () => {
       clear: vi.fn(),
     })
     render(<ProgressPanel jobId="job_123" />)
-    expect(screen.getByText('Running')).toBeInTheDocument()
+    const status = screen.getByRole('status')
+    expect(status).toHaveTextContent('Running')
+    expect(status).toHaveAttribute('aria-live', 'polite')
+    expect(status.closest('[aria-busy]')).toHaveAttribute('aria-busy', 'false')
+    expect(screen.getByLabelText('Job output')).toHaveAttribute('aria-live', 'off')
   })
 
   it('shows succeeded state', () => {
@@ -60,6 +65,28 @@ describe('ProgressPanel', () => {
     })
     render(<ProgressPanel jobId="job_123" />)
     expect(screen.getByText('Succeeded')).toBeInTheDocument()
+    expect(screen.getByRole('status').closest('[aria-busy]')).toHaveAttribute('aria-busy', 'false')
+  })
+
+  it('exposes structured progress with numeric values', () => {
+    mockUseJobStream.mockReturnValue({
+      events: [{
+        job_id: 'job_123', stack_id: 'test', action: 'pull', state: 'running',
+        event: 'job_progress', message: 'Pulling layers', timestamp: '2026-01-01T00:00:00Z',
+        data: null, step: null,
+        progress: { phase: 'pull', completed: 7, total: 12, unit: 'layers', detail: 'extracting' },
+      }],
+      state: 'running',
+      clear: vi.fn(),
+    })
+
+    render(<ProgressPanel jobId="job_123" />)
+
+    const progress = screen.getByRole('progressbar', { name: 'Job progress' })
+    expect(progress).toHaveAttribute('aria-valuemin', '0')
+    expect(progress).toHaveAttribute('aria-valuemax', '12')
+    expect(progress).toHaveAttribute('aria-valuenow', '7')
+    expect(progress).toHaveAttribute('aria-valuetext', '7 of 12 layers')
   })
 
   it('shows failed state', () => {

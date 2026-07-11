@@ -349,7 +349,7 @@ describe('ConfigPage', () => {
     await waitFor(() => {
       expect(mockSaveConfigFile).toHaveBeenCalledWith('demo/app.conf', 'server_name new.local;\n', false, '2026-04-04T12:00:00Z')
     })
-    expect(await screen.findByText('Saved')).toBeInTheDocument()
+    expect(await screen.findByRole('status')).toHaveTextContent('Saved')
     expect(mockGetConfigFile).toHaveBeenLastCalledWith('demo/app.conf')
   })
 
@@ -507,7 +507,12 @@ describe('ConfigPage', () => {
 
     renderPage()
 
-    fireEvent.click(await screen.findByRole('button', { name: /^Changes/ }))
+    const filesButton = await screen.findByRole('button', { name: 'Files' })
+    const changesButton = screen.getByRole('button', { name: /^Changes/ })
+    expect(filesButton).toHaveAttribute('aria-pressed', 'true')
+    expect(changesButton).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(changesButton)
+    expect(changesButton).toHaveAttribute('aria-pressed', 'true')
 
     expect(await screen.findByText('main')).toBeInTheDocument()
     expect(screen.getByText('+1')).toBeInTheDocument()

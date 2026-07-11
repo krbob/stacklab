@@ -62,7 +62,7 @@ describe('GitCommitBar', () => {
         paths: ['config/demo/app.conf'],
       })
     })
-    expect(await screen.findByText(/Committed abc12345/)).toBeInTheDocument()
+    expect(await screen.findByRole('status')).toHaveTextContent('Committed abc12345')
     expect(defaultProps.onCommitted).toHaveBeenCalled()
   })
 

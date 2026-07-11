@@ -74,7 +74,7 @@ export function MaintenanceNetworks() {
   }, [refetch])
 
   return (
-    <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+    <section aria-busy={loading || creating || deletingName !== null} className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-medium text-[var(--text)]">Networks</h2>
@@ -82,11 +82,11 @@ export function MaintenanceNetworks() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {(['all', 'used', 'unused'] as const).map((v) => (
-            <button key={v} onClick={() => setUsage(v)} className={cn('rounded-md border px-2.5 py-1 text-xs transition', usage === v ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}>{v}</button>
+            <button key={v} onClick={() => setUsage(v)} aria-pressed={usage === v} className={cn('rounded-md border px-2.5 py-1 text-xs transition', usage === v ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}>{v}</button>
           ))}
           <span className="text-stone-700">|</span>
           {(['all', 'stack_managed', 'external'] as const).map((v) => (
-            <button key={v} onClick={() => setOrigin(v)} className={cn('rounded-md border px-2.5 py-1 text-xs transition', origin === v ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}>{v.replace('_', ' ')}</button>
+            <button key={v} onClick={() => setOrigin(v)} aria-pressed={origin === v} className={cn('rounded-md border px-2.5 py-1 text-xs transition', origin === v ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}>{v.replace('_', ' ')}</button>
           ))}
           <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search..." className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-1 text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
           <button onClick={() => setShowCreate(true)} className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-2.5 py-1 text-xs text-[var(--text)]">Create network</button>
@@ -113,7 +113,7 @@ export function MaintenanceNetworks() {
       {error && <div className="mt-3 rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">{error.message}</div>}
 
       <div className="mt-4 space-y-1">
-        {loading && networks.length === 0 && [1, 2, 3].map((i) => <div key={i} className="h-14 animate-pulse rounded-[12px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)]" />)}
+        {loading && networks.length === 0 && <><span className="sr-only" role="status" aria-live="polite">Loading networks...</span>{[1, 2, 3].map((i) => <div key={i} className="h-14 animate-pulse rounded-[12px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)]" />)}</>}
         {!loading && networks.length === 0 && <p className="py-6 text-center text-sm text-[var(--muted)]">No networks found matching filters.</p>}
         {networks.map((net) => (
           <div key={net.id} className="flex items-center gap-3 rounded-[12px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-4 py-3 text-xs">

@@ -10,6 +10,7 @@ import { cn } from '@/lib/cn'
 import { UnsavedChangesGuard } from '@/components/unsaved-changes-guard'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { usePendingAction } from '@/hooks/use-pending-action'
+import { StatusMessage } from '@/components/status-message'
 
 const RESERVED_ROOT_FILES = ['compose.yaml', '.env']
 
@@ -137,13 +138,14 @@ export function StackFilesPage() {
   const parentPath = treeData?.parent_path ?? null
 
   return (
-    <div className="flex flex-col gap-4 lg:flex-row" style={{ minHeight: '400px' }}>
+    <div aria-busy={treeLoading || fileLoading || saving} className="flex flex-col gap-4 lg:flex-row" style={{ minHeight: '400px' }}>
       <UnsavedChangesGuard when={isDirty} />
 
       {/* Tree panel */}
       <div className="w-full shrink-0 overflow-y-auto lg:w-56">
         {treeLoading && (
           <div className="space-y-2">
+            <p className="sr-only" role="status" aria-live="polite">Loading files...</p>
             {[1, 2, 3].map((i) => <div key={i} className="h-6 animate-pulse rounded bg-[rgba(255,255,255,0.05)]" />)}
           </div>
         )}
@@ -188,7 +190,7 @@ export function StackFilesPage() {
             <p className="text-sm text-[var(--muted)]">Select a file to view or edit.</p>
           </div>
         )}
-        {fileLoading && <div className="flex flex-1 items-center justify-center"><p className="text-sm text-[var(--muted)]">Loading file...</p></div>}
+        {fileLoading && <div className="flex flex-1 items-center justify-center"><p className="text-sm text-[var(--muted)]" role="status" aria-live="polite">Loading file...</p></div>}
         {fileError && <div className="rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">{fileError}</div>}
         {selectedFile && (
           <>
@@ -213,7 +215,7 @@ export function StackFilesPage() {
                 </div>
               )}
             </div>
-            {saveMessage && <div className={cn('mt-2 text-xs', saveMessage.type === 'success' ? 'text-[var(--ok)]' : 'text-[var(--danger)]')}>{saveMessage.text}</div>}
+            {saveMessage && <StatusMessage className={cn('mt-2 text-xs', saveMessage.type === 'success' ? 'text-[var(--ok)]' : 'text-[var(--danger)]')}>{saveMessage.text}</StatusMessage>}
             <div className="mt-3 flex-1" style={{ minHeight: '300px' }}>
               {selectedFile.blocked_reason ? (
                 <BlockedFileCard

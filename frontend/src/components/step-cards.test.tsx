@@ -123,6 +123,11 @@ describe('StepCards', () => {
 
     expect(screen.getByText('7/12 layers')).toBeInTheDocument()
     expect(screen.getByText('0d6922a6b13e extracting')).toBeInTheDocument()
+    const progress = screen.getByRole('progressbar', { name: 'pull progress' })
+    expect(progress).toHaveAttribute('aria-valuemin', '0')
+    expect(progress).toHaveAttribute('aria-valuemax', '12')
+    expect(progress).toHaveAttribute('aria-valuenow', '7')
+    expect(progress).toHaveAttribute('aria-valuetext', '7 of 12 layers')
     // structured progress must not land in the log dump
     expect(screen.queryByText('Progress pull for demo.')).not.toBeInTheDocument()
   })
@@ -161,9 +166,11 @@ describe('StepCards', () => {
 
     render(<StepCards events={events} />)
 
-    expect(screen.getByRole('button', { name: 'Show all (3 lines)' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Show all (3 lines)' }))
-    expect(screen.getByRole('button', { name: 'Collapse' })).toBeInTheDocument()
+    const expand = screen.getByRole('button', { name: 'Show all (3 lines)' })
+    expect(expand).toHaveAttribute('aria-expanded', 'false')
+    expect(expand).toHaveAttribute('aria-controls')
+    fireEvent.click(expand)
+    expect(screen.getByRole('button', { name: 'Collapse' })).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByText('line three')).toBeInTheDocument()
   })
 })

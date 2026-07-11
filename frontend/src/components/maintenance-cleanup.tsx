@@ -95,7 +95,7 @@ export function MaintenanceCleanup() {
   }, [handlePrune, previewReady, pruneVolumes])
 
   return (
-    <div className="flex flex-col gap-4 lg:flex-row" style={{ minHeight: '400px' }}>
+    <div aria-busy={previewLoading || startPending || (jobId !== null && jobState === null)} className="flex flex-col gap-4 lg:flex-row" style={{ minHeight: '400px' }}>
       {/* Left: scope + preview */}
       <div className="w-full shrink-0 rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)] lg:flex lg:w-80 lg:flex-col">
         <h2 className="text-lg font-medium text-[var(--text)]">Cleanup</h2>
@@ -167,8 +167,8 @@ export function MaintenanceCleanup() {
 
         {jobId && (
           <div className="mt-3 flex flex-col gap-3">
-            <div className="flex items-center gap-2">
-              {jobState === 'running' && <span className="inline-block size-2 animate-pulse rounded-full bg-[var(--run)]" />}
+            <div className="flex items-center gap-2" role="status" aria-live="polite" aria-atomic="true">
+              {jobState === 'running' && <span className="inline-block size-2 animate-pulse rounded-full bg-[var(--run)]" aria-hidden="true" />}
               <span className={cn('text-sm font-medium', stepStatusColors[jobState ?? ''] ?? 'text-[var(--muted)]')}>
                 {jobState === 'running' ? 'Running' : jobState === 'succeeded' ? 'Succeeded' : jobState === 'failed' ? 'Failed' : jobState ?? 'Starting'}
               </span>

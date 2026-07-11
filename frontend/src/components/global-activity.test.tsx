@@ -127,11 +127,16 @@ describe('GlobalActivity', () => {
       await Promise.resolve()
     })
 
-    expect(screen.getByRole('button')).toBeInTheDocument()
-    expect(screen.getByText('pull · demo')).toBeInTheDocument()
+    const activityButton = screen.getByRole('button')
+    expect(activityButton).toHaveAttribute('aria-expanded', 'false')
+    expect(activityButton).toHaveAttribute('aria-controls')
+    const status = screen.getByRole('status')
+    expect(status).toHaveTextContent('pull · demo')
+    expect(status).toHaveAttribute('aria-live', 'polite')
 
-    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(activityButton)
 
+    expect(activityButton).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByText('Activity')).toBeInTheDocument()
     expect(screen.getByText('1/2')).toBeInTheDocument()
   })

@@ -317,9 +317,20 @@ export function StackEditorPage() {
 
       {/* Tab selector + actions */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex gap-1">
+        <div className="flex gap-1" role="tablist" aria-label="Definition files">
           <button
+            id="definition-tab-compose"
+            role="tab"
+            aria-selected={activeTab === 'compose'}
+            aria-controls="definition-source-panel"
+            tabIndex={activeTab === 'compose' ? 0 : -1}
             onClick={() => setActiveTab('compose')}
+            onKeyDown={(event) => {
+              if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'End') return
+              event.preventDefault()
+              setActiveTab('env')
+              document.getElementById('definition-tab-env')?.focus()
+            }}
             className={cn(
               'rounded-md border px-3 py-1 text-xs transition',
               activeTab === 'compose'
@@ -330,7 +341,18 @@ export function StackEditorPage() {
             compose.yaml
           </button>
           <button
+            id="definition-tab-env"
+            role="tab"
+            aria-selected={activeTab === 'env'}
+            aria-controls="definition-source-panel"
+            tabIndex={activeTab === 'env' ? 0 : -1}
             onClick={() => setActiveTab('env')}
+            onKeyDown={(event) => {
+              if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'Home') return
+              event.preventDefault()
+              setActiveTab('compose')
+              document.getElementById('definition-tab-compose')?.focus()
+            }}
             className={cn(
               'rounded-md border px-3 py-1 text-xs transition',
               activeTab === 'env'
@@ -421,7 +443,12 @@ export function StackEditorPage() {
 
       {/* Editor split */}
       <div className="grid gap-3 xl:h-[min(72vh,720px)] xl:grid-cols-2">
-        <div className="h-[min(55vh,560px)] min-h-[320px] min-w-0 xl:h-auto xl:min-h-0">
+        <div
+          id="definition-source-panel"
+          role="tabpanel"
+          aria-labelledby={`definition-tab-${activeTab}`}
+          className="h-[min(55vh,560px)] min-h-[320px] min-w-0 xl:h-auto xl:min-h-0"
+        >
           {activeTab === 'compose' ? (
             <YamlEditor
               value={composeYaml}
@@ -434,12 +461,12 @@ export function StackEditorPage() {
             />
           )}
         </div>
-        <div className="max-h-[min(55vh,560px)] min-h-[260px] min-w-0 overflow-auto rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs text-[var(--muted)] xl:max-h-none xl:min-h-0">
+        <div aria-busy={loadingResolved} className="max-h-[min(55vh,560px)] min-h-[260px] min-w-0 overflow-auto rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs text-[var(--muted)] xl:max-h-none xl:min-h-0">
           <div className="mb-2 text-[var(--accent)] text-xs uppercase tracking-wider">
             {resolvedSource === 'last_valid' ? 'Last deployed config' : resolvedSource === 'draft' ? 'Draft resolved config' : 'Resolved config'}
           </div>
           {loadingResolved ? (
-            <span role="status">Loading resolved preview...</span>
+            <span role="status" aria-live="polite" aria-atomic="true">Loading resolved preview...</span>
           ) : resolvedContent ? (
             <pre className="whitespace-pre-wrap break-words text-[var(--text)]">{resolvedContent}</pre>
           ) : resolvedError ? (

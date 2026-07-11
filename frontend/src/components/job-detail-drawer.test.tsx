@@ -70,6 +70,10 @@ describe('JobDetailDrawer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open' }))
 
     expect(await screen.findByText('Job detail')).toBeInTheDocument()
+    const dialog = screen.getByRole('dialog', { name: 'Job detail' })
+    expect(dialog.querySelector('[aria-busy]')).toHaveAttribute('aria-busy', 'false')
+    expect(screen.getByRole('status')).toHaveTextContent('succeeded')
+    expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite')
     expect(await screen.findByText('Job started.')).toBeInTheDocument()
     expect(screen.getByText('job_1')).toBeInTheDocument()
     expect(screen.getByText('Action')).toBeInTheDocument()

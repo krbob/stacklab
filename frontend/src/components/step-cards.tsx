@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { JobEvent, JobProgress } from '@/lib/ws-types'
 import { cn } from '@/lib/cn'
 
@@ -61,6 +61,7 @@ function StepCard({ step }: { step: StepData }) {
   const [clipped, setClipped] = useState(false)
   const [nowMs, setNowMs] = useState(() => Date.now())
   const previewRef = useRef<HTMLDivElement | null>(null)
+  const outputId = useId()
   const status = statusLabel[step.state] ?? statusLabel.queued
   const dot = statusDot[step.state] ?? statusDot.queued
 
@@ -91,6 +92,12 @@ function StepCard({ step }: { step: StepData }) {
   const previewLines = step.logLines.slice(-2)
   const hasMore = step.logLines.length > 2
   const showToggle = hasMore || clipped || expanded
+  const progressValue = step.progress
+    ? Math.min(step.progress.total, Math.max(0, step.progress.completed))
+    : 0
+  const progressPercent = step.progress && step.progress.total > 0
+    ? Math.min(100, Math.round((progressValue / step.progress.total) * 100))
+    : 0
 
   return (
     <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-3">
@@ -110,13 +117,22 @@ function StepCard({ step }: { step: StepData }) {
       {step.progress && step.state === 'running' && step.progress.total > 0 && (
         <div className="mt-2">
           <div className="flex items-center gap-2 font-mono text-[11px] tabular-nums text-[var(--muted)]">
-            <span className="shrink-0">
+            <span className="shrink-0" aria-hidden="true">
               {step.progress.completed}/{step.progress.total} {step.progress.unit}
             </span>
-            <span className="h-1 flex-1 overflow-hidden rounded-full bg-[rgba(255,255,255,0.07)]">
+            <span
+              role="progressbar"
+              aria-label={`${step.action} progress`}
+              aria-valuemin={0}
+              aria-valuemax={step.progress.total}
+              aria-valuenow={progressValue}
+              aria-valuetext={`${progressValue} of ${step.progress.total} ${step.progress.unit}`}
+              className="h-1 flex-1 overflow-hidden rounded-full bg-[rgba(255,255,255,0.07)]"
+            >
               <span
                 className="block h-full bg-[var(--accent)] transition-[width] duration-300"
-                style={{ width: `${Math.min(100, Math.round((step.progress.completed / step.progress.total) * 100))}%` }}
+                style={{ width: `${progressPercent}%` }}
+                aria-hidden="true"
               />
             </span>
           </div>
@@ -130,6 +146,7 @@ function StepCard({ step }: { step: StepData }) {
       {step.logLines.length > 0 && (
         <div className="mt-2">
           <div
+            id={outputId}
             ref={previewRef}
             className={cn(
               'relative overflow-hidden rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.25)] px-2 py-1.5 font-mono text-xs leading-5 [overflow-wrap:anywhere]',
@@ -153,6 +170,8 @@ function StepCard({ step }: { step: StepData }) {
           {showToggle && (
             <button
               onClick={() => setExpanded(!expanded)}
+              aria-expanded={expanded}
+              aria-controls={outputId}
               className="mt-1 text-xs text-[var(--accent)] hover:underline"
             >
               {expanded ? 'Collapse' : hasMore ? `Show all (${step.logLines.length} lines)` : 'Show all'}

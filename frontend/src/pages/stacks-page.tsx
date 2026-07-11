@@ -96,10 +96,18 @@ function StackTile({ stack }: { stack: StackListItem }) {
       {stack.stats && (
         <div className="mt-2 flex items-center gap-2 font-mono text-[11px] tabular-nums text-[var(--muted)]">
           <span>cpu {stack.stats.cpu_percent.toFixed(1)}%</span>
-          <span className="h-1 flex-1 overflow-hidden rounded-full bg-[rgba(255,255,255,0.07)]">
+          <span
+            role="progressbar"
+            aria-label={`${stack.name} CPU usage`}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.min(100, Math.max(0, Number(stack.stats.cpu_percent.toFixed(1))))}
+            className="h-1 flex-1 overflow-hidden rounded-full bg-[rgba(255,255,255,0.07)]"
+          >
             <span
               className="block h-full bg-[var(--accent)]/75"
-              style={{ width: `${Math.min(100, stack.stats.cpu_percent)}%` }}
+              style={{ width: `${Math.min(100, Math.max(0, stack.stats.cpu_percent))}%` }}
+              aria-hidden="true"
             />
           </span>
           <span>mem {formatMemory(stack.stats.memory_bytes)}</span>
@@ -236,7 +244,7 @@ export function StacksPage() {
   })
 
   return (
-    <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+    <section aria-busy={loading || checking} className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
       <PageHeader
         kicker="Dashboard"
         title="Stacks"
@@ -276,6 +284,7 @@ export function StacksPage() {
         />
         <button
           onClick={() => setStatus('all')}
+          aria-pressed={status === 'all'}
           className={cn(
             'rounded-md border px-3 py-1.5 text-xs transition',
             status === 'all'
@@ -287,6 +296,7 @@ export function StacksPage() {
         </button>
         <button
           onClick={() => setStatus('problems')}
+          aria-pressed={status === 'problems'}
           className={cn(
             'rounded-md border px-3 py-1.5 text-xs transition',
             status === 'problems'
@@ -299,6 +309,7 @@ export function StacksPage() {
         </button>
         <button
           onClick={() => setStatus('updates')}
+          aria-pressed={status === 'updates'}
           className={cn(
             'rounded-md border px-3 py-1.5 text-xs transition',
             status === 'updates'
@@ -326,6 +337,7 @@ export function StacksPage() {
       <div className="mt-5">
         {loading && (
           <div className="columns-[15rem] gap-3">
+            <span className="sr-only" role="status" aria-live="polite">Loading stacks...</span>
             {[1, 2, 3, 4, 5, 6].map((i) => (
               <div key={i} className="break-inside-avoid pb-3">
                 <div className="h-20 animate-pulse rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)]" />

@@ -12,10 +12,18 @@ const METRICS_POLL_INTERVAL_MS = 1_000
 const MAX_STACKLAB_LOG_ENTRIES = 1_000
 type ProcessSortKey = 'cpu' | 'memory'
 
-function PercentBar({ value, color }: { value: number; color: string }) {
+function PercentBar({ value, color, label }: { value: number; color: string; label: string }) {
+  const normalized = Math.min(Math.max(value, 0), 100)
   return (
-    <div className="h-2 w-full rounded-full bg-[rgba(255,255,255,0.06)]">
-      <div className={`h-2 rounded-full ${color}`} style={{ width: `${Math.min(value, 100)}%` }} />
+    <div
+      role="progressbar"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Number(normalized.toFixed(1))}
+      className="h-2 w-full rounded-full bg-[rgba(255,255,255,0.06)]"
+    >
+      <div className={`h-2 rounded-full ${color}`} style={{ width: `${normalized}%` }} aria-hidden="true" />
     </div>
   )
 }
@@ -161,11 +169,12 @@ export function HostPage() {
   return (
     <div className="flex flex-col gap-4">
       {/* Overview cards */}
-      <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+      <section aria-busy={overviewLoading || metricsLoading} className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
         <PageHeader kicker="System" title="Host" />
 
         {overviewLoading && !overview && (
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <span className="sr-only" role="status" aria-live="polite">Loading host data...</span>
             {[1, 2, 3, 4].map((i) => (
               <div key={i} className="h-32 animate-pulse rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)]" />
             ))}
@@ -302,14 +311,14 @@ function OverviewCards({
               <span className="text-[var(--muted)]">CPU ({cpu.core_count} cores)</span>
               <span className={cpuTone.text}>{cpu.usage_percent.toFixed(1)}%</span>
             </div>
-            <PercentBar value={cpu.usage_percent} color={cpuTone.bar} />
+            <PercentBar value={cpu.usage_percent} color={cpuTone.bar} label="CPU usage" />
           </div>
           <div>
             <div className="flex justify-between text-xs">
               <span className="text-[var(--muted)]">Memory</span>
               <span className={memoryTone.text}>{formatBytes(memory.used_bytes)} / {formatBytes(memory.total_bytes)}</span>
             </div>
-            <PercentBar value={memory.usage_percent} color={memoryTone.bar} />
+            <PercentBar value={memory.usage_percent} color={memoryTone.bar} label="Memory usage" />
           </div>
           {swap && (
             <div>
@@ -317,7 +326,7 @@ function OverviewCards({
                 <span className="text-[var(--muted)]">Swap</span>
                 <span className={utilizationTone(swap.usage_percent).text}>{swap.total_bytes > 0 ? `${formatBytes(swap.used_bytes)} / ${formatBytes(swap.total_bytes)}` : 'disabled'}</span>
               </div>
-              <PercentBar value={swap.usage_percent} color={utilizationTone(swap.usage_percent, 'bg-[#8FB8DE]', '#8FB8DE').bar} />
+              <PercentBar value={swap.usage_percent} color={utilizationTone(swap.usage_percent, 'bg-[#8FB8DE]', '#8FB8DE').bar} label="Swap usage" />
             </div>
           )}
           <div>
@@ -325,7 +334,7 @@ function OverviewCards({
               <span className="text-[var(--muted)]">Disk</span>
               <span className={diskTone.text}>{formatBytes(disk.used_bytes)} / {formatBytes(disk.total_bytes)}</span>
             </div>
-            <PercentBar value={disk.usage_percent} color={diskTone.bar} />
+            <PercentBar value={disk.usage_percent} color={diskTone.bar} label="Disk usage" />
           </div>
         </div>
       </div>
@@ -411,7 +420,7 @@ function HostMetricsDashboard({
           sparklineLabel="CPU usage history"
           valueClassName={cpuTone.text}
         >
-          <PercentBar value={current.cpu.usage_percent} color={cpuTone.bar} />
+          <PercentBar value={current.cpu.usage_percent} color={cpuTone.bar} label="CPU usage" />
           <TemperatureRow temperatures={current.temperatures} />
         </MetricCard>
 
@@ -425,7 +434,7 @@ function HostMetricsDashboard({
           sparklineLabel="Memory usage history"
           valueClassName={memoryTone.text}
         >
-          <PercentBar value={current.memory.usage_percent} color={memoryTone.bar} />
+          <PercentBar value={current.memory.usage_percent} color={memoryTone.bar} label="Memory usage" />
           <SwapRow swap={current.swap} />
         </MetricCard>
 
@@ -451,6 +460,7 @@ function HostMetricsDashboard({
                     type="button"
                     className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded border border-[var(--panel-border)] text-[var(--muted)] transition hover:text-[var(--text)]"
                     onClick={() => setPublicIPVisible((visible) => !visible)}
+                    aria-pressed={publicIPVisible}
                     aria-label={publicIPVisible ? 'Hide public IP' : 'Show public IP'}
                     title={publicIPVisible ? 'Hide public IP' : 'Show public IP'}
                   >
@@ -475,7 +485,7 @@ function HostMetricsDashboard({
           sparklineLabel="Storage usage history"
           valueClassName={storageTone.text}
         >
-          <PercentBar value={storage.usage_percent} color={storageTone.bar} />
+          <PercentBar value={storage.usage_percent} color={storageTone.bar} label="Storage usage" />
           <DiskIORow diskIO={current.disk_io} />
         </MetricCard>
       </div>
@@ -545,6 +555,7 @@ function TopProcessesPanel({
               key={key}
               type="button"
               onClick={() => onSortChange(key)}
+              aria-pressed={sortKey === key}
               className={cn(
                 'rounded px-2.5 py-1 text-xs transition',
                 sortKey === key ? 'bg-[var(--accent)] text-black' : 'text-[var(--muted)] hover:text-[var(--text)]',
@@ -758,7 +769,7 @@ function FilesystemRow({ filesystem }: { filesystem: HostMetricSample['filesyste
           <div>{formatBytes(filesystem.used_bytes)} / {formatBytes(filesystem.total_bytes)}</div>
         </div>
       </div>
-      <PercentBar value={filesystem.usage_percent} color={tone.bar} />
+      <PercentBar value={filesystem.usage_percent} color={tone.bar} label={`${filesystem.mount_point} usage`} />
     </div>
   )
 }
@@ -780,7 +791,7 @@ function SwapRow({ swap }: { swap: HostMetricSample['swap'] }) {
         <span className="text-[var(--muted)]">Swap</span>
         <span className={tone.text}>{formatBytes(swap.used_bytes)} / {formatBytes(swap.total_bytes)}</span>
       </div>
-      <PercentBar value={swap.usage_percent} color={tone.bar} />
+      <PercentBar value={swap.usage_percent} color={tone.bar} label="Swap usage" />
     </div>
   )
 }
@@ -967,6 +978,7 @@ function StacklabLogs() {
           <div className="flex gap-1">
             <button
               onClick={() => setLevel('')}
+              aria-pressed={!level}
               className={cn(
                 'rounded-md border px-2.5 py-1 text-xs transition',
                 !level
@@ -980,6 +992,7 @@ function StacklabLogs() {
               <button
                 key={l}
                 onClick={() => setLevel(l)}
+                aria-pressed={level === l}
                 className={cn(
                   'rounded-md border px-2.5 py-1 text-xs transition',
                   level === l
@@ -1004,6 +1017,7 @@ function StacklabLogs() {
             type="button"
             title="Show HTTP access logs"
             onClick={() => setIncludeHttpAccess((value) => !value)}
+            aria-pressed={includeHttpAccess}
             className={cn(
               'rounded-md border px-2.5 py-1 text-xs transition',
               includeHttpAccess
@@ -1016,6 +1030,7 @@ function StacklabLogs() {
 
           <button
             onClick={() => setFollowing(!following)}
+            aria-pressed={following}
             className={cn(
               'rounded-md border px-2.5 py-1 text-xs transition',
               following
@@ -1043,10 +1058,11 @@ function StacklabLogs() {
 
       <div
         ref={scrollRef}
+        aria-busy={loading}
         className="h-[calc(100vh-430px)] min-h-[320px] overflow-y-auto rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs leading-5"
       >
         {loading && entries.length === 0 && (
-          <div className="py-8 text-center text-[var(--muted)]">Loading logs...</div>
+          <div className="py-8 text-center text-[var(--muted)]" role="status" aria-live="polite">Loading logs...</div>
         )}
 
         {!loading && entries.length === 0 && !error && (

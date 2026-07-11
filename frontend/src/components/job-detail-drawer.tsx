@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { CircleStop, X } from 'lucide-react'
 import { cancelJob, getJob, getJobEvents } from '@/lib/api-client'
 import { useApi } from '@/hooks/use-api'
@@ -7,6 +7,7 @@ import { StepCards } from '@/components/step-cards'
 import type { JobHistoryEvent } from '@/lib/api-types'
 import type { JobEvent } from '@/lib/ws-types'
 import { cn } from '@/lib/cn'
+import { StatusMessage } from '@/components/status-message'
 
 const stateColors: Record<string, string> = {
   queued: 'text-stone-500',
@@ -42,6 +43,7 @@ export function JobDetailDrawer() {
 
 function JobDetailDrawerContent({ jobId }: { jobId: string }) {
   const { closeJob } = useJobDrawer()
+  const titleId = useId()
   const [canceling, setCanceling] = useState(false)
   const [cancelError, setCancelError] = useState<string | null>(null)
 
@@ -100,11 +102,14 @@ function JobDetailDrawerContent({ jobId }: { jobId: string }) {
   return (
     <>
       {/* Backdrop */}
-      <div className="fixed inset-0 z-40 bg-black/40" onClick={closeJob} />
+      <div className="fixed inset-0 z-40 bg-black/40" onClick={closeJob} aria-hidden="true" />
 
       {/* Drawer — safe-area insets keep the close button clear of the iOS
           status bar and home indicator. */}
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         className="fixed inset-y-0 right-0 z-50 flex w-full max-w-lg flex-col border-l border-[var(--panel-border)] bg-[var(--panel)] shadow-lg"
         style={{
           paddingTop: 'env(safe-area-inset-top)',
@@ -114,12 +119,19 @@ function JobDetailDrawerContent({ jobId }: { jobId: string }) {
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[var(--panel-border)] px-5 py-4">
           <div>
-            <h2 className="text-lg font-medium text-[var(--text)]">Job detail</h2>
+            <h2 id={titleId} className="text-lg font-medium text-[var(--text)]">Job detail</h2>
             {job && (
               <div className="mt-1 flex items-center gap-2 text-xs text-[var(--muted)]">
                 <span className="font-mono">{job.action}</span>
                 {job.stack_id && <span>· {job.stack_id}</span>}
-                <span className={stateColors[job.state] ?? 'text-[var(--muted)]'}>{job.state}</span>
+                <span
+                  className={stateColors[job.state] ?? 'text-[var(--muted)]'}
+                  role="status"
+                  aria-live="polite"
+                  aria-atomic="true"
+                >
+                  {job.state}
+                </span>
               </div>
             )}
           </div>
@@ -145,8 +157,12 @@ function JobDetailDrawerContent({ jobId }: { jobId: string }) {
           </div>
         </div>
 
+        {loading && (
+          <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">Loading job detail.</p>
+        )}
+
         {/* Content */}
-        <div className="flex-1 overflow-y-auto px-5 py-4">
+        <div aria-busy={loading} className="flex-1 overflow-y-auto px-5 py-4">
           {loading && (
             <div className="space-y-3">
               <div className="h-6 w-32 animate-pulse rounded bg-[rgba(255,255,255,0.05)]" />
@@ -155,15 +171,15 @@ function JobDetailDrawerContent({ jobId }: { jobId: string }) {
           )}
 
           {error && (
-            <div className="rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">
+            <StatusMessage className="rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">
               {error.message}
-            </div>
+            </StatusMessage>
           )}
 
           {cancelError && (
-            <div className="mb-4 rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">
+            <StatusMessage className="mb-4 rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">
               {cancelError}
-            </div>
+            </StatusMessage>
           )}
 
           {job && !loading && (
@@ -212,7 +228,7 @@ function JobDetailDrawerContent({ jobId }: { jobId: string }) {
                   {events.some((e) => e.step) ? (
                     <StepCards events={events.map(toJobEvent)} />
                   ) : (
-                    <div className="space-y-0.5 rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.25)] p-3 font-mono text-xs leading-5">
+                    <div aria-live="off" className="space-y-0.5 rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.25)] p-3 font-mono text-xs leading-5">
                       {events.map((event) => (
                         <div key={event.sequence} className={cn(
                           event.event === 'job_error' ? 'text-[var(--danger)]' :

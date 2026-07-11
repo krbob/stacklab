@@ -19,6 +19,7 @@ authoritative for the implemented interface.
 - [information-architecture.md](information-architecture.md) — navigation model, screen inventory, URL structure, responsive breakpoints
 - [screen-specs.md](screen-specs.md) — per-screen specifications with wireframes
 - [states-and-empty-cases.md](states-and-empty-cases.md) — stack/service/operation state model, badges, empty states, loading, errors, confirmation dialogs
+- [accessibility-dynamic-status.md](accessibility-dynamic-status.md) — ARIA and keyboard contract for dynamic status, loading, progress, tabs, toggles, and the command palette
 - [editor-progress-integration.md](editor-progress-integration.md) — backend-backed integration notes for the editor, mutating actions, and progress panel
 - [global-activity-handoff.md](global-activity-handoff.md) — app-wide background job visibility, collapsed chrome activity, and active job list guidance
 - [job-detail-handoff.md](job-detail-handoff.md) — shared job detail guidance for audit/history/global activity links

@@ -42,7 +42,7 @@ export function AuditTable({ entries, showStack = false, onLoadMore, hasMore, lo
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div aria-busy={loading} className="flex flex-col gap-2">
       {entries.map((entry) => {
         const hasJob = Boolean(entry.job_id)
 
@@ -86,7 +86,9 @@ export function AuditTable({ entries, showStack = false, onLoadMore, hasMore, lo
       })}
 
       {loading && (
-        <div className="h-12 animate-pulse rounded border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)]" />
+        <div className="h-12 animate-pulse rounded border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)]">
+          <span className="sr-only" role="status" aria-live="polite">Loading audit entries...</span>
+        </div>
       )}
 
       {loadMoreError && (

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { getJob } from '@/lib/api-client'
 import { useActivity } from '@/hooks/use-activity'
 import { useJobDrawer } from '@/hooks/use-job-drawer'
@@ -45,6 +45,7 @@ export function GlobalActivity({ variant = 'sidebar' }: { variant?: 'sidebar' | 
   const prevIdsRef = useRef<Set<string>>(new Set())
   const popoverRef = useRef<HTMLDivElement>(null)
   const removalTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  const popoverId = useId()
 
   useEffect(() => {
     const removalTimers = removalTimersRef.current
@@ -126,6 +127,13 @@ export function GlobalActivity({ variant = 'sidebar' }: { variant?: 'sidebar' | 
   const activeItems = response?.items ?? []
   const primaryJob = activeItems[0] ?? null
   const failedRecent = recentlyCompleted.find((job) => job.state === 'failed' || job.state === 'timed_out')
+  const statusText = activeCount > 0
+    ? activeCount === 1
+      ? jobLabel(primaryJob!)
+      : `${activeCount} running`
+    : failedRecent
+      ? `Failed · ${jobLabel(failedRecent)}`
+      : 'Done'
 
   if (activeCount === 0 && recentlyCompleted.length === 0) return null
 
@@ -134,6 +142,9 @@ export function GlobalActivity({ variant = 'sidebar' }: { variant?: 'sidebar' | 
       {/* Collapsed indicator */}
       <button
         onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-controls={popoverId}
+        aria-haspopup="true"
         className={cn(
           'flex items-center gap-2 rounded-lg text-xs transition hover:bg-[rgba(255,255,255,0.05)]',
           variant === 'compact' ? 'max-w-[42vw] px-2 py-1.5' : 'w-full px-3 py-2',
@@ -142,15 +153,14 @@ export function GlobalActivity({ variant = 'sidebar' }: { variant?: 'sidebar' | 
         <span className={cn(
           'inline-block size-2 rounded-full',
           activeCount > 0 ? 'animate-pulse bg-[var(--run)]' : failedRecent ? 'bg-[var(--danger)]' : 'bg-[var(--ok)]',
-        )} />
-        <span className="min-w-0 truncate text-[var(--text)]">
-          {activeCount > 0
-            ? activeCount === 1
-              ? jobLabel(primaryJob!)
-              : `${activeCount} running`
-            : failedRecent
-              ? `Failed · ${jobLabel(failedRecent)}`
-              : 'Done'}
+        )} aria-hidden="true" />
+        <span
+          className="min-w-0 truncate text-[var(--text)]"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {statusText}
         </span>
         {primaryJob?.started_at && variant !== 'compact' && (
           <span className="ml-auto text-[var(--muted)]">{formatElapsed(primaryJob.started_at)}</span>
@@ -160,6 +170,7 @@ export function GlobalActivity({ variant = 'sidebar' }: { variant?: 'sidebar' | 
       {/* Popover */}
       {open && (
         <div
+          id={popoverId}
           className={cn(
             'absolute z-50 w-72 rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-3 shadow-lg',
             variant === 'compact' ? 'right-0 top-full mt-2' : 'bottom-full left-0 mb-2',
@@ -210,7 +221,7 @@ function JobRow({ job, terminal = false, onOpen }: { job: ActiveJobItem; termina
             : isFailure
               ? 'bg-[var(--danger)]'
               : 'bg-[var(--ok)]',
-      )} />
+      )} aria-hidden="true" />
       <span className="min-w-0 flex-1 truncate text-left text-[var(--text)]">
         {action}
         {target && <span className="text-[var(--muted)]"> · {target}</span>}

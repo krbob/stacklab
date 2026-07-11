@@ -232,7 +232,7 @@ describe('StackFilesPage', () => {
     await waitFor(() => {
       expect(mockSaveStackWorkspaceFile).toHaveBeenCalledWith('demo', 'Dockerfile', 'FROM alpine:3.21\n', false, '2026-04-09T10:00:00Z')
     })
-    expect(await screen.findByText('Saved')).toBeInTheDocument()
+    expect(await screen.findByRole('status')).toHaveTextContent('Saved')
   })
 
   it('requires confirmation before discarding stack file changes', async () => {

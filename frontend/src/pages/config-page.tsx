@@ -12,6 +12,7 @@ import { cn } from '@/lib/cn'
 import { UnsavedChangesGuard } from '@/components/unsaved-changes-guard'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { usePendingAction } from '@/hooks/use-pending-action'
+import { StatusMessage } from '@/components/status-message'
 
 type Mode = 'files' | 'changes'
 
@@ -299,7 +300,7 @@ export function ConfigPage() {
       <UnsavedChangesGuard when={isDirty} />
 
       {/* Workspace panel: desktop sidebar; on mobile a bottom sheet */}
-      <div className="hidden w-64 shrink-0 flex-col rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-[var(--shadow)] lg:flex">
+      <div aria-busy={mode === 'files' ? treeLoading : gitLoading} className="hidden w-64 shrink-0 flex-col rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-[var(--shadow)] lg:flex">
         <div className="mb-3 text-xs uppercase tracking-wider text-[var(--accent)]">Config workspace</div>
         <p className="mb-3 text-xs text-[var(--muted)]">
           Files here live under <span className="font-mono">{workspaceRoot ?? 'the managed config root'}</span>. They are only used when a stack mounts or references them.
@@ -309,6 +310,7 @@ export function ConfigPage() {
         <div className="mb-3 flex gap-1">
           <button
             onClick={() => requestModeSwitch('files')}
+            aria-pressed={mode === 'files'}
             className={cn(
               'flex-1 rounded-md border px-3 py-1.5 text-xs transition',
               mode === 'files'
@@ -320,6 +322,7 @@ export function ConfigPage() {
           </button>
           <button
             onClick={() => requestModeSwitch('changes')}
+            aria-pressed={mode === 'changes'}
             disabled={!gitAvailable && !gitLoading}
             title={!gitAvailable ? (gitReason ?? 'Git not available') : undefined}
             className={cn(
@@ -479,6 +482,7 @@ export function ConfigPage() {
         <div className="mb-3 flex gap-1">
           <button
             onClick={() => requestModeSwitch('files')}
+            aria-pressed={mode === 'files'}
             className={cn(
               'flex-1 rounded-md border px-3 py-1.5 text-xs transition',
               mode === 'files'
@@ -490,6 +494,7 @@ export function ConfigPage() {
           </button>
           <button
             onClick={() => requestModeSwitch('changes')}
+            aria-pressed={mode === 'changes'}
             disabled={!gitAvailable && !gitLoading}
             title={!gitAvailable ? (gitReason ?? 'Git not available') : undefined}
             className={cn(
@@ -627,7 +632,7 @@ export function ConfigPage() {
       </BottomSheet>
 
       {/* Right panel */}
-      <div className="flex min-w-0 flex-1 flex-col rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+      <div aria-busy={fileLoading || diffLoading || saving} className="flex min-w-0 flex-1 flex-col rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
         {/* Files mode - editor */}
         {mode === 'files' && (
           <>
@@ -640,7 +645,7 @@ export function ConfigPage() {
               </div>
             )}
             {fileLoading && (
-              <div className="flex flex-1 items-center justify-center"><div className="text-sm text-[var(--muted)]">Loading file...</div></div>
+              <div className="flex flex-1 items-center justify-center"><div className="text-sm text-[var(--muted)]" role="status" aria-live="polite">Loading file...</div></div>
             )}
             {fileError && (
               <div className="rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">{fileError}</div>
@@ -670,7 +675,7 @@ export function ConfigPage() {
                     </div>
                   )}
                 </div>
-                {saveMessage && <div className={cn('mt-2 text-xs', saveMessage.type === 'success' ? 'text-[var(--ok)]' : 'text-[var(--danger)]')}>{saveMessage.text}</div>}
+                {saveMessage && <StatusMessage className={cn('mt-2 text-xs', saveMessage.type === 'success' ? 'text-[var(--ok)]' : 'text-[var(--danger)]')}>{saveMessage.text}</StatusMessage>}
                 <div className="mt-3 flex-1" style={{ minHeight: '400px' }}>
                   {selectedFile.blocked_reason ? (
                     <BlockedFileCard
@@ -713,7 +718,7 @@ export function ConfigPage() {
                 </div>
               </div>
             )}
-            {diffLoading && <div className="flex flex-1 items-center justify-center"><div className="text-sm text-[var(--muted)]">Loading diff...</div></div>}
+            {diffLoading && <div className="flex flex-1 items-center justify-center"><div className="text-sm text-[var(--muted)]" role="status" aria-live="polite">Loading diff...</div></div>}
             {diffError && <div className="rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">{diffError}</div>}
             {selectedDiff && (
               <>

@@ -15,6 +15,14 @@ import { cn } from '@/lib/cn'
 type MaintenanceTab = 'update' | 'images' | 'networks' | 'volumes' | 'cleanup'
 type TargetMode = 'all' | 'selected'
 
+const maintenanceTabs: ReadonlyArray<readonly [MaintenanceTab, string]> = [
+  ['update', 'Update'],
+  ['images', 'Images'],
+  ['networks', 'Networks'],
+  ['volumes', 'Volumes'],
+  ['cleanup', 'Cleanup'],
+]
+
 const stepStatusColors: Record<string, string> = {
   running: 'text-[var(--run)]',
   succeeded: 'text-[var(--ok)]',
@@ -107,11 +115,28 @@ export function MaintenancePage() {
         kicker="System"
         title="Maintenance"
         actions={
-          <div className="flex max-w-full gap-1 overflow-x-auto">
-            {([['update', 'Update'], ['images', 'Images'], ['networks', 'Networks'], ['volumes', 'Volumes'], ['cleanup', 'Cleanup']] as const).map(([key, label]) => (
+          <div className="flex max-w-full gap-1 overflow-x-auto" role="tablist" aria-label="Maintenance views">
+            {maintenanceTabs.map(([key, label], index) => (
               <button
                 key={key}
+                id={`maintenance-tab-${key}`}
+                role="tab"
+                aria-selected={activeTab === key}
+                aria-controls={`maintenance-panel-${key}`}
+                tabIndex={activeTab === key ? 0 : -1}
                 onClick={() => setActiveTab(key)}
+                onKeyDown={(event) => {
+                  let nextIndex: number
+                  if (event.key === 'ArrowRight') nextIndex = (index + 1) % maintenanceTabs.length
+                  else if (event.key === 'ArrowLeft') nextIndex = (index - 1 + maintenanceTabs.length) % maintenanceTabs.length
+                  else if (event.key === 'Home') nextIndex = 0
+                  else if (event.key === 'End') nextIndex = maintenanceTabs.length - 1
+                  else return
+                  event.preventDefault()
+                  const nextTab = maintenanceTabs[nextIndex][0]
+                  setActiveTab(nextTab)
+                  document.getElementById(`maintenance-tab-${nextTab}`)?.focus()
+                }}
                 className={cn('shrink-0 whitespace-nowrap rounded-md border px-3 py-1.5 text-xs transition', activeTab === key ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
               >
                 {label}
@@ -121,23 +146,23 @@ export function MaintenancePage() {
         }
       />
 
-      <div className={activeTab === 'images' ? '' : 'hidden'}>
+      <div id="maintenance-panel-images" role="tabpanel" aria-labelledby="maintenance-tab-images" hidden={activeTab !== 'images'}>
         <MaintenanceImages />
       </div>
 
-      <div className={activeTab === 'networks' ? '' : 'hidden'}>
+      <div id="maintenance-panel-networks" role="tabpanel" aria-labelledby="maintenance-tab-networks" hidden={activeTab !== 'networks'}>
         <MaintenanceNetworks />
       </div>
 
-      <div className={activeTab === 'volumes' ? '' : 'hidden'}>
+      <div id="maintenance-panel-volumes" role="tabpanel" aria-labelledby="maintenance-tab-volumes" hidden={activeTab !== 'volumes'}>
         <MaintenanceVolumes />
       </div>
 
-      <div className={activeTab === 'cleanup' ? '' : 'hidden'}>
+      <div id="maintenance-panel-cleanup" role="tabpanel" aria-labelledby="maintenance-tab-cleanup" hidden={activeTab !== 'cleanup'}>
         <MaintenanceCleanup />
       </div>
 
-      <div className={activeTab === 'update' ? '' : 'hidden'}>
+      <div id="maintenance-panel-update" role="tabpanel" aria-labelledby="maintenance-tab-update" hidden={activeTab !== 'update'}>
     <div className="flex flex-col gap-4 lg:flex-row">
       {/* Left: workflow setup */}
       <div className="w-full shrink-0 rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)] lg:flex lg:w-80 lg:flex-col">
@@ -240,7 +265,7 @@ export function MaintenancePage() {
       )}
 
       {/* Right: progress */}
-      <div className="flex min-w-0 flex-1 flex-col rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+      <div aria-busy={startPending || (jobId !== null && jobState === null)} className="flex min-w-0 flex-1 flex-col rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
         <h2 className="text-lg font-medium text-[var(--text)]">Progress</h2>
 
         {!jobId && (
@@ -252,8 +277,8 @@ export function MaintenancePage() {
         {jobId && (
           <div className="mt-4 flex flex-col gap-3">
             {/* Job state header */}
-            <div className="flex items-center gap-2">
-              {jobState === 'running' && <span className="inline-block size-2 animate-pulse rounded-full bg-[var(--run)]" />}
+            <div className="flex items-center gap-2" role="status" aria-live="polite" aria-atomic="true">
+              {jobState === 'running' && <span className="inline-block size-2 animate-pulse rounded-full bg-[var(--run)]" aria-hidden="true" />}
               <span className={cn('text-sm font-medium', stepStatusColors[jobState ?? ''] ?? 'text-[var(--muted)]')}>
                 {jobState === 'running' ? 'Running' : jobState === 'succeeded' ? 'Succeeded' : jobState === 'failed' ? 'Failed' : jobState ?? 'Starting'}
               </span>

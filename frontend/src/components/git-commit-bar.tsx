@@ -1,6 +1,7 @@
 import { useCallback, useState, type FormEvent } from 'react'
 import { commitGitWorkspace, pushGitWorkspace } from '@/lib/api-client'
 import { cn } from '@/lib/cn'
+import { StatusMessage } from '@/components/status-message'
 
 interface GitCommitBarProps {
   selectedPaths: Set<string>
@@ -61,9 +62,9 @@ export function GitCommitBar({ selectedPaths, hasUpstream, aheadCount, onCommitt
     <div className="border-t border-[var(--panel-border)] pt-3">
       {/* Result message */}
       {result && (
-        <div className={cn('mb-2 text-xs', result.type === 'success' ? 'text-[var(--ok)]' : 'text-[var(--danger)]')}>
+        <StatusMessage className={cn('mb-2 text-xs', result.type === 'success' ? 'text-[var(--ok)]' : 'text-[var(--danger)]')}>
           {result.text}
-        </div>
+        </StatusMessage>
       )}
 
       {/* Commit input */}

@@ -26,7 +26,7 @@ export function MaintenanceImages() {
   const unusedCount = images.filter((img) => img.is_unused).length
 
   return (
-    <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+    <section aria-busy={loading} className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-medium text-[var(--text)]">Images</h2>
@@ -41,6 +41,7 @@ export function MaintenanceImages() {
             <button
               key={v}
               onClick={() => setUsage(v)}
+              aria-pressed={usage === v}
               className={cn('rounded-md border px-2.5 py-1 text-xs transition', usage === v ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
             >
               {v}
@@ -54,6 +55,7 @@ export function MaintenanceImages() {
             <button
               key={v}
               onClick={() => setOrigin(v)}
+              aria-pressed={origin === v}
               className={cn('rounded-md border px-2.5 py-1 text-xs transition', origin === v ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
             >
               {v.replace('_', ' ')}
@@ -82,7 +84,10 @@ export function MaintenanceImages() {
 
       <div className="mt-4 space-y-1">
         {loading && images.length === 0 && (
-          <>{[1, 2, 3].map((i) => <div key={i} className="h-14 animate-pulse rounded-[12px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)]" />)}</>
+          <>
+            <span className="sr-only" role="status" aria-live="polite">Loading images...</span>
+            {[1, 2, 3].map((i) => <div key={i} className="h-14 animate-pulse rounded-[12px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)]" />)}
+          </>
         )}
 
         {!loading && images.length === 0 && (

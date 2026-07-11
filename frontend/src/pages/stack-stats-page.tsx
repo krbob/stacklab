@@ -15,13 +15,23 @@ function formatRate(bytesPerSec: number): string {
   return `${formatBytes(bytesPerSec)}/s`
 }
 
-function PercentBar({ value, max, color }: { value: number; max: number; color: string }) {
-  const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0
+function PercentBar({ value, max, color, label }: { value: number; max: number; color: string; label: string }) {
+  const safeMax = max > 0 ? max : 1
+  const normalized = Math.min(Math.max(value, 0), safeMax)
+  const pct = (normalized / safeMax) * 100
   return (
-    <div className="h-2 w-full rounded-full bg-[rgba(255,255,255,0.06)]">
+    <div
+      role="progressbar"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={safeMax}
+      aria-valuenow={normalized}
+      className="h-2 w-full rounded-full bg-[rgba(255,255,255,0.06)]"
+    >
       <div
         className={`h-2 rounded-full ${color}`}
         style={{ width: `${pct}%` }}
+        aria-hidden="true"
       />
     </div>
   )
@@ -193,7 +203,7 @@ export function StackStatsPage() {
                     <span className="text-[var(--muted)]">CPU</span>
                     <span className="text-[var(--text)]">{c.cpu_percent.toFixed(1)}%</span>
                   </div>
-                  <PercentBar value={c.cpu_percent} max={100} color="bg-[var(--accent)]" />
+                  <PercentBar value={c.cpu_percent} max={100} color="bg-[var(--accent)]" label={`${c.service_name} CPU usage`} />
                   <Sparkline values={cpuHistory} color="#F5A524" />
                 </div>
 
@@ -212,6 +222,7 @@ export function StackStatsPage() {
                     value={c.memory_bytes}
                     max={c.memory_limit_bytes || c.memory_bytes * 2}
                     color="bg-[#E8C07A]"
+                    label={`${c.service_name} memory usage`}
                   />
                   <Sparkline values={memHistory} color="#E8C07A" />
                 </div>

@@ -185,6 +185,24 @@ describe('MaintenancePage', () => {
     expect(screen.getByText('1/2')).toBeInTheDocument()
   })
 
+  it('exposes maintenance views as keyboard-operated tabs', () => {
+    render(<MaintenancePage />)
+
+    expect(screen.getByRole('tablist', { name: 'Maintenance views' })).toBeInTheDocument()
+    const updateTab = screen.getByRole('tab', { name: 'Update' })
+    const imagesTab = screen.getByRole('tab', { name: 'Images' })
+    expect(updateTab).toHaveAttribute('aria-selected', 'true')
+    expect(updateTab).toHaveAttribute('tabindex', '0')
+    expect(screen.getByRole('tabpanel', { name: 'Update' })).toBeVisible()
+
+    updateTab.focus()
+    fireEvent.keyDown(updateTab, { key: 'ArrowRight' })
+
+    expect(imagesTab).toHaveFocus()
+    expect(imagesTab).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tabpanel', { name: 'Images' })).toBeVisible()
+  })
+
   it('never sends include_volumes when prune_after is disabled', async () => {
     mockUpdateStacksMaintenance.mockResolvedValue({
       job: { id: 'job_maint_456', stack_id: null, action: 'update_stacks', state: 'running' },
@@ -288,7 +306,7 @@ describe('MaintenancePage', () => {
 
     render(<MaintenancePage />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Cleanup' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Cleanup' }))
     fireEvent.click(screen.getByTestId('maintenance-prune'))
 
     await waitFor(() => {
@@ -303,8 +321,8 @@ describe('MaintenancePage', () => {
     })
 
     expect(screen.getByText('Cleaning...')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Images' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Cleanup' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Images' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Cleanup' }))
     expect(screen.getByText('Cleaning...')).toBeInTheDocument()
   })
 })

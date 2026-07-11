@@ -4,6 +4,7 @@ import { useJobStream } from '@/hooks/use-job-stream'
 import { cancelJob } from '@/lib/api-client'
 import type { JobEvent } from '@/lib/ws-types'
 import { cn } from '@/lib/cn'
+import { StatusMessage } from '@/components/status-message'
 
 interface ProgressPanelProps {
   jobId: string | null
@@ -75,6 +76,12 @@ export function ProgressPanel({ jobId, stream, onDone, onClose }: ProgressPanelP
   const latestProgress = [...events].reverse().find((e) => e.progress)?.progress ?? null
   const visibleEvents = events.filter((e) => !(e.event === 'job_progress' && e.progress))
   const cancellable = state === 'queued' || state === 'running'
+  const progressValue = latestProgress
+    ? Math.min(latestProgress.total, Math.max(0, latestProgress.completed))
+    : 0
+  const progressPercent = latestProgress && latestProgress.total > 0
+    ? Math.min(100, Math.round((progressValue / latestProgress.total) * 100))
+    : 0
 
   async function handleCancel() {
     if (!jobId || canceling) return
@@ -89,12 +96,15 @@ export function ProgressPanel({ jobId, stream, onDone, onClose }: ProgressPanelP
   }
 
   return (
-    <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(0,0,0,0.2)] p-4">
+    <div
+      aria-busy={state === null}
+      className="rounded-md border border-[var(--panel-border)] bg-[rgba(0,0,0,0.2)] p-4"
+    >
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2" role="status" aria-live="polite" aria-atomic="true">
           {state === 'running' && (
-            <span className="inline-block size-2 animate-pulse rounded-full bg-[var(--run)]" />
+            <span className="inline-block size-2 animate-pulse rounded-full bg-[var(--run)]" aria-hidden="true" />
           )}
           <span className={cn('text-sm font-medium', stateInfo?.color ?? 'text-[var(--muted)]')}>
             {stateInfo?.label ?? 'Pending'}
@@ -135,22 +145,31 @@ export function ProgressPanel({ jobId, stream, onDone, onClose }: ProgressPanelP
       </div>
 
       {cancelError && (
-        <div className="mt-3 rounded border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-3 py-2 text-xs text-[var(--danger)]">
+        <StatusMessage className="mt-3 rounded border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-3 py-2 text-xs text-[var(--danger)]">
           {cancelError}
-        </div>
+        </StatusMessage>
       )}
 
       {/* Structured progress meter (latest wins) */}
       {latestProgress && state === 'running' && latestProgress.total > 0 && (
         <div className="mt-3">
           <div className="flex items-center gap-2 font-mono text-[11px] tabular-nums text-[var(--muted)]">
-            <span className="shrink-0">
+            <span className="shrink-0" aria-hidden="true">
               {latestProgress.completed}/{latestProgress.total} {latestProgress.unit}
             </span>
-            <span className="h-1 flex-1 overflow-hidden rounded-full bg-[rgba(255,255,255,0.07)]">
+            <span
+              role="progressbar"
+              aria-label="Job progress"
+              aria-valuemin={0}
+              aria-valuemax={latestProgress.total}
+              aria-valuenow={progressValue}
+              aria-valuetext={`${progressValue} of ${latestProgress.total} ${latestProgress.unit}`}
+              className="h-1 flex-1 overflow-hidden rounded-full bg-[rgba(255,255,255,0.07)]"
+            >
               <span
                 className="block h-full bg-[var(--accent)] transition-[width] duration-300"
-                style={{ width: `${Math.min(100, Math.round((latestProgress.completed / latestProgress.total) * 100))}%` }}
+                style={{ width: `${progressPercent}%` }}
+                aria-hidden="true"
               />
             </span>
           </div>
@@ -163,6 +182,8 @@ export function ProgressPanel({ jobId, stream, onDone, onClose }: ProgressPanelP
       {/* Event stream */}
       <div
         ref={scrollRef}
+        aria-label="Job output"
+        aria-live="off"
         className="mt-3 max-h-64 overflow-y-auto font-mono text-xs leading-5"
       >
         {visibleEvents.map((event, i) => (
@@ -175,7 +196,7 @@ export function ProgressPanel({ jobId, stream, onDone, onClose }: ProgressPanelP
               event.event !== 'job_warning' && event.event !== 'job_error' && 'text-[var(--muted)]',
             )}
           >
-            <span className="shrink-0 w-3 text-center">{eventIcons[event.event] ?? '·'}</span>
+            <span className="shrink-0 w-3 text-center" aria-hidden="true">{eventIcons[event.event] ?? '·'}</span>
             <span className="whitespace-pre-wrap break-all">
               {event.message}
               {event.data && (

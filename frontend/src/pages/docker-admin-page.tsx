@@ -33,15 +33,21 @@ export function DockerAdminPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+      <section
+        aria-busy={overviewLoading}
+        className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]"
+      >
         <PageHeader kicker="System" title="Docker" />
 
         {overviewLoading && (
-          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="h-36 animate-pulse rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)]" />
-            ))}
-          </div>
+          <>
+            <div className="sr-only" role="status">Loading Docker overview.</div>
+            <div aria-hidden="true" className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-36 animate-pulse rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)]" />
+              ))}
+            </div>
+          </>
         )}
 
         {overviewError && (
@@ -54,10 +60,18 @@ export function DockerAdminPage() {
       </section>
 
       {/* Daemon config viewer */}
-      <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+      <section
+        aria-busy={configLoading}
+        className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]"
+      >
         <h2 className="text-lg font-medium text-[var(--text)]">daemon.json</h2>
 
-        {configLoading && <div className="mt-3 h-48 animate-pulse rounded-md bg-[rgba(255,255,255,0.02)]" />}
+        {configLoading && (
+          <>
+            <div className="sr-only" role="status">Loading Docker daemon configuration.</div>
+            <div aria-hidden="true" className="mt-3 h-48 animate-pulse rounded-md bg-[rgba(255,255,255,0.02)]" />
+          </>
+        )}
         {configError && <p className="mt-3 text-sm text-[var(--danger)]">{configError.message}</p>}
         {daemonConfig && <DaemonConfigViewer config={daemonConfig} />}
       </section>
@@ -492,8 +506,8 @@ function ManagedSettingsForm({ currentSummary, writeCapability, onApplyDone }: {
         <div className="mt-4 space-y-3">
           <h3 className="text-sm font-medium text-[var(--text)]">Apply progress</h3>
 
-          <div className="flex items-center gap-2 text-xs">
-            {!applyTerminal && <span className="inline-block size-2 animate-pulse rounded-full bg-[var(--run)]" />}
+          <div className="flex items-center gap-2 text-xs" role="status" aria-live="polite" aria-atomic="true">
+            {!applyTerminal && <span className="inline-block size-2 animate-pulse rounded-full bg-[var(--run)]" aria-hidden="true" />}
             <span className={cn(
               'font-medium',
               applyJobState === 'running' ? 'text-[var(--run)]' :
@@ -622,7 +636,7 @@ function RegistryAuthSection({
   const canSubmitLogin = registry.trim().length > 0 && username.trim().length > 0 && password.length > 0 && !submitting && !actionInProgress
 
   return (
-    <div>
+    <div aria-busy={loading || submitting || (activeJobId !== null && state === null)}>
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-lg font-medium text-[var(--text)]">Registry auth</h2>
@@ -638,7 +652,12 @@ function RegistryAuthSection({
         </button>
       </div>
 
-      {loading && <div className="mt-3 h-32 animate-pulse rounded-md bg-[rgba(255,255,255,0.02)]" />}
+      {loading && (
+        <>
+          <div className="sr-only" role="status">Loading Docker registry authentication status.</div>
+          <div aria-hidden="true" className="mt-3 h-32 animate-pulse rounded-md bg-[rgba(255,255,255,0.02)]" />
+        </>
+      )}
 
       {error && (
         <div className="mt-3 rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-2 text-xs text-[var(--danger)]">
@@ -757,8 +776,8 @@ function RegistryAuthSection({
 
           {activeJobId && (
             <div className="space-y-3">
-              <div className="flex items-center gap-2 text-xs">
-                {!terminal && <span className="inline-block size-2 animate-pulse rounded-full bg-[var(--run)]" />}
+              <div className="flex items-center gap-2 text-xs" role="status" aria-live="polite" aria-atomic="true">
+                {!terminal && <span className="inline-block size-2 animate-pulse rounded-full bg-[var(--run)]" aria-hidden="true" />}
                 <span className={cn(
                   'font-medium',
                   state === 'running' ? 'text-[var(--run)]' :

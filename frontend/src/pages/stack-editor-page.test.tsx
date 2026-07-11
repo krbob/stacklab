@@ -101,6 +101,28 @@ describe('StackEditorPage', () => {
     }))
   })
 
+  it('exposes definition files as keyboard-operated tabs', async () => {
+    renderPage()
+    await screen.findByText('✓ Config valid')
+
+    expect(screen.getByRole('tablist', { name: 'Definition files' })).toBeInTheDocument()
+    const composeTab = screen.getByRole('tab', { name: 'compose.yaml' })
+    const envTab = screen.getByRole('tab', { name: '.env (new)' })
+    expect(composeTab).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tabpanel')).toHaveAccessibleName('compose.yaml')
+
+    composeTab.focus()
+    fireEvent.keyDown(composeTab, { key: 'ArrowRight' })
+
+    expect(envTab).toHaveFocus()
+    expect(envTab).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tabpanel')).toHaveAccessibleName('.env (new)')
+
+    fireEvent.keyDown(envTab, { key: 'ArrowRight' })
+    expect(composeTab).toHaveFocus()
+    expect(composeTab).toHaveAttribute('aria-selected', 'true')
+  })
+
   it('marks draft validation stale after editing a last deployed preview', async () => {
     renderPage()
 
