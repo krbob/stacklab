@@ -56,6 +56,18 @@ type fakeHostInfo struct {
 	lastSettings     hostinfo.UpdateSettingsRequest
 }
 
+func TestNewHandlerRequiresExplicitRuntimeDependencies(t *testing.T) {
+	t.Parallel()
+
+	handler, err := NewHandler(config.Config{}, slog.Default(), Dependencies{})
+	if err == nil || handler != nil {
+		t.Fatalf("NewHandler() = (%#v, %v), want dependency error", handler, err)
+	}
+	if !strings.Contains(err.Error(), "runtime context dependency is required") {
+		t.Fatalf("NewHandler() error = %q", err)
+	}
+}
+
 type fakeDockerAdmin struct {
 	overviewResponse     dockeradmin.OverviewResponse
 	overviewError        error
@@ -232,10 +244,10 @@ func TestHandlerSeparatesLivenessFromComponentReadiness(t *testing.T) {
 
 	handler := &Handler{
 		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		readinessChecks: []readinessCheck{
-			{name: "database", check: func(context.Context) error { return errors.New("database unavailable") }},
-			{name: "frontend", check: func(context.Context) error { return nil }},
-			{name: "runtime", check: func(context.Context) error { return nil }},
+		readinessChecks: []ReadinessCheck{
+			{Name: "database", Check: func(context.Context) error { return errors.New("database unavailable") }},
+			{Name: "frontend", Check: func(context.Context) error { return nil }},
+			{Name: "runtime", Check: func(context.Context) error { return nil }},
 		},
 	}
 
@@ -803,7 +815,7 @@ func TestHandlerDockerRegistryLoginCancelsWithAppContext(t *testing.T) {
 	}
 }
 
-func TestHandlerShutdownWaitsForDetachedJobFinalization(t *testing.T) {
+func TestRuntimeShutdownWaitsForDetachedJobFinalization(t *testing.T) {
 	t.Parallel()
 
 	handler, served, _ := newInternalTestHandler(t)
@@ -832,8 +844,16 @@ func TestHandlerShutdownWaitsForDetachedJobFinalization(t *testing.T) {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
+	workers, ok := handler.workers.(*lifecycle.Manager)
+	if !ok {
+		t.Fatalf("handler workers type = %T, want *lifecycle.Manager", handler.workers)
+	}
+	workers.Stop()
 	if err := handler.Shutdown(shutdownCtx); err != nil {
 		t.Fatalf("Handler.Shutdown() error = %v", err)
+	}
+	if err := workers.Wait(shutdownCtx); err != nil {
+		t.Fatalf("Workers.Wait() error = %v", err)
 	}
 	job, err := handler.jobs.Get(context.Background(), loginJobID)
 	if err != nil {
@@ -2303,8 +2323,16 @@ func newInternalTestHandler(t *testing.T) (*Handler, http.Handler, config.Config
 	t.Cleanup(func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		workers.Stop()
 		if err := handler.Shutdown(shutdownCtx); err != nil {
 			t.Errorf("Handler.Shutdown() error = %v", err)
+		}
+		if err := authService.Shutdown(shutdownCtx); err != nil {
+			t.Errorf("Auth.Shutdown() error = %v", err)
+		}
+		handler.terminals.Shutdown("test_shutdown")
+		if err := workers.Wait(shutdownCtx); err != nil {
+			t.Errorf("Workers.Wait() error = %v", err)
 		}
 	})
 

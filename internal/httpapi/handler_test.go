@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,15 +23,26 @@ import (
 	"stacklab/internal/audit"
 	"stacklab/internal/auth"
 	"stacklab/internal/config"
+	"stacklab/internal/configworkspace"
+	"stacklab/internal/dockeradmin"
+	"stacklab/internal/dockerregistryauth"
+	"stacklab/internal/gitworkspace"
+	"stacklab/internal/hostinfo"
 	"stacklab/internal/httpapi"
+	"stacklab/internal/imageupdates"
 	"stacklab/internal/jobs"
+	"stacklab/internal/lifecycle"
 	"stacklab/internal/maintenance"
 	"stacklab/internal/maintenancejobs"
 	"stacklab/internal/notifications"
 	"stacklab/internal/scheduler"
 	"stacklab/internal/selfupdate"
+	"stacklab/internal/servicemetrics"
 	"stacklab/internal/stacks"
+	"stacklab/internal/stackworkspace"
 	"stacklab/internal/store"
+	"stacklab/internal/terminal"
+	"stacklab/internal/workspacerepair"
 )
 
 func TestHandlerLoginSessionAndPasswordUpdate(t *testing.T) {
@@ -1391,25 +1403,105 @@ func newTestHandler(t *testing.T) (*httpapi.Handler, config.Config) {
 	jobService := jobs.NewService(testStore)
 	notificationService := notifications.NewService(testStore, logger)
 	stackReader := stacks.NewServiceReader(cfg, logger)
+	stackReader.AttachStore(testStore)
+	statsCollector := stacks.NewStatsCollector(logger)
+	stackReader.AttachStatsCollector(statsCollector)
+	imageUpdateService := imageupdates.NewService(logger, testStore)
+	stackReader.AttachUpdateStatus(func() map[string]stacks.ImageUpdateState {
+		cached := imageUpdateService.StatusByImage()
+		result := make(map[string]stacks.ImageUpdateState, len(cached))
+		for ref, status := range cached {
+			result[ref] = stacks.ImageUpdateState{State: status.State, CheckedAt: status.CheckedAt}
+		}
+		return result
+	})
+	stackReader.AttachUpdateStatusCacheUpdater(imageUpdateService.CacheStatuses)
+	hostInfoService := hostinfo.NewServiceWithStore(cfg, time.Now().UTC(), testStore)
+	notificationService.SetStackInspector(stackReader)
+	notificationService.SetStacklabLogReader(hostInfoService)
 	maintenanceService := maintenance.NewService()
 	maintenanceRunner := maintenancejobs.NewService(logger, jobService, auditService, stackReader, maintenanceService)
 	schedulerService := scheduler.NewService(testStore, auditService, maintenanceRunner, stackReader, logger)
 	selfUpdateService := selfupdate.NewService(cfg, testStore, jobService, auditService, notificationService, logger)
-	jobService.SetTerminalHook(notificationService.DispatchJobAsync)
-
-	handler, err := httpapi.NewHandler(cfg, logger, authService, auditService, jobService, notificationService, schedulerService, selfUpdateService)
+	workers := lifecycle.New(context.Background())
+	workerAdmitter := &trackingWorkerAdmitter{manager: workers}
+	serviceMetrics := servicemetrics.New(time.Now().UTC())
+	jobService.SetMetricsObserver(serviceMetrics)
+	jobService.SetTerminalHook(func(job store.Job) {
+		workers.Go(func(ctx context.Context) {
+			_ = notificationService.DispatchJob(ctx, job)
+		})
+	})
+	terminalService := terminal.NewService(logger, terminal.Config{
+		MaxSessionsPerOwner: 5,
+		IdleTimeout:         30 * time.Minute,
+		DetachGracePeriod:   time.Minute,
+	}, func(terminal.LifecycleEvent) {})
+	authService.SetSessionTerminationHook(func(termination auth.SessionTermination) {
+		reason := "auth_" + string(termination.Reason)
+		if termination.All {
+			terminalService.CloseAll(reason)
+			return
+		}
+		terminalService.CloseOwner(termination.SessionID, reason)
+	})
+	workspaceRepairer := workspacerepair.NewService(cfg)
+	handler, err := httpapi.NewHandler(cfg, logger, httpapi.Dependencies{
+		RuntimeContext:  workers.Context(),
+		Workers:         workerAdmitter,
+		Auth:            authService,
+		Audit:           auditService,
+		Jobs:            jobService,
+		Terminals:       terminalService,
+		StackReader:     stackReader,
+		ImageUpdates:    imageUpdateService,
+		HostInfo:        hostInfoService,
+		DockerAdmin:     dockeradmin.NewService(cfg),
+		DockerRegistry:  dockerregistryauth.NewService(cfg),
+		ConfigFiles:     configworkspace.NewServiceWithRepairer(cfg, workspaceRepairer),
+		StackFiles:      stackworkspace.NewServiceWithRepairer(cfg, workspaceRepairer),
+		GitStatus:       gitworkspace.NewService(cfg),
+		Maintenance:     maintenanceService,
+		MaintenanceJobs: maintenanceRunner,
+		Notifications:   notificationService,
+		Schedules:       schedulerService,
+		SelfUpdate:      selfUpdateService,
+		ReadinessChecks: httpapi.DefaultReadinessChecks(cfg, testStore, workers.Context()),
+		ServiceMetrics:  serviceMetrics,
+	})
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v", err)
+	}
+	if got := workerAdmitter.calls.Load(); got != 0 {
+		t.Fatalf("NewHandler() admitted %d workers; constructors must not start background work", got)
 	}
 	t.Cleanup(func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		workers.Stop()
 		if err := handler.Shutdown(shutdownCtx); err != nil {
 			t.Errorf("Handler.Shutdown() error = %v", err)
+		}
+		if err := authService.Shutdown(shutdownCtx); err != nil {
+			t.Errorf("Auth.Shutdown() error = %v", err)
+		}
+		terminalService.Shutdown("test_shutdown")
+		if err := workers.Wait(shutdownCtx); err != nil {
+			t.Errorf("Workers.Wait() error = %v", err)
 		}
 	})
 
 	return handler, cfg
+}
+
+type trackingWorkerAdmitter struct {
+	manager *lifecycle.Manager
+	calls   atomic.Int64
+}
+
+func (a *trackingWorkerAdmitter) Go(run func(context.Context)) bool {
+	a.calls.Add(1)
+	return a.manager.Go(run)
 }
 
 func loginTestUser(t *testing.T, handler http.Handler, password string) []*http.Cookie {

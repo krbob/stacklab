@@ -22,7 +22,6 @@ import (
 	"stacklab/internal/hostinfo"
 	"stacklab/internal/imageupdates"
 	"stacklab/internal/jobs"
-	"stacklab/internal/lifecycle"
 	"stacklab/internal/limitedio"
 	"stacklab/internal/maintenance"
 	"stacklab/internal/maintenancejobs"
@@ -45,7 +44,7 @@ import (
 
 type Handler struct {
 	appCtx          context.Context
-	workers         *lifecycle.Manager
+	workers         WorkerAdmitter
 	cfg             config.Config
 	logger          *slog.Logger
 	mux             *http.ServeMux
@@ -56,18 +55,18 @@ type Handler struct {
 	terminals       *terminal.Service
 	stackReader     *stacks.ServiceReader
 	imageUpdates    *imageupdates.Service
-	hostInfo        hostInfoReader
-	dockerAdmin     dockerAdminReader
-	dockerRegistry  dockerRegistryReader
-	configFiles     configWorkspaceReader
-	stackFiles      stackWorkspaceReader
-	gitStatus       gitWorkspaceReader
-	maintenance     maintenanceReader
+	hostInfo        HostInfoReader
+	dockerAdmin     DockerAdminReader
+	dockerRegistry  DockerRegistryReader
+	configFiles     ConfigWorkspaceReader
+	stackFiles      StackWorkspaceReader
+	gitStatus       GitWorkspaceReader
+	maintenance     MaintenanceReader
 	maintenanceJobs *maintenancejobs.Service
-	notifications   notificationsManager
-	schedules       schedulerManager
-	selfUpdate      selfUpdateManager
-	readinessChecks []readinessCheck
+	notifications   NotificationsManager
+	schedules       SchedulerManager
+	selfUpdate      SelfUpdateManager
+	readinessChecks []ReadinessCheck
 	serviceMetrics  *servicemetrics.Collector
 
 	wsMu          sync.Mutex
@@ -76,7 +75,13 @@ type Handler struct {
 	wsWG          sync.WaitGroup
 }
 
-type hostInfoReader interface {
+// WorkerAdmitter submits request-triggered asynchronous work to the runtime
+// owner without giving the HTTP layer control over runtime shutdown.
+type WorkerAdmitter interface {
+	Go(func(context.Context)) bool
+}
+
+type HostInfoReader interface {
 	Overview(ctx context.Context) (hostinfo.OverviewResponse, error)
 	Metrics(ctx context.Context, query hostinfo.MetricsQuery) (hostinfo.MetricsResponse, error)
 	StacklabLogs(ctx context.Context, query hostinfo.LogsQuery) (hostinfo.StacklabLogsResponse, error)
@@ -84,41 +89,41 @@ type hostInfoReader interface {
 	UpdateSettings(ctx context.Context, request hostinfo.UpdateSettingsRequest) (hostinfo.SettingsResponse, error)
 }
 
-type dockerAdminReader interface {
+type DockerAdminReader interface {
 	Overview(ctx context.Context) (dockeradmin.OverviewResponse, error)
 	DaemonConfig(ctx context.Context) (dockeradmin.DaemonConfigResponse, error)
 	ValidateManagedConfig(ctx context.Context, request dockeradmin.ValidateManagedConfigRequest) (dockeradmin.ValidateManagedConfigResponse, error)
 	ApplyManagedConfig(ctx context.Context, request dockeradmin.ApplyManagedConfigRequest) (dockeradmin.ApplyManagedConfigResult, error)
 }
 
-type dockerRegistryReader interface {
+type DockerRegistryReader interface {
 	Status(ctx context.Context) (dockerregistryauth.StatusResponse, error)
 	Login(ctx context.Context, request dockerregistryauth.LoginRequest) (string, error)
 	Logout(ctx context.Context, request dockerregistryauth.LogoutRequest) (string, error)
 }
 
-type configWorkspaceReader interface {
+type ConfigWorkspaceReader interface {
 	Tree(ctx context.Context, currentPath string) (configworkspace.TreeResponse, error)
 	File(ctx context.Context, filePath string) (configworkspace.FileResponse, error)
 	SaveFile(ctx context.Context, request configworkspace.SaveFileRequest) (configworkspace.SaveFileResponse, error)
 	RepairPermissions(ctx context.Context, request configworkspace.RepairPermissionsRequest) (configworkspace.RepairPermissionsResponse, error)
 }
 
-type stackWorkspaceReader interface {
+type StackWorkspaceReader interface {
 	Tree(ctx context.Context, stackID, currentPath string) (stackworkspace.TreeResponse, error)
 	File(ctx context.Context, stackID, filePath string) (stackworkspace.FileResponse, error)
 	SaveFile(ctx context.Context, stackID string, request stackworkspace.SaveFileRequest) (stackworkspace.SaveFileResponse, error)
 	RepairPermissions(ctx context.Context, stackID string, request stackworkspace.RepairPermissionsRequest) (stackworkspace.RepairPermissionsResponse, error)
 }
 
-type gitWorkspaceReader interface {
+type GitWorkspaceReader interface {
 	Status(ctx context.Context) (gitworkspace.StatusResponse, error)
 	Diff(ctx context.Context, requestedPath string) (gitworkspace.DiffResponse, error)
 	Commit(ctx context.Context, request gitworkspace.CommitRequest) (gitworkspace.CommitResponse, error)
 	Push(ctx context.Context) (gitworkspace.PushResponse, error)
 }
 
-type maintenanceReader interface {
+type MaintenanceReader interface {
 	Images(ctx context.Context, query maintenance.ImagesQuery) (maintenance.ImagesResponse, error)
 	Networks(ctx context.Context, query maintenance.NetworksQuery) (maintenance.NetworksResponse, error)
 	CreateNetwork(ctx context.Context, request maintenance.CreateNetworkRequest) (maintenance.CreateNetworkResponse, error)
@@ -130,113 +135,125 @@ type maintenanceReader interface {
 	RunPruneStep(ctx context.Context, action string, managedStackIDs []string) (string, error)
 }
 
-type notificationsManager interface {
+type NotificationsManager interface {
 	GetSettings(ctx context.Context) (notifications.SettingsResponse, error)
 	UpdateSettings(ctx context.Context, request notifications.UpdateSettingsRequest) (notifications.SettingsResponse, error)
 	SendTest(ctx context.Context, request notifications.TestRequest) (notifications.TestResponse, error)
 }
 
-type schedulerManager interface {
+type SchedulerManager interface {
 	GetSettings(ctx context.Context) (scheduler.SettingsResponse, error)
 	UpdateSettings(ctx context.Context, request scheduler.UpdateSettingsRequest) (scheduler.SettingsResponse, error)
 }
 
-type selfUpdateManager interface {
+type SelfUpdateManager interface {
 	Overview(ctx context.Context) (selfupdate.OverviewResponse, error)
 	Apply(ctx context.Context, request selfupdate.ApplyRequest, requestedBy string) (selfupdate.ApplyResponse, error)
 }
 
-func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Service, auditService *audit.Service, jobService *jobs.Service, notificationsService notificationsManager, scheduleService schedulerManager, selfUpdateService selfUpdateManager) (*Handler, error) {
-	return NewHandlerWithContext(context.Background(), cfg, logger, authService, auditService, jobService, notificationsService, scheduleService, selfUpdateService)
+// Dependencies contains process-owned services required by the HTTP transport.
+// NewHandler validates and stores them but never constructs or starts them.
+type Dependencies struct {
+	RuntimeContext  context.Context
+	Workers         WorkerAdmitter
+	Auth            *auth.Service
+	Audit           *audit.Service
+	Jobs            *jobs.Service
+	Terminals       *terminal.Service
+	StackReader     *stacks.ServiceReader
+	ImageUpdates    *imageupdates.Service
+	HostInfo        HostInfoReader
+	DockerAdmin     DockerAdminReader
+	DockerRegistry  DockerRegistryReader
+	ConfigFiles     ConfigWorkspaceReader
+	StackFiles      StackWorkspaceReader
+	GitStatus       GitWorkspaceReader
+	Maintenance     MaintenanceReader
+	MaintenanceJobs *maintenancejobs.Service
+	Notifications   NotificationsManager
+	Schedules       SchedulerManager
+	SelfUpdate      SelfUpdateManager
+	ReadinessChecks []ReadinessCheck
+	ServiceMetrics  *servicemetrics.Collector
 }
 
-func NewHandlerWithContext(appCtx context.Context, cfg config.Config, logger *slog.Logger, authService *auth.Service, auditService *audit.Service, jobService *jobs.Service, notificationsService notificationsManager, scheduleService schedulerManager, selfUpdateService selfUpdateManager) (*Handler, error) {
-	if appCtx == nil {
-		appCtx = context.Background()
+func NewHandler(cfg config.Config, logger *slog.Logger, dependencies Dependencies) (*Handler, error) {
+	if err := dependencies.validate(logger); err != nil {
+		return nil, err
 	}
-	workers := lifecycle.New(appCtx)
-	serviceMetrics := servicemetrics.New(time.Now().UTC())
-	jobService.SetMetricsObserver(serviceMetrics)
-	stackReader := stacks.NewServiceReader(cfg, logger)
-	stackReader.AttachStore(jobService.Store())
-	statsCollector := stacks.NewStatsCollector(logger)
-	workers.Go(func(ctx context.Context) {
-		statsCollector.Run(ctx)
-	})
-	stackReader.AttachStatsCollector(statsCollector)
-	imageUpdateService := imageupdates.NewService(logger, jobService.Store())
-	if err := imageUpdateService.Load(appCtx); err != nil {
-		logger.Warn("load image update status failed", slog.String("err", err.Error()))
-	}
-	stackReader.AttachUpdateStatus(func() map[string]stacks.ImageUpdateState {
-		cached := imageUpdateService.StatusByImage()
-		result := make(map[string]stacks.ImageUpdateState, len(cached))
-		for ref, status := range cached {
-			result[ref] = stacks.ImageUpdateState{State: status.State, CheckedAt: status.CheckedAt}
-		}
-		return result
-	})
-	stackReader.AttachUpdateStatusCacheUpdater(imageUpdateService.CacheStatuses)
-	maintenanceService := maintenance.NewService()
-	hostInfoService := hostinfo.NewServiceWithStore(cfg, time.Now().UTC(), jobService.Store())
-	workers.Go(func(ctx context.Context) {
-		hostInfoService.RunMetrics(ctx)
-	})
-	workspaceRepairer := workspacerepair.NewService(cfg)
 	handler := &Handler{
-		appCtx:        workers.Context(),
-		workers:       workers,
-		cfg:           cfg,
-		logger:        logger,
-		mux:           http.NewServeMux(),
-		auth:          authService,
-		audit:         auditService,
-		jobs:          jobService,
-		notifications: notificationsService,
-		terminals: terminal.NewService(logger, terminal.Config{
-			MaxSessionsPerOwner: 5,
-			IdleTimeout:         30 * time.Minute,
-			DetachGracePeriod:   time.Minute,
-		}, func(event terminal.LifecycleEvent) {
-			details := map[string]any{
-				"container_id": event.ContainerID,
-			}
-			if event.Reason != "" {
-				details["reason"] = event.Reason
-			}
-			action := "terminal_" + event.Type
-			result := "succeeded"
-			_ = auditService.RecordTerminalEvent(context.Background(), event.StackID, event.SessionID, event.ContainerID, "local", action, result, details)
-		}),
-		stackReader:     stackReader,
-		imageUpdates:    imageUpdateService,
-		hostInfo:        hostInfoService,
-		dockerAdmin:     dockeradmin.NewService(cfg),
-		dockerRegistry:  dockerregistryauth.NewService(cfg),
-		configFiles:     configworkspace.NewServiceWithRepairer(cfg, workspaceRepairer),
-		stackFiles:      stackworkspace.NewServiceWithRepairer(cfg, workspaceRepairer),
-		gitStatus:       gitworkspace.NewService(cfg),
-		maintenance:     maintenanceService,
-		maintenanceJobs: maintenancejobs.NewService(logger, jobService, auditService, stackReader, maintenanceService),
-		schedules:       scheduleService,
-		selfUpdate:      selfUpdateService,
-		readinessChecks: defaultReadinessChecks(cfg, jobService.Store(), workers.Context()),
-		serviceMetrics:  serviceMetrics,
+		appCtx:          dependencies.RuntimeContext,
+		workers:         dependencies.Workers,
+		cfg:             cfg,
+		logger:          logger,
+		mux:             http.NewServeMux(),
+		auth:            dependencies.Auth,
+		audit:           dependencies.Audit,
+		jobs:            dependencies.Jobs,
+		terminals:       dependencies.Terminals,
+		stackReader:     dependencies.StackReader,
+		imageUpdates:    dependencies.ImageUpdates,
+		hostInfo:        dependencies.HostInfo,
+		dockerAdmin:     dependencies.DockerAdmin,
+		dockerRegistry:  dependencies.DockerRegistry,
+		configFiles:     dependencies.ConfigFiles,
+		stackFiles:      dependencies.StackFiles,
+		gitStatus:       dependencies.GitStatus,
+		maintenance:     dependencies.Maintenance,
+		maintenanceJobs: dependencies.MaintenanceJobs,
+		notifications:   dependencies.Notifications,
+		schedules:       dependencies.Schedules,
+		selfUpdate:      dependencies.SelfUpdate,
+		readinessChecks: append([]ReadinessCheck(nil), dependencies.ReadinessChecks...),
+		serviceMetrics:  dependencies.ServiceMetrics,
 		wsConnections:   map[*wsConnection]struct{}{},
 	}
-	authService.SetSessionTerminationHook(func(termination auth.SessionTermination) {
-		reason := "auth_" + string(termination.Reason)
-		if termination.All {
-			handler.terminals.CloseAll(reason)
-			return
-		}
-		handler.terminals.CloseOwner(termination.SessionID, reason)
-	})
 
 	handler.registerRoutes()
 	handler.served = handler.withRequestID(handler.withLogging(handler.withSecurityHeaders(handler.mux)))
 
 	return handler, nil
+}
+
+func (d Dependencies) validate(logger *slog.Logger) error {
+	required := []struct {
+		name    string
+		missing bool
+	}{
+		{name: "logger", missing: logger == nil},
+		{name: "runtime context", missing: d.RuntimeContext == nil},
+		{name: "worker admitter", missing: d.Workers == nil},
+		{name: "auth service", missing: d.Auth == nil},
+		{name: "audit service", missing: d.Audit == nil},
+		{name: "job service", missing: d.Jobs == nil},
+		{name: "terminal service", missing: d.Terminals == nil},
+		{name: "stack reader", missing: d.StackReader == nil},
+		{name: "image update service", missing: d.ImageUpdates == nil},
+		{name: "host info service", missing: d.HostInfo == nil},
+		{name: "Docker admin service", missing: d.DockerAdmin == nil},
+		{name: "Docker registry service", missing: d.DockerRegistry == nil},
+		{name: "config workspace service", missing: d.ConfigFiles == nil},
+		{name: "stack workspace service", missing: d.StackFiles == nil},
+		{name: "Git workspace service", missing: d.GitStatus == nil},
+		{name: "maintenance service", missing: d.Maintenance == nil},
+		{name: "maintenance jobs service", missing: d.MaintenanceJobs == nil},
+		{name: "notifications service", missing: d.Notifications == nil},
+		{name: "scheduler service", missing: d.Schedules == nil},
+		{name: "self-update service", missing: d.SelfUpdate == nil},
+		{name: "readiness checks", missing: len(d.ReadinessChecks) == 0},
+		{name: "service metrics", missing: d.ServiceMetrics == nil},
+	}
+	for _, dependency := range required {
+		if dependency.missing {
+			return fmt.Errorf("httpapi: %s dependency is required", dependency.name)
+		}
+	}
+	for index, check := range d.ReadinessChecks {
+		if strings.TrimSpace(check.Name) == "" || check.Check == nil {
+			return fmt.Errorf("httpapi: readiness check %d must have a name and function", index)
+		}
+	}
+	return nil
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -2929,7 +2946,7 @@ func (h *Handler) startWorker(run func()) {
 		return
 	}
 	if h.workers == nil {
-		go run()
+		run()
 		return
 	}
 	if h.workers.Go(func(context.Context) { run() }) {
@@ -2942,32 +2959,11 @@ func (h *Handler) startWorker(run func()) {
 	run()
 }
 
-// Shutdown closes hijacked connections and terminals, then waits for every
-// detached handler worker before the caller releases the application store.
+// Shutdown closes transport-owned hijacked connections. The composition root
+// owns cancellation and shutdown of injected services and workers.
 func (h *Handler) Shutdown(ctx context.Context) error {
-	if h.workers != nil {
-		h.workers.Stop()
-	}
 	h.closeWebSockets()
-	var shutdownErrors []error
-	if h.auth != nil {
-		if err := h.auth.Shutdown(ctx); err != nil {
-			shutdownErrors = append(shutdownErrors, err)
-		}
-	}
-	if h.terminals != nil {
-		h.terminals.Shutdown("server_shutdown")
-	}
-
-	if err := h.waitForWebSockets(ctx); err != nil {
-		shutdownErrors = append(shutdownErrors, err)
-	}
-	if h.workers != nil {
-		if err := h.workers.Wait(ctx); err != nil {
-			shutdownErrors = append(shutdownErrors, err)
-		}
-	}
-	return errors.Join(shutdownErrors...)
+	return h.waitForWebSockets(ctx)
 }
 
 func (h *Handler) stackActionContext() (context.Context, context.CancelFunc) {

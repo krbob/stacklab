@@ -15,9 +15,10 @@ import (
 	"stacklab/internal/store"
 )
 
-type readinessCheck struct {
-	name  string
-	check func(context.Context) error
+// ReadinessCheck is a named, bounded component probe supplied by the runtime.
+type ReadinessCheck struct {
+	Name  string
+	Check func(context.Context) error
 }
 
 type healthCheckResponse struct {
@@ -31,11 +32,13 @@ type readinessResponse struct {
 	Checks  map[string]healthCheckResponse `json:"checks"`
 }
 
-func defaultReadinessChecks(cfg config.Config, appStore *store.Store, runtimeContext context.Context) []readinessCheck {
-	return []readinessCheck{
+// DefaultReadinessChecks builds the standard database, frontend, and runtime
+// probes without starting background work.
+func DefaultReadinessChecks(cfg config.Config, appStore *store.Store, runtimeContext context.Context) []ReadinessCheck {
+	return []ReadinessCheck{
 		{
-			name: "database",
-			check: func(ctx context.Context) error {
+			Name: "database",
+			Check: func(ctx context.Context) error {
 				if appStore == nil {
 					return errors.New("database is not configured")
 				}
@@ -43,14 +46,14 @@ func defaultReadinessChecks(cfg config.Config, appStore *store.Store, runtimeCon
 			},
 		},
 		{
-			name: "frontend",
-			check: func(context.Context) error {
+			Name: "frontend",
+			Check: func(context.Context) error {
 				return checkFrontendAssets(cfg.FrontendDistDir)
 			},
 		},
 		{
-			name: "runtime",
-			check: func(context.Context) error {
+			Name: "runtime",
+			Check: func(context.Context) error {
 				if runtimeContext == nil {
 					return errors.New("runtime context is not configured")
 				}
@@ -109,15 +112,15 @@ func (h *Handler) evaluateReadiness(ctx context.Context) readinessResponse {
 		Checks:  make(map[string]healthCheckResponse, len(h.readinessChecks)),
 	}
 	for _, probe := range h.readinessChecks {
-		if err := probe.check(ctx); err != nil {
+		if err := probe.Check(ctx); err != nil {
 			response.Status = "unavailable"
-			response.Checks[probe.name] = healthCheckResponse{Status: "error", Message: "unavailable"}
+			response.Checks[probe.Name] = healthCheckResponse{Status: "error", Message: "unavailable"}
 			if h.logger != nil {
-				h.logger.Warn("readiness check failed", slog.String("component", probe.name), slog.String("err", err.Error()))
+				h.logger.Warn("readiness check failed", slog.String("component", probe.Name), slog.String("err", err.Error()))
 			}
 			continue
 		}
-		response.Checks[probe.name] = healthCheckResponse{Status: "ok"}
+		response.Checks[probe.Name] = healthCheckResponse{Status: "ok"}
 	}
 
 	checks := make(map[string]string, len(response.Checks))
