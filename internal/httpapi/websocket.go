@@ -50,8 +50,10 @@ type wsServerFrame struct {
 }
 
 type wsConnection struct {
-	conn    *websocket.Conn
-	writeMu sync.Mutex
+	conn      *websocket.Conn
+	writeMu   sync.Mutex
+	closeOnce sync.Once
+	workers   sync.WaitGroup
 }
 
 func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -72,7 +74,6 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		h.logger.Warn("websocket upgrade failed", "err", err)
 		return
 	}
-	defer conn.Close()
 	conn.SetReadLimit(wsReadLimitBytes)
 	_ = conn.SetReadDeadline(time.Now().Add(wsPongWait))
 	conn.SetPongHandler(func(string) error {
@@ -80,6 +81,15 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	})
 
 	wsConn := &wsConnection{conn: conn}
+	if !h.registerWebSocket(wsConn) {
+		wsConn.close(websocket.CloseGoingAway, "server shutting down")
+		return
+	}
+	defer func() {
+		wsConn.wait()
+		h.unregisterWebSocket(wsConn)
+		wsConn.close(websocket.CloseNormalClosure, "connection closed")
+	}()
 	connectionID := "conn_" + randomID(18)
 	if err := wsConn.writeJSON(wsServerFrame{
 		Type: "hello",
@@ -105,7 +115,7 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	go func() {
+	wsConn.goRun(func() {
 		ticker := time.NewTicker(wsHeartbeatInterval)
 		defer ticker.Stop()
 
@@ -125,7 +135,7 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-	}()
+	})
 
 	for {
 		var frame wsClientFrame
@@ -213,7 +223,7 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
-			go h.forwardActivity(ctx, wsConn, frame.StreamID, signal, subscription.stop)
+			wsConn.goRun(func() { h.forwardActivity(ctx, wsConn, frame.StreamID, signal, subscription.stop) })
 		case "activity.unsubscribe":
 			if existing, ok := subscriptions[frame.StreamID]; ok {
 				existing.Close()
@@ -286,7 +296,7 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
-			go h.forwardJobEvents(ctx, wsConn, frame.StreamID, job, liveEvents, subscription.stop)
+			wsConn.goRun(func() { h.forwardJobEvents(ctx, wsConn, frame.StreamID, job, liveEvents, subscription.stop) })
 		case "jobs.unsubscribe":
 			if existing, ok := subscriptions[frame.StreamID]; ok {
 				existing.Close()
@@ -328,6 +338,85 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+	}
+}
+
+func (c *wsConnection) close(code int, reason string) {
+	if c == nil || c.conn == nil {
+		return
+	}
+	c.closeOnce.Do(func() {
+		_ = c.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, reason), time.Now().Add(time.Second))
+		_ = c.conn.Close()
+	})
+}
+
+func (c *wsConnection) goRun(run func()) {
+	if run == nil {
+		return
+	}
+	c.workers.Add(1)
+	go func() {
+		defer c.workers.Done()
+		run()
+	}()
+}
+
+func (c *wsConnection) wait() {
+	c.workers.Wait()
+}
+
+func (h *Handler) registerWebSocket(conn *wsConnection) bool {
+	h.wsMu.Lock()
+	defer h.wsMu.Unlock()
+	if h.wsClosing {
+		return false
+	}
+	if h.wsConnections == nil {
+		h.wsConnections = map[*wsConnection]struct{}{}
+	}
+	h.wsConnections[conn] = struct{}{}
+	h.wsWG.Add(1)
+	return true
+}
+
+func (h *Handler) unregisterWebSocket(conn *wsConnection) {
+	h.wsMu.Lock()
+	if _, ok := h.wsConnections[conn]; ok {
+		delete(h.wsConnections, conn)
+		h.wsWG.Done()
+	}
+	h.wsMu.Unlock()
+}
+
+func (h *Handler) closeWebSockets() {
+	h.wsMu.Lock()
+	h.wsClosing = true
+	connections := make([]*wsConnection, 0, len(h.wsConnections))
+	for conn := range h.wsConnections {
+		connections = append(connections, conn)
+	}
+	h.wsMu.Unlock()
+
+	for _, conn := range connections {
+		conn.close(websocket.CloseGoingAway, "server shutting down")
+	}
+}
+
+func (h *Handler) waitForWebSockets(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		h.wsWG.Wait()
+		close(done)
+	}()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("wait for websocket connections: %w", ctx.Err())
 	}
 }
 

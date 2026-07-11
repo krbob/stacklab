@@ -276,6 +276,25 @@ func (s *Service) Close(ownerID, sessionID, reason string) error {
 	return nil
 }
 
+// Shutdown closes every terminal synchronously so lifecycle hooks complete
+// before the application store is released. Process reaping may finish shortly
+// afterwards, but it no longer touches shared application state.
+func (s *Service) Shutdown(reason string) {
+	if reason == "" {
+		reason = "server_shutdown"
+	}
+	s.mu.Lock()
+	sessionIDs := make([]string, 0, len(s.sessions))
+	for sessionID := range s.sessions {
+		sessionIDs = append(sessionIDs, sessionID)
+	}
+	s.mu.Unlock()
+
+	for _, sessionID := range sessionIDs {
+		s.endSession(sessionID, nil, reason)
+	}
+}
+
 func (s *Service) lookupOwnedSession(ownerID, sessionID string) (*session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

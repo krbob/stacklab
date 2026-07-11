@@ -51,6 +51,7 @@ type Service struct {
 	mu        sync.Mutex
 	persistMu sync.Mutex
 	running   map[string]bool
+	workerWG  sync.WaitGroup
 }
 
 func NewService(appStore *store.Store, auditService *audit.Service, runner runner, stackLister stackLister, logger *slog.Logger) *Service {
@@ -111,7 +112,12 @@ func (s *Service) UpdateSettings(ctx context.Context, request UpdateSettingsRequ
 }
 
 func (s *Service) StartBackground(ctx context.Context) {
-	go s.loop(ctx)
+	go s.RunBackground(ctx)
+}
+
+func (s *Service) RunBackground(ctx context.Context) {
+	s.loop(ctx)
+	s.workerWG.Wait()
 }
 
 func (s *Service) loop(ctx context.Context) {
@@ -166,7 +172,9 @@ func (s *Service) evaluateUpdate(ctx context.Context, config UpdateScheduleConfi
 		return
 	}
 
+	s.workerWG.Add(1)
 	go func() {
+		defer s.workerWG.Done()
 		defer s.finish("update")
 		job, runErr := s.runner.RunUpdate(ctx, maintenancejobs.UpdateRequest{
 			Target:      config.Target,
@@ -198,7 +206,9 @@ func (s *Service) evaluatePrune(ctx context.Context, config PruneScheduleConfig,
 		return
 	}
 
+	s.workerWG.Add(1)
 	go func() {
+		defer s.workerWG.Done()
 		defer s.finish("prune")
 		lockStackIDs, err := s.listManagedStackIDs(ctx)
 		if err != nil {

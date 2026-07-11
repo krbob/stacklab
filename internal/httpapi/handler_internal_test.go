@@ -28,6 +28,7 @@ import (
 	"stacklab/internal/hostinfo"
 	"stacklab/internal/imageupdates"
 	"stacklab/internal/jobs"
+	"stacklab/internal/lifecycle"
 	"stacklab/internal/maintenance"
 	"stacklab/internal/maintenancejobs"
 	"stacklab/internal/notifications"
@@ -683,6 +684,47 @@ func TestHandlerDockerRegistryLoginCancelsWithAppContext(t *testing.T) {
 	}
 	if job.Workflow == nil || len(job.Workflow.Steps) != 1 || job.Workflow.Steps[0].State != "cancelled" {
 		t.Fatalf("unexpected cancelled workflow: %#v", job.Workflow)
+	}
+}
+
+func TestHandlerShutdownWaitsForDetachedJobFinalization(t *testing.T) {
+	t.Parallel()
+
+	handler, served, _ := newInternalTestHandler(t)
+	handler.cfg.DockerRegistryAuthTimeout = time.Hour
+	registry := &fakeDockerRegistry{
+		loginStarted:        make(chan struct{}),
+		loginWaitForContext: true,
+	}
+	handler.dockerRegistry = registry
+	cookies := loginInternalTestUser(t, served, "secret")
+
+	loginResponse := performInternalJSONRequest(t, served, http.MethodPost, "/api/docker/registries/login", map[string]any{
+		"registry": "ghcr.io",
+		"username": "bob",
+		"password": "secret-token",
+	}, cookies)
+	if loginResponse.Code != http.StatusOK {
+		t.Fatalf("POST /api/docker/registries/login status = %d, want %d; body=%s", loginResponse.Code, http.StatusOK, loginResponse.Body.String())
+	}
+	loginJobID := assertInternalRunningJob(t, loginResponse, "docker_registry_login")
+	select {
+	case <-registry.loginStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for Docker registry login to start")
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := handler.Shutdown(shutdownCtx); err != nil {
+		t.Fatalf("Handler.Shutdown() error = %v", err)
+	}
+	job, err := handler.jobs.Get(context.Background(), loginJobID)
+	if err != nil {
+		t.Fatalf("jobs.Get() error = %v", err)
+	}
+	if job.State != "cancelled" || job.ErrorCode != "docker_registry_login_cancelled" || job.FinishedAt == nil {
+		t.Fatalf("job after shutdown = %#v, want finalized cancellation", job)
 	}
 }
 
@@ -2107,14 +2149,17 @@ func newInternalTestHandler(t *testing.T) (*Handler, http.Handler, config.Config
 	schedulerService := scheduler.NewService(testStore, auditService, maintenanceRunner, stackReader, logger)
 	workspaceRepairer := workspacerepair.NewService(cfg)
 	jobService.SetTerminalHook(notificationService.DispatchJobAsync)
+	workers := lifecycle.New(context.Background())
 
 	handler := &Handler{
-		cfg:    cfg,
-		logger: logger,
-		mux:    http.NewServeMux(),
-		auth:   authService,
-		audit:  auditService,
-		jobs:   jobService,
+		appCtx:  workers.Context(),
+		workers: workers,
+		cfg:     cfg,
+		logger:  logger,
+		mux:     http.NewServeMux(),
+		auth:    authService,
+		audit:   auditService,
+		jobs:    jobService,
 		terminals: terminal.NewService(logger, terminal.Config{
 			MaxSessionsPerOwner: 5,
 			IdleTimeout:         30 * time.Minute,
@@ -2132,10 +2177,19 @@ func newInternalTestHandler(t *testing.T) (*Handler, http.Handler, config.Config
 		maintenanceJobs: maintenanceRunner,
 		notifications:   notificationService,
 		schedules:       schedulerService,
+		wsConnections:   map[*wsConnection]struct{}{},
 	}
 	handler.registerRoutes()
+	served := handler.withLogging(handler.mux)
+	t.Cleanup(func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := handler.Shutdown(shutdownCtx); err != nil {
+			t.Errorf("Handler.Shutdown() error = %v", err)
+		}
+	})
 
-	return handler, handler.withLogging(handler.mux), cfg
+	return handler, served, cfg
 }
 
 func pointerTo[T any](value T) *T {

@@ -126,7 +126,11 @@ func NewService(cfg config.Config, appStore *store.Store, jobService *jobs.Servi
 }
 
 func (s *Service) StartBackground(ctx context.Context) {
-	go s.loop(ctx)
+	go s.RunBackground(ctx)
+}
+
+func (s *Service) RunBackground(ctx context.Context) {
+	s.loop(ctx)
 }
 
 func (s *Service) loop(ctx context.Context) {

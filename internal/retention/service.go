@@ -33,7 +33,11 @@ func NewService(appStore *store.Store, logger *slog.Logger) *Service {
 }
 
 func (s *Service) StartBackground(ctx context.Context) {
-	go s.loop(ctx)
+	go s.RunBackground(ctx)
+}
+
+func (s *Service) RunBackground(ctx context.Context) {
+	s.loop(ctx)
 }
 
 func (s *Service) RunOnce(ctx context.Context) (store.OperationalRetentionSummary, error) {

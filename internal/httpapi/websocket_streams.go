@@ -110,7 +110,7 @@ func (h *Handler) subscribeLogStream(ctx context.Context, wsConn *wsConnection, 
 
 	tail := resolveLogTail(payload.Tail)
 	for _, container := range containers {
-		go h.forwardContainerLogs(subCtx, wsConn, frame.StreamID, container, tail)
+		wsConn.goRun(func() { h.forwardContainerLogs(subCtx, wsConn, frame.StreamID, container, tail) })
 	}
 
 	return nil
@@ -158,7 +158,7 @@ func (h *Handler) subscribeStatsStream(ctx context.Context, wsConn *wsConnection
 		return err
 	}
 
-	go h.forwardStackStats(subCtx, wsConn, frame.StreamID, payload.StackID, subscription.stop)
+	wsConn.goRun(func() { h.forwardStackStats(subCtx, wsConn, frame.StreamID, payload.StackID, subscription.stop) })
 	return nil
 }
 

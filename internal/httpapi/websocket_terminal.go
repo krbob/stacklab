@@ -103,7 +103,7 @@ func (h *Handler) openTerminalStream(ctx context.Context, wsConn *wsConnection, 
 		return err
 	}
 
-	go h.forwardTerminalEvents(wsConn, frame.StreamID, info.ID, events, subscription.stop)
+	wsConn.goRun(func() { h.forwardTerminalEvents(wsConn, frame.StreamID, info.ID, events, subscription.stop) })
 	return nil
 }
 
@@ -163,7 +163,7 @@ func (h *Handler) attachTerminalStream(wsConn *wsConnection, subscriptions map[s
 		return err
 	}
 
-	go h.forwardTerminalEvents(wsConn, frame.StreamID, info.ID, events, subscription.stop)
+	wsConn.goRun(func() { h.forwardTerminalEvents(wsConn, frame.StreamID, info.ID, events, subscription.stop) })
 	return nil
 }
 

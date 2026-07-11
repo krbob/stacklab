@@ -119,7 +119,11 @@ func (s *Service) Overview(ctx context.Context) (OverviewResponse, error) {
 }
 
 func (s *Service) StartMetrics(ctx context.Context) {
-	go s.metrics.Start(ctx)
+	go s.RunMetrics(ctx)
+}
+
+func (s *Service) RunMetrics(ctx context.Context) {
+	s.metrics.Start(ctx)
 }
 
 func (s *Service) Metrics(ctx context.Context, query MetricsQuery) (MetricsResponse, error) {

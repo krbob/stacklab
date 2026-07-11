@@ -21,6 +21,7 @@ import (
 	"stacklab/internal/hostinfo"
 	"stacklab/internal/imageupdates"
 	"stacklab/internal/jobs"
+	"stacklab/internal/lifecycle"
 	"stacklab/internal/maintenance"
 	"stacklab/internal/maintenancejobs"
 	"stacklab/internal/notifications"
@@ -41,9 +42,11 @@ const imageUpdateCheckLockTarget = "__image_update_check__"
 
 type Handler struct {
 	appCtx          context.Context
+	workers         *lifecycle.Manager
 	cfg             config.Config
 	logger          *slog.Logger
 	mux             *http.ServeMux
+	served          http.Handler
 	auth            *auth.Service
 	audit           *audit.Service
 	jobs            *jobs.Service
@@ -61,6 +64,11 @@ type Handler struct {
 	notifications   notificationsManager
 	schedules       schedulerManager
 	selfUpdate      selfUpdateManager
+
+	wsMu          sync.Mutex
+	wsClosing     bool
+	wsConnections map[*wsConnection]struct{}
+	wsWG          sync.WaitGroup
 }
 
 type hostInfoReader interface {
@@ -133,18 +141,21 @@ type selfUpdateManager interface {
 	Apply(ctx context.Context, request selfupdate.ApplyRequest, requestedBy string) (selfupdate.ApplyResponse, error)
 }
 
-func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Service, auditService *audit.Service, jobService *jobs.Service, notificationsService notificationsManager, scheduleService schedulerManager, selfUpdateService selfUpdateManager) (http.Handler, error) {
+func NewHandler(cfg config.Config, logger *slog.Logger, authService *auth.Service, auditService *audit.Service, jobService *jobs.Service, notificationsService notificationsManager, scheduleService schedulerManager, selfUpdateService selfUpdateManager) (*Handler, error) {
 	return NewHandlerWithContext(context.Background(), cfg, logger, authService, auditService, jobService, notificationsService, scheduleService, selfUpdateService)
 }
 
-func NewHandlerWithContext(appCtx context.Context, cfg config.Config, logger *slog.Logger, authService *auth.Service, auditService *audit.Service, jobService *jobs.Service, notificationsService notificationsManager, scheduleService schedulerManager, selfUpdateService selfUpdateManager) (http.Handler, error) {
+func NewHandlerWithContext(appCtx context.Context, cfg config.Config, logger *slog.Logger, authService *auth.Service, auditService *audit.Service, jobService *jobs.Service, notificationsService notificationsManager, scheduleService schedulerManager, selfUpdateService selfUpdateManager) (*Handler, error) {
 	if appCtx == nil {
 		appCtx = context.Background()
 	}
+	workers := lifecycle.New(appCtx)
 	stackReader := stacks.NewServiceReader(cfg, logger)
 	stackReader.AttachStore(jobService.Store())
 	statsCollector := stacks.NewStatsCollector(logger)
-	statsCollector.Start(appCtx)
+	workers.Go(func(ctx context.Context) {
+		statsCollector.Run(ctx)
+	})
 	stackReader.AttachStatsCollector(statsCollector)
 	imageUpdateService := imageupdates.NewService(logger, jobService.Store())
 	if err := imageUpdateService.Load(appCtx); err != nil {
@@ -161,10 +172,13 @@ func NewHandlerWithContext(appCtx context.Context, cfg config.Config, logger *sl
 	stackReader.AttachUpdateStatusCacheUpdater(imageUpdateService.CacheStatuses)
 	maintenanceService := maintenance.NewService()
 	hostInfoService := hostinfo.NewServiceWithStore(cfg, time.Now().UTC(), jobService.Store())
-	hostInfoService.StartMetrics(appCtx)
+	workers.Go(func(ctx context.Context) {
+		hostInfoService.RunMetrics(ctx)
+	})
 	workspaceRepairer := workspacerepair.NewService(cfg)
 	handler := &Handler{
-		appCtx:        appCtx,
+		appCtx:        workers.Context(),
+		workers:       workers,
 		cfg:           cfg,
 		logger:        logger,
 		mux:           http.NewServeMux(),
@@ -199,11 +213,20 @@ func NewHandlerWithContext(appCtx context.Context, cfg config.Config, logger *sl
 		maintenanceJobs: maintenancejobs.NewService(logger, jobService, auditService, stackReader, maintenanceService),
 		schedules:       scheduleService,
 		selfUpdate:      selfUpdateService,
+		wsConnections:   map[*wsConnection]struct{}{},
 	}
 
 	handler.registerRoutes()
+	handler.served = handler.withLogging(handler.withSecurityHeaders(handler.mux))
 
-	return handler.withLogging(handler.withSecurityHeaders(handler.mux)), nil
+	return handler, nil
+}
+
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if h.served == nil {
+		h.served = h.withLogging(h.withSecurityHeaders(h.mux))
+	}
+	h.served.ServeHTTP(w, r)
 }
 
 func (h *Handler) registerRoutes() {
@@ -508,7 +531,7 @@ func (h *Handler) handleDockerRegistryLogin(w http.ResponseWriter, r *http.Reque
 	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", "Starting Docker registry login.", "", step)
 	_ = h.jobs.PublishEvent(r.Context(), job, "job_progress", "Logging in to "+request.Registry+".", "", step)
 
-	go h.runDockerRegistryLoginJob(job, workflow, request)
+	h.startWorker(func() { h.runDockerRegistryLoginJob(job, workflow, request) })
 	writeJSON(w, http.StatusOK, map[string]any{"job": job})
 }
 
@@ -554,7 +577,7 @@ func (h *Handler) handleDockerRegistryLogout(w http.ResponseWriter, r *http.Requ
 	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", "Starting Docker registry logout.", "", step)
 	_ = h.jobs.PublishEvent(r.Context(), job, "job_progress", "Logging out from "+request.Registry+".", "", step)
 
-	go h.runDockerRegistryLogoutJob(job, workflow, request)
+	h.startWorker(func() { h.runDockerRegistryLogoutJob(job, workflow, request) })
 	writeJSON(w, http.StatusOK, map[string]any{"job": job})
 }
 
@@ -1032,7 +1055,7 @@ func (h *Handler) handleImageUpdatesCheck(w http.ResponseWriter, r *http.Request
 
 	// Detached like stack actions: registry lookups can outlive the request
 	// (or its proxy), and finalization must never ride a cancelled context.
-	go h.runImageUpdateCheckJob(job, refs)
+	h.startWorker(func() { h.runImageUpdateCheckJob(job, refs) })
 
 	writeJSON(w, http.StatusOK, map[string]any{"job": job})
 }
@@ -1144,7 +1167,7 @@ func (h *Handler) handleUpdateStacksMaintenance(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	go h.runMaintenanceUpdateJob(job, run)
+	h.startWorker(func() { h.runMaintenanceUpdateJob(job, run) })
 
 	writeJSON(w, http.StatusOK, map[string]any{"job": job})
 }
@@ -1492,7 +1515,7 @@ func (h *Handler) handleMaintenancePrune(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	go h.runMaintenancePruneJob(job, run)
+	h.startWorker(func() { h.runMaintenancePruneJob(job, run) })
 
 	writeJSON(w, http.StatusOK, map[string]any{"job": job})
 }
@@ -1626,7 +1649,7 @@ func (h *Handler) handleDockerAdminApplyDaemonConfig(w http.ResponseWriter, r *h
 		job = updatedJob
 	}
 
-	go h.runDockerDaemonApplyJob(job, workflow, request)
+	h.startWorker(func() { h.runDockerDaemonApplyJob(job, workflow, request) })
 
 	writeJSON(w, http.StatusOK, map[string]any{"job": job})
 }
@@ -1889,7 +1912,7 @@ func (h *Handler) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 	job, _ = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
 
 	if request.DeployAfterCreate {
-		go h.runCreateStackDeployJob(job, workflow, request.StackID)
+		h.startWorker(func() { h.runCreateStackDeployJob(job, workflow, request.StackID) })
 		writeJSON(w, http.StatusOK, map[string]any{"job": job})
 		return
 	}
@@ -2048,7 +2071,7 @@ func (h *Handler) handleDeleteStack(w http.ResponseWriter, r *http.Request) {
 	// The destructive workflow is detached from the request and starts only
 	// after the accepted response has been written. A client or proxy disconnect
 	// must not cancel Docker cleanup halfway through or leave the job running.
-	go h.runDeleteStackJob(job, workflow, stackID, request)
+	h.startWorker(func() { h.runDeleteStackJob(job, workflow, stackID, request) })
 }
 
 func (h *Handler) handlePutDefinition(w http.ResponseWriter, r *http.Request) {
@@ -2509,7 +2532,7 @@ func (h *Handler) handleRunStackAction(w http.ResponseWriter, r *http.Request) {
 	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", "Starting stack action "+action+".", "", step)
 	_ = h.jobs.PublishEvent(r.Context(), job, "job_progress", "Running stack action "+action+".", "", step)
 
-	go h.runStackActionJob(job, workflow)
+	h.startWorker(func() { h.runStackActionJob(job, workflow) })
 
 	writeJSON(w, http.StatusOK, map[string]any{"job": job})
 }
@@ -2798,6 +2821,47 @@ func (h *Handler) appContext() context.Context {
 		return context.Background()
 	}
 	return h.appCtx
+}
+
+func (h *Handler) startWorker(run func()) {
+	if run == nil {
+		return
+	}
+	if h.workers == nil {
+		go run()
+		return
+	}
+	if h.workers.Go(func(context.Context) { run() }) {
+		return
+	}
+
+	// Shutdown won the admission race. Execute on the request goroutine with
+	// the already-cancelled app context so the job can still use its bounded,
+	// independent finalization path instead of being left in running state.
+	run()
+}
+
+// Shutdown closes hijacked connections and terminals, then waits for every
+// detached handler worker before the caller releases the application store.
+func (h *Handler) Shutdown(ctx context.Context) error {
+	if h.workers != nil {
+		h.workers.Stop()
+	}
+	h.closeWebSockets()
+	if h.terminals != nil {
+		h.terminals.Shutdown("server_shutdown")
+	}
+
+	var shutdownErrors []error
+	if err := h.waitForWebSockets(ctx); err != nil {
+		shutdownErrors = append(shutdownErrors, err)
+	}
+	if h.workers != nil {
+		if err := h.workers.Wait(ctx); err != nil {
+			shutdownErrors = append(shutdownErrors, err)
+		}
+	}
+	return errors.Join(shutdownErrors...)
 }
 
 func (h *Handler) stackActionContext() (context.Context, context.CancelFunc) {

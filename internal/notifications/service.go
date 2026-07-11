@@ -384,10 +384,14 @@ func (s *Service) SetStacklabLogReader(reader StacklabLogReader) {
 }
 
 func (s *Service) StartBackground(ctx context.Context) {
+	go s.RunBackground(ctx)
+}
+
+func (s *Service) RunBackground(ctx context.Context) {
 	if s.stacklabLogs == nil && s.stackInspector == nil {
 		return
 	}
-	go s.runStacklabSelfHealthLoop(ctx)
+	s.runStacklabSelfHealthLoop(ctx)
 }
 
 func (s *Service) GetSettings(ctx context.Context) (SettingsResponse, error) {

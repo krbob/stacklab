@@ -42,21 +42,24 @@ func NewStatsCollector(logger *slog.Logger) *StatsCollector {
 	}
 }
 
+// Run executes the sampling loop until ctx is cancelled.
+func (c *StatsCollector) Run(ctx context.Context) {
+	c.sample(ctx)
+	ticker := time.NewTicker(c.interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			c.sample(ctx)
+		}
+	}
+}
+
 // Start launches the sampling loop; it stops when ctx is cancelled.
 func (c *StatsCollector) Start(ctx context.Context) {
-	go func() {
-		c.sample(ctx)
-		ticker := time.NewTicker(c.interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				c.sample(ctx)
-			}
-		}
-	}()
+	go c.Run(ctx)
 }
 
 // Snapshot returns fresh per-project aggregates; stale entries are dropped.

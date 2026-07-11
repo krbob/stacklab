@@ -433,6 +433,46 @@ func (r *cancelOnWriteHeaderRecorder) WriteHeader(statusCode int) {
 	r.ResponseRecorder.WriteHeader(statusCode)
 }
 
+func TestHandlerShutdownClosesWebSocketsAndWaitsForDisconnect(t *testing.T) {
+	handler, _ := newTestHandler(t)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	cookies := loginTestUser(t, handler, "secret")
+
+	wsURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("url.Parse(server.URL) error = %v", err)
+	}
+	wsURL.Scheme = strings.Replace(wsURL.Scheme, "http", "ws", 1)
+	wsURL.Path = "/api/ws"
+	header := http.Header{}
+	header.Set("Origin", server.URL)
+	for _, cookie := range cookies {
+		header.Add("Cookie", cookie.Name+"="+cookie.Value)
+	}
+	wsConn, response, err := websocket.DefaultDialer.Dial(wsURL.String(), header)
+	if err != nil {
+		if response != nil {
+			_ = response.Body.Close()
+		}
+		t.Fatalf("websocket.Dial() error = %v", err)
+	}
+	defer wsConn.Close()
+	if _, _, err := wsConn.ReadMessage(); err != nil {
+		t.Fatalf("read hello frame error = %v", err)
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := handler.Shutdown(shutdownCtx); err != nil {
+		t.Fatalf("Handler.Shutdown() error = %v", err)
+	}
+	_ = wsConn.SetReadDeadline(time.Now().Add(time.Second))
+	if _, _, err := wsConn.ReadMessage(); err == nil {
+		t.Fatal("ReadMessage() error = nil after handler shutdown")
+	}
+}
+
 func TestWebSocketReplaysJobEvents(t *testing.T) {
 	t.Parallel()
 
@@ -912,7 +952,7 @@ func TestWebSocketLimitsSubscriptionsPerConnection(t *testing.T) {
 	}
 }
 
-func newTestHandler(t *testing.T) (http.Handler, config.Config) {
+func newTestHandler(t *testing.T) (*httpapi.Handler, config.Config) {
 	t.Helper()
 
 	tempDir := t.TempDir()
@@ -959,6 +999,13 @@ func newTestHandler(t *testing.T) (http.Handler, config.Config) {
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v", err)
 	}
+	t.Cleanup(func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := handler.Shutdown(shutdownCtx); err != nil {
+			t.Errorf("Handler.Shutdown() error = %v", err)
+		}
+	})
 
 	return handler, cfg
 }
