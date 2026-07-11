@@ -3,7 +3,10 @@ package jobs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
+
+	"stacklab/internal/store"
 )
 
 func TestResourceString(t *testing.T) {
@@ -102,4 +105,166 @@ func TestStartWithResourcesReturnsTypedConflict(t *testing.T) {
 	if _, err := service.StartWithResources(context.Background(), "", "docker_login", "local", DockerRegistryResource()); err != nil {
 		t.Fatalf("StartWithResources(after release) error = %v", err)
 	}
+}
+
+func TestStartDrainingRejectsActiveStackAndGlobalMutations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		start func(*Service) (store.Job, error)
+	}{
+		{
+			name: "stack",
+			start: func(service *Service) (store.Job, error) {
+				return service.Start(context.Background(), "demo", "up", "local")
+			},
+		},
+		{
+			name: "global",
+			start: func(service *Service) (store.Job, error) {
+				return service.StartWithResources(context.Background(), "", "prune", "local", GlobalResource())
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			service := NewService(openJobsTestStore(t))
+			holder, err := test.start(service)
+			if err != nil {
+				t.Fatalf("start holder error = %v", err)
+			}
+			_, err = service.StartDraining(context.Background(), "self_update_stacklab", "local", SelfUpdateResource())
+			var conflict *ResourceConflictError
+			if !errors.As(err, &conflict) || conflict.Reason != ConflictReasonDrainBlocked || conflict.ConflictingJobID != holder.ID {
+				t.Fatalf("StartDraining() error = %#v, want drain_blocked for job %s", err, holder.ID)
+			}
+			if _, err := service.FinishSucceeded(context.Background(), holder); err != nil {
+				t.Fatalf("FinishSucceeded(holder) error = %v", err)
+			}
+		})
+	}
+}
+
+func TestDrainBlocksEveryNewMutationUntilFinalized(t *testing.T) {
+	t.Parallel()
+
+	service := NewService(openJobsTestStore(t))
+	drain, err := service.StartDraining(context.Background(), "self_update_stacklab", "local", SelfUpdateResource())
+	if err != nil {
+		t.Fatalf("StartDraining() error = %v", err)
+	}
+	attempts := []struct {
+		name  string
+		start func() error
+	}{
+		{name: "stack", start: func() error { _, err := service.Start(context.Background(), "demo", "up", "local"); return err }},
+		{name: "global", start: func() error {
+			_, err := service.StartWithResources(context.Background(), "", "prune", "local", GlobalResource())
+			return err
+		}},
+		{name: "daemon", start: func() error {
+			_, err := service.StartWithResources(context.Background(), "", "daemon", "local", DockerDaemonResource())
+			return err
+		}},
+		{name: "registry", start: func() error {
+			_, err := service.StartWithResources(context.Background(), "", "registry", "local", DockerRegistryResource())
+			return err
+		}},
+		{name: "image updates", start: func() error {
+			_, err := service.StartWithResources(context.Background(), "", "images", "local", ImageUpdatesResource())
+			return err
+		}},
+	}
+	for _, attempt := range attempts {
+		err := attempt.start()
+		var conflict *ResourceConflictError
+		if !errors.As(err, &conflict) || conflict.Reason != ConflictReasonDrainActive || conflict.ConflictingJobID != drain.ID {
+			t.Errorf("%s start error = %#v, want active drain owned by %s", attempt.name, err, drain.ID)
+		}
+	}
+
+	if _, err := service.FinishFailed(context.Background(), drain, "test_finished", "test finished"); err != nil {
+		t.Fatalf("FinishFailed(drain) error = %v", err)
+	}
+	if _, err := service.Start(context.Background(), "demo", "up", "local"); err != nil {
+		t.Fatalf("Start(stack after drain finalization) error = %v", err)
+	}
+}
+
+func TestStartDrainingRaceWithStackAndGlobalMutationIsAtomic(t *testing.T) {
+	tests := []struct {
+		name     string
+		mutation func(*Service, int) (store.Job, error)
+	}{
+		{
+			name: "stack",
+			mutation: func(service *Service, iteration int) (store.Job, error) {
+				return service.Start(context.Background(), fmt.Sprintf("stack-%d", iteration), "up", "local")
+			},
+		},
+		{
+			name: "global",
+			mutation: func(service *Service, iteration int) (store.Job, error) {
+				return service.StartWithResources(context.Background(), "", fmt.Sprintf("prune-%d", iteration), "local", GlobalResource())
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service := NewService(openJobsTestStore(t))
+			for iteration := 0; iteration < 50; iteration++ {
+				gate := make(chan struct{})
+				results := make(chan startResult, 2)
+				go func() {
+					<-gate
+					job, err := service.StartDraining(context.Background(), "self_update_stacklab", "local", SelfUpdateResource())
+					results <- startResult{kind: "drain", job: job, err: err}
+				}()
+				go func() {
+					<-gate
+					job, err := test.mutation(service, iteration)
+					results <- startResult{kind: "mutation", job: job, err: err}
+				}()
+				close(gate)
+
+				first := <-results
+				second := <-results
+				successes := 0
+				var winner startResult
+				var loser startResult
+				for _, result := range []startResult{first, second} {
+					if result.err == nil {
+						successes++
+						winner = result
+					} else {
+						loser = result
+					}
+				}
+				if successes != 1 || !errors.Is(loser.err, ErrResourceConflict) {
+					t.Fatalf("iteration %d results = %#v, %#v; want one success and one conflict", iteration, first, second)
+				}
+				var conflict *ResourceConflictError
+				if !errors.As(loser.err, &conflict) {
+					t.Fatalf("iteration %d loser error = %v, want typed conflict", iteration, loser.err)
+				}
+				if winner.kind == "drain" && conflict.Reason != ConflictReasonDrainActive {
+					t.Fatalf("iteration %d mutation lost with reason %q, want drain_active", iteration, conflict.Reason)
+				}
+				if winner.kind == "mutation" && conflict.Reason != ConflictReasonDrainBlocked {
+					t.Fatalf("iteration %d drain lost with reason %q, want drain_blocked", iteration, conflict.Reason)
+				}
+				if _, err := service.FinishSucceeded(context.Background(), winner.job); err != nil {
+					t.Fatalf("iteration %d FinishSucceeded(winner) error = %v", iteration, err)
+				}
+			}
+		})
+	}
+}
+
+type startResult struct {
+	kind string
+	job  store.Job
+	err  error
 }

@@ -185,20 +185,10 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest, requestedBy s
 		return ApplyResponse{}, fmt.Errorf("%w: available version changed from %s to %s", ErrInvalidState, expected, overview.Package.CandidateVersion)
 	}
 
-	active, err := s.jobs.ListActive(ctx)
-	if err != nil {
-		return ApplyResponse{}, err
-	}
-	for _, item := range active.Items {
-		if item.Action == "self_update_stacklab" {
-			return ApplyResponse{}, fmt.Errorf("%w: a Stacklab self-update job is already running", ErrInvalidState)
-		}
-	}
-
-	job, err := s.jobs.StartWithResources(ctx, "", "self_update_stacklab", requestedBy, jobs.SelfUpdateResource())
+	job, err := s.jobs.StartDraining(ctx, "self_update_stacklab", requestedBy, jobs.SelfUpdateResource())
 	if err != nil {
 		if errors.Is(err, jobs.ErrResourceConflict) {
-			return ApplyResponse{}, fmt.Errorf("%w: a Stacklab self-update job is already running", ErrInvalidState)
+			return ApplyResponse{}, fmt.Errorf("%w: another mutating job is active; retry the Stacklab self-update after it finishes", ErrInvalidState)
 		}
 		return ApplyResponse{}, err
 	}

@@ -144,7 +144,11 @@ func ResourcesConflict(left, right Resource) bool {
 
 type ConflictReason string
 
-const ConflictReasonResourceHeld ConflictReason = "resource_held"
+const (
+	ConflictReasonResourceHeld ConflictReason = "resource_held"
+	ConflictReasonDrainActive  ConflictReason = "drain_active"
+	ConflictReasonDrainBlocked ConflictReason = "drain_blocked"
+)
 
 type ResourceConflictError struct {
 	Reason           ConflictReason
@@ -158,8 +162,9 @@ func (e *ResourceConflictError) Error() string {
 		return ErrResourceConflict.Error()
 	}
 	return fmt.Sprintf(
-		"%s: requested %s conflicts with %s held by job %s",
+		"%s (%s): requested %s conflicts with %s held by job %s",
 		ErrResourceConflict,
+		e.Reason,
 		e.Requested,
 		e.Conflicting,
 		e.ConflictingJobID,

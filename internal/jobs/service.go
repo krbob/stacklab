@@ -22,6 +22,8 @@ type Service struct {
 	mu               sync.Mutex
 	lockedByResource map[Resource]string
 	resourcesByJob   map[string][]Resource
+	drainingJobID    string
+	drainingResource Resource
 	cancelByJob      map[string]context.CancelFunc
 	subsByJob        map[string]map[chan store.JobEvent]struct{}
 	activitySubs     map[chan struct{}]struct{}
@@ -103,6 +105,18 @@ func (s *Service) Start(ctx context.Context, stackID, action, requestedBy string
 }
 
 func (s *Service) StartWithResources(ctx context.Context, stackID, action, requestedBy string, requestedResources ...Resource) (store.Job, error) {
+	return s.start(ctx, stackID, action, requestedBy, requestedResources, false)
+}
+
+// StartDraining atomically starts an unscoped job and installs an exclusive
+// barrier across every typed resource. It fails while any mutating job owns a
+// resource; once installed, all new jobs fail until the drain job reaches a
+// terminal state or the process restarts.
+func (s *Service) StartDraining(ctx context.Context, action, requestedBy string, barrier Resource) (store.Job, error) {
+	return s.start(ctx, "", action, requestedBy, []Resource{barrier}, true)
+}
+
+func (s *Service) start(ctx context.Context, stackID, action, requestedBy string, requestedResources []Resource, draining bool) (store.Job, error) {
 	now := time.Now().UTC()
 	job := store.Job{
 		ID:          "job_" + randomToken(18),
@@ -118,7 +132,7 @@ func (s *Service) StartWithResources(ctx context.Context, stackID, action, reque
 	if err != nil {
 		return store.Job{}, err
 	}
-	if err := s.lockMany(job.ID, resources); err != nil {
+	if err := s.lockMany(job.ID, resources, draining); err != nil {
 		return store.Job{}, err
 	}
 	if err := s.store.CreateJob(ctx, job); err != nil {
@@ -572,9 +586,28 @@ func markWorkflowCancelRequested(steps []store.JobWorkflowStep) []store.JobWorkf
 	return cloned
 }
 
-func (s *Service) lockMany(jobID string, resources []Resource) error {
+func (s *Service) lockMany(jobID string, resources []Resource, draining bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.drainingJobID != "" && s.drainingJobID != jobID {
+		return &ResourceConflictError{
+			Reason:           ConflictReasonDrainActive,
+			Requested:        resources[0],
+			Conflicting:      s.drainingResource,
+			ConflictingJobID: s.drainingJobID,
+		}
+	}
+	if draining {
+		if conflicting, conflictingJobID, ok := s.firstLockedResourceLocked(); ok {
+			return &ResourceConflictError{
+				Reason:           ConflictReasonDrainBlocked,
+				Requested:        resources[0],
+				Conflicting:      conflicting,
+				ConflictingJobID: conflictingJobID,
+			}
+		}
+	}
 
 	for _, requested := range resources {
 		for conflicting, currentJobID := range s.lockedByResource {
@@ -593,12 +626,34 @@ func (s *Service) lockMany(jobID string, resources []Resource) error {
 		s.lockedByResource[resource] = jobID
 	}
 	s.resourcesByJob[jobID] = append([]Resource(nil), resources...)
+	if draining {
+		s.drainingJobID = jobID
+		s.drainingResource = resources[0]
+	}
 	return nil
+}
+
+func (s *Service) firstLockedResourceLocked() (Resource, string, bool) {
+	var selected Resource
+	selectedJobID := ""
+	found := false
+	for resource, jobID := range s.lockedByResource {
+		if !found || resource.String() < selected.String() {
+			selected = resource
+			selectedJobID = jobID
+			found = true
+		}
+	}
+	return selected, selectedJobID, found
 }
 
 func (s *Service) unlockAll(jobID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.drainingJobID == jobID {
+		s.drainingJobID = ""
+		s.drainingResource = Resource{}
+	}
 
 	resources, ok := s.resourcesByJob[jobID]
 	if !ok {

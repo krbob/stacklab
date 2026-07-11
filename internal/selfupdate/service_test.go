@@ -291,6 +291,62 @@ func TestApplyRejectsWhenSelfUpdateLockHeld(t *testing.T) {
 	}
 }
 
+func TestApplyHoldsMutationDrainUntilSelfUpdateFinalizes(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+	appStore, err := store.Open(filepath.Join(directory, "stacklab.db"))
+	if err != nil {
+		t.Fatalf("store.Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = appStore.Close() })
+	helperPath := filepath.Join(directory, "stacklab-self-update-helper")
+	if err := os.WriteFile(helperPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile(helper) error = %v", err)
+	}
+
+	jobService := jobs.NewService(appStore)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	service := NewService(config.Config{
+		DatabasePath:         filepath.Join(directory, "stacklab.db"),
+		SelfUpdateHelperPath: helperPath,
+		SelfUpdateUseSudo:    true,
+	}, appStore, jobService, nil, nil, logger)
+	service.runCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		switch name {
+		case "dpkg-query":
+			return []byte("ii\t2026.07.08\n"), nil
+		case "env":
+			return []byte("stacklab:\n  Installed: 2026.07.08\n  Candidate: 2026.07.09\n"), nil
+		case "sudo":
+			return []byte(`{"result":"ok"}`), nil
+		default:
+			t.Fatalf("unexpected command %s %#v", name, args)
+			return nil, nil
+		}
+	}
+
+	response, err := service.Apply(context.Background(), ApplyRequest{ExpectedCandidateVersion: "2026.07.09"}, "local")
+	if err != nil {
+		t.Fatalf("Apply() error = %v", err)
+	}
+	if !response.Started || response.Job.ID == "" || response.Job.State != "running" {
+		t.Fatalf("unexpected Apply() response: %#v", response)
+	}
+	_, err = jobService.Start(context.Background(), "demo", "up", "local")
+	var conflict *jobs.ResourceConflictError
+	if !errors.As(err, &conflict) || conflict.Reason != jobs.ConflictReasonDrainActive || conflict.ConflictingJobID != response.Job.ID {
+		t.Fatalf("Start(stack during self-update) error = %#v, want active drain owned by %s", err, response.Job.ID)
+	}
+
+	if _, err := jobService.FinishFailed(context.Background(), response.Job, "test_finalized", "test finalized"); err != nil {
+		t.Fatalf("FinishFailed(self-update) error = %v", err)
+	}
+	if _, err := jobService.Start(context.Background(), "demo", "up", "local"); err != nil {
+		t.Fatalf("Start(stack after self-update finalization) error = %v", err)
+	}
+}
+
 func hasArg(args []string, want string) bool {
 	for _, arg := range args {
 		if arg == want {

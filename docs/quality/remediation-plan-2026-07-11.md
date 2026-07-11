@@ -52,7 +52,7 @@ rozszerzania zakresu produktu poza model single-host i Compose-first.
 | JOB-01 | done | Odłączyć delete stacka od requestu HTTP | endpoint zwraca `202` z jobem przed pracą; operacja używa app contextu i osobnego contextu finalizacji; progres jest widoczny od początku | `fix(jobs): detach stack deletion from requests` |
 | JOB-02 | done | Naprawić kolejność graceful shutdown | zatrzymanie nowych operacji, cancel background, zamknięcie WS, oczekiwanie na workery, dopiero potem DB close; test lifecycle | `fix(runtime): wait for graceful shutdown` |
 | JOB-03 | done | Wprowadzić typowane globalne zasoby locków | co najmniej `global`, `docker-daemon`, `docker-registry`, `self-update`, `stack:<id>`; operacja bez stacka nie może pozostać bez locka | `refactor(jobs): add typed resource locks` |
-| JOB-04 | planned | Drenować operacje przed self-update | self-update startuje tylko bez kolidujących mutacji i blokuje nowe do restartu/finalizacji | `fix(selfupdate): drain mutating jobs before upgrade` |
+| JOB-04 | done | Drenować operacje przed self-update | self-update startuje tylko bez kolidujących mutacji i blokuje nowe do restartu/finalizacji | `fix(selfupdate): drain mutating jobs before upgrade` |
 | JOB-05 | planned | Atomizować utworzenie joba i workflow | błąd eventu/workflow nie zostawia joba `running`; start, workflow i pierwszy event są jedną transakcją | `fix(jobs): atomically initialize workflows` |
 | JOB-06 | planned | Atomizować przejścia stanu i sekwencje eventów | cancel i worker nie wybierają tego samego numeru eventu; stan oraz event zapisują się razem | `fix(jobs): serialize state transitions and events` |
 
