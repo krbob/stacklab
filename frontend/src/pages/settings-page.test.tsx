@@ -162,11 +162,25 @@ describe("SettingsPage", () => {
 
     const passwordCard = screen.getByText("Change password").closest("section") ?? document.body;
     fireEvent.change(within(passwordCard).getByPlaceholderText("Current password"), { target: { value: "secret" } });
-    fireEvent.change(within(passwordCard).getByPlaceholderText("New password"), { target: { value: "newsecret" } });
-    fireEvent.change(within(passwordCard).getByPlaceholderText("Confirm new password"), { target: { value: "newsecret" } });
+    fireEvent.change(within(passwordCard).getByPlaceholderText("New password"), { target: { value: "new-test-password" } });
+    fireEvent.change(within(passwordCard).getByPlaceholderText("Confirm new password"), { target: { value: "new-test-password" } });
     fireEvent.click(within(passwordCard).getByRole("button", { name: "Update password" }));
 
     await waitFor(() => expect(mockRequireReauthentication).toHaveBeenCalledWith("password_changed"));
+  });
+
+  it("rejects a new password outside the supported length", () => {
+    render(<SettingsPage />);
+
+    const passwordCard = screen.getByText("Change password").closest("section") ?? document.body;
+    fireEvent.change(within(passwordCard).getByPlaceholderText("Current password"), { target: { value: "test-password" } });
+    for (const invalidPassword of ["too-short", "x".repeat(257)]) {
+      fireEvent.change(within(passwordCard).getByPlaceholderText("New password"), { target: { value: invalidPassword } });
+      fireEvent.change(within(passwordCard).getByPlaceholderText("Confirm new password"), { target: { value: invalidPassword } });
+      fireEvent.click(within(passwordCard).getByRole("button", { name: "Update password" }));
+      expect(within(passwordCard).getByText("Password must contain between 12 and 256 characters")).toBeInTheDocument();
+    }
+    expect(mockChangePassword).not.toHaveBeenCalled();
   });
 
   it("renders notifications section with loaded settings", async () => {

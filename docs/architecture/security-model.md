@@ -49,6 +49,27 @@ Recommended algorithm:
 
 Stored parameters should be explicit so they can be migrated later.
 
+New passwords are validated both during first-run bootstrap and password
+changes. They must contain between `12` and `256` Unicode characters. Login
+does not reapply that policy, so an installation with an older short password
+can still authenticate and migrate it through Settings.
+
+Stacklab generates Argon2id hashes with `64 MiB` memory, `3` iterations,
+parallelism `2`, a `16`-byte salt, and a `32`-byte result. Verification parses
+the stored hash before invoking Argon2 and fails closed outside these hard
+limits:
+
+- memory: `8-128 MiB`
+- iterations: `1-10`
+- parallelism: `1-8`
+- decoded salt and hash: `16-64` bytes each
+- complete encoded hash: at most `256` bytes
+
+The version and parameter order are strict, Base64 is decoded canonically, and
+invalid or oversized stored values are treated as invalid credentials. These
+bounds prevent a corrupted or malicious database value from selecting an
+unbounded Argon2 allocation or a panic-inducing zero parameter.
+
 ## Login Attempt Control
 
 Repeated failed login attempts from the same client IP are rate-limited with an in-memory lockout.

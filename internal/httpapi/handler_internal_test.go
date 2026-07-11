@@ -231,7 +231,7 @@ func TestHandlerPutDefinitionReturnsStackLockedWhenAnotherJobOwnsStack(t *testin
 	t.Parallel()
 
 	handler, served, _ := newInternalTestHandler(t)
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 	stackID := "fixture-save-locked"
 
 	createResponse := performInternalJSONRequest(t, served, http.MethodPost, "/api/stacks", map[string]any{
@@ -369,7 +369,7 @@ func TestHandlerHostOverviewAndLogs(t *testing.T) {
 		},
 	}
 	handler.hostInfo = host
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 
 	overviewResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/host/overview", nil, cookies)
 	if overviewResponse.Code != http.StatusOK {
@@ -409,7 +409,7 @@ func TestHandlerHostSettings(t *testing.T) {
 	handler, served, _ := newInternalTestHandler(t)
 	host := &fakeHostInfo{settingsResponse: hostinfo.SettingsResponse{PublicIPLookupEnabled: false}}
 	handler.hostInfo = host
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 
 	getResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/settings/host", nil, cookies)
 	if getResponse.Code != http.StatusOK {
@@ -437,7 +437,7 @@ func TestHandlerStacklabLogsUnavailable(t *testing.T) {
 
 	handler, served, _ := newInternalTestHandler(t)
 	handler.hostInfo = &fakeHostInfo{logsError: hostinfo.ErrLogsUnavailable}
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 
 	response := performInternalJSONRequest(t, served, http.MethodGet, "/api/host/stacklab-logs", nil, cookies)
 	if response.Code != http.StatusServiceUnavailable {
@@ -450,7 +450,7 @@ func TestHandlerHostMetricsRejectsInvalidSince(t *testing.T) {
 
 	handler, served, _ := newInternalTestHandler(t)
 	handler.hostInfo = &fakeHostInfo{}
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 
 	response := performInternalJSONRequest(t, served, http.MethodGet, "/api/host/metrics?since=not-a-time", nil, cookies)
 	if response.Code != http.StatusBadRequest {
@@ -462,7 +462,7 @@ func TestHandlerStacklabLogsRejectsInvalidLimit(t *testing.T) {
 	t.Parallel()
 
 	_, served, _ := newInternalTestHandler(t)
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 
 	response := performInternalJSONRequest(t, served, http.MethodGet, "/api/host/stacklab-logs?limit=0", nil, cookies)
 	if response.Code != http.StatusBadRequest {
@@ -555,7 +555,7 @@ func TestHandlerDockerAdminOverviewAndDaemonConfig(t *testing.T) {
 		},
 	}
 	handler.dockerAdmin = docker
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 
 	overviewResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/docker/admin/overview", nil, cookies)
 	if overviewResponse.Code != http.StatusOK {
@@ -632,7 +632,7 @@ func TestHandlerDockerRegistryStatusLoginAndLogout(t *testing.T) {
 		logoutOutput: "Removing login credentials for ghcr.io",
 	}
 	handler.dockerRegistry = registry
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 
 	statusResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/docker/registries", nil, cookies)
 	if statusResponse.Code != http.StatusOK {
@@ -675,7 +675,7 @@ func TestHandlerDockerRegistryLoginRejectsStackResourceConflict(t *testing.T) {
 	t.Parallel()
 
 	handler, served, _ := newInternalTestHandler(t)
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 	stackJob, err := handler.jobs.Start(context.Background(), "demo", "pull", "local")
 	if err != nil {
 		t.Fatalf("jobs.Start(stack) error = %v", err)
@@ -716,7 +716,7 @@ func TestHandlerDockerRegistryLoginCancelsWithAppContext(t *testing.T) {
 		loginWaitForContext: true,
 	}
 	handler.dockerRegistry = registry
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 
 	loginResponse := performInternalJSONRequest(t, served, http.MethodPost, "/api/docker/registries/login", map[string]any{
 		"registry": "ghcr.io",
@@ -759,7 +759,7 @@ func TestHandlerShutdownWaitsForDetachedJobFinalization(t *testing.T) {
 		loginWaitForContext: true,
 	}
 	handler.dockerRegistry = registry
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 
 	loginResponse := performInternalJSONRequest(t, served, http.MethodPost, "/api/docker/registries/login", map[string]any{
 		"registry": "ghcr.io",
@@ -800,7 +800,7 @@ func TestHandlerDockerRegistryLoginTimesOut(t *testing.T) {
 		loginWaitForContext: true,
 	}
 	handler.dockerRegistry = registry
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 
 	loginResponse := performInternalJSONRequest(t, served, http.MethodPost, "/api/docker/registries/login", map[string]any{
 		"registry": "ghcr.io",
@@ -836,7 +836,7 @@ func TestHandlerDockerRegistryLoginValidation(t *testing.T) {
 	t.Parallel()
 
 	_, served, _ := newInternalTestHandler(t)
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 
 	response := performInternalJSONRequest(t, served, http.MethodPost, "/api/docker/registries/login", map[string]any{
 		"registry": "ghcr.io",
@@ -896,7 +896,7 @@ func TestHandlerStacklabUpdateOverviewAndApply(t *testing.T) {
 		},
 	}
 	handler.selfUpdate = update
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 
 	overviewResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/stacklab/update/overview", nil, cookies)
 	if overviewResponse.Code != http.StatusOK {
@@ -927,7 +927,7 @@ func TestHandlerListActiveJobs(t *testing.T) {
 	t.Parallel()
 
 	handler, served, _ := newInternalTestHandler(t)
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 
 	stackJob, err := handler.jobs.Start(context.Background(), "demo", "pull", "local")
 	if err != nil {
@@ -1049,7 +1049,7 @@ func TestHandlerCancelJob(t *testing.T) {
 	t.Parallel()
 
 	handler, served, _ := newInternalTestHandler(t)
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 
 	job, err := handler.jobs.Start(context.Background(), "demo", "pull", "local")
 	if err != nil {
@@ -1092,7 +1092,7 @@ func TestHandlerGetJobEvents(t *testing.T) {
 	t.Parallel()
 
 	handler, served, cfg := newInternalTestHandler(t)
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 
 	retainedJob, err := handler.jobs.Start(context.Background(), "demo", "pull", "local")
 	if err != nil {
@@ -1181,7 +1181,7 @@ func TestHandlerImageUpdateCheckRejectsConcurrentRun(t *testing.T) {
 	t.Parallel()
 
 	handler, served, _ := newInternalTestHandler(t)
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 
 	lockingJob, err := handler.jobs.StartWithResources(context.Background(), "", "check_image_updates", "local", jobs.ImageUpdatesResource())
 	if err != nil {
@@ -1212,7 +1212,7 @@ func TestHandlerConfigWorkspaceTreeFileAndSave(t *testing.T) {
 	t.Parallel()
 
 	handler, served, cfg := newInternalTestHandler(t)
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 	configRoot := filepath.Join(cfg.RootDir, "config")
 	if err := os.MkdirAll(filepath.Join(configRoot, "nextcloud"), 0o755); err != nil {
 		t.Fatalf("MkdirAll(config nextcloud) error = %v", err)
@@ -1323,7 +1323,7 @@ func TestHandlerConfigWorkspaceErrors(t *testing.T) {
 	t.Parallel()
 
 	_, served, cfg := newInternalTestHandler(t)
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 	configRoot := filepath.Join(cfg.RootDir, "config")
 	if err := os.MkdirAll(filepath.Join(configRoot, "nextcloud"), 0o755); err != nil {
 		t.Fatalf("MkdirAll(config nextcloud) error = %v", err)
@@ -1378,7 +1378,7 @@ func TestHandlerConfigWorkspacePermissionDiagnostics(t *testing.T) {
 	}
 
 	_, served, cfg := newInternalTestHandler(t)
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 	configRoot := filepath.Join(cfg.RootDir, "config")
 	protectedPath := filepath.Join(configRoot, "demo", "secret.conf")
 	if err := os.MkdirAll(filepath.Join(configRoot, "demo"), 0o755); err != nil {
@@ -1442,7 +1442,7 @@ func TestHandlerRepairConfigWorkspacePermissions(t *testing.T) {
 		},
 	}
 
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 
 	response := performInternalJSONRequest(t, served, http.MethodPost, "/api/config/workspace/repair-permissions", map[string]any{
 		"path":      "demo/secret.conf",
@@ -1495,7 +1495,7 @@ func TestHandlerRepairStackWorkspacePermissions(t *testing.T) {
 		},
 	}
 
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 
 	response := performInternalJSONRequest(t, served, http.MethodPost, "/api/stacks/demo/workspace/repair-permissions", map[string]any{
 		"path":      "Dockerfile",
@@ -1515,7 +1515,7 @@ func TestHandlerGitWorkspaceStatusAndDiff(t *testing.T) {
 	t.Parallel()
 
 	_, served, cfg := newInternalTestHandler(t)
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 	if err := os.MkdirAll(filepath.Join(cfg.RootDir, "config", "demo"), 0o755); err != nil {
 		t.Fatalf("MkdirAll(config demo) error = %v", err)
 	}
@@ -1569,7 +1569,7 @@ func TestHandlerGitWorkspaceUnavailableAndValidation(t *testing.T) {
 	t.Parallel()
 
 	_, served, _ := newInternalTestHandler(t)
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 
 	statusResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/git/workspace/status", nil, cookies)
 	if statusResponse.Code != http.StatusOK {
@@ -1600,7 +1600,7 @@ func TestHandlerGitWorkspacePermissionDiagnostics(t *testing.T) {
 	}
 
 	_, served, cfg := newInternalTestHandler(t)
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 
 	if err := os.MkdirAll(filepath.Join(cfg.RootDir, "config", "demo"), 0o755); err != nil {
 		t.Fatalf("MkdirAll(config demo) error = %v", err)
@@ -1657,7 +1657,7 @@ func TestHandlerGitWorkspaceCommitAndPush(t *testing.T) {
 	t.Parallel()
 
 	_, served, cfg := newInternalTestHandler(t)
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 
 	if err := os.MkdirAll(filepath.Join(cfg.RootDir, "config", "demo"), 0o755); err != nil {
 		t.Fatalf("MkdirAll(config demo) error = %v", err)
@@ -1756,7 +1756,7 @@ func TestHandlerMaintenanceUpdateStacksWorkflow(t *testing.T) {
 	t.Setenv("STACKLAB_MAINTENANCE_LOG", logPath)
 
 	_, served, cfg := newInternalTestHandler(t)
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 
 	stackRoot := filepath.Join(cfg.RootDir, "stacks", "demo")
 	if err := os.MkdirAll(stackRoot, 0o755); err != nil {
@@ -1863,7 +1863,7 @@ func TestHandlerMaintenanceUpdateDoesNotExposeInternalStartError(t *testing.T) {
 	t.Parallel()
 
 	_, served, _ := newInternalTestHandler(t)
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 
 	response := performInternalJSONRequest(t, served, http.MethodPost, "/api/maintenance/update-stacks", map[string]any{
 		"target": map[string]any{
@@ -1900,7 +1900,7 @@ func TestHandlerMaintenanceUpdateWithServiceExclusionsDefaultsRemoveOrphansOff(t
 	t.Setenv("STACKLAB_MAINTENANCE_LOG", logPath)
 
 	_, served, cfg := newInternalTestHandler(t)
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 
 	stackRoot := filepath.Join(cfg.RootDir, "stacks", "demo")
 	if err := os.MkdirAll(stackRoot, 0o755); err != nil {
@@ -1991,7 +1991,7 @@ func TestHandlerMaintenanceInventoryAndPrune(t *testing.T) {
 	t.Setenv("STACKLAB_MAINTENANCE_LOG", logPath)
 
 	_, served, cfg := newInternalTestHandler(t)
-	cookies := loginInternalTestUser(t, served, "secret")
+	cookies := loginInternalTestUser(t, served, "test-password")
 
 	stackRoot := filepath.Join(cfg.RootDir, "stacks", "demo")
 	if err := os.MkdirAll(stackRoot, 0o755); err != nil {
@@ -2175,7 +2175,7 @@ func newInternalTestHandler(t *testing.T) (*Handler, http.Handler, config.Config
 		DataDir:                 filepath.Join(tempDir, "var"),
 		DatabasePath:            filepath.Join(tempDir, "var", "stacklab.db"),
 		FrontendDistDir:         filepath.Join(tempDir, "frontend"),
-		BootstrapPassword:       "secret",
+		BootstrapPassword:       "test-password",
 		SystemdUnitName:         "stacklab",
 		DockerSystemdUnitName:   "docker.service",
 		DockerDaemonConfigPath:  filepath.Join(tempDir, "docker", "daemon.json"),

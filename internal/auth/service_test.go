@@ -2,11 +2,14 @@ package auth
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -20,7 +23,7 @@ func TestServiceBootstrapLoginAuthenticateAndUpdatePassword(t *testing.T) {
 
 	ctx := context.Background()
 	authStore := openTestStore(t)
-	service := NewService(testConfig("secret"), authStore)
+	service := NewService(testConfig("test-password"), authStore)
 
 	if err := service.Bootstrap(ctx); err != nil {
 		t.Fatalf("Bootstrap() error = %v", err)
@@ -33,7 +36,7 @@ func TestServiceBootstrapLoginAuthenticateAndUpdatePassword(t *testing.T) {
 	if !configured {
 		t.Fatalf("expected bootstrap to configure password")
 	}
-	if passwordHash == "" || passwordHash == "secret" {
+	if passwordHash == "" || passwordHash == "test-password" {
 		t.Fatalf("expected hashed password to be stored")
 	}
 
@@ -41,7 +44,7 @@ func TestServiceBootstrapLoginAuthenticateAndUpdatePassword(t *testing.T) {
 		t.Fatalf("Login(wrong) error = %v, want ErrInvalidCredentials", err)
 	}
 
-	session, err := service.Login(ctx, "secret", "ua", "127.0.0.1")
+	session, err := service.Login(ctx, "test-password", "ua", "127.0.0.1")
 	if err != nil {
 		t.Fatalf("Login(secret) error = %v", err)
 	}
@@ -57,19 +60,183 @@ func TestServiceBootstrapLoginAuthenticateAndUpdatePassword(t *testing.T) {
 		t.Fatalf("AuthenticateRequest() session id = %q, want %q", authenticated.ID, session.ID)
 	}
 
-	if err := service.UpdatePassword(ctx, "secret", "newsecret"); err != nil {
+	if err := service.UpdatePassword(ctx, "test-password", "too-short"); !errors.Is(err, ErrInvalidPassword) {
+		t.Fatalf("UpdatePassword(short password) error = %v, want ErrInvalidPassword", err)
+	}
+	if _, err := service.AuthenticateRequest(ctx, request); err != nil {
+		t.Fatalf("AuthenticateRequest(session after rejected password update) error = %v", err)
+	}
+
+	if err := service.UpdatePassword(ctx, "test-password", "new-test-password"); err != nil {
 		t.Fatalf("UpdatePassword() error = %v", err)
 	}
 	if _, err := service.AuthenticateRequest(ctx, request); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("AuthenticateRequest(old session after password update) error = %v, want ErrUnauthorized", err)
 	}
 
-	if _, err := service.Login(ctx, "secret", "ua", "127.0.0.1"); !errors.Is(err, ErrInvalidCredentials) {
+	if _, err := service.Login(ctx, "test-password", "ua", "127.0.0.1"); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("Login(old password) error = %v, want ErrInvalidCredentials", err)
 	}
-	if _, err := service.Login(ctx, "newsecret", "ua", "127.0.0.1"); err != nil {
+	if _, err := service.Login(ctx, "new-test-password", "ua", "127.0.0.1"); err != nil {
 		t.Fatalf("Login(new password) error = %v", err)
 	}
+}
+
+func TestBootstrapRejectsPasswordOutsidePolicy(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	authStore := openTestStore(t)
+	service := NewService(testConfig(strings.Repeat("x", PasswordMinimumLength-1)), authStore)
+
+	if err := service.Bootstrap(ctx); !errors.Is(err, ErrInvalidPassword) {
+		t.Fatalf("Bootstrap() error = %v, want ErrInvalidPassword", err)
+	}
+	if _, configured, err := authStore.PasswordHash(ctx); err != nil {
+		t.Fatalf("PasswordHash() error = %v", err)
+	} else if configured {
+		t.Fatal("invalid bootstrap password configured authentication")
+	}
+}
+
+func TestValidateNewPasswordBoundaries(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		password string
+		valid    bool
+	}{
+		{name: "empty", password: "", valid: false},
+		{name: "below minimum", password: strings.Repeat("x", PasswordMinimumLength-1), valid: false},
+		{name: "minimum", password: strings.Repeat("x", PasswordMinimumLength), valid: true},
+		{name: "unicode minimum", password: strings.Repeat("🔐", PasswordMinimumLength), valid: true},
+		{name: "maximum", password: strings.Repeat("x", PasswordMaximumLength), valid: true},
+		{name: "above maximum", password: strings.Repeat("x", PasswordMaximumLength+1), valid: false},
+		{name: "invalid utf8", password: string([]byte{0xff, 0xfe}), valid: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateNewPassword(test.password)
+			if test.valid && err != nil {
+				t.Fatalf("validateNewPassword() error = %v", err)
+			}
+			if !test.valid && !errors.Is(err, ErrInvalidPassword) {
+				t.Fatalf("validateNewPassword() error = %v, want ErrInvalidPassword", err)
+			}
+		})
+	}
+}
+
+func TestParsePasswordHashEnforcesResourceBoundaries(t *testing.T) {
+	t.Parallel()
+
+	validSalt := bytesOfLength(argon2MinimumSaltLength)
+	validHash := bytesOfLength(argon2MinimumHashLength)
+	tests := []struct {
+		name       string
+		parameters string
+		salt       []byte
+		hash       []byte
+		valid      bool
+	}{
+		{name: "minimum parameters", parameters: "m=8192,t=1,p=1", salt: validSalt, hash: validHash, valid: true},
+		{name: "maximum parameters and components", parameters: "m=131072,t=10,p=8", salt: bytesOfLength(argon2MaximumSaltLength), hash: bytesOfLength(argon2MaximumHashLength), valid: true},
+		{name: "memory below minimum", parameters: "m=8191,t=1,p=1", salt: validSalt, hash: validHash},
+		{name: "memory above maximum", parameters: "m=131073,t=1,p=1", salt: validSalt, hash: validHash},
+		{name: "zero iterations", parameters: "m=8192,t=0,p=1", salt: validSalt, hash: validHash},
+		{name: "iterations above maximum", parameters: "m=8192,t=11,p=1", salt: validSalt, hash: validHash},
+		{name: "zero parallelism", parameters: "m=8192,t=1,p=0", salt: validSalt, hash: validHash},
+		{name: "parallelism above maximum", parameters: "m=8192,t=1,p=9", salt: validSalt, hash: validHash},
+		{name: "short salt", parameters: "m=8192,t=1,p=1", salt: bytesOfLength(argon2MinimumSaltLength - 1), hash: validHash},
+		{name: "long salt", parameters: "m=8192,t=1,p=1", salt: bytesOfLength(argon2MaximumSaltLength + 1), hash: validHash},
+		{name: "short hash", parameters: "m=8192,t=1,p=1", salt: validSalt, hash: bytesOfLength(argon2MinimumHashLength - 1)},
+		{name: "long hash", parameters: "m=8192,t=1,p=1", salt: validSalt, hash: bytesOfLength(argon2MaximumHashLength + 1)},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			encoded := passwordHashFixture(test.parameters, test.salt, test.hash)
+			_, err := parsePasswordHash(encoded)
+			if test.valid && err != nil {
+				t.Fatalf("parsePasswordHash() error = %v", err)
+			}
+			if !test.valid && !errors.Is(err, ErrInvalidCredentials) {
+				t.Fatalf("parsePasswordHash() error = %v, want ErrInvalidCredentials", err)
+			}
+		})
+	}
+}
+
+func TestVerifyPasswordRejectsMaliciousHashesWithoutPanic(t *testing.T) {
+	t.Parallel()
+
+	component := base64.RawStdEncoding.EncodeToString(bytesOfLength(argon2MinimumHashLength))
+	tests := []string{
+		"",
+		"$stacklab$argon2id$v=18$m=65536,t=3,p=2$" + component + "$" + component,
+		"$stacklab$argon2id$v=19$m=4294967295,t=3,p=2$" + component + "$" + component,
+		"$stacklab$argon2id$v=19$m=65536,t=4294967295,p=2$" + component + "$" + component,
+		"$stacklab$argon2id$v=19$m=65536,t=3,p=255$" + component + "$" + component,
+		"$stacklab$argon2id$v=19$m=65536,t=3,p=0$" + component + "$" + component,
+		"$stacklab$argon2id$v=19$m=+65536,t=3,p=2$" + component + "$" + component,
+		"$stacklab$argon2id$v=19$m=65536,t=3,p=2,trailing$" + component + "$" + component,
+		"$stacklab$argon2id$v=19$m=65536,t=3,p=2$%%%$" + component,
+		"$stacklab$argon2id$v=19$m=65536,t=3,p=2$" + component + "\n$" + component,
+		"$stacklab$argon2id$v=19$m=65536,t=3,p=2$" + strings.Repeat("A", 10_000) + "$" + component,
+		strings.Repeat("$", maximumEncodedPasswordHashLength),
+	}
+
+	for index, encoded := range tests {
+		t.Run(fmt.Sprintf("case_%d", index), func(t *testing.T) {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					t.Fatalf("verifyPassword() panicked: %v", recovered)
+				}
+			}()
+			if err := verifyPassword(encoded, "test-password"); !errors.Is(err, ErrInvalidCredentials) {
+				t.Fatalf("verifyPassword() error = %v, want ErrInvalidCredentials", err)
+			}
+		})
+	}
+}
+
+func TestDerivePasswordHashContainsArgonPanic(t *testing.T) {
+	t.Parallel()
+
+	parameters := passwordHashParameters{
+		memory:      argon2Memory,
+		iterations:  argon2Iterations,
+		parallelism: 0,
+	}
+	if _, err := derivePasswordHash([]byte("test-password"), bytesOfLength(argon2MinimumSaltLength), parameters, argon2KeyLength); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("derivePasswordHash() error = %v, want ErrInvalidCredentials", err)
+	}
+}
+
+func FuzzParsePasswordHash(f *testing.F) {
+	component := bytesOfLength(argon2MinimumHashLength)
+	f.Add(passwordHashFixture("m=65536,t=3,p=2", component, component))
+	f.Add("$stacklab$argon2id$v=19$m=4294967295,t=4294967295,p=255$invalid$invalid")
+	f.Add(strings.Repeat("$", maximumEncodedPasswordHashLength))
+
+	f.Fuzz(func(t *testing.T, encoded string) {
+		_, _ = parsePasswordHash(encoded)
+	})
+}
+
+func passwordHashFixture(parameters string, salt, hash []byte) string {
+	return fmt.Sprintf(
+		"$stacklab$argon2id$v=19$%s$%s$%s",
+		parameters,
+		base64.RawStdEncoding.EncodeToString(salt),
+		base64.RawStdEncoding.EncodeToString(hash),
+	)
+}
+
+func bytesOfLength(length int) []byte {
+	return []byte(strings.Repeat("x", length))
 }
 
 func TestUpdatePasswordRevokesEveryExistingSession(t *testing.T) {
@@ -77,21 +244,21 @@ func TestUpdatePasswordRevokesEveryExistingSession(t *testing.T) {
 
 	ctx := context.Background()
 	authStore := openTestStore(t)
-	service := NewService(testConfig("secret"), authStore)
+	service := NewService(testConfig("test-password"), authStore)
 	if err := service.Bootstrap(ctx); err != nil {
 		t.Fatalf("Bootstrap() error = %v", err)
 	}
 
-	first, err := service.Login(ctx, "secret", "first", "192.0.2.1")
+	first, err := service.Login(ctx, "test-password", "first", "192.0.2.1")
 	if err != nil {
 		t.Fatalf("Login(first) error = %v", err)
 	}
-	second, err := service.Login(ctx, "secret", "second", "192.0.2.2")
+	second, err := service.Login(ctx, "test-password", "second", "192.0.2.2")
 	if err != nil {
 		t.Fatalf("Login(second) error = %v", err)
 	}
 
-	if err := service.UpdatePassword(ctx, "secret", "newsecret"); err != nil {
+	if err := service.UpdatePassword(ctx, "test-password", "new-test-password"); err != nil {
 		t.Fatalf("UpdatePassword() error = %v", err)
 	}
 
@@ -109,11 +276,11 @@ func TestLogoutAndPasswordChangePublishSessionTermination(t *testing.T) {
 
 	t.Run("logout", func(t *testing.T) {
 		ctx := context.Background()
-		service := NewService(testConfig("secret"), openTestStore(t))
+		service := NewService(testConfig("test-password"), openTestStore(t))
 		if err := service.Bootstrap(ctx); err != nil {
 			t.Fatalf("Bootstrap() error = %v", err)
 		}
-		session, err := service.Login(ctx, "secret", "ua", "192.0.2.1")
+		session, err := service.Login(ctx, "test-password", "ua", "192.0.2.1")
 		if err != nil {
 			t.Fatalf("Login() error = %v", err)
 		}
@@ -135,11 +302,11 @@ func TestLogoutAndPasswordChangePublishSessionTermination(t *testing.T) {
 
 	t.Run("password change", func(t *testing.T) {
 		ctx := context.Background()
-		service := NewService(testConfig("secret"), openTestStore(t))
+		service := NewService(testConfig("test-password"), openTestStore(t))
 		if err := service.Bootstrap(ctx); err != nil {
 			t.Fatalf("Bootstrap() error = %v", err)
 		}
-		session, err := service.Login(ctx, "secret", "ua", "192.0.2.1")
+		session, err := service.Login(ctx, "test-password", "ua", "192.0.2.1")
 		if err != nil {
 			t.Fatalf("Login() error = %v", err)
 		}
@@ -147,7 +314,7 @@ func TestLogoutAndPasswordChangePublishSessionTermination(t *testing.T) {
 		service.SetSessionTerminationHook(func(termination SessionTermination) { hookEvents <- termination })
 		events, unsubscribe := service.sessionLifecycle.Subscribe(session)
 		defer unsubscribe()
-		if err := service.UpdatePassword(ctx, "secret", "newsecret"); err != nil {
+		if err := service.UpdatePassword(ctx, "test-password", "new-test-password"); err != nil {
 			t.Fatalf("UpdatePassword() error = %v", err)
 		}
 		if termination := <-events; termination.Reason != SessionTerminationPasswordChanged {
@@ -164,11 +331,11 @@ func TestSessionTerminationHookDoesNotRequireWebSocketSubscriber(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	service := NewService(testConfig("secret"), openTestStore(t))
+	service := NewService(testConfig("test-password"), openTestStore(t))
 	if err := service.Bootstrap(ctx); err != nil {
 		t.Fatalf("Bootstrap() error = %v", err)
 	}
-	session, err := service.Login(ctx, "secret", "ua", "192.0.2.1")
+	session, err := service.Login(ctx, "test-password", "ua", "192.0.2.1")
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
@@ -193,7 +360,7 @@ func TestAuthenticateRequestRejectsExpiredSession(t *testing.T) {
 
 	ctx := context.Background()
 	authStore := openTestStore(t)
-	service := NewService(testConfig("secret"), authStore)
+	service := NewService(testConfig("test-password"), authStore)
 
 	now := time.Now().UTC()
 	expired := now.Add(-time.Minute)
@@ -224,7 +391,7 @@ func TestLoginLocksClientAfterRepeatedFailures(t *testing.T) {
 
 	ctx := context.Background()
 	authStore := openTestStore(t)
-	cfg := testConfig("secret")
+	cfg := testConfig("test-password")
 	cfg.LoginMaxFailures = 2
 	cfg.LoginFailureWindow = time.Minute
 	cfg.LoginLockoutDuration = time.Hour
@@ -242,15 +409,15 @@ func TestLoginLocksClientAfterRepeatedFailures(t *testing.T) {
 			t.Fatalf("Login(wrong %d) error = %v, want ErrInvalidCredentials", i+1, err)
 		}
 	}
-	if _, err := service.Login(ctx, "secret", "ua", "127.0.0.1"); !errors.Is(err, ErrTooManyAttempts) {
+	if _, err := service.Login(ctx, "test-password", "ua", "127.0.0.1"); !errors.Is(err, ErrTooManyAttempts) {
 		t.Fatalf("Login(locked client) error = %v, want ErrTooManyAttempts", err)
 	}
-	if _, err := service.Login(ctx, "secret", "ua", "127.0.0.2"); err != nil {
+	if _, err := service.Login(ctx, "test-password", "ua", "127.0.0.2"); err != nil {
 		t.Fatalf("Login(other client) error = %v", err)
 	}
 
 	now = now.Add(cfg.LoginLockoutDuration + time.Nanosecond)
-	if _, err := service.Login(ctx, "secret", "ua", "127.0.0.1"); err != nil {
+	if _, err := service.Login(ctx, "test-password", "ua", "127.0.0.1"); err != nil {
 		t.Fatalf("Login(after lockout) error = %v", err)
 	}
 }
@@ -367,7 +534,7 @@ func TestLoginAttemptTrackingIsBoundedAndPrunesExpiredClients(t *testing.T) {
 func TestLoginReturnsTokenGenerationError(t *testing.T) {
 	ctx := context.Background()
 	authStore := openTestStore(t)
-	service := NewService(testConfig("secret"), authStore)
+	service := NewService(testConfig("test-password"), authStore)
 	tokenErr := errors.New("entropy unavailable")
 	service.newSessionID = func() (string, error) {
 		return "", tokenErr
@@ -377,7 +544,7 @@ func TestLoginReturnsTokenGenerationError(t *testing.T) {
 		t.Fatalf("Bootstrap() error = %v", err)
 	}
 
-	if _, err := service.Login(ctx, "secret", "ua", "127.0.0.1"); !errors.Is(err, tokenErr) {
+	if _, err := service.Login(ctx, "test-password", "ua", "127.0.0.1"); !errors.Is(err, tokenErr) {
 		t.Fatalf("Login(token error) error = %v, want %v", err, tokenErr)
 	}
 }
@@ -385,7 +552,7 @@ func TestLoginReturnsTokenGenerationError(t *testing.T) {
 func TestServiceClientIPTrustsForwardedForOnlyFromConfiguredProxy(t *testing.T) {
 	t.Parallel()
 
-	cfg := testConfig("secret")
+	cfg := testConfig("test-password")
 	cfg.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
 	cfg.TrustedProxySecret = "proxy-secret"
 	service := NewService(cfg, openTestStore(t))
@@ -436,7 +603,7 @@ func TestServiceClientIPTrustsForwardedForOnlyFromConfiguredProxy(t *testing.T) 
 func TestServiceClientIPRejectsSpoofedForwardedForWithoutProxySecret(t *testing.T) {
 	t.Parallel()
 
-	cfg := testConfig("secret")
+	cfg := testConfig("test-password")
 	cfg.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}
 	cfg.TrustedProxySecret = "proxy-secret"
 	service := NewService(cfg, openTestStore(t))
@@ -456,7 +623,7 @@ func TestLoginRateLimitSeparatesAuthenticatedProxyClientsButBoundsLocalSpoofing(
 	t.Parallel()
 
 	ctx := context.Background()
-	cfg := testConfig("secret")
+	cfg := testConfig("test-password")
 	cfg.LoginMaxFailures = 2
 	cfg.LoginFailureWindow = time.Minute
 	cfg.LoginLockoutDuration = time.Hour
@@ -482,7 +649,7 @@ func TestLoginRateLimitSeparatesAuthenticatedProxyClientsButBoundsLocalSpoofing(
 			t.Fatalf("Login(first proxied client, attempt %d) error = %v", attempt+1, err)
 		}
 	}
-	if _, err := service.Login(ctx, "secret", "ua", secondClient); err != nil {
+	if _, err := service.Login(ctx, "test-password", "ua", secondClient); err != nil {
 		t.Fatalf("Login(second proxied client) error = %v", err)
 	}
 
@@ -493,7 +660,7 @@ func TestLoginRateLimitSeparatesAuthenticatedProxyClientsButBoundsLocalSpoofing(
 			t.Fatalf("Login(local spoof, attempt %d) error = %v", attempt+1, err)
 		}
 	}
-	if _, err := service.Login(ctx, "secret", "ua", clientIP("198.51.100.3", "")); !errors.Is(err, ErrTooManyAttempts) {
+	if _, err := service.Login(ctx, "test-password", "ua", clientIP("198.51.100.3", "")); !errors.Is(err, ErrTooManyAttempts) {
 		t.Fatalf("Login(local spoof after lockout) error = %v, want ErrTooManyAttempts", err)
 	}
 }
@@ -501,7 +668,7 @@ func TestLoginRateLimitSeparatesAuthenticatedProxyClientsButBoundsLocalSpoofing(
 func TestServiceSecureRequestTrustsForwardedProtoOnlyFromConfiguredProxy(t *testing.T) {
 	t.Parallel()
 
-	cfg := testConfig("secret")
+	cfg := testConfig("test-password")
 	cfg.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
 	cfg.TrustedProxySecret = "proxy-secret"
 	service := NewService(cfg, openTestStore(t))

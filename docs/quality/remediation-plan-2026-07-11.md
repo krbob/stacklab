@@ -96,7 +96,7 @@ rozszerzania zakresu produktu poza model single-host i Compose-first.
 | ID | Status | Krok | Kryterium odbioru | Planowany commit |
 | --- | --- | --- | --- | --- |
 | AUTH-05 | planned | Uzgodnić sliding expiry cookie i DB | aktywna sesja nie wygasa według starego cookie; touch jest throttlowany; błędy DB zwracają 5xx zamiast 401 | `fix(auth): align sliding session expiry` |
-| AUTH-06 | planned | Walidować politykę haseł i parametry Argon2 | sensowne minimum hasła; parser hasha ma limity memory/iterations/parallelism i nie może panic/OOM | `fix(auth): validate password hash parameters` |
+| AUTH-06 | done | Walidować politykę haseł i parametry Argon2 | sensowne minimum hasła; parser hasha ma limity memory/iterations/parallelism i nie może panic/OOM | `fix(auth): validate password hash parameters` |
 | HEALTH-01 | planned | Rozdzielić liveness i readiness | `/live` sprawdza proces; `/ready` DB, assets i wymagane subsystemy; self-update używa readiness | `feat(health): add component readiness checks` |
 | OBS-01 | planned | Dodać correlation/request ID | request ID przechodzi przez log, job start i odpowiedź; możliwość skorelowania błędu UI z journalem | `feat(observability): correlate requests and jobs` |
 | OBS-02 | planned | Eksportować podstawowe metryki procesu | liczba requestów/jobów/WS, czasy, błędy i readiness w lekkim endpointcie zgodnym z zakresem single-host | `feat(observability): expose service metrics` |

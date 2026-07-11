@@ -428,7 +428,7 @@ func loginTestUserViaNetwork(t *testing.T, serverURL string) []*http.Cookie {
 	t.Helper()
 
 	client := http.DefaultClient
-	loginRequestBody := bytes.NewBufferString(`{"password":"secret"}`)
+	loginRequestBody := bytes.NewBufferString(`{"password":"test-password"}`)
 	loginRequest, err := http.NewRequest(http.MethodPost, serverURL+"/api/auth/login", loginRequestBody)
 	if err != nil {
 		t.Fatalf("http.NewRequest(login) error = %v", err)

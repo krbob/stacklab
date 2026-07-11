@@ -39,7 +39,7 @@ func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
 	handler, cfg := newTestHandler(t)
 
 	loginBody := map[string]any{
-		"password": "secret",
+		"password": "test-password",
 	}
 	loginResponse := performJSONRequest(t, handler, http.MethodPost, "/api/auth/login", loginBody, nil)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodPost, "/api/auth/login", loginBody, nil, loginResponse)

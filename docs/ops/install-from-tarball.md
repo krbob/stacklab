@@ -112,7 +112,7 @@ Example:
 sha256sum --check stacklab-2026.04.0-linux-amd64.tar.gz.sha256
 tar -xzf stacklab-2026.04.0-linux-amd64.tar.gz
 cd stacklab-2026.04.0-linux-amd64
-sudo STACKLAB_BOOTSTRAP_PASSWORD='change-me' ./host-tools/upgrade.sh --install-unit
+sudo STACKLAB_BOOTSTRAP_PASSWORD='replace-with-a-long-random-password' ./host-tools/upgrade.sh --install-unit
 ```
 
 The archive must not be extracted if checksum verification fails. Running the

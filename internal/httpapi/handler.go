@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -2549,6 +2550,15 @@ func (h *Handler) handleUpdatePassword(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, auth.ErrInvalidCredentials):
 			writeError(w, http.StatusUnauthorized, "unauthorized", "Current password is invalid.", nil)
+		case errors.Is(err, auth.ErrInvalidPassword):
+			writeError(w, http.StatusUnprocessableEntity, "validation_failed", fmt.Sprintf(
+				"New password must contain between %d and %d characters.",
+				auth.PasswordMinimumLength,
+				auth.PasswordMaximumLength,
+			), map[string]any{
+				"min_length": auth.PasswordMinimumLength,
+				"max_length": auth.PasswordMaximumLength,
+			})
 		case errors.Is(err, auth.ErrNotConfigured):
 			writeError(w, http.StatusServiceUnavailable, "auth_not_configured", "Authentication is not configured yet.", nil)
 		default:

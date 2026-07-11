@@ -87,7 +87,7 @@ Canonical host layout for tarball installs:
 Backend:
 
 ```bash
-STACKLAB_BOOTSTRAP_PASSWORD=change-me go run ./cmd/stacklab
+STACKLAB_BOOTSTRAP_PASSWORD=replace-with-a-long-random-password go run ./cmd/stacklab
 ```
 
 Frontend dev server:
@@ -110,7 +110,7 @@ npm ci
 npm run build
 
 cd ..
-STACKLAB_BOOTSTRAP_PASSWORD=change-me go run ./cmd/stacklab
+STACKLAB_BOOTSTRAP_PASSWORD=replace-with-a-long-random-password go run ./cmd/stacklab
 ```
 
 Then open:

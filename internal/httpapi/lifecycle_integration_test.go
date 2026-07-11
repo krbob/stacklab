@@ -17,7 +17,7 @@ func TestIntegrationResolvedConfigAndSaveDefinitionWithRealCompose(t *testing.T)
 	requireDockerComposeRuntime(t)
 
 	handler, _ := newTestHandler(t)
-	cookies := loginTestUser(t, handler, "secret")
+	cookies := loginTestUser(t, handler, "test-password")
 	stackID := uniqueIntegrationStackID("resolved")
 	t.Cleanup(func() {
 		cleanupIntegrationStack(t, handler, cookies, stackID)
@@ -143,7 +143,7 @@ func TestIntegrationComposeLifecycleActionsWithRealDocker(t *testing.T) {
 	requireDockerComposeRuntime(t)
 
 	handler, _ := newTestHandler(t)
-	cookies := loginTestUser(t, handler, "secret")
+	cookies := loginTestUser(t, handler, "test-password")
 	stackID := uniqueIntegrationStackID("lifecycle")
 	t.Cleanup(func() {
 		cleanupIntegrationStack(t, handler, cookies, stackID)
@@ -206,7 +206,7 @@ func TestIntegrationMaintenanceUpdateStacksWithRealDocker(t *testing.T) {
 	requireDockerComposeRuntime(t)
 
 	handler, _ := newTestHandler(t)
-	cookies := loginTestUser(t, handler, "secret")
+	cookies := loginTestUser(t, handler, "test-password")
 	stackID := uniqueIntegrationStackID("maint")
 	t.Cleanup(func() {
 		cleanupIntegrationStack(t, handler, cookies, stackID)
@@ -284,7 +284,7 @@ func TestIntegrationCreateDeployAndOrphanedLifecycleWithRealDocker(t *testing.T)
 	requireDockerComposeRuntime(t)
 
 	handler, _ := newTestHandler(t)
-	cookies := loginTestUser(t, handler, "secret")
+	cookies := loginTestUser(t, handler, "test-password")
 	stackID := uniqueIntegrationStackID("orphaned")
 	t.Cleanup(func() {
 		cleanupIntegrationStack(t, handler, cookies, stackID)

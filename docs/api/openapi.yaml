@@ -1233,6 +1233,8 @@ paths:
                 $ref: '#/components/schemas/UpdatePasswordResponse'
         '401':
           $ref: '#/components/responses/ErrorUnauthorized'
+        '422':
+          $ref: '#/components/responses/ErrorValidationFailed'
   /settings/notifications:
     get:
       tags: [Settings]
@@ -3111,6 +3113,9 @@ components:
           type: string
         new_password:
           type: string
+          minLength: 12
+          maxLength: 256
+          description: New password length is measured in Unicode characters.
       required: [current_password, new_password]
     UpdatePasswordResponse:
       type: object

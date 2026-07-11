@@ -11,9 +11,11 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"stacklab/internal/config"
 	"stacklab/internal/store"
@@ -24,16 +26,49 @@ import (
 var (
 	ErrUnauthorized       = errors.New("unauthorized")
 	ErrInvalidCredentials = errors.New("invalid credentials")
+	ErrInvalidPassword    = errors.New("invalid password")
 	ErrNotConfigured      = errors.New("auth not configured")
 	ErrTooManyAttempts    = errors.New("too many login attempts")
 )
 
 const (
+	PasswordMinimumLength               = 12
+	PasswordMaximumLength               = 256
 	localUserID                         = "local"
 	defaultLoginVerificationConcurrency = 2
 	defaultMaxTrackedLoginClients       = 4096
 	trustedProxySecretHeader            = "X-Stacklab-Proxy-Secret"
+	argon2Memory                        = uint32(64 * 1024)
+	argon2Iterations                    = uint32(3)
+	argon2Parallelism                   = uint8(2)
+	argon2SaltLength                    = 16
+	argon2KeyLength                     = uint32(32)
+	argon2MinimumMemory                 = uint32(8 * 1024)
+	argon2MaximumMemory                 = uint32(128 * 1024)
+	argon2MinimumIterations             = uint32(1)
+	argon2MaximumIterations             = uint32(10)
+	argon2MinimumParallelism            = uint8(1)
+	argon2MaximumParallelism            = uint8(8)
+	argon2MinimumSaltLength             = 16
+	argon2MaximumSaltLength             = 64
+	argon2MinimumHashLength             = 16
+	argon2MaximumHashLength             = 64
+	maximumEncodedPasswordHashLength    = 256
 )
+
+var passwordHashBase64 = base64.RawStdEncoding.Strict()
+
+type passwordHashParameters struct {
+	memory      uint32
+	iterations  uint32
+	parallelism uint8
+}
+
+type parsedPasswordHash struct {
+	parameters passwordHashParameters
+	salt       []byte
+	hash       []byte
+}
 
 type Service struct {
 	cfg                    config.Config
@@ -609,60 +644,141 @@ func (s *Service) maxTrackedClients() int {
 }
 
 func hashPassword(password string) (string, error) {
-	if password == "" {
-		return "", fmt.Errorf("password must not be empty")
+	if err := validateNewPassword(password); err != nil {
+		return "", err
 	}
 
-	salt := make([]byte, 16)
+	salt := make([]byte, argon2SaltLength)
 	if _, err := rand.Read(salt); err != nil {
 		return "", fmt.Errorf("generate salt: %w", err)
 	}
 
-	const (
-		memory      = 64 * 1024
-		iterations  = 3
-		parallelism = 2
-		keyLength   = 32
-	)
-
-	hash := argon2.IDKey([]byte(password), salt, iterations, memory, parallelism, keyLength)
+	hash := argon2.IDKey([]byte(password), salt, argon2Iterations, argon2Memory, argon2Parallelism, argon2KeyLength)
 	return fmt.Sprintf(
 		"$stacklab$argon2id$v=19$m=%d,t=%d,p=%d$%s$%s",
-		memory,
-		iterations,
-		parallelism,
+		argon2Memory,
+		argon2Iterations,
+		argon2Parallelism,
 		base64.RawStdEncoding.EncodeToString(salt),
 		base64.RawStdEncoding.EncodeToString(hash),
 	), nil
 }
 
 func verifyPassword(encodedHash, password string) error {
-	parts := strings.Split(encodedHash, "$")
-	if len(parts) != 7 || parts[1] != "stacklab" || parts[2] != "argon2id" {
-		return ErrInvalidCredentials
-	}
-
-	var memory uint32
-	var iterations uint32
-	var parallelism uint8
-	if _, err := fmt.Sscanf(parts[4], "m=%d,t=%d,p=%d", &memory, &iterations, &parallelism); err != nil {
-		return ErrInvalidCredentials
-	}
-
-	salt, err := base64.RawStdEncoding.DecodeString(parts[5])
-	if err != nil {
-		return ErrInvalidCredentials
-	}
-	expectedHash, err := base64.RawStdEncoding.DecodeString(parts[6])
+	parsed, err := parsePasswordHash(encodedHash)
 	if err != nil {
 		return ErrInvalidCredentials
 	}
 
-	computedHash := argon2.IDKey([]byte(password), salt, iterations, memory, parallelism, uint32(len(expectedHash)))
-	if subtle.ConstantTimeCompare(expectedHash, computedHash) != 1 {
+	computedHash, err := derivePasswordHash([]byte(password), parsed.salt, parsed.parameters, uint32(len(parsed.hash)))
+	if err != nil || subtle.ConstantTimeCompare(parsed.hash, computedHash) != 1 {
 		return ErrInvalidCredentials
 	}
 	return nil
+}
+
+func validateNewPassword(password string) error {
+	if !utf8.ValidString(password) {
+		return fmt.Errorf("%w: must be valid UTF-8", ErrInvalidPassword)
+	}
+	length := utf8.RuneCountInString(password)
+	if length < PasswordMinimumLength || length > PasswordMaximumLength {
+		return fmt.Errorf(
+			"%w: must contain between %d and %d Unicode characters",
+			ErrInvalidPassword,
+			PasswordMinimumLength,
+			PasswordMaximumLength,
+		)
+	}
+	return nil
+}
+
+func parsePasswordHash(encodedHash string) (parsedPasswordHash, error) {
+	if len(encodedHash) == 0 || len(encodedHash) > maximumEncodedPasswordHashLength {
+		return parsedPasswordHash{}, ErrInvalidCredentials
+	}
+
+	parts := strings.Split(encodedHash, "$")
+	if len(parts) != 7 || parts[0] != "" || parts[1] != "stacklab" || parts[2] != "argon2id" || parts[3] != "v=19" {
+		return parsedPasswordHash{}, ErrInvalidCredentials
+	}
+
+	parameterParts := strings.Split(parts[4], ",")
+	if len(parameterParts) != 3 {
+		return parsedPasswordHash{}, ErrInvalidCredentials
+	}
+	memory, err := parsePasswordHashParameter(parameterParts[0], "m=", 32)
+	if err != nil {
+		return parsedPasswordHash{}, ErrInvalidCredentials
+	}
+	iterations, err := parsePasswordHashParameter(parameterParts[1], "t=", 32)
+	if err != nil {
+		return parsedPasswordHash{}, ErrInvalidCredentials
+	}
+	parallelism, err := parsePasswordHashParameter(parameterParts[2], "p=", 8)
+	if err != nil {
+		return parsedPasswordHash{}, ErrInvalidCredentials
+	}
+	parameters := passwordHashParameters{
+		memory:      uint32(memory),
+		iterations:  uint32(iterations),
+		parallelism: uint8(parallelism),
+	}
+	if parameters.memory < argon2MinimumMemory || parameters.memory > argon2MaximumMemory ||
+		parameters.iterations < argon2MinimumIterations || parameters.iterations > argon2MaximumIterations ||
+		parameters.parallelism < argon2MinimumParallelism || parameters.parallelism > argon2MaximumParallelism {
+		return parsedPasswordHash{}, ErrInvalidCredentials
+	}
+
+	salt, err := decodePasswordHashComponent(parts[5], argon2MinimumSaltLength, argon2MaximumSaltLength)
+	if err != nil {
+		return parsedPasswordHash{}, ErrInvalidCredentials
+	}
+	expectedHash, err := decodePasswordHashComponent(parts[6], argon2MinimumHashLength, argon2MaximumHashLength)
+	if err != nil {
+		return parsedPasswordHash{}, ErrInvalidCredentials
+	}
+
+	return parsedPasswordHash{parameters: parameters, salt: salt, hash: expectedHash}, nil
+}
+
+func parsePasswordHashParameter(value, prefix string, bitSize int) (uint64, error) {
+	if !strings.HasPrefix(value, prefix) || len(value) == len(prefix) {
+		return 0, ErrInvalidCredentials
+	}
+	digits := value[len(prefix):]
+	for _, digit := range digits {
+		if digit < '0' || digit > '9' {
+			return 0, ErrInvalidCredentials
+		}
+	}
+	parsed, err := strconv.ParseUint(digits, 10, bitSize)
+	if err != nil {
+		return 0, ErrInvalidCredentials
+	}
+	return parsed, nil
+}
+
+func decodePasswordHashComponent(encoded string, minimumLength, maximumLength int) ([]byte, error) {
+	if len(encoded) == 0 || len(encoded) > base64.RawStdEncoding.EncodedLen(maximumLength) {
+		return nil, ErrInvalidCredentials
+	}
+	decoded, err := passwordHashBase64.DecodeString(encoded)
+	if err != nil || len(decoded) < minimumLength || len(decoded) > maximumLength ||
+		base64.RawStdEncoding.EncodeToString(decoded) != encoded {
+		return nil, ErrInvalidCredentials
+	}
+	return decoded, nil
+}
+
+func derivePasswordHash(password, salt []byte, parameters passwordHashParameters, keyLength uint32) (hash []byte, err error) {
+	defer func() {
+		if recover() != nil {
+			hash = nil
+			err = ErrInvalidCredentials
+		}
+	}()
+	return argon2.IDKey(password, salt, parameters.iterations, parameters.memory, parameters.parallelism, keyLength), nil
 }
 
 func randomToken(length int) (string, error) {

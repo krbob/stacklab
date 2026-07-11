@@ -2201,8 +2201,8 @@ Request:
 
 ```json
 {
-  "current_password": "old",
-  "new_password": "new"
+  "current_password": "existing-password",
+  "new_password": "new-random-password"
 }
 ```
 
@@ -2219,6 +2219,15 @@ The password update increments the password generation and revokes every
 existing session atomically. The response clears the current session cookie;
 the client must return to the login screen and authenticate with the new
 password.
+
+Rules:
+
+- `new_password` must contain between `12` and `256` Unicode characters
+- the same policy applies to the initial `STACKLAB_BOOTSTRAP_PASSWORD`
+- a password outside the policy returns `422 validation_failed` with
+  `min_length` and `max_length` details
+- login remains compatible with an existing shorter password until the
+  operator changes it
 
 ## `GET /api/settings/notifications`
 

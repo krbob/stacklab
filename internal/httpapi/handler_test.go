@@ -44,7 +44,7 @@ func TestHandlerLoginSessionAndPasswordUpdate(t *testing.T) {
 	}
 
 	loginResponse := performJSONRequest(t, handler, http.MethodPost, "/api/auth/login", map[string]any{
-		"password": "secret",
+		"password": "test-password",
 	}, nil)
 	if loginResponse.Code != http.StatusOK {
 		t.Fatalf("POST /api/auth/login status = %d, want %d", loginResponse.Code, http.StatusOK)
@@ -69,9 +69,39 @@ func TestHandlerLoginSessionAndPasswordUpdate(t *testing.T) {
 		t.Fatalf("unexpected session payload: %#v", sessionPayload)
 	}
 
+	weakPasswordResponse := performJSONRequest(t, handler, http.MethodPost, "/api/settings/password", map[string]any{
+		"current_password": "test-password",
+		"new_password":     "too-short",
+	}, cookies)
+	if weakPasswordResponse.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("POST /api/settings/password with short password status = %d, want %d", weakPasswordResponse.Code, http.StatusUnprocessableEntity)
+	}
+	var weakPasswordPayload struct {
+		Error struct {
+			Code    string `json:"code"`
+			Details struct {
+				MinLength int `json:"min_length"`
+				MaxLength int `json:"max_length"`
+			} `json:"details"`
+		} `json:"error"`
+	}
+	decodeResponse(t, weakPasswordResponse, &weakPasswordPayload)
+	if weakPasswordPayload.Error.Code != "validation_failed" ||
+		weakPasswordPayload.Error.Details.MinLength != auth.PasswordMinimumLength ||
+		weakPasswordPayload.Error.Details.MaxLength != auth.PasswordMaximumLength {
+		t.Fatalf("unexpected password validation error: %#v", weakPasswordPayload)
+	}
+	longPasswordResponse := performJSONRequest(t, handler, http.MethodPost, "/api/settings/password", map[string]any{
+		"current_password": "test-password",
+		"new_password":     strings.Repeat("x", auth.PasswordMaximumLength+1),
+	}, cookies)
+	if longPasswordResponse.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("POST /api/settings/password with long password status = %d, want %d", longPasswordResponse.Code, http.StatusUnprocessableEntity)
+	}
+
 	passwordResponse := performJSONRequest(t, handler, http.MethodPost, "/api/settings/password", map[string]any{
-		"current_password": "secret",
-		"new_password":     "newsecret",
+		"current_password": "test-password",
+		"new_password":     "new-test-password",
 	}, cookies)
 	if passwordResponse.Code != http.StatusOK {
 		t.Fatalf("POST /api/settings/password status = %d, want %d", passwordResponse.Code, http.StatusOK)
@@ -86,14 +116,14 @@ func TestHandlerLoginSessionAndPasswordUpdate(t *testing.T) {
 	}
 
 	oldLoginResponse := performJSONRequest(t, handler, http.MethodPost, "/api/auth/login", map[string]any{
-		"password": "secret",
+		"password": "test-password",
 	}, nil)
 	if oldLoginResponse.Code != http.StatusUnauthorized {
 		t.Fatalf("POST /api/auth/login(old password) status = %d, want %d", oldLoginResponse.Code, http.StatusUnauthorized)
 	}
 
 	newLoginResponse := performJSONRequest(t, handler, http.MethodPost, "/api/auth/login", map[string]any{
-		"password": "newsecret",
+		"password": "new-test-password",
 	}, nil)
 	if newLoginResponse.Code != http.StatusOK {
 		t.Fatalf("POST /api/auth/login(new password) status = %d, want %d", newLoginResponse.Code, http.StatusOK)
@@ -140,7 +170,7 @@ func TestHandlerRateLimitsRepeatedLoginFailures(t *testing.T) {
 	}
 
 	response := performJSONRequest(t, handler, http.MethodPost, "/api/auth/login", map[string]any{
-		"password": "secret",
+		"password": "test-password",
 	}, nil)
 	if response.Code != http.StatusTooManyRequests {
 		t.Fatalf("POST /api/auth/login locked status = %d, want %d", response.Code, http.StatusTooManyRequests)
@@ -210,7 +240,7 @@ func TestHandlerNotificationSettingsAndTestWebhook(t *testing.T) {
 	defer webhook.Close()
 
 	handler, _ := newTestHandler(t)
-	cookies := loginTestUser(t, handler, "secret")
+	cookies := loginTestUser(t, handler, "test-password")
 
 	getResponse := performJSONRequest(t, handler, http.MethodGet, "/api/settings/notifications", nil, cookies)
 	if getResponse.Code != http.StatusOK {
@@ -257,7 +287,7 @@ func TestHandlerCreateAndDeleteStackWithoutRuntime(t *testing.T) {
 	t.Parallel()
 
 	handler, cfg := newTestHandler(t)
-	cookies := loginTestUser(t, handler, "secret")
+	cookies := loginTestUser(t, handler, "test-password")
 	stackID := "fixture-create-delete"
 
 	createResponse := performJSONRequest(t, handler, http.MethodPost, "/api/stacks", map[string]any{
@@ -366,7 +396,7 @@ func TestHandlerDeleteStackContinuesAfterRequestDisconnect(t *testing.T) {
 	t.Parallel()
 
 	handler, cfg := newTestHandler(t)
-	cookies := loginTestUser(t, handler, "secret")
+	cookies := loginTestUser(t, handler, "test-password")
 	stackID := "fixture-delete-disconnect"
 
 	createResponse := performJSONRequest(t, handler, http.MethodPost, "/api/stacks", map[string]any{
@@ -437,7 +467,7 @@ func TestHandlerShutdownClosesWebSocketsAndWaitsForDisconnect(t *testing.T) {
 	handler, _ := newTestHandler(t)
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	cookies := loginTestUser(t, handler, "secret")
+	cookies := loginTestUser(t, handler, "test-password")
 
 	wsURL, err := url.Parse(server.URL)
 	if err != nil {
@@ -481,7 +511,7 @@ func TestWebSocketReplaysJobEvents(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	client := server.Client()
-	loginRequestBody := bytes.NewBufferString(`{"password":"secret"}`)
+	loginRequestBody := bytes.NewBufferString(`{"password":"test-password"}`)
 	loginRequest, err := http.NewRequest(http.MethodPost, server.URL+"/api/auth/login", loginRequestBody)
 	if err != nil {
 		t.Fatalf("http.NewRequest(login) error = %v", err)
@@ -651,7 +681,7 @@ func TestSaveDefinitionWarningPrecedesJobFinished(t *testing.T) {
 	t.Parallel()
 
 	handler, cfg := newTestHandler(t)
-	cookies := loginTestUser(t, handler, "secret")
+	cookies := loginTestUser(t, handler, "test-password")
 	stackID := "fixture-save-warning"
 
 	createResponse := performJSONRequest(t, handler, http.MethodPost, "/api/stacks", map[string]any{
@@ -779,7 +809,7 @@ func TestWebSocketClosesWhileInFlightWhenSessionIsRevoked(t *testing.T) {
 		body string
 	}{
 		{name: "logout", path: "/api/auth/logout", body: `{}`},
-		{name: "password change", path: "/api/settings/password", body: `{"current_password":"secret","new_password":"newsecret"}`},
+		{name: "password change", path: "/api/settings/password", body: `{"current_password":"test-password","new_password":"new-test-password"}`},
 	}
 	for _, test := range tests {
 		test := test
@@ -788,7 +818,7 @@ func TestWebSocketClosesWhileInFlightWhenSessionIsRevoked(t *testing.T) {
 			server := httptest.NewServer(handler)
 			t.Cleanup(server.Close)
 
-			loginRequest, err := http.NewRequest(http.MethodPost, server.URL+"/api/auth/login", bytes.NewBufferString(`{"password":"secret"}`))
+			loginRequest, err := http.NewRequest(http.MethodPost, server.URL+"/api/auth/login", bytes.NewBufferString(`{"password":"test-password"}`))
 			if err != nil {
 				t.Fatalf("http.NewRequest(login) error = %v", err)
 			}
@@ -846,6 +876,7 @@ func TestWebSocketClosesWhileInFlightWhenSessionIsRevoked(t *testing.T) {
 				t.Fatalf("revoke status = %d, want %d", revokeResponse.StatusCode, http.StatusOK)
 			}
 
+			_ = wsConn.SetReadDeadline(time.Now().Add(5 * time.Second))
 			_, _, err = wsConn.ReadMessage()
 			var closeError *websocket.CloseError
 			if !errors.As(err, &closeError) {
@@ -866,7 +897,7 @@ func TestWebSocketTerminalAttachMissingSession(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	client := server.Client()
-	loginRequestBody := bytes.NewBufferString(`{"password":"secret"}`)
+	loginRequestBody := bytes.NewBufferString(`{"password":"test-password"}`)
 	loginRequest, err := http.NewRequest(http.MethodPost, server.URL+"/api/auth/login", loginRequestBody)
 	if err != nil {
 		t.Fatalf("http.NewRequest(login) error = %v", err)
@@ -951,7 +982,7 @@ func TestWebSocketLimitsSubscriptionsPerConnection(t *testing.T) {
 	t.Parallel()
 
 	handler, _ := newTestHandler(t)
-	cookies := loginTestUser(t, handler, "secret")
+	cookies := loginTestUser(t, handler, "test-password")
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 
@@ -1049,7 +1080,7 @@ func newTestHandler(t *testing.T) (*httpapi.Handler, config.Config) {
 		DataDir:                 filepath.Join(tempDir, "var"),
 		DatabasePath:            filepath.Join(tempDir, "var", "stacklab.db"),
 		FrontendDistDir:         filepath.Join(tempDir, "frontend"),
-		BootstrapPassword:       "secret",
+		BootstrapPassword:       "test-password",
 		SessionCookieName:       "stacklab_session",
 		SessionIdleTimeout:      30 * time.Minute,
 		SessionAbsoluteLifetime: 24 * time.Hour,
