@@ -34,6 +34,26 @@ func TestWriteStringCreatesAndReplacesFile(t *testing.T) {
 	}
 }
 
+func TestWriteStringModeEnforcesModeForNewAndExistingFile(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".env")
+
+	if err := WriteStringMode(path, "SECRET=initial\n", ".stacklab-test-*", 0o600); err != nil {
+		t.Fatalf("WriteStringMode(new) error = %v", err)
+	}
+	assertFile(t, path, "SECRET=initial\n", 0o600)
+
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatalf("Chmod(.env) error = %v", err)
+	}
+	if err := WriteStringMode(path, "SECRET=updated\n", ".stacklab-test-*", 0o600); err != nil {
+		t.Fatalf("WriteStringMode(existing) error = %v", err)
+	}
+	assertFile(t, path, "SECRET=updated\n", 0o600)
+}
+
 func assertFile(t *testing.T, path, wantContent string, wantMode os.FileMode) {
 	t.Helper()
 

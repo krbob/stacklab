@@ -379,12 +379,29 @@ func TestCreateListGetSaveAndDeleteStackFilesystemFlow(t *testing.T) {
 	if info, err := os.Stat(composePath); err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("updated compose.yaml mode = %v, %v; want 0600", infoMode(info), err)
 	}
-	envBytes, err := os.ReadFile(filepath.Join(reader.cfg.RootDir, "stacks", stackID, ".env"))
+	envPath := filepath.Join(reader.cfg.RootDir, "stacks", stackID, ".env")
+	envBytes, err := os.ReadFile(envPath)
 	if err != nil {
 		t.Fatalf("ReadFile(.env) error = %v", err)
 	}
 	if string(envBytes) != "PORT=9090\n" {
 		t.Fatalf(".env content = %q, want %q", string(envBytes), "PORT=9090\n")
+	}
+	if info, err := os.Stat(envPath); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("new .env mode = %v, %v; want 0600", infoMode(info), err)
+	}
+	if err := os.Chmod(envPath, 0o644); err != nil {
+		t.Fatalf("Chmod(.env) error = %v", err)
+	}
+	if _, _, err := reader.SaveDefinition(ctx, stackID, UpdateDefinitionRequest{
+		ComposeYAML:       "services:\n  app:\n    image: nginx:stable\n",
+		Env:               "PORT=9091\n",
+		ValidateAfterSave: false,
+	}); err != nil {
+		t.Fatalf("SaveDefinition(existing .env) error = %v", err)
+	}
+	if info, err := os.Stat(envPath); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("updated .env mode = %v, %v; want 0600", infoMode(info), err)
 	}
 
 	if err := reader.DeleteStack(ctx, stackID, DeleteStackRequest{
@@ -399,6 +416,35 @@ func TestCreateListGetSaveAndDeleteStackFilesystemFlow(t *testing.T) {
 	assertMissing(t, filepath.Join(reader.cfg.RootDir, "stacks", stackID))
 	assertMissing(t, filepath.Join(reader.cfg.RootDir, "config", stackID))
 	assertMissing(t, filepath.Join(reader.cfg.RootDir, "data", stackID))
+}
+
+func TestNewServiceReaderSecuresExistingStackEnvironmentFiles(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	stackDir := filepath.Join(rootDir, "stacks", "demo")
+	if err := os.MkdirAll(stackDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(stackDir) error = %v", err)
+	}
+	envPath := filepath.Join(stackDir, ".env")
+	composePath := filepath.Join(stackDir, "compose.yaml")
+	for _, path := range []string{envPath, composePath} {
+		if err := os.WriteFile(path, []byte("fixture\n"), 0o644); err != nil {
+			t.Fatalf("WriteFile(%s) error = %v", path, err)
+		}
+		if err := os.Chmod(path, 0o644); err != nil {
+			t.Fatalf("Chmod(%s) error = %v", path, err)
+		}
+	}
+
+	_ = NewServiceReader(config.Config{RootDir: rootDir}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	if info, err := os.Stat(envPath); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("existing .env mode = %v, %v; want 0600", infoMode(info), err)
+	}
+	if info, err := os.Stat(composePath); err != nil || info.Mode().Perm() != 0o644 {
+		t.Fatalf("existing compose.yaml mode = %v, %v; want 0644", infoMode(info), err)
+	}
 }
 
 func TestDeleteStackWithRuntimeStopsWhenDockerUnavailable(t *testing.T) {

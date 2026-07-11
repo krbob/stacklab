@@ -8,6 +8,17 @@ import (
 const defaultFileMode os.FileMode = 0o644
 
 func WriteString(path, content, pattern string) error {
+	return writeString(path, content, pattern, 0, true)
+}
+
+// WriteStringMode atomically writes content and always applies mode to the
+// destination. Use it for managed files whose contents require a fixed,
+// restrictive permission regardless of the mode of an existing file.
+func WriteStringMode(path, content, pattern string, mode os.FileMode) error {
+	return writeString(path, content, pattern, mode.Perm(), false)
+}
+
+func writeString(path, content, pattern string, mode os.FileMode, preserveExistingMode bool) error {
 	if pattern == "" {
 		pattern = ".stacklab-*"
 	}
@@ -15,11 +26,13 @@ func WriteString(path, content, pattern string) error {
 		return err
 	}
 
-	mode := defaultFileMode
-	if info, err := os.Stat(path); err == nil {
-		mode = info.Mode().Perm()
-	} else if !os.IsNotExist(err) {
-		return err
+	if preserveExistingMode {
+		mode = defaultFileMode
+		if info, err := os.Stat(path); err == nil {
+			mode = info.Mode().Perm()
+		} else if !os.IsNotExist(err) {
+			return err
+		}
 	}
 
 	tmpFile, err := os.CreateTemp(filepath.Dir(path), pattern)

@@ -38,9 +38,26 @@ ensure_workspace_dirs() {
 }
 
 ensure_runtime_dirs() {
-  install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0755 "${DATA_DIR}"
-  install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0755 "${DATA_DIR}/home"
-  install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0755 "${DATA_DIR}/docker"
+  install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0700 "${DATA_DIR}"
+  install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0700 "${DATA_DIR}/home"
+  install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0700 "${DATA_DIR}/docker"
+}
+
+ensure_sensitive_file_modes() {
+  if [ -f "${ENV_FILE}" ]; then
+    chown root:root "${ENV_FILE}"
+    chmod 0600 "${ENV_FILE}"
+  fi
+
+  for file in "${DATA_DIR}/stacklab.db" "${DATA_DIR}/stacklab.db-wal" "${DATA_DIR}/stacklab.db-shm"; do
+    if [ -e "${file}" ]; then
+      chmod 0600 "${file}"
+    fi
+  done
+
+  if [ -d "${WORKSPACE_ROOT}/stacks" ]; then
+    find "${WORKSPACE_ROOT}/stacks" -mindepth 2 -maxdepth 2 -type f -name .env -exec chmod 0600 {} +
+  fi
 }
 
 ensure_groups() {
@@ -76,6 +93,7 @@ case "$1" in
     create_user
     ensure_workspace_dirs
     ensure_runtime_dirs
+    ensure_sensitive_file_modes
     ensure_groups
     maybe_enable_service "$@"
     print_bootstrap_hint

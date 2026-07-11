@@ -31,7 +31,7 @@ rozszerzania zakresu produktu poza model single-host i Compose-first.
 | ID | Status | Krok | Kryterium odbioru | Planowany commit |
 | --- | --- | --- | --- | --- |
 | SEC-01 | done | Ograniczyć prawa katalogu runtime i SQLite | data dir `0700`; DB, WAL i SHM `0600`; istniejąca instalacja jest naprawiana przy starcie/upgrade; test trybów plików | `fix(security): restrict runtime state permissions` |
-| SEC-02 | planned | Ograniczyć prawa plików zawierających sekrety | systemowy env nie jest world-readable; nowe stackowe `.env` mają `0600`; istniejące tryby są zachowywane; test pakietu i writerów | `fix(security): protect environment files` |
+| SEC-02 | done | Ograniczyć prawa plików zawierających sekrety | systemowy env nie jest world-readable; nowe i istniejące stackowe `.env` mają `0600`; inne zapisy nadal zachowują istniejący mode; test pakietu i writerów | `fix(security): protect environment files` |
 
 ## P1 — blokery wydania stabilnego
 

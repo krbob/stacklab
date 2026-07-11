@@ -151,15 +151,36 @@ install_env_file() {
 
   install -d -m 0755 "$(dirname "${env_path}")"
 
-  if [[ -f "${env_path}" ]]; then
-    return 0
+  if [[ ! -f "${env_path}" ]]; then
+    cp "${source_env}" "${env_path}"
+    perl -0pi -e "s|STACKLAB_ROOT=/opt/stacklab|STACKLAB_ROOT=${stacklab_root}|g; s|STACKLAB_DATA_DIR=/var/lib/stacklab|STACKLAB_DATA_DIR=${data_dir}|g" "${env_path}"
+
+    if [[ -n "${STACKLAB_BOOTSTRAP_PASSWORD:-}" ]]; then
+      printf '\nSTACKLAB_BOOTSTRAP_PASSWORD=%s\n' "${STACKLAB_BOOTSTRAP_PASSWORD}" >> "${env_path}"
+    fi
   fi
 
-  cp "${source_env}" "${env_path}"
-  perl -0pi -e "s|STACKLAB_ROOT=/opt/stacklab|STACKLAB_ROOT=${stacklab_root}|g; s|STACKLAB_DATA_DIR=/var/lib/stacklab|STACKLAB_DATA_DIR=${data_dir}|g" "${env_path}"
+  chown root:root "${env_path}"
+  chmod 0600 "${env_path}"
+}
 
-  if [[ -n "${STACKLAB_BOOTSTRAP_PASSWORD:-}" ]]; then
-    printf '\nSTACKLAB_BOOTSTRAP_PASSWORD=%s\n' "${STACKLAB_BOOTSTRAP_PASSWORD}" >> "${env_path}"
+secure_runtime_file_modes() {
+  local stacklab_root="$1"
+  local data_dir="$2"
+  local env_path="$3"
+
+  chmod 0700 "${data_dir}"
+  for file in "${data_dir}/stacklab.db" "${data_dir}/stacklab.db-wal" "${data_dir}/stacklab.db-shm"; do
+    if [[ -e "${file}" ]]; then
+      chmod 0600 "${file}"
+    fi
+  done
+  if [[ -d "${stacklab_root}/stacks" ]]; then
+    find "${stacklab_root}/stacks" -mindepth 2 -maxdepth 2 -type f -name .env -exec chmod 0600 {} +
+  fi
+  if [[ -f "${env_path}" ]]; then
+    chown root:root "${env_path}"
+    chmod 0600 "${env_path}"
   fi
 }
 
@@ -203,7 +224,7 @@ ensure_service_account() {
     usermod -a -G systemd-journal "${service_user}" || true
   fi
 
-  install -d -m 0755 "${data_dir}/home" "${data_dir}/docker"
+  install -d -m 0700 "${data_dir}/home" "${data_dir}/docker"
   chown -R "${service_user}:${service_group}" "${app_root}" "${data_dir}"
   chown "${service_user}:${service_group}" "${stacklab_root}" "${stacklab_root}/stacks" "${stacklab_root}/config" "${stacklab_root}/data"
 }
@@ -311,7 +332,8 @@ main() {
 
   [[ ! -e "${install_dir}" ]] || die "release already exists at ${install_dir}"
 
-  install -d -m 0755 "${releases_dir}" "${stacklab_root}/stacks" "${stacklab_root}/config" "${stacklab_root}/data" "${data_dir}"
+  install -d -m 0755 "${releases_dir}" "${stacklab_root}/stacks" "${stacklab_root}/config" "${stacklab_root}/data"
+  install -d -m 0700 "${data_dir}"
 
   log "Installing release ${release_name} into ${install_dir}"
   cp -R "${artifact_root}" "${install_dir}"
@@ -324,6 +346,7 @@ main() {
     systemctl daemon-reload
     systemctl enable "${service_name}" >/dev/null 2>&1 || true
   fi
+  secure_runtime_file_modes "${stacklab_root}" "${data_dir}" "${env_path}"
 
   if [[ -L "${current_link}" || -e "${current_link}" ]]; then
     previous_target="$(readlink -f "${current_link}" || true)"

@@ -85,12 +85,16 @@ main() {
       command -v docker-compose >/dev/null || docker compose version >/dev/null
       test -x /usr/lib/stacklab/bin/stacklab
       test -f /etc/stacklab/stacklab.env
+      test "$(stat -c %a /etc/stacklab/stacklab.env)" = "600"
       test -f /lib/systemd/system/stacklab.service
       test -d /srv/stacklab/stacks
       test -d /srv/stacklab/config
       test -d /srv/stacklab/data
       test -d /var/lib/stacklab/home
       test -d /var/lib/stacklab/docker
+      test "$(stat -c %a /var/lib/stacklab)" = "700"
+      test "$(stat -c %a /var/lib/stacklab/home)" = "700"
+      test "$(stat -c %a /var/lib/stacklab/docker)" = "700"
       getent passwd stacklab >/dev/null
       getent group stacklab >/dev/null
     '

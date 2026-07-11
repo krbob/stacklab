@@ -115,6 +115,7 @@ EOF
       test -d "${release_a}"
       test -f /etc/systemd/system/stacklab.service
       test -f /etc/stacklab/stacklab.env
+      test "$(stat -c %a /etc/stacklab/stacklab.env)" = "600"
       grep -q "^STACKLAB_ROOT=/opt/stacklab$" /etc/stacklab/stacklab.env
       grep -q "^STACKLAB_DATA_DIR=/var/lib/stacklab$" /etc/stacklab/stacklab.env
       grep -q "^STACKLAB_BOOTSTRAP_PASSWORD=smoke-pass$" /etc/stacklab/stacklab.env
@@ -122,18 +123,22 @@ EOF
       getent group stacklab >/dev/null
       test -d /var/lib/stacklab/home
       test -d /var/lib/stacklab/docker
+      test "$(stat -c %a /var/lib/stacklab)" = "700"
       grep -q "^daemon-reload$" /var/tmp/stacklab-systemctl.log
       grep -q "^enable stacklab$" /var/tmp/stacklab-systemctl.log
       grep -q "^restart stacklab$" /var/tmp/stacklab-systemctl.log
 
       mkdir -p /opt/stacklab/stacks/demo /opt/stacklab/config/demo /opt/stacklab/data/demo
       printf "services:\n" >/opt/stacklab/stacks/demo/compose.yaml
+      printf "SECRET=smoke\n" >/opt/stacklab/stacks/demo/.env
+      chmod 0644 /opt/stacklab/stacks/demo/.env
       printf "hello=world\n" >/opt/stacklab/config/demo/app.env
       printf "keep\n" >/opt/stacklab/data/demo/sentinel.txt
 
       cp -R "${artifact_a}" /tmp/artifact-b/stacklab-upgrade-b
       printf "0.0.0-smoke-upgrade\n" >/tmp/artifact-b/stacklab-upgrade-b/metadata/version.txt
       /tmp/artifact-b/stacklab-upgrade-b/host-tools/upgrade.sh --no-health-check
+      test "$(stat -c %a /opt/stacklab/stacks/demo/.env)" = "600"
 
       release_b="$(readlink -f /opt/stacklab/app/current)"
       test -n "${release_b}"

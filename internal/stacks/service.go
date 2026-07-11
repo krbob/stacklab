@@ -164,11 +164,46 @@ type MaintenanceStepOptions struct {
 }
 
 func NewServiceReader(cfg config.Config, logger *slog.Logger) *ServiceReader {
+	if err := secureExistingStackEnvFiles(cfg.RootDir); err != nil && logger != nil {
+		logger.Warn("failed to secure existing stack environment files", slog.String("err", err.Error()))
+	}
 	return &ServiceReader{
 		cfg:                  cfg,
 		logger:               logger,
 		definitionWarningLog: map[string]string{},
 	}
+}
+
+func secureExistingStackEnvFiles(rootDir string) error {
+	stacksRoot := filepath.Join(rootDir, "stacks")
+	entries, err := os.ReadDir(stacksRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read stacks directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() || !IsValidStackID(entry.Name()) {
+			continue
+		}
+		envPath := filepath.Join(stacksRoot, entry.Name(), ".env")
+		info, err := os.Lstat(envPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return fmt.Errorf("stat stack environment file %q: %w", envPath, err)
+		}
+		if !info.Mode().IsRegular() {
+			continue
+		}
+		if err := os.Chmod(envPath, 0o600); err != nil {
+			return fmt.Errorf("secure stack environment file %q: %w", envPath, err)
+		}
+	}
+	return nil
 }
 
 func (s *ServiceReader) Session() SessionResponse {
@@ -1892,7 +1927,7 @@ func ensureDefinitionRevision(stack discoveredStack, expected DefinitionRevision
 func writeEnvFile(path, content string) error {
 	if content == "" {
 		if _, err := os.Stat(path); err == nil {
-			return writeFileAtomic(path, "")
+			return writeEnvFileAtomic(path, "")
 		} else if os.IsNotExist(err) {
 			return nil
 		} else {
@@ -1900,7 +1935,11 @@ func writeEnvFile(path, content string) error {
 		}
 	}
 
-	return writeFileAtomic(path, content)
+	return writeEnvFileAtomic(path, content)
+}
+
+func writeEnvFileAtomic(path, content string) error {
+	return atomicfile.WriteStringMode(path, content, ".stacklab-*", 0o600)
 }
 
 func runComposeConfig(ctx context.Context, projectDir, composeArg, envPath, stdinContent string) (string, error) {
