@@ -322,6 +322,16 @@ Nightly and stable workflows use the built-in `GITHUB_TOKEN` for:
 - creating GitHub Releases
 - pushing APT repository updates to `gh-pages`
 
+Release workflow permissions follow least privilege:
+
+- the workflow default is `contents: read`
+- only release/APT publication jobs receive `contents: write`
+- nightly retention cleanup receives `contents: write` only for deleting old
+  prereleases and their tags
+- checkout credentials are not persisted in build, test, smoke, preparation,
+  or pull-request jobs; they are retained only by jobs that intentionally push
+  `gh-pages`
+
 The published APT repository should expose the public signing key at:
 
 - `https://krbob.github.io/stacklab/apt/stacklab-archive-keyring.gpg`

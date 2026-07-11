@@ -9,7 +9,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: apt-pages-publication
@@ -27,6 +27,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Fetch tags
         run: git fetch --tags --force
@@ -56,6 +57,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -104,6 +107,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Download amd64 hotfix artifacts
         uses: actions/download-artifact@v8
@@ -120,12 +125,15 @@ jobs:
   publish:
     name: publish-hotfix
     needs: [prepare, build, smoke-package]
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: true
 
       - name: Fetch tags
         run: git fetch --tags --force
@@ -196,6 +204,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Wait for Pages to serve stable metadata
         shell: bash

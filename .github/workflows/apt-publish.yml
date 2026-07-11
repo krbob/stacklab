@@ -20,7 +20,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: apt-pages-publication
@@ -29,12 +29,15 @@ concurrency:
 jobs:
   apt-publish:
     name: apt-publish
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: true
 
       - name: Install packaging tools
         run: |
