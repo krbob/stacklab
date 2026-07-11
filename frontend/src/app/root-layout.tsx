@@ -68,6 +68,7 @@ export function RootLayout() {
   const location = useLocation()
   const scrollRef = useRef<HTMLDivElement>(null)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const moreActive = morePaths.some((path) => location.pathname === path || location.pathname.startsWith(`${path}/`))
 
   // Nav hotkeys 1-7 (Z5); skipped while typing.
   useEffect(() => {
@@ -129,6 +130,7 @@ export function RootLayout() {
             aria-hidden
           />
           <aside
+            id="mobile-navigation"
             role="dialog"
             aria-modal="true"
             aria-label="Navigation"
@@ -199,7 +201,13 @@ export function RootLayout() {
           type="button"
           onClick={() => setMobileNavOpen(true)}
           aria-label="More navigation"
-          className="flex flex-col items-center gap-1 py-2 text-[10px] font-medium text-[var(--muted)] transition"
+          aria-controls="mobile-navigation"
+          aria-expanded={mobileNavOpen}
+          aria-pressed={moreActive}
+          className={[
+            'flex flex-col items-center gap-1 py-2 text-[10px] font-medium transition',
+            mobileNavOpen || moreActive ? 'text-[var(--accent)]' : 'text-[var(--muted)]',
+          ].join(' ')}
         >
           <Ellipsis className="size-5" />
           <span>More</span>
@@ -219,3 +227,5 @@ const bottomLinks = [
   { to: '/maintenance', label: 'Maint', icon: Wrench },
   { to: '/audit', label: 'Audit', icon: Activity },
 ]
+
+const morePaths = ['/config', '/docker', '/settings']

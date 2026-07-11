@@ -40,13 +40,14 @@ function LocationProbe({ modal = false }: { modal?: boolean }) {
   )
 }
 
-function renderRoot({ modal = false } = {}) {
+function renderRoot({ modal = false, initialEntry = '/stacks' } = {}) {
   return render(
-    <MemoryRouter initialEntries={['/stacks']}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route path="/" element={<RootLayout />}>
           <Route path="stacks" element={<LocationProbe modal={modal} />} />
           <Route path="host" element={<LocationProbe />} />
+          <Route path="settings" element={<LocationProbe />} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -102,5 +103,19 @@ describe('RootLayout keyboard navigation', () => {
     fireEvent.keyDown(window, { key: '2' })
 
     expect(screen.getByTestId('path')).toHaveTextContent('/stacks')
+  })
+
+  it('marks More active on secondary mobile routes and exposes drawer state', () => {
+    renderRoot({ initialEntry: '/settings' })
+
+    const more = screen.getByRole('button', { name: 'More navigation' })
+    expect(more).toHaveAttribute('aria-pressed', 'true')
+    expect(more).toHaveAttribute('aria-expanded', 'false')
+    expect(more).toHaveClass('text-[var(--accent)]')
+
+    fireEvent.click(more)
+
+    expect(more).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('dialog', { name: 'Navigation' })).toBeInTheDocument()
   })
 })

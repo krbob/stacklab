@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { Routes, Route } from 'react-router-dom'
+import { Navigate, Routes, Route } from 'react-router-dom'
 
 import { AuthGuard } from '@/components/auth-guard'
 import { RootLayout } from '@/app/root-layout'
@@ -37,7 +37,7 @@ export function AppRoutes() {
             </AuthGuard>
           }
         >
-          <Route index element={<StacksPage />} />
+          <Route index element={<Navigate to="/stacks" replace />} />
           <Route path="stacks" element={<StacksPage />} />
           <Route path="stacks/new" element={<Suspense fallback={<PageLoading title="Create stack" />}><CreateStackPage /></Suspense>} />
           <Route path="host" element={<HostPage />} />

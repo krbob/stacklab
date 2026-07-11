@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import { AppRoutes } from './routes'
 
@@ -47,4 +47,19 @@ describe('AppRoutes page metadata', () => {
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
     expect(document.title).toBe(`${screenName} | Stacklab`)
   })
+
+  it('canonicalizes the authenticated root URL to /stacks', async () => {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <LocationProbe />
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByTestId('route-path')).toHaveTextContent('/stacks')
+  })
 })
+
+function LocationProbe() {
+  return <span data-testid="route-path">{useLocation().pathname}</span>
+}

@@ -181,6 +181,17 @@ Stacks → Docker → inspect daemon status → inspect daemon.json
 | 768px - 1279px | Tablet | Collapsed sidebar (icons only), full content area. Terminal and editor show a "best on desktop" hint but remain usable. |
 | < 768px | Mobile | Fixed app shell with top header, bottom primary navigation, and a "More" drawer. Core read/operate flows are supported; dense tools such as editor and terminal remain usable but are optimized for larger screens. |
 
+Mobile navigation rules:
+
+- `/` canonicalizes to `/stacks`, so deep-link and refresh behavior use one
+  landing URL;
+- Stacks, Host, Maintenance, and Audit stay in the bottom navigation;
+- Config, Docker, and Settings activate the `More` affordance and remain
+  available in its drawer;
+- stack views use a single-line, horizontally scrollable sticky tab bar;
+- stack actions stay directly below that tab bar while scrolling and are
+  separated into deployment, image, and disruptive groups.
+
 ## URL Structure
 
 All routes are client-side (SPA with history mode):

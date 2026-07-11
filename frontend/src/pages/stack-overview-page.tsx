@@ -214,62 +214,81 @@ function ActionBar({
     onAction()
   }, [onAction])
 
-  const buttons: { label: string; action: string; variant?: 'danger'; confirmation?: DisruptiveAction }[] = [
-    { label: 'Deploy', action: 'up' },
-    { label: 'Restart', action: 'restart' },
-    { label: 'Stop', action: 'stop', confirmation: 'stop' },
-    { label: 'Down', action: 'down', variant: 'danger', confirmation: 'down' },
-    { label: 'Pull', action: 'pull' },
-    { label: 'Build', action: 'build' },
+  const buttons: { label: string; action: string; group: 'deployment' | 'images' | 'disruptive'; variant?: 'danger'; confirmation?: DisruptiveAction }[] = [
+    { label: 'Deploy', action: 'up', group: 'deployment' },
+    { label: 'Restart', action: 'restart', group: 'deployment' },
+    { label: 'Pull', action: 'pull', group: 'images' },
+    { label: 'Build', action: 'build', group: 'images' },
+    { label: 'Stop', action: 'stop', group: 'disruptive', confirmation: 'stop' },
+    { label: 'Down', action: 'down', group: 'disruptive', variant: 'danger', confirmation: 'down' },
   ]
+  const visibleButtons = buttons.filter((button) => actions.includes(button.action as typeof actions[number]))
+
+  const renderActionButton = (button: typeof buttons[number]) => (
+    <button
+      key={button.action}
+      disabled={locked}
+      onClick={() => {
+        if (button.confirmation) {
+          setPendingAction(button.confirmation)
+          return
+        }
+        void handleAction(button.action)
+      }}
+      className={cn(
+        'shrink-0 rounded-md border px-3 py-1.5 text-xs font-medium transition disabled:opacity-40',
+        button.variant === 'danger'
+          ? 'border-[var(--danger)]/30 text-[var(--danger)] hover:bg-[var(--danger)]/10'
+          : 'border-[var(--panel-border)] text-[var(--text)] hover:bg-[rgba(255,255,255,0.05)]',
+      )}
+    >
+      {button.label}
+    </button>
+  )
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap justify-end gap-2">
-        {stack.updates?.state === 'available' && (
-          <button
-            disabled={locked}
-            onClick={handleUpdateStack}
-            className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1.5 text-xs font-medium text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40"
-          >
-            Update
-          </button>
-        )}
-
-        {buttons.map((btn) => {
-          if (!actions.includes(btn.action as typeof actions[number])) return null
-          return (
-            <button
-              key={btn.action}
-              disabled={locked}
-              onClick={() => {
-                if (btn.confirmation) {
-                  setPendingAction(btn.confirmation)
-                  return
-                }
-                void handleAction(btn.action)
-              }}
-              className={cn(
-                'rounded-md border px-3 py-1.5 text-xs font-medium transition disabled:opacity-40',
-                btn.variant === 'danger'
-                  ? 'border-[var(--danger)]/30 text-[var(--danger)] hover:bg-[var(--danger)]/10'
-                  : 'border-[var(--panel-border)] text-[var(--text)] hover:bg-[rgba(255,255,255,0.05)]',
+      <div
+        data-testid="stack-action-bar"
+        className="sticky top-[3.75rem] z-10 -mx-5 overflow-x-auto border-y border-[var(--panel-border)] bg-[var(--panel)] px-5 py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:static md:mx-0 md:overflow-visible md:border-0 md:bg-transparent md:p-0"
+      >
+        <div className="flex min-w-max items-center gap-2 md:min-w-0 md:justify-end">
+          {(stack.updates?.state === 'available' || visibleButtons.some((button) => button.group === 'deployment')) && (
+            <div role="group" aria-label="Deployment actions" className="flex items-center gap-2">
+              {stack.updates?.state === 'available' && (
+                <button
+                  disabled={locked}
+                  onClick={handleUpdateStack}
+                  className="shrink-0 rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1.5 text-xs font-medium text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40"
+                >
+                  Update
+                </button>
               )}
-            >
-              {btn.label}
-            </button>
-          )
-        })}
+              {visibleButtons.filter((button) => button.group === 'deployment').map(renderActionButton)}
+            </div>
+          )}
 
-        {actions.includes('remove_stack_definition') && (
-          <button
-            disabled={locked}
-            onClick={onRemove}
-            className="rounded-md border border-[var(--danger)]/30 px-3 py-1.5 text-xs font-medium text-[var(--danger)] transition hover:bg-[var(--danger)]/10 disabled:opacity-40"
-          >
-            Remove
-          </button>
-        )}
+          {visibleButtons.some((button) => button.group === 'images') && (
+            <div role="group" aria-label="Image actions" className="flex items-center gap-2 border-l border-[var(--panel-border)] pl-2">
+              {visibleButtons.filter((button) => button.group === 'images').map(renderActionButton)}
+            </div>
+          )}
+
+          {(visibleButtons.some((button) => button.group === 'disruptive') || actions.includes('remove_stack_definition')) && (
+            <div role="group" aria-label="Disruptive actions" className="flex items-center gap-2 border-l border-[var(--danger)]/20 pl-2">
+              {visibleButtons.filter((button) => button.group === 'disruptive').map(renderActionButton)}
+              {actions.includes('remove_stack_definition') && (
+                <button
+                  disabled={locked}
+                  onClick={onRemove}
+                  className="shrink-0 rounded-md border border-[var(--danger)]/30 px-3 py-1.5 text-xs font-medium text-[var(--danger)] transition hover:bg-[var(--danger)]/10 disabled:opacity-40"
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {actionError && (

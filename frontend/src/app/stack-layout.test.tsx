@@ -50,6 +50,16 @@ describe('StackLayout page metadata', () => {
     expect(document.title).toBe('Stats — demo | Stacklab')
   })
 
+  it('uses a horizontally scrollable mobile tab bar with the current view marked', async () => {
+    mockGetStack.mockResolvedValue(stackResponse('demo', 'Demo stack'))
+
+    renderStackRoute('/stacks/demo/logs')
+
+    await screen.findByRole('heading', { level: 1, name: 'Demo stack' })
+    expect(screen.getByTestId('stack-view-tabs')).toHaveClass('overflow-x-auto', 'sticky')
+    expect(screen.getByRole('link', { name: 'Logs' })).toHaveAttribute('aria-current', 'page')
+  })
+
   it('drops the previous stack title immediately when the route starts loading another stack', async () => {
     mockGetStack.mockImplementation((stackID: string) => {
       if (stackID === 'alpha') return Promise.resolve(stackResponse('alpha', 'Alpha stack'))

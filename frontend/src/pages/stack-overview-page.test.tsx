@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { StackOverviewPage } from './stack-overview-page'
@@ -100,6 +100,15 @@ describe('StackOverviewPage', () => {
     expect(await screen.findByText('Job started.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Build' })).toBeDisabled()
     expect(mockRefetch).not.toHaveBeenCalled()
+  })
+
+  it('keeps mobile actions sticky and separates disruptive controls', () => {
+    renderOverview()
+
+    expect(screen.getByTestId('stack-action-bar')).toHaveClass('sticky', 'overflow-x-auto')
+    expect(within(screen.getByRole('group', { name: 'Deployment actions' })).getAllByRole('button').map((button) => button.textContent)).toEqual(['Deploy', 'Restart'])
+    expect(within(screen.getByRole('group', { name: 'Image actions' })).getAllByRole('button').map((button) => button.textContent)).toEqual(['Pull', 'Build'])
+    expect(within(screen.getByRole('group', { name: 'Disruptive actions' })).getAllByRole('button').map((button) => button.textContent)).toEqual(['Stop', 'Down', 'Remove'])
   })
 
   it('refetches when the active action job finishes', async () => {

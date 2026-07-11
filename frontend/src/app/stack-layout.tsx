@@ -73,7 +73,11 @@ export function StackLayout() {
           />
         </div>
 
-        <nav aria-label="Stack views" className="flex flex-wrap gap-2">
+        <nav
+          aria-label="Stack views"
+          data-testid="stack-view-tabs"
+          className="sticky top-0 z-20 -mx-5 flex snap-x gap-2 overflow-x-auto border-y border-[var(--panel-border)] bg-[var(--panel)] px-5 py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:static md:mx-0 md:flex-wrap md:border-0 md:bg-transparent md:p-0"
+        >
           {tabs.map(({ to, label, capability }) => {
             const disabled = capability ? !stack.capabilities[capability] : false
 
@@ -82,7 +86,7 @@ export function StackLayout() {
                 <span
                   key={label}
                   title={`${label} is not available for this stack`}
-                  className="cursor-not-allowed rounded-md border border-[var(--panel-border)] px-4 py-2 text-sm text-[var(--muted)]"
+                  className="shrink-0 snap-start cursor-not-allowed whitespace-nowrap rounded-md border border-[var(--panel-border)] px-4 py-2 text-sm text-[var(--muted)]"
                 >
                   {label}
                 </span>
@@ -96,7 +100,7 @@ export function StackLayout() {
                 to={to}
                 className={({ isActive }) =>
                   cn(
-                    'rounded-md border px-4 py-2 text-sm transition',
+                    'shrink-0 snap-start whitespace-nowrap rounded-md border px-4 py-2 text-sm transition',
                     isActive
                       ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
                       : 'border-[var(--panel-border)] text-[var(--muted)] hover:border-[rgba(245,165,36,0.25)] hover:text-[var(--text)]',
