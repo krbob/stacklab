@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestValidateApplyPolicyRejectsUnexpectedConfigPath(t *testing.T) {
@@ -91,6 +93,78 @@ func TestRunApplyRejectsUnexpectedPositionalArguments(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "unexpected positional") {
 		t.Fatalf("runApply() error = %v, want unexpected positional rejection", err)
+	}
+}
+
+func TestWriteUniqueBackupNeverOverwritesSameTimestamp(t *testing.T) {
+	t.Parallel()
+
+	backupDir := t.TempDir()
+	createdAt := time.Date(2026, time.July, 11, 12, 34, 56, 123, time.UTC)
+	firstPath, err := writeUniqueBackup(backupDir, []byte("first\n"), createdAt)
+	if err != nil {
+		t.Fatalf("writeUniqueBackup(first) error = %v", err)
+	}
+	secondPath, err := writeUniqueBackup(backupDir, []byte("second\n"), createdAt)
+	if err != nil {
+		t.Fatalf("writeUniqueBackup(second) error = %v", err)
+	}
+	if firstPath == secondPath {
+		t.Fatalf("backup paths are equal: %q", firstPath)
+	}
+	assertBackup(t, firstPath, []byte("first\n"))
+	assertBackup(t, secondPath, []byte("second\n"))
+}
+
+func TestAtomicWriteReplacesContentAndCleansTemporaryFile(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+	path := filepath.Join(directory, "daemon.json")
+	if err := os.WriteFile(path, []byte(`{"old":true}`), 0o600); err != nil {
+		t.Fatalf("WriteFile(daemon.json) error = %v", err)
+	}
+	if err := atomicWrite(path, []byte(`{"new":true}`), 0o640); err != nil {
+		t.Fatalf("atomicWrite() error = %v", err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(daemon.json) error = %v", err)
+	}
+	if !bytes.Equal(content, []byte(`{"new":true}`)) {
+		t.Fatalf("daemon.json content = %q", content)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat(daemon.json) error = %v", err)
+	}
+	if info.Mode().Perm() != 0o640 {
+		t.Fatalf("daemon.json mode = %04o, want 0640", info.Mode().Perm())
+	}
+	matches, err := filepath.Glob(filepath.Join(directory, ".stacklab-daemon-*.tmp"))
+	if err != nil {
+		t.Fatalf("Glob(temp files) error = %v", err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("temporary files left behind: %v", matches)
+	}
+}
+
+func assertBackup(t *testing.T, path string, want []byte) {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%s) error = %v", path, err)
+	}
+	if !bytes.Equal(content, want) {
+		t.Fatalf("ReadFile(%s) = %q, want %q", path, content, want)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat(%s) error = %v", path, err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("mode(%s) = %04o, want 0600", path, info.Mode().Perm())
 	}
 }
 

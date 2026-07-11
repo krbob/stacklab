@@ -2071,38 +2071,13 @@ func snapshotDefinitionFile(path string) (definitionFileSnapshot, error) {
 		return snapshot, err
 	}
 	snapshot.content = string(content)
-	snapshot.mode = info.Mode().Perm()
+	snapshot.mode = info.Mode() & (os.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky)
 	snapshot.exists = true
 	return snapshot, nil
 }
 
 func stageDefinitionFile(path, content string, mode os.FileMode, pattern string) (string, error) {
-	file, err := os.CreateTemp(filepath.Dir(path), pattern)
-	if err != nil {
-		return "", err
-	}
-	stagedPath := file.Name()
-	cleanup := func() {
-		_ = file.Close()
-		_ = os.Remove(stagedPath)
-	}
-	if _, err := file.WriteString(content); err != nil {
-		cleanup()
-		return "", err
-	}
-	if err := file.Chmod(mode.Perm()); err != nil {
-		cleanup()
-		return "", err
-	}
-	if err := file.Sync(); err != nil {
-		cleanup()
-		return "", err
-	}
-	if err := file.Close(); err != nil {
-		_ = os.Remove(stagedPath)
-		return "", err
-	}
-	return stagedPath, nil
+	return atomicfile.StageStringMode(path, content, pattern, mode)
 }
 
 func restoreDefinitionFiles(snapshots ...definitionFileSnapshot) error {

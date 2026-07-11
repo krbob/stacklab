@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"stacklab/internal/atomicfile"
 )
 
 const (
@@ -281,38 +283,57 @@ func backupExistingConfig(configPath, backupDir string, result *applyResult) ([]
 	if err != nil {
 		return nil, false, fmt.Errorf("read current daemon config: %w", err)
 	}
-	backupPath := filepath.Join(backupDir, fmt.Sprintf("daemon-%s.json", time.Now().UTC().Format("20060102T150405Z")))
-	if err := os.WriteFile(backupPath, content, 0o600); err != nil {
-		return nil, false, fmt.Errorf("write daemon config backup: %w", err)
+	backupPath, err := writeUniqueBackup(backupDir, content, time.Now().UTC())
+	if err != nil {
+		return nil, false, err
 	}
 	result.BackupPath = backupPath
 	return content, true, nil
 }
 
-func atomicWrite(targetPath string, content []byte, mode os.FileMode) error {
-	dir := filepath.Dir(targetPath)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create config directory: %w", err)
+func writeUniqueBackup(backupDir string, content []byte, createdAt time.Time) (string, error) {
+	timestamp := createdAt.UTC().Format("20060102T150405.000000000Z")
+	for attempt := 0; attempt < 1000; attempt++ {
+		suffix := ""
+		if attempt > 0 {
+			suffix = fmt.Sprintf("-%d", attempt)
+		}
+		backupPath := filepath.Join(backupDir, fmt.Sprintf("daemon-%s%s.json", timestamp, suffix))
+		file, err := os.OpenFile(backupPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if os.IsExist(err) {
+			continue
+		}
+		if err != nil {
+			return "", fmt.Errorf("create daemon config backup: %w", err)
+		}
+		cleanup := func() {
+			_ = file.Close()
+			_ = os.Remove(backupPath)
+			_ = atomicfile.SyncDir(backupDir)
+		}
+		if _, err := file.Write(content); err != nil {
+			cleanup()
+			return "", fmt.Errorf("write daemon config backup: %w", err)
+		}
+		if err := file.Sync(); err != nil {
+			cleanup()
+			return "", fmt.Errorf("sync daemon config backup: %w", err)
+		}
+		if err := file.Close(); err != nil {
+			_ = os.Remove(backupPath)
+			_ = atomicfile.SyncDir(backupDir)
+			return "", fmt.Errorf("close daemon config backup: %w", err)
+		}
+		if err := atomicfile.SyncDir(backupDir); err != nil {
+			return "", fmt.Errorf("sync daemon config backup directory: %w", err)
+		}
+		return backupPath, nil
 	}
-	tempFile, err := os.CreateTemp(dir, ".stacklab-daemon-*.tmp")
-	if err != nil {
-		return err
-	}
-	tempPath := tempFile.Name()
-	defer os.Remove(tempPath)
+	return "", errors.New("could not allocate a unique daemon config backup name")
+}
 
-	if _, err := tempFile.Write(content); err != nil {
-		_ = tempFile.Close()
-		return err
-	}
-	if err := tempFile.Chmod(mode); err != nil {
-		_ = tempFile.Close()
-		return err
-	}
-	if err := tempFile.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tempPath, targetPath)
+func atomicWrite(targetPath string, content []byte, mode os.FileMode) error {
+	return atomicfile.WriteBytesMode(targetPath, content, ".stacklab-daemon-*.tmp", mode)
 }
 
 func restartAndVerify(unitName string, result *applyResult) error {
@@ -338,6 +359,9 @@ func rollbackConfig(configPath string, previousContent []byte, previousExists bo
 	if !previousExists {
 		if err := os.Remove(configPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("remove daemon config after failed apply: %w", err)
+		}
+		if err := atomicfile.SyncDir(filepath.Dir(configPath)); err != nil {
+			return fmt.Errorf("sync daemon config directory after rollback: %w", err)
 		}
 		return nil
 	}

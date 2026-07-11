@@ -89,7 +89,7 @@ rozszerzania zakresu produktu poza model single-host i Compose-first.
 | FS-02 | done | Limitować odczyty plików i outputów | limit przed alokacją dla workspace, definicji, diffów i Compose; jawny `content_too_large`/`413` | `fix(io): bound workspace and command output` |
 | GIT-01 | planned | Nie usuwać obcego `index.lock` | lock bez udowodnionej własności daje `operation_in_progress`; commit używa bezpiecznego indexu tymczasowego lub transakcji | `fix(git): preserve external index locks` |
 | DATA-02 | planned | Wersjonować migracje SQLite | tabela wersji, transakcja per migracja, test upgrade z poprzedniego schematu i zgodność rollbacku | `refactor(store): add versioned migrations` |
-| DATA-03 | planned | Zachowywać metadane przy atomic write | jawna polityka owner/group/mode/ACL/xattr; helper Docker wykonuje fsync pliku i katalogu; backupy są unikalne | `fix(files): preserve metadata in atomic writes` |
+| DATA-03 | done | Zachowywać metadane przy atomic write | jawna polityka owner/group/mode/ACL/xattr; helper Docker wykonuje fsync pliku i katalogu; backupy są unikalne | `fix(files): preserve metadata in atomic writes` |
 
 ### Sesje, health i obserwowalność
 

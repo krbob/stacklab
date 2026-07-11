@@ -320,8 +320,9 @@ Notes:
 
 - this is a global job because Docker restart affects all managed stacks
 - the helper must:
-  - create a backup
-  - write the new `daemon.json`
+  - create a unique `0600` backup without overwriting an existing backup
+  - atomically write the new `daemon.json` while preserving existing metadata
+  - fsync the backup, `daemon.json`, and their parent directories
   - restart Docker
   - roll back automatically if restart fails
 - if the helper path is not configured, this endpoint returns `501 not_implemented`

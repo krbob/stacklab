@@ -84,3 +84,5 @@ Optional support later:
 - Stacklab edits files only inside the configured Stacklab root
 - destructive actions must be explicit and scoped
 - data directories are opt-out for deletion, not opt-in
+- atomic replacements follow the owner/group/mode, ACL/xattr, and durability
+  rules in [Filesystem Metadata and Atomic Writes](filesystem-metadata-policy.md)

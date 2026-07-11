@@ -1,81 +1,161 @@
 package atomicfile
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 )
 
 const defaultFileMode os.FileMode = 0o644
 
+const supportedModeBits = os.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky
+
+// WriteString atomically replaces path. Existing owner, group, permission
+// bits, and supported extended metadata are preserved. A new file receives
+// 0644 permission bits plus directory-inherited metadata.
 func WriteString(path, content, pattern string) error {
-	return writeString(path, content, pattern, 0, true)
+	stagedPath, err := StageString(path, content, pattern)
+	if err != nil {
+		return err
+	}
+	return commit(path, stagedPath)
 }
 
-// WriteStringMode atomically writes content and always applies mode to the
-// destination. Use it for managed files whose contents require a fixed,
-// restrictive permission regardless of the mode of an existing file.
+// WriteStringMode is WriteString with an explicit final permission mode.
+// Existing owner, group, and supported extended metadata are still preserved.
 func WriteStringMode(path, content, pattern string, mode os.FileMode) error {
-	return writeString(path, content, pattern, mode.Perm(), false)
+	stagedPath, err := StageStringMode(path, content, pattern, mode)
+	if err != nil {
+		return err
+	}
+	return commit(path, stagedPath)
 }
 
-func writeString(path, content, pattern string, mode os.FileMode, preserveExistingMode bool) error {
+// WriteBytesMode is the byte-slice counterpart of WriteStringMode.
+func WriteBytesMode(path string, content []byte, pattern string, mode os.FileMode) error {
+	stagedPath, err := StageBytesMode(path, content, pattern, mode)
+	if err != nil {
+		return err
+	}
+	return commit(path, stagedPath)
+}
+
+// StageString creates and fsyncs a metadata-preserving replacement in path's
+// directory. The caller owns the returned file and must rename or remove it.
+func StageString(path, content, pattern string) (string, error) {
+	return stage(path, []byte(content), pattern, nil)
+}
+
+// StageStringMode is StageString with an explicit final permission mode.
+func StageStringMode(path, content, pattern string, mode os.FileMode) (string, error) {
+	mode &= supportedModeBits
+	return stage(path, []byte(content), pattern, &mode)
+}
+
+// StageBytesMode is the byte-slice counterpart of StageStringMode.
+func StageBytesMode(path string, content []byte, pattern string, mode os.FileMode) (string, error) {
+	mode &= supportedModeBits
+	return stage(path, content, pattern, &mode)
+}
+
+func stage(path string, content []byte, pattern string, explicitMode *os.FileMode) (string, error) {
 	if pattern == "" {
 		pattern = ".stacklab-*"
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+	directory := filepath.Dir(path)
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		return "", fmt.Errorf("create parent directory: %w", err)
 	}
 
-	if preserveExistingMode {
-		mode = defaultFileMode
-		if info, err := os.Stat(path); err == nil {
-			mode = info.Mode().Perm()
-		} else if !os.IsNotExist(err) {
-			return err
+	metadata, err := snapshotMetadata(path, explicitMode)
+	if err != nil {
+		return "", err
+	}
+	tempFile, err := os.CreateTemp(directory, pattern)
+	if err != nil {
+		return "", fmt.Errorf("create temporary file: %w", err)
+	}
+	tempPath := tempFile.Name()
+	cleanup := func() {
+		_ = tempFile.Close()
+		_ = os.Remove(tempPath)
+	}
+
+	if _, err := tempFile.Write(content); err != nil {
+		cleanup()
+		return "", fmt.Errorf("write temporary file: %w", err)
+	}
+	if metadata.exists {
+		if err := applyPlatformMetadata(tempFile, tempPath, metadata.platform); err != nil {
+			cleanup()
+			return "", fmt.Errorf("preserve file metadata: %w", err)
 		}
 	}
+	// Chown and ACL restoration can change permission bits. Chmod last so the
+	// requested/preserved mode, including an ACL mask, is authoritative.
+	if err := tempFile.Chmod(metadata.mode); err != nil {
+		cleanup()
+		return "", fmt.Errorf("apply file mode: %w", err)
+	}
+	if err := tempFile.Sync(); err != nil {
+		cleanup()
+		return "", fmt.Errorf("sync temporary file: %w", err)
+	}
+	if err := tempFile.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return "", fmt.Errorf("close temporary file: %w", err)
+	}
+	return tempPath, nil
+}
 
-	tmpFile, err := os.CreateTemp(filepath.Dir(path), pattern)
+type metadataSnapshot struct {
+	exists   bool
+	mode     os.FileMode
+	platform platformMetadata
+}
+
+func snapshotMetadata(path string, explicitMode *os.FileMode) (metadataSnapshot, error) {
+	snapshot := metadataSnapshot{mode: defaultFileMode}
+	info, err := os.Stat(path)
 	if err != nil {
-		return err
+		if !os.IsNotExist(err) {
+			return metadataSnapshot{}, fmt.Errorf("stat destination: %w", err)
+		}
+	} else {
+		if !info.Mode().IsRegular() {
+			return metadataSnapshot{}, fmt.Errorf("destination %q is not a regular file", path)
+		}
+		snapshot.exists = true
+		snapshot.mode = info.Mode() & supportedModeBits
+		platform, platformErr := snapshotPlatformMetadata(path, info)
+		if platformErr != nil {
+			return metadataSnapshot{}, fmt.Errorf("snapshot file metadata: %w", platformErr)
+		}
+		snapshot.platform = platform
 	}
-	tmpName := tmpFile.Name()
+	if explicitMode != nil {
+		snapshot.mode = *explicitMode & supportedModeBits
+	}
+	return snapshot, nil
+}
 
-	if _, err := tmpFile.WriteString(content); err != nil {
-		_ = tmpFile.Close()
-		_ = os.Remove(tmpName)
-		return err
+func commit(path, stagedPath string) error {
+	defer os.Remove(stagedPath)
+	if err := os.Rename(stagedPath, path); err != nil {
+		return fmt.Errorf("replace destination: %w", err)
 	}
-	if err := tmpFile.Chmod(mode); err != nil {
-		_ = tmpFile.Close()
-		_ = os.Remove(tmpName)
-		return err
+	if err := SyncDir(filepath.Dir(path)); err != nil {
+		return fmt.Errorf("sync parent directory: %w", err)
 	}
-	if err := tmpFile.Sync(); err != nil {
-		_ = tmpFile.Close()
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := tmpFile.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := syncDir(filepath.Dir(path)); err != nil {
-		return err
-	}
-
 	return nil
 }
 
-func syncDir(path string) error {
-	dir, err := os.Open(path)
+// SyncDir fsyncs a directory so preceding entry changes become durable.
+func SyncDir(path string) error {
+	directory, err := os.Open(path)
 	if err != nil {
 		return err
 	}
-	defer dir.Close()
-	return dir.Sync()
+	defer directory.Close()
+	return directory.Sync()
 }
