@@ -102,7 +102,10 @@ These criteria assume:
 
 - log view can subscribe to all services in a stack
 - log view can filter by selected services
+- text filtering exposes a distinct no-match state
 - log lines display timestamps and service identity
+- visible log lines can be copied or downloaded with timestamp, service, and stream context
+- line wrapping can be toggled without losing whitespace or horizontal access to long lines
 - reconnect after socket loss restores log streaming after re-subscription
 - log UI remains usable with large buffers through buffering or virtualization
 
@@ -133,6 +136,9 @@ These criteria assume:
 - every mutating stack action produces an audit entry
 - per-stack history and global history both load correctly
 - audit rows show action, result, timestamps, and duration
+- search, result, and local calendar date filters are server-backed and shareable through the URL
+- loading additional audit pages preserves the active filters and ignores stale responses
+- filtered history has a distinct no-match state
 - audit rows for stack jobs link to job detail through `job_id`
 - if detailed job events are no longer retained, UI shows a clear retained-summary-only message
 - terminal metadata events are auditable without logging command contents

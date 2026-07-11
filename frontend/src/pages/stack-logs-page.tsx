@@ -4,6 +4,7 @@ import type { StackDetailResponse } from '@/lib/api-types'
 import { useLogStream } from '@/hooks/use-log-stream'
 import { useWs } from '@/hooks/use-ws'
 import { cn } from '@/lib/cn'
+import { copyLogText, downloadLogFile, logExportFilename, serializeLogEntries } from '@/lib/log-export'
 
 // Warm hues only: service labels must never collide with status colors (Z2).
 const SERVICE_COLORS = [
@@ -28,6 +29,8 @@ export function StackLogsPage() {
   const [selectedServices, setSelectedServices] = useState<string[]>([])
   const [filter, setFilter] = useState('')
   const [autoScroll, setAutoScroll] = useState(true)
+  const [wrapLines, setWrapLines] = useState(true)
+  const [transferStatus, setTransferStatus] = useState<{ kind: 'success' | 'error'; message: string } | null>(null)
 
   const { entries, paused, pause, resume, clear } = useLogStream({
     stackId: stack.id,
@@ -67,14 +70,36 @@ export function StackLogsPage() {
     setAutoScroll(atBottom)
   }
 
-  const filteredEntries = filter
-    ? entries.filter((e) => e.line.toLowerCase().includes(filter.toLowerCase()))
-    : entries
+  const filteredEntries = useMemo(() => {
+    const needle = filter.trim().toLowerCase()
+    return needle ? entries.filter((entry) => entry.line.toLowerCase().includes(needle)) : entries
+  }, [entries, filter])
+  const visibleLogText = useMemo(() => serializeLogEntries(filteredEntries), [filteredEntries])
 
   const activeServices = selectedServices.length > 0 ? selectedServices : serviceNames
   const noRunning = !stack.containers.some(
     (c) => c.status === 'running' && activeServices.includes(c.service_name),
   )
+
+  async function handleCopy() {
+    if (!visibleLogText) return
+    try {
+      await copyLogText(visibleLogText)
+      setTransferStatus({ kind: 'success', message: copiedLineMessage(filteredEntries.length) })
+    } catch {
+      setTransferStatus({ kind: 'error', message: 'Could not copy log lines.' })
+    }
+  }
+
+  function handleDownload() {
+    if (!visibleLogText) return
+    try {
+      downloadLogFile(logExportFilename(stack.id), visibleLogText)
+      setTransferStatus({ kind: 'success', message: downloadedLineMessage(filteredEntries.length) })
+    } catch {
+      setTransferStatus({ kind: 'error', message: 'Could not download log lines.' })
+    }
+  }
 
   if (noRunning) {
     return (
@@ -141,10 +166,45 @@ export function StackLogsPage() {
         </button>
 
         <button
-          onClick={clear}
+          onClick={() => {
+            clear()
+            setTransferStatus(null)
+          }}
           className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]"
         >
           Clear
+        </button>
+
+        <button
+          type="button"
+          aria-pressed={wrapLines}
+          onClick={() => setWrapLines((current) => !current)}
+          className={cn(
+            'rounded-md border px-3 py-1 text-xs transition',
+            wrapLines
+              ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
+              : 'border-[var(--panel-border)] text-[var(--muted)] hover:text-[var(--text)]',
+          )}
+        >
+          Wrap lines
+        </button>
+
+        <button
+          type="button"
+          onClick={() => void handleCopy()}
+          disabled={filteredEntries.length === 0}
+          className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Copy visible
+        </button>
+
+        <button
+          type="button"
+          onClick={handleDownload}
+          disabled={filteredEntries.length === 0}
+          className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Download visible
         </button>
       </div>
 
@@ -155,18 +215,35 @@ export function StackLogsPage() {
       {paused && (
         <div className="text-xs text-[var(--warning)]">Paused — new logs are buffered.</div>
       )}
+      {transferStatus && (
+        <div
+          role={transferStatus.kind === 'error' ? 'alert' : 'status'}
+          aria-live="polite"
+          className={cn('text-xs', transferStatus.kind === 'error' ? 'text-[var(--danger)]' : 'text-[var(--ok)]')}
+        >
+          {transferStatus.message}
+        </div>
+      )}
 
       {/* Log output */}
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="h-[min(70vh,720px)] min-h-[320px] overflow-y-auto rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs leading-5"
+        className="h-[min(70vh,720px)] min-h-[320px] overflow-auto rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs leading-5"
       >
         {filteredEntries.length === 0 && (
-          <div className="py-8 text-center text-[var(--muted)]">Waiting for logs...</div>
+          <div className="py-8 text-center text-[var(--muted)]">
+            {entries.length > 0 && filter.trim() ? 'No log lines match the current filter.' : 'Waiting for logs...'}
+          </div>
         )}
         {filteredEntries.map((entry, i) => (
-          <div key={logEntryKey(entry, i)} className="flex flex-col gap-0.5 py-0.5 hover:bg-[rgba(255,255,255,0.02)] sm:flex-row sm:gap-2 sm:py-0">
+          <div
+            key={logEntryKey(entry, i)}
+            className={cn(
+              'flex py-0.5 hover:bg-[rgba(255,255,255,0.02)]',
+              wrapLines ? 'flex-col gap-0.5 sm:flex-row sm:gap-2 sm:py-0' : 'min-w-max flex-row gap-2 py-0',
+            )}
+          >
             {/* Meta (time · service) stays on its own line on phones so the
                 message below can use the full width instead of a cramped
                 right-hand column. Inline on sm+ (tablet/desktop). */}
@@ -178,7 +255,13 @@ export function StackLogsPage() {
                 {entry.service_name}
               </span>
             </div>
-            <span className="min-w-0 break-all text-[var(--text)] sm:flex-1">
+            <span
+              data-testid="log-line"
+              className={cn(
+                'min-w-0 text-[var(--text)] sm:flex-1',
+                wrapLines ? 'whitespace-pre-wrap break-all' : 'whitespace-pre',
+              )}
+            >
               {(entry.spans ?? [{ text: entry.line }]).map((s, j) => (
                 <span
                   key={j}
@@ -198,7 +281,10 @@ export function StackLogsPage() {
 
       {/* Footer */}
       <div className="flex items-center justify-between text-xs text-[var(--muted)]">
-        <span>Lines: {filteredEntries.length}</span>
+        <span>
+          Lines: {filteredEntries.length}
+          {filter.trim() && ` of ${entries.length}`}
+        </span>
         {!autoScroll && (
           <button
             onClick={() => {
@@ -217,4 +303,12 @@ export function StackLogsPage() {
 
 function logEntryKey(entry: { timestamp: string; service_name: string; container_id: string; stream: string; line: string }, index: number): string {
   return `${entry.timestamp}:${entry.container_id}:${entry.stream}:${entry.service_name}:${entry.line}:${index}`
+}
+
+function copiedLineMessage(count: number): string {
+  return `Copied ${count} log ${count === 1 ? 'line' : 'lines'}.`
+}
+
+function downloadedLineMessage(count: number): string {
+  return `Downloaded ${count} log ${count === 1 ? 'line' : 'lines'}.`
 }
