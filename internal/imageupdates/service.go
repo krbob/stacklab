@@ -425,6 +425,7 @@ func (s *Service) registryHTTPClient(ctx context.Context, manifestURL string) (*
 	secureTransport := transport.Clone()
 	secureTransport.Proxy = nil
 	secureTransport.DialContext = policy.dialContext
+	//lint:ignore SA1019 Clearing an inherited DialTLS hook prevents it from bypassing the pinned-address dialer.
 	secureTransport.DialTLS = nil
 	secureTransport.DialTLSContext = nil
 	secureTransport.MaxResponseHeaderBytes = maxRegistryResponseHeaderBytes

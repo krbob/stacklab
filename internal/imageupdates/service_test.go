@@ -209,8 +209,7 @@ func TestRemoteDigestRejectsPrivateTokenRealmOutsideExplicitRegistryEndpoint(t *
 	}))
 	t.Cleanup(tokenEndpoint.Close)
 
-	var registry *httptest.Server
-	registry = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	registry := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="`+tokenEndpoint.URL+`/token",service="registry.test"`)
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
