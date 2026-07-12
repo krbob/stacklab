@@ -70,7 +70,7 @@ test.describe('Config Workspace', () => {
 
     // Save
     await page.getByTestId('config-save').click()
-    await expect(page.getByText('Saved')).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByRole('status').filter({ hasText: 'Saved' })).toBeVisible({ timeout: 10_000 })
 
     // Check audit — use .first() since multiple entries may exist
     await page.goto('/audit')
