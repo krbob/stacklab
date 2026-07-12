@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BottomSheet } from './bottom-sheet'
+import { Dialog } from './dialog'
 
 function BottomSheetHarness({ onClose = vi.fn() }: { onClose?: () => void }) {
   const [open, setOpen] = useState(false)
@@ -29,6 +30,25 @@ function openSheet() {
   trigger.focus()
   fireEvent.click(trigger)
   return trigger
+}
+
+function NestedOverlayHarness() {
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const [dialogOpen, setDialogOpen] = useState(false)
+
+  return (
+    <>
+      <button type="button" onClick={() => setSheetOpen(true)}>Open workspace</button>
+      <BottomSheet open={sheetOpen} label="Workspace" onClose={() => setSheetOpen(false)}>
+        <button type="button" onClick={() => setDialogOpen(true)}>Discard draft</button>
+        {dialogOpen && (
+          <Dialog title="Discard changes?" onClose={() => setDialogOpen(false)}>
+            <button type="button" onClick={() => setDialogOpen(false)}>Cancel discard</button>
+          </Dialog>
+        )}
+      </BottomSheet>
+    </>
+  )
 }
 
 describe('BottomSheet', () => {
@@ -96,5 +116,34 @@ describe('BottomSheet', () => {
 
     expect(document.body).toHaveStyle({ overflow: 'auto' })
     expect(trigger).toHaveFocus()
+  })
+
+  it('keeps a sheet locked when a nested dialog closes and restores focus by layer', () => {
+    document.body.style.overflow = 'auto'
+    render(<NestedOverlayHarness />)
+
+    const openWorkspace = screen.getByRole('button', { name: 'Open workspace' })
+    openWorkspace.focus()
+    fireEvent.click(openWorkspace)
+    const openDialog = screen.getByRole('button', { name: 'Discard draft' })
+    openDialog.focus()
+    fireEvent.click(openDialog)
+
+    expect(screen.getByRole('dialog', { name: 'Discard changes?' })).toBeInTheDocument()
+    expect(document.body).toHaveStyle({ overflow: 'hidden' })
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    expect(screen.queryByRole('dialog', { name: 'Discard changes?' })).not.toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Workspace' })).toBeInTheDocument()
+    expect(document.body).toHaveStyle({ overflow: 'hidden' })
+    expect(openDialog).toHaveFocus()
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    expect(screen.queryByRole('dialog', { name: 'Workspace' })).not.toBeInTheDocument()
+    expect(document.body).toHaveStyle({ overflow: 'auto' })
+    expect(openWorkspace).toHaveFocus()
+    document.body.style.overflow = ''
   })
 })
