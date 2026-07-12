@@ -25,8 +25,9 @@ export function HostStrip() {
     getMeta().then(setMeta).catch(() => {})
   }, [])
 
-  const activeJobs = activity?.items ?? []
+  const activeJobs = activity.response?.items ?? []
   const primary = activeJobs[0] ?? null
+  const degraded = activity.freshness === 'stale' || activity.freshness === 'unavailable'
 
   return (
     <div className="hidden items-center gap-4 rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-2 font-mono text-xs text-[var(--muted)] shadow-[var(--shadow)] lg:flex">
@@ -39,9 +40,14 @@ export function HostStrip() {
       )}
       <span className="ml-auto flex items-center gap-2">
         <span
+          aria-hidden="true"
           className={cn(
             'inline-block size-1.5 rounded-full',
-            primary ? 'animate-pulse bg-[var(--run)]' : 'bg-[var(--ok)]',
+            degraded
+              ? 'bg-[var(--warning)]'
+              : primary
+                ? 'animate-pulse bg-[var(--run)]'
+                : 'bg-[var(--ok)]',
           )}
         />
         {primary ? (
@@ -51,7 +57,14 @@ export function HostStrip() {
           >
             {activeJobs.length > 1 && `${activeJobs.length} jobs · `}
             {jobChipLabel(primary)}
+            {degraded && ' · stale'}
           </button>
+        ) : degraded ? (
+          <span className="text-[var(--warning)]">
+            {activity.freshness === 'stale' ? 'activity stale · retrying' : 'activity unavailable · retrying'}
+          </span>
+        ) : activity.freshness === 'loading' ? (
+          <span>activity loading</span>
         ) : (
           <span>idle</span>
         )}

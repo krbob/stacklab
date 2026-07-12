@@ -6,8 +6,20 @@ import type { WsServerFrame } from '@/lib/ws-types'
 
 const FALLBACK_POLL_INTERVAL = 3_000
 
+export type ActivityFreshness = 'loading' | 'fresh' | 'stale' | 'unavailable'
+
+export interface ActivityContextValue {
+  response: ActiveJobsResponse | null
+  freshness: ActivityFreshness
+  updatedAt: number | null
+}
+
 // eslint-disable-next-line react-refresh/only-export-components
-export const ActivityContext = createContext<ActiveJobsResponse | null>(null)
+export const ActivityContext = createContext<ActivityContextValue>({
+  response: null,
+  freshness: 'loading',
+  updatedAt: null,
+})
 
 // Single shared subscription to the global activity stream. Multiple
 // consumers (sidebar activity, host strip, mobile drawer) must not each
@@ -20,7 +32,11 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
   const connected = ws?.connected ?? false
   const send = ws?.send
   const subscribe = ws?.subscribe
-  const [response, setResponse] = useState<ActiveJobsResponse | null>(null)
+  const [state, setState] = useState<ActivityContextValue>({
+    response: null,
+    freshness: 'loading',
+    updatedAt: null,
+  })
   // Older backends do not know activity.subscribe; on a stream error we fall
   // back to REST polling for the rest of the session.
   const [pushUnsupported, setPushUnsupported] = useState(false)
@@ -28,12 +44,31 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!connected || !send || !subscribe || pushUnsupported) {
       let cancelled = false
+      let pollInFlight = false
       const poll = () => {
+        if (pollInFlight) return
+        pollInFlight = true
         getActiveJobs()
           .then((data) => {
-            if (!cancelled) setResponse(data)
+            if (!cancelled) {
+              setState({
+                response: data,
+                freshness: 'fresh',
+                updatedAt: Date.now(),
+              })
+            }
           })
-          .catch(() => {})
+          .catch(() => {
+            if (!cancelled) {
+              setState((current) => ({
+                ...current,
+                freshness: current.response ? 'stale' : 'unavailable',
+              }))
+            }
+          })
+          .finally(() => {
+            pollInFlight = false
+          })
       }
       poll()
       const interval = setInterval(poll, FALLBACK_POLL_INTERVAL)
@@ -53,7 +88,11 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
 
     const unsub = subscribe(streamId, (frame: WsServerFrame) => {
       if ((frame.type === 'activity.snapshot' || frame.type === 'activity.update') && frame.payload) {
-        setResponse(frame.payload as unknown as ActiveJobsResponse)
+        setState({
+          response: frame.payload as unknown as ActiveJobsResponse,
+          freshness: 'fresh',
+          updatedAt: Date.now(),
+        })
       }
       if (frame.type === 'error') {
         setPushUnsupported(true)
@@ -73,5 +112,5 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     }
   }, [connected, send, subscribe, pushUnsupported])
 
-  return <ActivityContext.Provider value={response}>{children}</ActivityContext.Provider>
+  return <ActivityContext.Provider value={state}>{children}</ActivityContext.Provider>
 }

@@ -117,6 +117,54 @@ describe('GlobalActivity', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 
+  it('shows an unavailable warning instead of treating a failed initial poll as idle', async () => {
+    mockGetActiveJobs.mockRejectedValue(new Error('activity endpoint unavailable'))
+
+    renderActivity()
+
+    await act(async () => {
+      vi.advanceTimersByTime(0)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const activityButton = screen.getByRole('button')
+    expect(screen.getByRole('status')).toHaveTextContent('Activity unavailable')
+    fireEvent.click(activityButton)
+
+    expect(screen.getByRole('alert')).toHaveTextContent('retrying automatically')
+    expect(screen.queryByText('No active operations.')).not.toBeInTheDocument()
+  })
+
+  it('keeps active jobs visible and marks them stale after a polling failure', async () => {
+    mockGetActiveJobs
+      .mockResolvedValueOnce(activeResponse)
+      .mockRejectedValueOnce(new Error('activity refresh failed'))
+
+    renderActivity()
+
+    await act(async () => {
+      vi.advanceTimersByTime(0)
+      await Promise.resolve()
+    })
+    expect(screen.getByRole('status')).toHaveTextContent('pull · demo')
+
+    await act(async () => {
+      vi.advanceTimersByTime(3_000)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const activityButton = screen.getByRole('button')
+    expect(screen.getByRole('status')).toHaveTextContent('pull · demo · stale')
+    expect(activityButton.querySelector('[aria-hidden="true"]')).toHaveClass('bg-[var(--warning)]')
+    expect(activityButton.querySelector('[aria-hidden="true"]')).not.toHaveClass('animate-pulse')
+
+    fireEvent.click(activityButton)
+    expect(screen.getByRole('alert')).toHaveTextContent('Showing the last known state')
+    expect(screen.getByText('1/2')).toBeInTheDocument()
+  })
+
   it('renders active job and opens popover', async () => {
     mockGetActiveJobs.mockResolvedValue(activeResponse)
 

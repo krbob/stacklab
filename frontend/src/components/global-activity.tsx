@@ -37,7 +37,9 @@ function toActiveJobItem(job: JobDetail): ActiveJobItem {
 }
 
 export function GlobalActivity({ variant = 'sidebar' }: { variant?: 'sidebar' | 'compact' }) {
-  const response = useActivity()
+  const activity = useActivity()
+  const response = activity.response
+  const degraded = activity.freshness === 'stale' || activity.freshness === 'unavailable'
   const [open, setOpen] = useState(false)
   const [recentlyCompleted, setRecentlyCompleted] = useState<ActiveJobItem[]>([])
   const prevIdsRef = useRef<Set<string>>(new Set())
@@ -125,15 +127,22 @@ export function GlobalActivity({ variant = 'sidebar' }: { variant?: 'sidebar' | 
   const activeItems = response?.items ?? []
   const primaryJob = activeItems[0] ?? null
   const failedRecent = recentlyCompleted.find((job) => job.state === 'failed' || job.state === 'timed_out')
-  const statusText = activeCount > 0
+  const currentStatusText = activeCount > 0
     ? activeCount === 1
       ? jobLabel(primaryJob!)
       : `${activeCount} running`
     : failedRecent
       ? `Failed · ${jobLabel(failedRecent)}`
       : 'Done'
+  const statusText = degraded
+    ? activeCount > 0 || recentlyCompleted.length > 0
+      ? `${currentStatusText} · stale`
+      : activity.freshness === 'stale'
+        ? 'Activity status stale'
+        : 'Activity unavailable'
+    : currentStatusText
 
-  if (activeCount === 0 && recentlyCompleted.length === 0) return null
+  if (activeCount === 0 && recentlyCompleted.length === 0 && !degraded) return null
 
   return (
     <div className="relative" ref={popoverRef}>
@@ -150,7 +159,13 @@ export function GlobalActivity({ variant = 'sidebar' }: { variant?: 'sidebar' | 
       >
         <span className={cn(
           'inline-block size-2 rounded-full',
-          activeCount > 0 ? 'animate-pulse bg-[var(--run)]' : failedRecent ? 'bg-[var(--danger)]' : 'bg-[var(--ok)]',
+          degraded
+            ? 'bg-[var(--warning)]'
+            : activeCount > 0
+              ? 'animate-pulse bg-[var(--run)]'
+              : failedRecent
+                ? 'bg-[var(--danger)]'
+                : 'bg-[var(--ok)]',
         )} aria-hidden="true" />
         <span
           className="min-w-0 truncate text-[var(--text)]"
@@ -176,7 +191,13 @@ export function GlobalActivity({ variant = 'sidebar' }: { variant?: 'sidebar' | 
         >
           <div className="mb-2 text-xs font-medium text-[var(--text)]">Activity</div>
 
-          {activeItems.length === 0 && recentlyCompleted.length === 0 && (
+          {degraded && (
+            <p className="mb-2 rounded-md border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-2 py-1.5 text-xs text-[var(--warning)]" role="alert">
+              Activity updates are unavailable. Showing the last known state; retrying automatically.
+            </p>
+          )}
+
+          {!degraded && activeItems.length === 0 && recentlyCompleted.length === 0 && (
             <p className="text-xs text-[var(--muted)]">No active operations.</p>
           )}
 

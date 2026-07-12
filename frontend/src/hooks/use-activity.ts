@@ -1,7 +1,6 @@
 import { useContext } from 'react'
-import { ActivityContext } from '@/contexts/activity-context'
-import type { ActiveJobsResponse } from '@/lib/api-types'
+import { ActivityContext, type ActivityContextValue } from '@/contexts/activity-context'
 
-export function useActivity(): ActiveJobsResponse | null {
+export function useActivity(): ActivityContextValue {
   return useContext(ActivityContext)
 }
