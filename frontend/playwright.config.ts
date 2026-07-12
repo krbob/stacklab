@@ -1,4 +1,4 @@
-import { defineConfig } from '@playwright/test'
+import { defineConfig, devices } from '@playwright/test'
 
 export default defineConfig({
   testDir: './e2e',
@@ -17,6 +17,11 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   projects: [
-    { name: 'chromium', use: { browserName: 'chromium' } },
+    { name: 'chromium-desktop', use: { browserName: 'chromium' } },
+    {
+      name: 'chromium-mobile-smoke',
+      testMatch: '**/07-responsive-navigation.spec.ts',
+      use: { ...devices['Pixel 7'], browserName: 'chromium' },
+    },
   ],
 })
