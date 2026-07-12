@@ -101,7 +101,7 @@ smoke-test the produced `amd64` Debian package and tarball before publication.
 The exact package version is installed again from APT after publication. Manual
 real-host validation complements these gates for risky changes; it is not a
 hidden approval step in the scheduled workflows. See
-[release-plan.md](release-plan.md).
+[release-and-validation.md](release-and-validation.md).
 
 ## APT Channels And Retention
 

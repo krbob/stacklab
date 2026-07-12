@@ -1,4 +1,4 @@
-# Release and Validation Plan
+# Release and Validation
 
 ## Purpose
 

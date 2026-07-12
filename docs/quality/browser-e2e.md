@@ -1,7 +1,7 @@
-# Browser E2E Handoff
+# Browser End-to-End Tests
 
-> **Status: active reference.** This document describes the current Playwright
-> harness, fixtures, CI gate, and test ownership.
+This document describes the current Playwright harness, fixtures, CI gate, and
+test ownership.
 
 ## Scope
 

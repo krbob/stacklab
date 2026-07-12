@@ -2,7 +2,8 @@
 
 ## Purpose
 
-This document defines the recommended host-native deployment model for Stacklab v1 using `systemd`.
+This document defines the supported host-native service model for Stacklab
+using `systemd`.
 
 Path note:
 
@@ -14,7 +15,7 @@ It is the operational consequence of:
 
 - ADR 0001: host-native backend deployment
 - Compose-first filesystem model
-- single-host Linux `amd64` target
+- single-host Linux model with `amd64` primary and `arm64` supported
 
 The runtime model in this document has been validated in staging on:
 
@@ -27,21 +28,23 @@ The runtime model in this document has been validated in staging on:
 Stacklab runs as:
 
 - one backend service managed by `systemd`
-- one static frontend bundle served by the backend or colocated assets
+- one static frontend bundle served by that backend
 - one SQLite database under `/var/lib/stacklab`
 
 Stacklab itself is **not** deployed as a Docker management container.
 
-## Canonical Paths
+## Deployment Paths
 
-Recommended host layout:
+| Profile | Application | Managed workspace | Runtime state | Environment |
+| --- | --- | --- | --- | --- |
+| Debian/APT | `/usr/lib/stacklab` | `/srv/stacklab` | `/var/lib/stacklab` | `/etc/stacklab/stacklab.env` |
+| Manual tarball | `/opt/stacklab/app` | `/opt/stacklab` | `/var/lib/stacklab` | `/etc/stacklab/stacklab.env` |
 
-- application home: `/opt/stacklab/app`
-- managed stacks: `/opt/stacklab/stacks`
-- managed config: `/opt/stacklab/config`
-- managed data: `/opt/stacklab/data`
-- runtime state: `/var/lib/stacklab`
-- logs: systemd journal by default
+The portable workspace contract uses `<STACKLAB_ROOT>` for its `stacks`,
+`config`, `data`, and optional `templates` directories. See
+[Filesystem Layout](../architecture/filesystem-layout.md) for the complete
+boundary between package files, operator content, and private runtime state.
+Logs go to the systemd journal by default.
 
 ## Service Account
 
@@ -53,7 +56,7 @@ Recommended dedicated service account:
 Responsibilities:
 
 - run the backend process
-- read and write required paths under `/opt/stacklab`
+- read and write required paths under the configured `<STACKLAB_ROOT>`
 - access Docker via `/var/run/docker.sock`
 - read Stacklab service logs from `journald` when `/host` log viewing is enabled
 
@@ -61,9 +64,9 @@ Responsibilities:
 
 Minimum practical permissions for the service account:
 
-- read/write on `/opt/stacklab/stacks`
-- read/write on `/opt/stacklab/config`
-- read/write on `/opt/stacklab/data` only when destructive actions explicitly require it
+- read/write on `<STACKLAB_ROOT>/stacks`
+- read/write on `<STACKLAB_ROOT>/config`
+- read/write on `<STACKLAB_ROOT>/data` only when destructive actions explicitly require it
 - read/write on `/var/lib/stacklab`
 - read/write access to `/var/run/docker.sock` via group membership or equivalent host configuration
 - read access to `journald`, typically via `systemd-journal` group membership when that group exists
@@ -102,9 +105,11 @@ Alternative:
 
 - host private interface address when Traefik or another reverse proxy in Docker must reach the service from bridge networking
 
-## Example systemd Unit
+## Manual Tarball systemd Unit
 
-Example file:
+The Debian package installs the maintained unit from
+`packaging/debian/stacklab.service`. A manual tarball installation uses the
+same service model with tarball-specific paths, for example:
 
 ```ini
 [Unit]
@@ -146,7 +151,7 @@ The example unit is intentionally conservative and may need adjustment depending
 
 - how Docker socket permissions are granted
 - whether PTY operations require additional allowances on the host
-- how the backend serves frontend assets
+- which optional privileged helpers are enabled
 
 Recommended hardening goals:
 
@@ -190,24 +195,12 @@ Startup behavior recommendation:
 
 ## Frontend Asset Serving
 
-Two acceptable v1 models:
-
-### Model A: backend serves static assets
-
-Advantages:
-
-- simpler deployment
-- one process to manage
-
-### Model B: reverse proxy serves static assets and proxies API
-
-Advantages:
-
-- more flexible for future separation
-
-Recommendation for v1:
-
-- prefer Model A unless deployment needs clearly justify separation
+The Go backend serves the built frontend bundle configured by
+`STACKLAB_FRONTEND_DIST`. Package installs point it at
+`/usr/lib/stacklab/frontend/dist`; tarball releases point it at the active
+release bundle. A reverse proxy forwards the application, API, and WebSocket
+paths to that one backend. Serving a separately deployed frontend is not a
+supported production profile.
 
 ## Reverse Proxy Integration
 
@@ -256,7 +249,7 @@ Operational caution:
 - keep an emergency direct path to Stacklab during setup and upgrades
 - do not depend exclusively on a proxy stack that is itself managed by Stacklab without a fallback path
 
-## First-Time Setup Checklist
+## Manual Tarball First-Time Setup Checklist
 
 1. create directories under `/opt/stacklab`
 2. create `/var/lib/stacklab`
@@ -323,13 +316,18 @@ Logs should include:
 For application-level recovery, back up:
 
 - `/var/lib/stacklab`
-- `/opt/stacklab/app` if local deployment assets are not otherwise reproducible
+- `/opt/stacklab/app` for a tarball install when release assets are not
+  reproducible from the published artifact
 
 For operator data recovery, back up separately:
 
-- `/opt/stacklab/stacks`
-- `/opt/stacklab/config`
-- `/opt/stacklab/data`
+- `<STACKLAB_ROOT>/stacks`
+- `<STACKLAB_ROOT>/config`
+- `<STACKLAB_ROOT>/data`
+
+Stop the service or use a SQLite-aware online backup before copying
+`stacklab.db`; treat the database, WAL, and SHM as one recovery set. Workspace
+payload data and named Docker volumes require their own consistency plan.
 
 ## Failure Modes
 
@@ -337,8 +335,11 @@ For operator data recovery, back up separately:
 
 Expected behavior:
 
-- service may start and report degraded state, or fail fast based on implementation choice
-- UI should clearly indicate Docker unavailability
+- Stacklab starts and its core liveness/readiness endpoints remain available
+  when DB, lifecycle, and frontend assets are healthy
+- System Health reports Docker as degraded and Docker-dependent actions fail
+  explicitly
+- starting Docker restores runtime views without restarting Stacklab
 
 ### SQLite unavailable
 
@@ -351,12 +352,3 @@ Expected behavior:
 Expected behavior:
 
 - Stacklab should still be reachable through its direct bind address if that path is intentionally preserved
-
-## Open Questions For Implementation
-
-Implementation should later decide:
-
-- exact binary path under `/opt/stacklab/app`
-- whether frontend assets are embedded or separate
-- whether the service account uses Docker group membership or another access pattern
-- whether systemd socket activation provides any value for this service

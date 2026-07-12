@@ -6,10 +6,10 @@ To jest aktualny, żywy plan scenariuszy manualnych i eksploracyjnych. Liczba
 plików oraz testów automatycznych zmienia się wraz z projektem, dlatego zakres
 baseline'u określają poniższe komendy, a nie zapisane tu liczniki.
 
-Wyniki konkretnych wykonań pozostają datowanymi zapisami. Najnowszy dostępny
-raport z manualnej walidacji na Linuxie to
-[przebieg z 2026-07-06](test-run-2026-07-06.md); nie zastępuje on tego planu ani
-nie potwierdza automatycznie późniejszych zmian.
+Wynik konkretnego wykonania należy zapisać jako datowany artefakt testowy z
+wersją aplikacji, środowiskiem, rezultatem każdego scenariusza i odnośnikami do
+dowodów. Raport wykonania nie zastępuje planu ani nie potwierdza automatycznie
+późniejszych zmian.
 
 ## Cel
 

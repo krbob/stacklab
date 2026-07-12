@@ -9,7 +9,7 @@ Deliver a stable first version that covers the full daily loop of managing Compo
 This baseline is now implemented and staging-tested. This document remains useful as the definition of the first product generation; roadmap work beyond it now lives in:
 
 - `docs/roadmap.md`
-- `docs/product/feature-strategy.md`
+- `docs/product/scope.md`
 
 ## Included In MVP
 

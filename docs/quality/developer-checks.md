@@ -12,8 +12,8 @@ Stacklab uses one exact toolchain for local development and CI:
 `frontend/.npmrc` enables `engine-strict`, so direct npm commands also reject an
 unsupported Node version. `.tool-versions` supports asdf/mise users, while
 `.nvmrc` works with nvm and is the version source used by GitHub Actions.
-Dated `test-run-*` reports retain the versions observed during those historical
-runs and are not active toolchain declarations.
+Execution reports may record the versions observed during a run, but they are
+not active toolchain declarations.
 
 ## Full Local Gate
 

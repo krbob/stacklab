@@ -1,64 +1,45 @@
 # UI Docs
 
-This section contains information architecture, screens, and UI-facing contracts for Stacklab.
-
-Some handoff documents in this section are milestone snapshots from the implementation phase.
-When they disagree with newer operator docs or API contracts, prefer:
-
-- `../README.md`
-- `../ops/install-from-apt.md`
-- `../ops/install-from-tarball.md`
-- `../api/*.md`
-
-The visual revamp proposals and the dated July review are historical design
-records. Current tokens, components, screenshots, and accessibility tests are
-authoritative for the implemented interface.
+This section defines the implemented information architecture, screen behavior,
+state presentation, and accessibility policy for Stacklab. API and domain
+contracts remain authoritative for payloads and state enumerations; these
+documents own how the product presents and navigates them.
 
 ## Documents
 
-- [information-architecture.md](information-architecture.md) — navigation model, screen inventory, URL structure, responsive breakpoints
-- [screen-specs.md](screen-specs.md) — per-screen specifications with wireframes
-- [states-and-empty-cases.md](states-and-empty-cases.md) — stack/service/operation state model, badges, empty states, loading, errors, confirmation dialogs
-- [accessibility-dynamic-status.md](accessibility-dynamic-status.md) — ARIA and keyboard contract for dynamic status, loading, progress, tabs, toggles, and the command palette
+- [information-architecture.md](information-architecture.md) — navigation model, screen inventory, URL structure, metadata, and responsive breakpoints
+- [screen-specs.md](screen-specs.md) — per-screen behavior and operator workflow specifications
+- [states-and-empty-cases.md](states-and-empty-cases.md) — stack, service, operation, loading, error, blocked-file, and confirmation states
+- [accessibility-dynamic-status.md](accessibility-dynamic-status.md) — ARIA and keyboard contract for dynamic status, progress, tabs, toggles, and the command palette
 - [readability-and-motion.md](readability-and-motion.md) — text-size floor, AA token contrast, local fonts, reduced motion, and texture limits
 - [maintenance-experience.md](maintenance-experience.md) — lazy tab lifecycle, debounced inventory search, stack status, idle review, and recent runs
-- [editor-progress-integration.md](editor-progress-integration.md) — backend-backed integration notes for the editor, mutating actions, and progress panel
-- [global-activity-handoff.md](global-activity-handoff.md) — app-wide background job visibility, collapsed chrome activity, and active job list guidance
-- [job-detail-handoff.md](job-detail-handoff.md) — shared job detail guidance for audit/history/global activity links
-- [host-observability-handoff.md](host-observability-handoff.md) — route and screen guidance for host overview and Stacklab service logs
-- [notifications-handoff.md](notifications-handoff.md) — route and screen guidance for outgoing webhook notifications inside settings
-- [notifications-v2-handoff.md](notifications-v2-handoff.md) — route and screen guidance for Telegram and post-update recovery alerts
-- [docker-admin-handoff.md](docker-admin-handoff.md) — route and screen guidance for read-only Docker daemon administration
-- [self-update-handoff.md](self-update-handoff.md) — route and screen guidance for APT-backed Stacklab self-update
-- [config-workspace-handoff.md](config-workspace-handoff.md) — route and screen guidance for managed config workspace browsing and editing
-- [git-workspace-handoff.md](git-workspace-handoff.md) — route and screen guidance for local Git change visibility inside `/config`
-- [workspace-permissions-handoff.md](workspace-permissions-handoff.md) — blocked-file semantics for config and Git views when containers create unreadable files
-- [maintenance-workflows-handoff.md](maintenance-workflows-handoff.md) — route and screen guidance for bulk stack update workflows
-- [maintenance-inventory-handoff.md](maintenance-inventory-handoff.md) — route and screen guidance for image inventory and prune flows inside `/maintenance`
-- [maintenance-schedules-handoff.md](maintenance-schedules-handoff.md) — route and screen guidance for scheduled update and cleanup policies
-- [browser-e2e-handoff.md](browser-e2e-handoff.md) — backend harness, fixture root, and CI shape for browser E2E smoke
+
+Browser automation is documented with the other quality gates in
+[Browser End-to-End Tests](../quality/browser-e2e.md).
 
 ## Frontend Stack
 
-Confirmed:
-
-- React 19 + TypeScript + Vite
-- Tailwind CSS + shadcn/ui
-- CodeMirror 6 (Compose editor)
-- XTerm.js (terminal)
-- uPlot (stats charts)
+- React 19 with TypeScript and Vite
+- Tailwind CSS and shadcn/ui primitives
+- CodeMirror 6 for Compose editing
+- XTerm.js for terminal sessions
+- uPlot for runtime charts
 
 ## Responsive Policy
 
-- Desktop-first (>= 1280px): full experience
-- Tablet (768px - 1279px): dashboard and details usable, terminal and editor show "best on desktop" hint
-- Mobile (< 768px): core read and operate flows are supported; dense editor and terminal work remains optimized for larger screens
+- desktop (`>= 1280px`): full layout and optional side panels;
+- tablet (`768px–1279px`): collapsed navigation with the complete feature set;
+- mobile (`< 768px`): core read and operate flows remain supported, while
+  dense editor and terminal work is optimized for larger screens.
 
-## Dependencies on Backend Contracts
+## Contract Ownership
 
-UI implementation of the following screens depends on backend contracts and runtime behavior:
-
-- Terminal, Logs, Stats → `docs/api/websocket-protocol.md`
-- All data views → `docs/api/rest-endpoints.md`
-- Badge system → `docs/domain/stack-model.md` (state enumerations)
-- Audit views → audit log schema and API
+- REST payloads and status codes: `docs/api/openapi.yaml` and the focused API
+  guides under `docs/api/`;
+- WebSocket streams: `docs/api/websocket-protocol.md`;
+- stack and job states: documents under `docs/domain/`;
+- route placement, responsive navigation, and screen hierarchy:
+  [Information Architecture](information-architecture.md);
+- presentation of asynchronous, empty, blocked, and error states:
+  [States, Badges, and Empty Cases](states-and-empty-cases.md) and
+  [Dynamic Interface Accessibility](accessibility-dynamic-status.md).

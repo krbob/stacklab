@@ -2,19 +2,21 @@
 
 ## Purpose
 
-This document defines the local development workflow for Stacklab source code.
-
-It is intentionally minimal and focused on getting backend and frontend running together during early development.
+This document defines the current local development workflow for running the
+Stacklab backend and frontend together from source.
 
 ## Source Layout
 
-Planned source layout:
+Source layout:
 
 - Go backend at repository root
 - React frontend in `frontend/`
 - documentation in `docs/`
 
-This repository is the source tree that later gets deployed under `/opt/stacklab/app`.
+Packaged application files are installed under `/usr/lib/stacklab`; the manual
+tarball profile uses `/opt/stacklab/app`. Development state stays under the
+repository-local paths described below and must not reuse either production
+layout.
 
 ## Tooling Requirements
 
@@ -28,11 +30,6 @@ Required local tools:
 - Docker Engine
 - Compose v2 available as either `docker compose` or standalone `docker-compose`
 
-Helpful but optional:
-
-- `just`
-- `watchexec`
-
 ## Host Assumptions
 
 Local development assumes:
@@ -44,13 +41,13 @@ Local development assumes:
 
 ## Backend Development
 
-Planned backend entrypoint:
+Backend entrypoint:
 
 ```text
 cmd/stacklab
 ```
 
-Expected run command:
+Run command:
 
 ```bash
 go run ./cmd/stacklab
@@ -73,13 +70,13 @@ Notes:
 
 ## Frontend Development
 
-Planned frontend path:
+Frontend path:
 
 ```text
 frontend/
 ```
 
-Expected run commands:
+Run commands:
 
 ```bash
 cd frontend
@@ -87,11 +84,11 @@ npm ci
 npm run dev
 ```
 
-Recommended frontend dev server:
+The frontend dev server runs:
 
 - Vite on `127.0.0.1:5173`
 
-Recommended proxy behavior:
+The checked-in Vite configuration proxies:
 
 - frontend dev server proxies `/api` and `/api/ws` to the backend
 
@@ -188,11 +185,6 @@ During local development:
 - backend logs go to terminal stdout/stderr
 - frontend logs go to browser console and Vite output
 
-## Future Improvements
-
-Likely follow-up additions later:
-
-- `Makefile` or `justfile`
-- seed scripts for local test stacks on disk
-- dev TLS or reverse-proxy profile
-- automated OpenAPI type generation for frontend
+The tracked OpenAPI client is generated with `npm run generate:api`; the
+canonical drift check and focused quality commands are documented in
+[`../quality/developer-checks.md`](../quality/developer-checks.md).

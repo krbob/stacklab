@@ -1,652 +1,341 @@
 # Screen Specifications
 
-This document contains early screen wireframes and interaction notes from the implementation phase.
-Treat absolute paths, exact tab sets, and sidebar examples here as illustrative unless they match the current app and newer API or ops docs.
+This document defines the current presentation and interaction contract for
+implemented screens. Route ownership and responsive navigation are defined in
+[Information Architecture](information-architecture.md); payloads and status
+codes remain owned by `docs/api/openapi.yaml` and the focused API guides.
 
-## 1. Login
+## Shared Application Shell
+
+Authenticated screens use the same desktop sidebar, mobile header and bottom
+navigation, command palette, global activity affordance, and system status.
+
+Every route:
+
+- renders one logical `h1` and a route-specific browser title;
+- has distinct loading, successful-empty, stale-data, and error states;
+- keeps the last successful data visible when a refresh fails where it remains
+  safe and useful;
+- exposes a local retry for the failed resource instead of forcing a page
+  reload;
+- preserves keyboard focus and respects reduced-motion settings;
+- asks before navigation or unload would discard a dirty editor or form.
+
+The shared asynchronous and accessibility rules are specified in
+[States, Badges, and Empty Cases](states-and-empty-cases.md) and
+[Dynamic Interface Accessibility](accessibility-dynamic-status.md).
+
+## Login
 
 Route: `/login`
 
-Purpose: Single-user authentication.
+The login screen contains one password field and no username because Stacklab
+has one logical local operator. Bootstrap password creation is an installation
+task, not a browser registration flow.
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                                                          │
-│                                                          │
-│                      STACKLAB                            │
-│                                                          │
-│               ┌──────────────────────┐                   │
-│               │ Password             │                   │
-│               └──────────────────────┘                   │
-│               [        Log in        ]                   │
-│                                                          │
-│                                                          │
-└──────────────────────────────────────────────────────────┘
-```
+- Empty submission is disabled.
+- Invalid credentials, rate limiting, backend failures, and unreachable service
+  errors are distinguishable without revealing password details.
+- Successful login enters `/stacks`; an already authenticated session does not
+  remain on `/login`.
+- A password change revokes existing sessions and returns the current browser
+  to login with an explanatory status.
 
-Notes:
-
-- single password field (single-user system, no username needed)
-- on first launch, show "Set password" instead of "Log in"
-- session persists via HTTP-only cookie
-- failed attempts show inline error, no lockout in v1 (LAN-only)
-
-## 2. Stack List (Dashboard)
+## Stack Dashboard
 
 Route: `/stacks`
 
-Purpose: Overview of all stacks, quick actions, entry point to detail views.
+The dashboard is a responsive tile grid. Each stack tile links to its overview
+and shows:
 
-### Desktop (>= 1280px)
+- display state, activity state, service count, drift/invalid state, and
+  unhealthy-container count;
+- the latest available CPU and memory snapshot;
+- image-update availability and last action when present;
+- validated stack metadata links as separate external actions.
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│  STACKLAB                              🔍 Search...    [user ▾]     │
-├────────┬─────────────────────────────────────────────────────────────┤
-│        │  Stacks (12)                              [+ New stack]    │
-│ Stacks │─────────────────────────────────────────────────────────────│
-│ Audit  │                                                            │
-│ Settin │  ● traefik        Running           3/3   [↻] [⏹] [⬆]   │
-│        │  ● nextcloud       Running  ✎ Drifted 2/2  [↻] [⏹] [⬆]  │
-│        │  ◐ monitoring      Partial          2/3   [↻] [⏹] [⬆]   │
-│        │  ! home-assistant  Error            1/2   [↻] [⏹] [⬆]   │
-│        │  ○ backup-nightly  Stopped          0/2   [▶] [⬆]        │
-│        │  ◌ new-project     Defined          —     [▶]             │
-│        │                                                            │
-│        │  ─── Quick stats ──────────────────────────────────────    │
-│        │  Stacks: 12 running, 3 stopped, 1 error                   │
-│        │  Containers: 28 running / 35 total                         │
-│        │                                                            │
-└────────┴─────────────────────────────────────────────────────────────┘
-```
+The toolbar provides instant name filtering and All, Problems, and Updates
+views. `/` focuses the filter unless focus is already in an editable control.
+`Check updates` starts a background job, shows bounded progress, and refreshes
+the list at completion. Normal dashboard refreshes run only while the document
+is visible and retain the last successful response on a later failure.
 
-### Stack row anatomy
+A successful empty response offers `Create your first stack`. A failed request
+must never be presented as an empty installation.
 
-Each row contains:
+## Stack Context And Overview
 
-| Element | Description |
-|---|---|
-| Runtime badge | Color circle indicating runtime state |
-| Stack name | Clickable, navigates to stack detail |
-| Runtime label | Text label from `display_state`: Running, Stopped, Partial, Error, Defined, Orphaned |
-| Config indicator | Secondary indicator from `config_state`, shown only when `drifted` or `invalid` |
-| Service count | `running/total` format |
-| Quick actions | Contextual: restart, stop, start, pull. Disabled during operations. |
+Routes:
 
-### Tablet (768px - 1279px)
+- `/stacks/:stackId`
+- `/stacks/:stackId/editor`
+- `/stacks/:stackId/files`
+- `/stacks/:stackId/logs`
+- `/stacks/:stackId/stats`
+- `/stacks/:stackId/terminal`
+- `/stacks/:stackId/audit`
 
-- sidebar collapses to icon bar
-- quick actions collapse to a single "..." menu per row
-- service count still visible
+The shared stack shell owns the stack heading, status, metadata links, and tab
+bar. It refetches when the URL changes to another stack ID and never presents
+the previous stack under a new URL. Definition-dependent tabs are unavailable
+for an orphaned stack; runtime diagnostics remain available when supported by
+the backend capabilities.
 
-### Search
+The Overview renders service cards from the detail response. Each card shows
+the service mode, image/build source, ports, container state and health, mounts,
+and contextual Logs or Shell links. Mutating controls come from
+`available_actions`; the frontend does not infer them from labels alone.
 
-- filters stack list by name (client-side, instant)
-- no server round-trip needed for v1
+Actions are grouped into deployment, image, and disruptive sets. Stop, Down,
+and definition/data removal require explicit review. A locked stack disables
+its mutations but leaves read-only diagnostics and unrelated stacks usable.
+Operation output remains visible after completion.
 
-### Sorting
-
-Default: alphabetical by name. Optional sort by state (errors first) or last action time.
-
-## 3. Stack Overview
-
-Route: `/stacks/:stackId`
-
-Purpose: Detailed view of a single stack with service breakdown.
-
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│  STACKLAB                              🔍 Search...    [user ▾]     │
-├────────┬─────────────────────────────────────────────────────────────┤
-│        │  ← Stacks / nextcloud                                      │
-│ Stacks │                                                            │
-│ Audit  │  ● Running (2/2)                     ✎ Drifted             │
-│ Settin │                                                            │
-│        │  [Overview] [Editor] [Files] [Logs] [Stats] [Terminal]     │
-│        │  [History]                                                 │
-│        │─────────────────────────────────────────────────────────────│
-│        │                                                            │
-│        │  Actions: [▶ Deploy] [↻ Restart] [⏹ Stop] [⬇ Down] [⬆ Pull]
-│        │                                                            │
-│        │  ┌─ Services ──────────────────────────────────────────┐   │
-│        │  │                                                     │   │
-│        │  │  ● app                                              │   │
-│        │  │    Image: nextcloud:29       Mode: pull             │   │
-│        │  │    Ports: 8080:80                                   │   │
-│        │  │    Status: Up 3 days         CPU: 2.1%  RAM: 245MB │   │
-│        │  │    Mounts: config/nextcloud → /config               │   │
-│        │  │            data/nextcloud → /data                   │   │
-│        │  │    [Shell] [Logs] [Restart]                         │   │
-│        │  │                                                     │   │
-│        │  │  ● db                                               │   │
-│        │  │    Image: postgres:16        Mode: pull             │   │
-│        │  │    Status: Up 3 days (healthy)  CPU: 0.3%  RAM: 64MB│  │
-│        │  │    Mounts: data/nextcloud/db → /var/lib/postgresql  │   │
-│        │  │    [Shell] [Logs] [Restart]                         │   │
-│        │  │                                                     │   │
-│        │  └─────────────────────────────────────────────────────┘   │
-│        │                                                            │
-└────────┴─────────────────────────────────────────────────────────────┘
-```
-
-### Service card anatomy
-
-| Element | Description |
-|---|---|
-| State badge | Same colors as container states |
-| Service name | From compose.yaml service key |
-| Image / Build | Image tag or build context path. Labeled with domain `mode`: `image`, `build`, or `hybrid`. |
-| Ports | Published ports mapping |
-| Status | Docker status string + uptime |
-| Inline stats | CPU % and RAM usage (mini, from stats stream) |
-| Mounts | Key volume mounts, showing relative paths under the managed Stacklab roots |
-| Per-service actions | Shell, Logs (navigate to filtered log view), Restart |
-
-### Stack-level actions bar
-
-Buttons are contextual to `display_state` (from `runtime_state`). `activity_state = locked` disables all mutating buttons as an overlay.
-
-| `display_state` | Available actions |
-|---|---|
-| `running` | Deploy (Up), Restart, Stop, Down, Pull |
-| `stopped` | Deploy (Up), Pull, Remove |
-| `partial` | Deploy (Up), Restart, Stop, Down, Pull |
-| `error` | Deploy (Up), Restart, Stop, Down, Pull |
-| `defined` | Deploy (Up), Edit |
-| `orphaned` | Down, Remove |
-
-### Orphaned stack — tab and navigation behavior
-
-When `display_state = orphaned`, the stack has runtime containers but no canonical `compose.yaml`. Tabs that depend on stack definition are disabled; tabs that work with runtime remain available.
-
-| Tab | State | Reason |
-|---|---|---|
-| Overview | Available | Shows runtime containers, ports, states. Displays a warning banner: "Stack definition missing — runtime containers exist without compose.yaml." |
-| Editor | **Disabled** | Tooltip: "No compose.yaml found for this stack." |
-| Files | Available | Stack-scoped workspace files can still be inspected when present. |
-| Logs | Available | Runtime containers produce logs. |
-| Stats | Available | Runtime containers produce stats. |
-| Terminal | Available | Container exec works on running containers. |
-| History | Available | Audit log exists independently of definition files. |
-
-Disabled tabs remain visible in the tab bar (not hidden) to preserve consistent layout. They are grayed out with a tooltip explaining why they are unavailable.
-
-When `activity_state = locked`: all buttons disabled, spinner shown with current job action name.
-
-"Down" and "Remove" require confirmation dialog (see states-and-empty-cases.md).
-
-Action names in the UI map to domain operations (see `docs/domain/operation-model.md`):
-
-| UI button | Domain action |
-|---|---|
-| Deploy | `up` |
-| Restart | `restart` |
-| Stop | `stop` |
-| Down | `down` |
-| Pull | `pull` |
-| Build | `build` |
-| Remove | `remove_stack_definition` |
-| Save | `save_definition` |
-
-## 4. Compose Editor
+## Compose Editor
 
 Route: `/stacks/:stackId/editor`
 
-Purpose: Edit `compose.yaml` and `.env`, validate, preview resolved config, deploy.
+The editor manages canonical `compose.yaml` and root `.env` content, with a
+resolved configuration pane.
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│  ← Stacks / nextcloud                                               │
-│  [Overview] [Editor] [Files] [Logs] [Stats] [Terminal] [History]    │
-├─────────────────────────────────┬────────────────────────────────────┤
-│                                 │                                    │
-│  [compose.yaml ▾] [.env]       │  Resolved config                   │
-│                                 │                                    │
-│  services:                      │  name: nextcloud                   │
-│    app:                         │  services:                         │
-│      image: nextcloud:29        │    app:                            │
-│      ports:                     │      image: nextcloud:29           │
-│        - "${PORT}:80"           │      ports:                        │
-│      volumes:                   │        - "8080:80"                 │
-│        - ../../config/next...   │      environment:                  │
-│      environment:               │        DB_HOST: db                 │
-│        DB_HOST: db              │        DB_NAME: nextcloud          │
-│        DB_NAME: ${DB_NAME}      │      ...                           │
-│    db:                          │    db:                              │
-│      image: postgres:16         │      image: postgres:16            │
-│      ...                        │      ...                           │
-│                                 │                                    │
-│                                 │                                    │
-│                                 │                                    │
-├─────────────────────────────────┴────────────────────────────────────┤
-│  ✓ Config valid                    [Discard] [Save] [Save & Deploy] │
-└──────────────────────────────────────────────────────────────────────┘
-```
+- Compose and `.env` drafts form one save operation.
+- Draft preview validates the current unsaved content without writing it.
+- A failed definition or preview load does not replace previously loaded
+  content with an empty editor.
+- A stale revision conflict preserves the local draft and requires an explicit
+  reload or retry decision.
+- Save may succeed with a validation warning; present `Saved` separately from
+  `Saved, but resolved config is invalid`.
+- A successful save response supplies the job ID used to open the shared
+  progress surface. A failed HTTP save is authoritative and may not expose that
+  already-failed job ID, so the UI reports the request error without waiting
+  for a subscription it cannot identify.
+- Save & Deploy validates the draft, saves it, waits for save completion, and
+  starts deployment only after a successful write.
+- Save and preview failures keep both drafts intact.
+- Successful save refreshes the definition, resolved preview, stack state, and
+  capabilities while retaining job output.
 
-### Layout
+Desktop uses editor and preview side by side. Narrow layouts stack the surfaces
+without making the editor horizontally overflow the application shell.
 
-- **Left panel**: CodeMirror 6 editor. Tab selector for `compose.yaml` and `.env`.
-- **Right panel**: Read-only resolved config output from `docker compose config`. Auto-refreshes on save or on-demand.
-- **Bottom bar**: Validation status, action buttons.
+## Managed Workspaces And Git
 
-### Desktop vs tablet
+Routes:
 
-- Desktop (>= 1280px): side-by-side panels
-- Tablet (768-1279px): stacked vertically (editor on top, resolved below) or toggle between editor and preview
-- Below 768px: editor only with a "Preview" toggle button. Hint: "Full editor experience on desktop."
+- `/config`
+- `/stacks/:stackId/files`
 
-### Validation
+`/config` has Files and Changes modes. Files provides a managed-root tree and
+text editor. Changes provides Git status grouped by stack where possible,
+unified diff, per-file selection, local commit, and push status. Git operations
+stay local-workspace-first; this is not a branch, merge, or reconciliation UI.
 
-- triggered on save (not on every keystroke — YAML parsing is expensive)
-- runs `docker compose config` via backend API
-- result shown in bottom bar: green checkmark or red error with line number
-- invalid config blocks "Save & Deploy" but allows "Save" (user may want to save work in progress)
+Rules shared by Config and Stack Files:
 
-### File tabs
+- non-text files show metadata and a read-only explanation;
+- unreadable files remain visible with owner, group, mode, effective access,
+  and a first-class blocked state;
+- optimistic writes include the expected modification time and preserve the
+  draft on a stale-file conflict;
+- permission repair is explicit, limited to managed roots, and non-recursive
+  by default;
+- unsupported repair capability remains visible with its reason.
 
-- `compose.yaml` — primary, always present
-- `.env` — shown if file exists or user creates one
-- future: additional compose override files
+Stack Files applies the same model inside one stack root. Root `compose.yaml`
+and root `.env` direct the operator to the Compose Editor; supporting text files
+and nested `.env` files use the normal workspace editor.
 
-## 5. Config Workspace
+Changes mode never hides an unreadable changed file. It disables diff or commit
+selection only for that item, and group selection skips ineligible items. A
+clean workspace, missing repository, absent upstream, rejected push, and
+already-up-to-date push are separate states.
 
-Route: `/config`
+## Runtime Diagnostics
 
-Purpose: browse, edit, diff, commit, and push managed config files, while clearly surfacing blocked files caused by ownership or mode drift.
-
-### Files mode blocked-file variant
-
-When `blocked_reason != null` for the selected file:
-
-- keep the normal header visible
-- replace the editor pane with a blocked-file card
-- show owner, group, mode, and effective read/write state
-- do not render editable controls
-
-### Changes mode blocked-file variant
-
-When a changed file has:
-
-- `commit_allowed = false`
-  - row checkbox is disabled
-- `diff_available = false`
-  - right pane shows blocked-file card instead of diff text
-
-The row should still stay visible in the normal stack grouping so the operator understands that Git sees the change even though Stacklab cannot safely act on it.
-
-## 6. Log Viewer
+### Logs
 
 Route: `/stacks/:stackId/logs`
 
-Purpose: Live-streamed logs from stack services.
+Logs stream over WebSocket and support service selection, client-side text
+filtering, pause/resume, clear, line wrapping, copy visible, and download
+visible. A service deep link preselects that service. Pause uses a bounded
+buffer; resume merges it without duplicating lines. The client retains at most
+5,000 entries and distinguishes no output from no filter matches.
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│  ← Stacks / nextcloud                                               │
-│  [Overview] [Editor] [Files] [Logs] [Stats] [Terminal] [History]    │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  Services: [All ▾]  [app] [db]        🔍 Filter...    [⏸ Pause]    │
-│                                                                      │
-│  12:03:01  app  | Nextcloud is ready                                │
-│  12:03:02  db   | LOG: checkpoint complete                          │
-│  12:04:15  app  | GET /status 200 OK                                │
-│  12:04:15  app  | GET /apps/dashboard 200 OK                        │
-│  12:05:00  db   | LOG: automatic vacuum of table "oc_filecache"     │
-│  12:05:01  app  | WARN: session timeout for user admin              │
-│  ...                                                                 │
-│  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ (live)     │
-│                                                                      │
-│  [↓ Scroll to bottom]                     Lines: 1,247   [Download] │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
-### Features
-
-- **Service filter**: toggle which services are visible. "All" is default.
-- **Text filter**: client-side search within visible lines. Highlights matches.
-- **Pause/Resume**: pauses auto-scroll and incoming lines buffer. Resume appends buffered lines.
-- **Auto-scroll**: follows new output. Disabled when user scrolls up. "Scroll to bottom" button appears.
-- **Download**: exports visible (filtered) logs as text file.
-- **Color coding**: each service gets a consistent color for its name prefix.
-- **Timestamps**: shown in local time, toggleable between local and UTC.
-
-### Performance
-
-- virtual scrolling for large log buffers (10k+ lines)
-- configurable buffer limit (default: 5000 lines, older lines dropped)
-- WebSocket stream with backpressure handling
-
-## 7. Stats Dashboard
+### Stats
 
 Route: `/stacks/:stackId/stats`
 
-Purpose: Real-time resource usage per container and aggregated per stack.
+Stats show stack totals and per-container CPU, memory, and network values with
+short session-local trends. History exists only while the browser view is open,
+is capped at 150 frames, and is not persisted in SQLite. Disconnect state is
+visible while automatic reconnect runs; no running containers is a successful
+empty state.
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│  ← Stacks / nextcloud                                               │
-│  [Overview] [Editor] [Files] [Logs] [Stats] [Terminal] [History]    │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  Session history: last ~5 min, collected while this view is open     │
-│                                                                      │
-│  ┌─ Stack CPU ──────┐ ┌─ Stack RAM ──────┐ ┌─ Stack Net ──────────┐ │
-│  │ 2.4%             │ │ 309 MB / 1 GB    │ │ ↓12 KB/s · ↑3 KB/s   │ │
-│  │ [trend chart]    │ │ [trend chart]    │ │ [trend chart]        │ │
-│  └──────────────────┘ └──────────────────┘ └──────────────────────┘ │
-│                                                                      │
-│  ┌─ app ────────────────────────────────────────────────────────┐   │
-│  │  CPU ████████░░░░░░░░░░ 2.1%    RAM ██████░░░░░░ 245/512 MB │   │
-│  │  Net ↓ 10.2 KB/s  ↑ 2.8 KB/s                                │   │
-│  │  [cpu sparkline ~~~~~~~~~~~]  [ram sparkline ~~~~~~~~~~~]    │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                                                                      │
-│  ┌─ db ─────────────────────────────────────────────────────────┐   │
-│  │  CPU █░░░░░░░░░░░░░░░░░ 0.3%    RAM ██░░░░░░░░░░  64/256 MB │   │
-│  │  Net ↓ 1.5 KB/s  ↑ 0.4 KB/s                                 │   │
-│  │  [cpu sparkline ~~~~~~~~~~~]  [ram sparkline ~~~~~~~~~~~]    │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
-### Per-container card
-
-| Element | Description |
-|---|---|
-| CPU bar | Percentage bar + numeric value |
-| RAM bar | Usage / limit bar + numeric values |
-| Network | Download and upload rates |
-| Sparklines | Rolling 5-minute mini charts for CPU and RAM |
-
-### Stack aggregate
-
-Top cards show stack-wide CPU, memory, and network trends.
-
-History rules:
-
-- history is frontend-only
-- history starts when the stats view is open in the browser
-- history is not persisted in SQLite
-- refresh or navigation resets the local history buffer
-
-### Data source
-
-- WebSocket stats stream from Docker Engine API
-- update interval: ~2 seconds
-- trend charts store roughly the last 5 minutes client-side, capped at 150 frames
-
-### No running containers
-
-Show empty state (see states-and-empty-cases.md).
-
-## 8. Terminal
+### Terminal
 
 Route: `/stacks/:stackId/terminal`
 
-Purpose: Container shell sessions via `docker exec`.
+Terminal opens an authenticated `docker exec -it` PTY for a selected running
+container and an allowlisted shell. Container and shell controls are locked
+while a session is active. Resize follows the terminal viewport and Disconnect
+closes the PTY deliberately.
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│  ← Stacks / nextcloud                                               │
-│  [Overview] [Editor] [Files] [Logs] [Stats] [Terminal] [History]    │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  Container: [app ▾]    Shell: [/bin/sh ▾]    [Connect]             │
-│                                                                      │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │ root@abc123:/app# ls -la                                     │   │
-│  │ total 48                                                     │   │
-│  │ drwxr-xr-x  1 root root 4096 Apr  1 10:00 .                │   │
-│  │ drwxr-xr-x  1 root root 4096 Apr  1 10:00 ..               │   │
-│  │ -rw-r--r--  1 root root  123 Apr  1 10:00 config.php       │   │
-│  │ root@abc123:/app# _                                          │   │
-│  │                                                              │   │
-│  │                                                              │   │
-│  │                                                              │   │
-│  │                                                              │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                                                                      │
-│  Connected ●                              [Disconnect] Resize: auto │
-└──────────────────────────────────────────────────────────────────────┘
-```
+Transport reconnect and PTY lifetime are separate. Local scrollback survives a
+transport interruption, but the UI only resumes when the backend session still
+exists; otherwise it asks the operator to start a new session. Exit reasons
+such as process exit, idle timeout, server cleanup, and connection replacement
+remain distinguishable.
 
-### Features
+The backend enforces a 30-minute terminal idle timeout and at most five
+concurrent PTYs per authenticated owner. Logout, session revocation, password
+change, or server shutdown terminates owned PTYs. Host shell is not supported.
 
-- **Container selector**: dropdown listing running containers in the stack
-- **Shell selector**: defaults to `/bin/sh`, option for `/bin/bash` if available
-- **Single active session**: one container/shell session per terminal view. Starting another session happens after the previous one ends or is disconnected.
-- **Disconnect**: closes the current session; scrollback remains visible after exit.
-- **Connection indicator**: green dot when connected, red when disconnected. On disconnect: UI attempts WebSocket reconnect with backoff. If the backend PTY session is still alive, the stream resumes. If the PTY was terminated (idle timeout, cleanup), UI shows "Session ended. Start a new session?" — it does not silently pretend the old session continues. Scrollback buffer is preserved client-side in both cases.
-- **Auto-resize**: XTerm.js fit addon syncs terminal size with browser viewport
+## Audit
 
-### Terminal component architecture
+Routes:
 
-The terminal component is designed for reuse across two modes:
+- `/audit`
+- `/stacks/:stackId/audit`
 
-| Mode | MVP | Source |
-|---|---|---|
-| Container exec | Yes | `docker exec -it <container> <shell>` |
-| Host shell | Post-MVP | Direct PTY on host |
+Global Audit covers all operations; Stack History fixes the stack scope. Both
+use URL-backed search, action, result, and date filters so a filtered view can
+be refreshed or shared. Entries load newest first with an explicit Load more
+control. An entry with a job ID opens the shared job detail; expired event
+details leave the audit summary intact.
 
-Both modes use the same XTerm.js wrapper and WebSocket transport. The mode selector is hidden in v1 but the plumbing supports both.
+Loading and filter-empty results are different states. Refresh failures retain
+already loaded entries and offer a retry.
 
-### Security (pending architect's security-model.md)
-
-- terminal WebSocket requires authenticated session
-- idle timeout: TBD by architect (suggested: 30 minutes)
-- max concurrent sessions: TBD by architect (suggested: 5)
-- session activity logged in audit
-
-### Tablet / responsive
-
-- terminal is usable on tablet and mobile, with controls wrapping above the XTerm surface
-- tablet shows a "Best experience on desktop" hint
-- narrow mobile widths are supported for emergency use, but dense shell work remains better on desktop
-
-## 9. Stack History (Per-Stack Audit)
-
-Route: `/stacks/:stackId/audit`
-
-Purpose: Chronological log of mutating operations on this stack.
-
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│  ← Stacks / nextcloud                                               │
-│  [Overview] [Editor] [Files] [Logs] [Stats] [Terminal] [History]    │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  Stack history                                          [Export]     │
-│                                                                      │
-│  2026-04-03 14:22  pull             ✓ succeeded   12s                │
-│  2026-04-03 14:23  up               ✓ succeeded    4s                │
-│  2026-04-02 09:15  restart          ✓ succeeded    6s                │
-│  2026-04-01 18:00  save_definition  ✓ succeeded    —                 │
-│  2026-04-01 18:01  up               ✗ failed       2s  [View log]   │
-│  2026-04-01 18:05  save_definition  ✓ succeeded    —                 │
-│  2026-04-01 18:05  up               ✓ succeeded    3s                │
-│  ...                                                                 │
-│                                                                      │
-│                                          [Load more]                 │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
-### Row anatomy
-
-All field names and values use the domain vocabulary from `docs/domain/operation-model.md`.
-
-| Field | Domain source | Description |
-|---|---|---|
-| Timestamp | `requested_at` | Local time |
-| Action | `action` | Domain action name: `up`, `down`, `stop`, `restart`, `pull`, `build`, `recreate`, `save_definition`, `create_stack`, `remove_stack_definition`, `validate` |
-| Result | job `state` | `succeeded`, `failed`, `cancelled`, `timed_out` |
-| Duration | `finished_at - started_at` | Wall clock time, shown as `duration_ms` formatted |
-| Detail link | — | "View log" for `failed` / `timed_out` — shows captured job output |
-
-### Pagination
-
-- newest first
-- load 50 entries at a time
-- "Load more" button (no infinite scroll — explicit control)
-
-## 10. Global Audit
-
-Route: `/audit`
-
-Purpose: System-wide audit log across all stacks.
-
-Same layout as stack history but with an additional "Stack" column and a stack filter dropdown.
-
-```
-│  2026-04-03 14:22  nextcloud   pull     ✓ succeeded    12s         │
-│  2026-04-03 14:20  traefik     restart  ✓ succeeded     2s         │
-│  2026-04-03 10:00  monitoring  up       ✗ failed        8s  [Log]  │
-```
-
-## 11. Create Stack
+## Create Stack
 
 Route: `/stacks/new`
 
-Purpose: Create a new stack with directory scaffolding.
+The screen creates a validated stack ID, canonical definition, and managed
+config/data directories. The operator may start from a minimal blank Compose
+file or a built-in template.
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│  ← Stacks / New stack                                               │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  Stack name:  [my-new-app          ]                                │
-│                                                                      │
-│  ℹ Will create:                                                     │
-│    a new stack definition and optional                              │
-│    stack-scoped config/data directories                              │
-│                                                                      │
-│  Initial compose.yaml:                                               │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │ services:                                                    │   │
-│  │   app:                                                       │   │
-│  │     image: _                                                 │   │
-│  │                                                              │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                                                                      │
-│  [Cancel]                                  [Create] [Create & Deploy]│
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
-```
+- Template loading failure does not block blank creation.
+- Required template variables validate inline and render into an inspectable,
+  editable Compose preview.
+- Editing rendered Compose makes the resulting content—not the catalog
+  template—the submitted definition.
+- `Deploy immediately` chains deployment only after successful creation.
+- Creation returns a job and follows the shared progress contract.
 
-### Validation
-
-- stack name: lowercase ASCII with dashes, no spaces, no special characters
-- real-time validation as user types (inline error if invalid)
-- check for name collision with existing stacks
-- initial compose.yaml must pass `docker compose config` for "Create & Deploy"
-
-## 12. Host
+## Host And System Health
 
 Route: `/host`
 
-Purpose: Operational view of the managed host and Stacklab itself.
+Host combines independent overview, metrics, system-health, and Stacklab-log
+resources. A failure in one resource must not hide successful data from the
+others.
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│  Host                                                                │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  ┌─ Stacklab ───────┐ ┌─ System ─────────┐ ┌─ Docker ─────────────┐ │
-│  │ v2026.04.0       │ │ debian-homelab   │ │ Engine 28.5.1        │ │
-│  │ commit abc12345  │ │ Debian GNU/Linux │ │ Compose 2.39.2       │ │
-│  │ started 14:10    │ │ kernel 6.12      │ │                      │ │
-│  └──────────────────┘ │ uptime 3d 5h     │ └──────────────────────┘ │
-│                       └───────────────────┘                          │
-│                                                                      │
-│  ┌─ Resources ────────────────────────────────────────────────────┐  │
-│  │ CPU   12.4%  [████░░░░░░]  4 cores                            │  │
-│  │ RAM   3.1 GB / 8.0 GB [█████░░░░░]                            │  │
-│  │ Disk  83 GB / 274 GB  [███░░░░░░░]                            │  │
-│  └────────────────────────────────────────────────────────────────┘  │
-│                                                                      │
-│  Stacklab logs                                          [Refresh]   │
-│  [All ▾] [follow on/off] [text filter...]                           │
-│  ┌────────────────────────────────────────────────────────────────┐  │
-│  │ 14:13:22  info   HTTP server listening                        │  │
-│  │ 14:13:24  warn   Stacklab logs unavailable                    │  │
-│  │ 14:13:27  error  Failed to read journal                       │  │
-│  └────────────────────────────────────────────────────────────────┘  │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
-```
+The overview shows Stacklab build/runtime, OS/kernel/uptime, Docker/Compose, and
+managed environment context. Metrics cover CPU/load, memory/swap, filesystems,
+network, temperatures, disk I/O, and a bounded process view when available.
+Unsupported host collectors degrade by section rather than failing the page.
 
-Notes:
+Public IP is masked by default and may be disabled in Security settings. The
+operator must explicitly reveal it in the current view. Stacklab logs support
+severity/access filtering, text search, refresh/follow behavior, and clear
+unavailable states on non-systemd hosts.
 
-- dedicated top-level page in the sidebar
-- cards are optimized for quick host-health scanning, not dense reporting
-- Stacklab logs are stacked under the overview, not a separate tab
-- logs use polling follow mode in the first version
+System Health summarizes backend readiness, Docker access, and this browser's
+WebSocket connection. Each dependency has its own last-success context, retry,
+and diagnostic link; `Check all` does not collapse distinct errors into one
+generic status.
 
-## 13. Settings
+## Maintenance
 
-> Current navigation replaces this early monolithic Settings concept with a
-> shared task shell and five routes: `/settings/security`,
-> `/settings/notifications`, `/settings/automation`, `/settings/updates`, and
-> `/settings/about`. The wireframe below is retained as implementation history;
-> `/settings` now redirects to the Security task.
+Route: `/maintenance`
 
-Route: `/settings`
+Maintenance contains Update, Images, Networks, Volumes, and Cleanup tabs. Tabs
+mount on first activation and retain filters or running job state after being
+visited. Inactive inventory tabs do not poll. Inventory search is debounced;
+usage and origin filters update immediately.
 
-Purpose: Application configuration.
+Update and Cleanup use one deliberate sequence:
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│  Settings                                                            │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  Authentication                                                      │
-│  ──────────────                                                      │
-│  Change password:  [current] [new] [confirm]    [Update]            │
-│                                                                      │
-│  Notifications                                                       │
-│  ─────────────                                                       │
-│  Enable notifications  [toggle]                                     │
-│  Webhook URL: https://hooks.example.test/stacklab                   │
-│  [x] Failed jobs   [x] Jobs with warnings   [ ] Maintenance         │
-│  [Send test]                                      [Save]            │
-│                                                                      │
-│  Appearance                                                          │
-│  ──────────                                                          │
-│  Theme: [Dark ▾]                                                    │
-│                                                                      │
-│  Stack defaults                                                      │
-│  ──────────────                                                      │
-│  Install mode and managed roots shown from backend metadata         │
-│                                                                      │
-│  About                                                               │
-│  ─────                                                               │
-│  Stacklab v1.0.0                                                    │
-│  Docker Engine: 27.0.1                                               │
-│  Docker Compose: v2.29.0                                             │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
-```
+1. select targets and scope;
+2. review impact and recovery guidance;
+3. confirm;
+4. follow step-aware progress and raw output;
+5. retain the result and a link from recent runs.
 
-## 14. Operation Progress Panel
+Volumes are never selected for cleanup by default and require stronger review.
+Built-in, stack-managed, and in-use networks or volumes explain why removal is
+blocked. External object creation stays narrow; arbitrary Docker CRUD is not
+part of Maintenance.
 
-Not a standalone screen but an inline/overlay panel shown during mutating operations.
+## Docker Admin
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│  ⟳ Pulling nextcloud...                                             │
-│                                                                      │
-│  app: Pulling from library/nextcloud                                │
-│  app: 29-apache: Pulling fs layer                                   │
-│  app: 29-apache: Downloading  ████████░░░░ 67%                     │
-│  db:  Pulling from library/postgres                                 │
-│  db:  16: Already up to date                                        │
-│                                                                      │
-│  [Cancel]                                                            │
-└──────────────────────────────────────────────────────────────────────┘
-```
+Route: `/docker`
 
-- appears below the action bar on stack overview
-- streamed via WebSocket in real time
-- cancellable for queued/running jobs through the shared cancel endpoint
-- terminal states remain visible; owners may provide an explicit close control after completion
+Docker Admin shows service-manager status, Engine metadata, daemon
+configuration, the managed settings form, and registry authentication.
+
+- Service, Engine, daemon config, and registry status load independently.
+- Missing, unreadable, and invalid `daemon.json` are distinct states.
+- Raw daemon JSON is view-only; managed settings are the only edit surface.
+- Apply requires a successful preview and an operation review covering changed
+  keys, Docker restart impact, backup, rollback, and manual recovery risk.
+- Unsupported privileged capability stays visible with its reason.
+- Registry status exposes registry names and effective config location but no
+  passwords, tokens, or decoded auth values.
+- Login result is followed through the shared job UI; logout always confirms
+  the named registry.
+
+## Settings
+
+Routes:
+
+- `/settings/security`
+- `/settings/notifications`
+- `/settings/automation`
+- `/settings/updates`
+- `/settings/about`
+
+`/settings` redirects to Security. The shared task navigation remains visible
+while only the active task loads its resource. Dirty tasks guard navigation.
+
+- **Security:** change the operator password and manage host-observability
+  privacy preferences.
+- **Notifications:** configure Webhook and Telegram separately, test each
+  channel using current draft values, and group job, maintenance, runtime, and
+  Stacklab self-health events. Feedback is inline; an empty secret field keeps
+  an already configured Telegram token.
+- **Automation:** edit fixed update and cleanup schedules with host-local time,
+  daily/weekly cadence, scope/exclusions, next/last status, and job links.
+  Scheduled volume deletion requires high-impact review.
+- **Updates:** show installed/candidate version, channel, install mode,
+  capability, active job, and last result. Self-update is reviewed before it
+  starts; unsupported non-APT installs receive a direct explanation.
+- **About:** present application, build, Docker, Compose, and managed-environment
+  information without edit affordances.
+
+## Operation Progress And Job Detail
+
+Page-local progress stays with the workflow that started a mutation. Global
+activity keeps active and recently completed work visible after navigation and
+opens the shared job-detail drawer.
+
+- Open progress as soon as a mutation returns a job ID.
+- Use the REST snapshot for current state and WebSocket subscription for replay
+  and live events.
+- Show action, target, step, elapsed time, warnings, raw output, and terminal
+  state without announcing every appended log line.
+- Allow navigation while work continues and keep unrelated resources usable.
+- Offer cancellation only for cancellable queued/running work and expose the
+  intermediate Cancelling state.
+- Audit, stack history, schedules, Maintenance, and global activity open the
+  same detail surface.
+- If retained events have expired, keep the summary and show a calm retention
+  note instead of a failure.
+- Reconnect and REST fallback must not duplicate events or overwrite a newer
+  terminal state with an older snapshot.
+
+Destructive and high-impact actions use the shared operation review pattern:
+scope, targets, effect, snapshot/backup where available, recovery path, and
+residual risk appear before the final confirmation.
