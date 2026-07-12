@@ -3028,6 +3028,7 @@ components:
           type: boolean
         reason:
           type: string
+          enum: [git_not_installed, not_a_git_repository]
         items:
           type: array
           items:
@@ -3047,14 +3048,15 @@ components:
         old_path:
           type: [string, 'null']
         permissions:
-          $ref: '#/components/schemas/FilePermissionsNullable'
+          $ref: '#/components/schemas/FilePermissions'
         diff_available:
           type: boolean
         commit_allowed:
           type: boolean
         blocked_reason:
           type: [string, 'null']
-      required: [path, scope, status, diff_available, commit_allowed]
+          enum: [not_readable, null]
+      required: [path, scope, stack_id, status, old_path, diff_available, commit_allowed, blocked_reason]
     GitDiffResponse:
       type: object
       properties:
@@ -3071,29 +3073,30 @@ components:
         old_path:
           type: [string, 'null']
         permissions:
-          $ref: '#/components/schemas/FilePermissionsNullable'
+          $ref: '#/components/schemas/FilePermissions'
         diff_available:
           type: boolean
         blocked_reason:
           type: [string, 'null']
+          enum: [not_readable, null]
         is_binary:
           type: boolean
         diff:
           type: [string, 'null']
         truncated:
           type: boolean
-      required: [available, path, scope, status, diff_available, is_binary, truncated]
+      required: [available, path, scope, stack_id, status, old_path, diff_available, blocked_reason, is_binary, diff, truncated]
     FilePermissions:
       type: object
       properties:
         owner_uid:
-          type: [integer, 'null']
+          type: integer
         owner_name:
-          type: [string, 'null']
+          type: string
         group_gid:
-          type: [integer, 'null']
+          type: integer
         group_name:
-          type: [string, 'null']
+          type: string
         mode:
           type: string
         readable:
@@ -3101,10 +3104,6 @@ components:
         writable:
           type: boolean
       required: [mode, readable, writable]
-    FilePermissionsNullable:
-      anyOf:
-        - $ref: '#/components/schemas/FilePermissions'
-        - type: 'null'
     GitCommitRequest:
       type: object
       properties:

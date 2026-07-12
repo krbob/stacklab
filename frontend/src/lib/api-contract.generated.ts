@@ -567,15 +567,14 @@ export interface components {
       host_shell: boolean;
     };
     FilePermissions: {
-      group_gid?: number | null;
-      group_name?: string | null;
+      group_gid?: number;
+      group_name?: string;
       mode: string;
-      owner_name?: string | null;
-      owner_uid?: number | null;
+      owner_name?: string;
+      owner_uid?: number;
       readable: boolean;
       writable: boolean;
     };
-    FilePermissionsNullable: components["schemas"]["FilePermissions"] | null;
     GitCommitRequest: {
       message: string;
       paths: string[];
@@ -589,15 +588,16 @@ export interface components {
     };
     GitDiffResponse: {
       available: boolean;
-      blocked_reason?: string | null;
-      diff?: string | null;
+      /** @enum {string|null} */
+      blocked_reason: "not_readable" | null;
+      diff: string | null;
       diff_available: boolean;
       is_binary: boolean;
-      old_path?: string | null;
+      old_path: string | null;
       path: string;
-      permissions?: components["schemas"]["FilePermissionsNullable"];
+      permissions?: components["schemas"]["FilePermissions"];
       scope: components["schemas"]["GitScope"];
-      stack_id?: string | null;
+      stack_id: string | null;
       status: components["schemas"]["GitFileStatus"];
       truncated: boolean;
     };
@@ -615,14 +615,15 @@ export interface components {
     /** @enum {string} */
     GitScope: "stacks" | "config";
     GitStatusItem: {
-      blocked_reason?: string | null;
+      /** @enum {string|null} */
+      blocked_reason: "not_readable" | null;
       commit_allowed: boolean;
       diff_available: boolean;
-      old_path?: string | null;
+      old_path: string | null;
       path: string;
-      permissions?: components["schemas"]["FilePermissionsNullable"];
+      permissions?: components["schemas"]["FilePermissions"];
       scope: components["schemas"]["GitScope"];
-      stack_id?: string | null;
+      stack_id: string | null;
       status: components["schemas"]["GitFileStatus"];
     };
     GitWorkspaceStatusResponse: {
@@ -635,7 +636,8 @@ export interface components {
       head_commit?: string;
       items?: components["schemas"]["GitStatusItem"][];
       managed_roots: string[];
-      reason?: string;
+      /** @enum {string} */
+      reason?: "git_not_installed" | "not_a_git_repository";
       repo_root: string;
       upstream_name?: string;
     };
