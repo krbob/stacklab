@@ -32,9 +32,13 @@ export function createMockWsProvider() {
 
   function Provider({ children, initialConnected = true }: { children: ReactNode; initialConnected?: boolean }) {
     const [connected, setConnected] = useState(initialConnected)
+    const [lastConnectedAt, setLastConnectedAt] = useState<number | null>(initialConnected ? Date.now() : null)
 
     useEffect(() => {
-      connectedRef.current = setConnected
+      connectedRef.current = (value) => {
+        setConnected(value)
+        if (value) setLastConnectedAt(Date.now())
+      }
       return () => { connectedRef.current = null }
     }, [])
 
@@ -42,6 +46,10 @@ export function createMockWsProvider() {
 
     const send = useCallback((frame: Record<string, unknown>) => {
       sentFrames.push(frame)
+    }, [])
+
+    const reconnect = useCallback(() => {
+      setConnected(false)
     }, [])
 
     const subscribe = useCallback((streamId: string, handler: FrameHandler) => {
@@ -59,7 +67,7 @@ export function createMockWsProvider() {
       }
     }, [])
 
-    const value: WsContextValue = { connected, send, subscribe }
+    const value: WsContextValue = { connected, lastConnectedAt, reconnect, send, subscribe }
 
     return <WsContext.Provider value={value}>{children}</WsContext.Provider>
   }

@@ -5,6 +5,8 @@ type FrameHandler = (frame: WsServerFrame) => void
 
 export interface WsContextValue {
   connected: boolean
+  lastConnectedAt: number | null
+  reconnect: () => void
   send: (frame: Record<string, unknown>) => void
   subscribe: (streamId: string, handler: FrameHandler) => () => void
 }
@@ -16,6 +18,7 @@ const RECONNECT_DELAYS = [1000, 2000, 5000, 10000, 20000, 30000]
 
 export function WsProvider({ children, authenticated = false }: { children: ReactNode; authenticated?: boolean }) {
   const [connected, setConnected] = useState(false)
+  const [lastConnectedAt, setLastConnectedAt] = useState<number | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const handlersRef = useRef<Map<string, Set<FrameHandler>>>(new Map())
   const reconnectAttemptRef = useRef(0)
@@ -34,11 +37,17 @@ export function WsProvider({ children, authenticated = false }: { children: Reac
       if (authFailedRef.current) return
       const delay = RECONNECT_DELAYS[Math.min(reconnectAttemptRef.current, RECONNECT_DELAYS.length - 1)]
       reconnectAttemptRef.current++
-      reconnectTimerRef.current = setTimeout(() => connectRef.current?.(), delay)
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = setTimeout(() => {
+        reconnectTimerRef.current = undefined
+        connectRef.current?.()
+      }, delay)
     }
 
     ws.onopen = () => {
+      if (wsRef.current !== ws) return
       setConnected(true)
+      setLastConnectedAt(Date.now())
       reconnectAttemptRef.current = 0
       authFailedRef.current = false
     }
@@ -72,6 +81,7 @@ export function WsProvider({ children, authenticated = false }: { children: Reac
     }
 
     ws.onclose = (event) => {
+      if (wsRef.current !== ws) return
       setConnected(false)
       wsRef.current = null
 
@@ -103,16 +113,46 @@ export function WsProvider({ children, authenticated = false }: { children: Reac
 
   useEffect(() => {
     connectRef.current = connect
-    if (!authenticated) return
+    if (!authenticated) {
+      setConnected(false)
+      setLastConnectedAt(null)
+      return
+    }
     authFailedRef.current = false
     connect()
     return () => {
       authFailedRef.current = true
       const reconnectTimer = reconnectTimerRef.current
       if (reconnectTimer) clearTimeout(reconnectTimer)
-      wsRef.current?.close()
+      reconnectTimerRef.current = undefined
+      const ws = wsRef.current
+      if (ws) {
+        wsRef.current = null
+        ws.onclose = null
+        ws.onerror = null
+        ws.close()
+      }
     }
   }, [connect, authenticated])
+
+  const reconnect = useCallback(() => {
+    if (!authenticated) return
+    authFailedRef.current = false
+    reconnectAttemptRef.current = 0
+    const reconnectTimer = reconnectTimerRef.current
+    if (reconnectTimer) clearTimeout(reconnectTimer)
+    reconnectTimerRef.current = undefined
+
+    const ws = wsRef.current
+    if (ws) {
+      wsRef.current = null
+      ws.onclose = null
+      ws.onerror = null
+      ws.close()
+    }
+    setConnected(false)
+    connectRef.current?.()
+  }, [authenticated])
 
   const send = useCallback((frame: Record<string, unknown>) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -136,7 +176,7 @@ export function WsProvider({ children, authenticated = false }: { children: Reac
   }, [])
 
   return (
-    <WsContext.Provider value={{ connected, send, subscribe }}>
+    <WsContext.Provider value={{ connected, lastConnectedAt, reconnect, send, subscribe }}>
       {children}
     </WsContext.Provider>
   )
