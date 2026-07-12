@@ -5,6 +5,7 @@ import { useApi } from '@/hooks/use-api'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import type { MaintenanceImageItem, MaintenanceImageUsage, MaintenanceImageOrigin } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
+import { AsyncState } from '@/components/async-state'
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
@@ -32,9 +33,11 @@ export function MaintenanceImages() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-medium text-[var(--text)]">Images</h2>
-          <p className="mt-1 text-xs text-[var(--muted)]">
-            {images.length} images · {formatBytes(totalSize)} total · {unusedCount} unused
-          </p>
+          {data && (
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              {images.length} images · {formatBytes(totalSize)} total · {unusedCount} unused
+            </p>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -79,27 +82,25 @@ export function MaintenanceImages() {
         </div>
       </div>
 
-      {error && (
-        <div className="mt-3 rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">
-          {error.message}
-        </div>
-      )}
-
-      <div className="mt-4 space-y-1">
-        {loading && images.length === 0 && (
-          <>
-            <span className="sr-only" role="status" aria-live="polite">Loading images...</span>
-            {[1, 2, 3].map((i) => <div key={i} className="h-14 animate-pulse rounded-[12px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)]" />)}
-          </>
-        )}
-
-        {!loading && images.length === 0 && (
-          <p className="py-6 text-center text-sm text-[var(--muted)]">No images found matching filters.</p>
-        )}
-
-        {images.map((img) => (
-          <ImageRow key={img.id} image={img} />
-        ))}
+      <div className="mt-4 space-y-2">
+        <AsyncState
+          loading={loading}
+          error={error}
+          hasData={data !== null}
+          isEmpty={images.length === 0}
+          loadingLabel="Loading images..."
+          emptyMessage="No images found matching filters."
+          onRetry={refetch}
+          loadingFallback={
+            <>
+              {[1, 2, 3].map((i) => <div key={i} className="h-14 animate-pulse rounded-[12px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)]" />)}
+            </>
+          }
+        >
+          {images.map((img) => (
+            <ImageRow key={img.id} image={img} />
+          ))}
+        </AsyncState>
       </div>
     </section>
   )

@@ -131,7 +131,7 @@ HTML dla awarii, a workflow wykonuje preflight Dockera i readiness backendu.
 
 | ID | Status | Krok | Kryterium odbioru | Planowany commit |
 | --- | --- | --- | --- | --- |
-| UX-06 | planned | Ujednolicić async error/loading/empty | wspólny `AsyncState`, Retry, route Error Boundary i Suspense fallback; brak pustych `catch` dla działań operatora | seria `refactor(ui): standardize async states` |
+| UX-06 | in_progress | Ujednolicić async error/loading/empty | wspólny `AsyncState`, Retry, route Error Boundary i Suspense fallback; brak pustych `catch` dla działań operatora | seria `refactor(ui): standardize async states` |
 | UX-07 | in_progress | Zbudować dostępne prymitywy overlay | Dialog/Drawer/BottomSheet z focus trap, Escape, restore focus i ARIA; migracja wszystkich modalów | seria `refactor(ui): adopt accessible ...` |
 | UX-08 | done | Dodać semantykę dynamicznych statusów | `aria-live`, `role=status`, `aria-busy`, progressbar, `aria-pressed`/tabs i dostępna command palette | `fix(a11y): announce dynamic interface state` |
 | UX-09 | done | Poprawić czytelność wizualną | kontrast AA, mniej tekstu 9–11 px, reduced motion, lokalne WOFF2, ograniczona tekstura noise | seria `fix(ui): improve ...` |

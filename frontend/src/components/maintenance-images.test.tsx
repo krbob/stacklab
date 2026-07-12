@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MaintenanceImages } from './maintenance-images'
@@ -100,15 +100,33 @@ describe('MaintenanceImages', () => {
     expect(screen.getByText(/No images found/)).toBeInTheDocument()
   })
 
-  it('shows error state', () => {
+  it('shows an initial error with Retry and no false empty summary', () => {
+    const refetch = vi.fn()
     mockUseApi.mockReturnValue({
       data: null,
       error: new Error('Docker unavailable'),
       loading: false,
+      refetch,
+    })
+    renderComponent()
+    expect(screen.getByRole('alert')).toHaveTextContent('Docker unavailable')
+    expect(screen.queryByText(/0 images/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/No images found/)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(refetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the last image snapshot visible after a refresh error', () => {
+    mockUseApi.mockReturnValue({
+      data: imagesData,
+      error: new Error('Refresh failed'),
+      loading: false,
       refetch: vi.fn(),
     })
     renderComponent()
-    expect(screen.getByText('Docker unavailable')).toBeInTheDocument()
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Showing the last successfully loaded data.')
+    expect(screen.getByText('nginx:alpine')).toBeInTheDocument()
   })
 
   it('renders filter buttons', () => {

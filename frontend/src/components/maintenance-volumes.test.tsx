@@ -140,4 +140,26 @@ describe('MaintenanceVolumes', () => {
 
     expect(screen.getByText(/No volumes found/)).toBeInTheDocument()
   })
+
+  it('shows an initial error with Retry and no false empty summary', () => {
+    const refetch = vi.fn()
+    mockUseApi.mockReturnValue({
+      data: null,
+      error: new Error('Volume inventory unavailable'),
+      loading: false,
+      refetch,
+    })
+
+    render(
+      <MemoryRouter>
+        <MaintenanceVolumes />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Volume inventory unavailable')
+    expect(screen.queryByText(/0 volumes/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/No volumes found/)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(refetch).toHaveBeenCalledTimes(1)
+  })
 })

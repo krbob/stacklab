@@ -139,4 +139,26 @@ describe('MaintenanceNetworks', () => {
 
     expect(screen.getByText(/No networks found/)).toBeInTheDocument()
   })
+
+  it('shows an initial error with Retry and no false empty summary', () => {
+    const refetch = vi.fn()
+    mockUseApi.mockReturnValue({
+      data: null,
+      error: new Error('Network inventory unavailable'),
+      loading: false,
+      refetch,
+    })
+
+    render(
+      <MemoryRouter>
+        <MaintenanceNetworks />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Network inventory unavailable')
+    expect(screen.queryByText(/0 networks/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/No networks found/)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(refetch).toHaveBeenCalledTimes(1)
+  })
 })

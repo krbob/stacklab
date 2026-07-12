@@ -6,6 +6,7 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import type { MaintenanceNetworkItem } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { AsyncState } from '@/components/async-state'
 
 type Usage = 'all' | 'used' | 'unused'
 type Origin = 'all' | 'stack_managed' | 'external'
@@ -80,7 +81,7 @@ export function MaintenanceNetworks() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-medium text-[var(--text)]">Networks</h2>
-          <p className="mt-1 text-xs text-[var(--muted)]">{networks.length} networks · {unusedCount} unused</p>
+          {data && <p className="mt-1 text-xs text-[var(--muted)]">{networks.length} networks · {unusedCount} unused</p>}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {(['all', 'used', 'unused'] as const).map((v) => (
@@ -112,49 +113,61 @@ export function MaintenanceNetworks() {
       )}
 
       {actionError && <div className="mt-3 rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">{actionError}</div>}
-      {error && <div className="mt-3 rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">{error.message}</div>}
 
-      <div className="mt-4 space-y-1">
-        {loading && networks.length === 0 && <><span className="sr-only" role="status" aria-live="polite">Loading networks...</span>{[1, 2, 3].map((i) => <div key={i} className="h-14 animate-pulse rounded-[12px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)]" />)}</>}
-        {!loading && networks.length === 0 && <p className="py-6 text-center text-sm text-[var(--muted)]">No networks found matching filters.</p>}
-        {networks.map((net) => (
-          <div key={net.id} className="flex items-center gap-3 rounded-[12px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-4 py-3 text-xs">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-[var(--text)]">{net.name}</span>
-                {net.is_unused && <span className="text-[var(--muted)]">unused</span>}
-                {net.internal && <span className="text-[var(--warning)]">internal</span>}
-                {net.source === 'external' && <span className="text-[var(--muted)]">external</span>}
+      <div className="mt-4 space-y-2">
+        <AsyncState
+          loading={loading}
+          error={error}
+          hasData={data !== null}
+          isEmpty={networks.length === 0}
+          loadingLabel="Loading networks..."
+          emptyMessage="No networks found matching filters."
+          onRetry={refetch}
+          loadingFallback={
+            <>
+              {[1, 2, 3].map((i) => <div key={i} className="h-14 animate-pulse rounded-[12px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)]" />)}
+            </>
+          }
+        >
+          {networks.map((net) => (
+            <div key={net.id} className="flex items-center gap-3 rounded-[12px] border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-4 py-3 text-xs">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[var(--text)]">{net.name}</span>
+                  {net.is_unused && <span className="text-[var(--muted)]">unused</span>}
+                  {net.internal && <span className="text-[var(--warning)]">internal</span>}
+                  {net.source === 'external' && <span className="text-[var(--muted)]">external</span>}
+                </div>
+                <div className="mt-1 flex flex-wrap gap-3 font-mono text-[var(--muted)]">
+                  <span>driver: {net.driver}</span>
+                  <span>scope: {net.scope}</span>
+                  <span>{net.containers_using} container{net.containers_using !== 1 ? 's' : ''}</span>
+                  {net.stacks_using.length > 0 && (
+                    <span className="flex flex-wrap gap-1">
+                      {net.stacks_using.map((s) => (
+                        <Link key={s.stack_id} to={`/stacks/${s.stack_id}`} className="text-[var(--accent)] hover:underline">{s.stack_id}</Link>
+                      ))}
+                    </span>
+                  )}
+                  <span className="text-[var(--muted)]">{net.id.slice(0, 12)}</span>
+                </div>
               </div>
-              <div className="mt-1 flex flex-wrap gap-3 font-mono text-[var(--muted)]">
-                <span>driver: {net.driver}</span>
-                <span>scope: {net.scope}</span>
-                <span>{net.containers_using} container{net.containers_using !== 1 ? 's' : ''}</span>
-                {net.stacks_using.length > 0 && (
-                  <span className="flex flex-wrap gap-1">
-                    {net.stacks_using.map((s) => (
-                      <Link key={s.stack_id} to={`/stacks/${s.stack_id}`} className="text-[var(--accent)] hover:underline">{s.stack_id}</Link>
-                    ))}
-                  </span>
-                )}
-                <span className="text-[var(--muted)]">{net.id.slice(0, 12)}</span>
-              </div>
+              <span className="shrink-0" title={deleteBlockedReason(net) ?? undefined}>
+                <button
+                  onClick={() => {
+                    setActionError(null)
+                    setPendingDelete(net)
+                  }}
+                  disabled={!canDelete(net)}
+                  aria-label={`Remove ${net.name}`}
+                  className="rounded-md border border-[var(--danger)]/30 px-2 py-1 text-xs text-[var(--danger)] transition hover:bg-[var(--danger)]/10 disabled:opacity-30 disabled:hover:bg-transparent"
+                >
+                  Remove
+                </button>
+              </span>
             </div>
-            <span className="shrink-0" title={deleteBlockedReason(net) ?? undefined}>
-              <button
-                onClick={() => {
-                  setActionError(null)
-                  setPendingDelete(net)
-                }}
-                disabled={!canDelete(net)}
-                aria-label={`Remove ${net.name}`}
-                className="rounded-md border border-[var(--danger)]/30 px-2 py-1 text-xs text-[var(--danger)] transition hover:bg-[var(--danger)]/10 disabled:opacity-30 disabled:hover:bg-transparent"
-              >
-                Remove
-              </button>
-            </span>
-          </div>
-        ))}
+          ))}
+        </AsyncState>
       </div>
 
       {pendingDelete && (
