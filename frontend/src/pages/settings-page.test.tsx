@@ -723,6 +723,130 @@ describe("SettingsPage", () => {
     expect(mockUpdateMaintenanceSchedules).not.toHaveBeenCalled();
   });
 
+  it("retries only the failed Stacklab update overview", async () => {
+    mockGetStacklabUpdateOverview
+      .mockRejectedValueOnce(new Error("update overview unavailable"))
+      .mockResolvedValueOnce({
+        current_version: "2026.04.0",
+        install_mode: "apt",
+        package: {
+          supported: true,
+          name: "stacklab",
+          installed_version: "2026.04.0",
+          candidate_version: "2026.04.0",
+          configured_channel: "stable",
+          update_available: false,
+        },
+        write_capability: { supported: true },
+      });
+
+    render(<SettingsPage />);
+
+    const updateCard = (await screen.findByText("Stacklab update")).closest("section") ?? document.body;
+    expect(await within(updateCard).findByRole("alert")).toHaveTextContent("update overview unavailable");
+    expect(within(updateCard).queryByRole("button", { name: "Update Stacklab" })).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(mockGetMeta).toHaveBeenCalledTimes(1);
+      expect(mockGetNotificationSettings).toHaveBeenCalledTimes(1);
+      expect(mockGetStacklabUpdateOverview).toHaveBeenCalledTimes(1);
+    });
+    fireEvent.click(within(updateCard).getByRole("button", { name: "Retry update status" }));
+
+    expect(await within(updateCard).findByText("Stacklab is already up to date.")).toBeInTheDocument();
+    expect(mockGetStacklabUpdateOverview).toHaveBeenCalledTimes(2);
+    expect(mockGetMeta).toHaveBeenCalledTimes(1);
+    expect(mockGetNotificationSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves and disables the Stacklab update overview when its delayed refresh fails", async () => {
+    mockGetStacklabUpdateOverview
+      .mockResolvedValueOnce({
+        current_version: "2026.04.0",
+        install_mode: "apt",
+        package: {
+          supported: true,
+          name: "stacklab",
+          installed_version: "2026.04.0",
+          candidate_version: "2026.04.1",
+          configured_channel: "stable",
+          update_available: true,
+        },
+        write_capability: { supported: true },
+      })
+      .mockRejectedValueOnce(new Error("service restarting"))
+      .mockResolvedValueOnce({
+        current_version: "2026.04.1",
+        install_mode: "apt",
+        package: {
+          supported: true,
+          name: "stacklab",
+          installed_version: "2026.04.1",
+          candidate_version: "2026.04.1",
+          configured_channel: "stable",
+          update_available: false,
+        },
+        write_capability: { supported: true },
+      });
+    mockApplyStacklabUpdate.mockResolvedValue({
+      started: true,
+      job: {
+        id: "job_update",
+        stack_id: null,
+        action: "self_update_stacklab",
+        state: "running",
+      },
+      package: {
+        supported: true,
+        name: "stacklab",
+        installed_version: "2026.04.0",
+        candidate_version: "2026.04.1",
+        configured_channel: "stable",
+        update_available: true,
+      },
+    });
+
+    render(<SettingsPage />);
+    expect(await screen.findByText("Update available: 2026.04.1")).toBeInTheDocument();
+    const updateCard = screen.getByText("Stacklab update").closest("section") ?? document.body;
+
+    vi.useFakeTimers();
+    fireEvent.click(within(updateCard).getByRole("button", { name: "Update Stacklab" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Update Stacklab?" })).getByRole("button", {
+        name: "Update Stacklab",
+      }),
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(within(updateCard).getByRole("status")).toHaveTextContent("Refreshing…");
+    expect(within(updateCard).getByRole("button", { name: "Updating..." })).toBeDisabled();
+    expect(mockApplyStacklabUpdate).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+
+    const alert = within(updateCard).getByRole("alert");
+    expect(alert).toHaveTextContent("service restarting");
+    expect(alert).toHaveTextContent("Showing the last successfully loaded data.");
+    expect(within(updateCard).getByText("Update available: 2026.04.1")).toBeInTheDocument();
+    expect(within(updateCard).getByRole("button", { name: "Updating..." })).toBeDisabled();
+
+    await act(async () => {
+      fireEvent.click(within(updateCard).getByRole("button", { name: "Retry update status" }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(within(updateCard).getByText("Stacklab is already up to date.")).toBeInTheDocument();
+    expect(within(updateCard).queryByRole("alert")).not.toBeInTheDocument();
+    expect(mockGetStacklabUpdateOverview).toHaveBeenCalledTimes(3);
+  });
+
   it("starts stacklab self-update and opens the job drawer", async () => {
     mockGetStacklabUpdateOverview.mockResolvedValue({
       current_version: "2026.04.0",
@@ -822,6 +946,8 @@ describe("SettingsPage", () => {
       await Promise.resolve();
     });
     expect(mockApplyStacklabUpdate).toHaveBeenCalledTimes(1);
+    const updateCard = screen.getByText("Stacklab update").closest("section") ?? document.body;
+    expect(within(updateCard).getByRole("button", { name: "Updating..." })).toBeDisabled();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1_999);
@@ -839,6 +965,60 @@ describe("SettingsPage", () => {
     expect(mockGetStacklabUpdateOverview).toHaveBeenCalledTimes(2);
 
     unmount();
+  });
+
+  it("cancels the delayed Stacklab update refresh when the section unmounts", async () => {
+    mockGetStacklabUpdateOverview.mockResolvedValue({
+      current_version: "2026.04.0",
+      install_mode: "apt",
+      package: {
+        supported: true,
+        name: "stacklab",
+        installed_version: "2026.04.0",
+        candidate_version: "2026.04.1",
+        configured_channel: "stable",
+        update_available: true,
+      },
+      write_capability: { supported: true },
+    });
+    mockApplyStacklabUpdate.mockResolvedValue({
+      started: true,
+      job: {
+        id: "job_update",
+        stack_id: null,
+        action: "self_update_stacklab",
+        state: "running",
+      },
+      package: {
+        supported: true,
+        name: "stacklab",
+        installed_version: "2026.04.0",
+        candidate_version: "2026.04.1",
+        configured_channel: "stable",
+        update_available: true,
+      },
+    });
+
+    const { unmount } = render(<SettingsPage />);
+    expect(await screen.findByText("Update available: 2026.04.1")).toBeInTheDocument();
+
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByText("Update Stacklab"));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Update Stacklab?" })).getByRole("button", {
+        name: "Update Stacklab",
+      }),
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockGetStacklabUpdateOverview).toHaveBeenCalledTimes(1);
+
+    unmount();
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(mockGetStacklabUpdateOverview).toHaveBeenCalledTimes(1);
   });
 
   it("allows long nightly self-update versions to wrap on mobile", async () => {
