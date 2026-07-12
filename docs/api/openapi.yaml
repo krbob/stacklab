@@ -472,6 +472,39 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '413':
           $ref: '#/components/responses/ErrorContentTooLarge'
+  /config/workspace/repair-permissions:
+    post:
+      tags: [Config]
+      operationId: repairConfigWorkspacePermissions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigRepairPermissionsRequest'
+      responses:
+        '200':
+          description: Config workspace ownership and owner access repaired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigRepairPermissionsResponse'
+        '400':
+          description: Path escapes the managed config workspace.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '501':
+          description: Workspace permission repair is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /git/workspace/status:
     get:
       tags: [Git]
@@ -1157,6 +1190,147 @@ paths:
           $ref: '#/components/responses/ErrorInvalidState'
         '413':
           $ref: '#/components/responses/ErrorContentTooLarge'
+  /stacks/{stackId}/workspace/tree:
+    parameters:
+      - $ref: '#/components/parameters/StackId'
+    get:
+      tags: [Stacks]
+      operationId: getStackWorkspaceTree
+      parameters:
+        - in: query
+          name: path
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Directory-scoped auxiliary stack workspace listing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StackWorkspaceTreeResponse'
+        '400':
+          description: Invalid path or path is not a directory.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          description: Stack workspace path is not readable by Stacklab.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /stacks/{stackId}/workspace/file:
+    parameters:
+      - $ref: '#/components/parameters/StackId'
+    get:
+      tags: [Stacks]
+      operationId: getStackWorkspaceFile
+      parameters:
+        - in: query
+          name: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Auxiliary stack file metadata and optional content.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StackWorkspaceFileResponse'
+        '400':
+          description: Invalid path or path is not a file.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          description: Reserved, unreadable, or otherwise invalid stack workspace file.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          $ref: '#/components/responses/ErrorContentTooLarge'
+    put:
+      tags: [Stacks]
+      operationId: saveStackWorkspaceFile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StackWorkspaceFileSaveRequest'
+      responses:
+        '200':
+          description: Auxiliary stack file saved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StackWorkspaceFileSaveResponse'
+        '400':
+          description: Invalid path or parent directory shape.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          description: Reserved, binary, conflicted, or unwritable stack workspace file.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          $ref: '#/components/responses/ErrorContentTooLarge'
+  /stacks/{stackId}/workspace/repair-permissions:
+    parameters:
+      - $ref: '#/components/parameters/StackId'
+    post:
+      tags: [Stacks]
+      operationId: repairStackWorkspacePermissions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StackRepairPermissionsRequest'
+      responses:
+        '200':
+          description: Stack workspace ownership and owner access repaired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StackRepairPermissionsResponse'
+        '400':
+          description: Path escapes the managed stack workspace.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '501':
+          description: Workspace permission repair is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /stacks/{stackId}/resolved-config:
     parameters:
       - $ref: '#/components/parameters/StackId'
@@ -2580,7 +2754,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ConfigTreeEntry'
-      required: [workspace_root, current_path, items]
+      required: [workspace_root, current_path, parent_path, items]
     ConfigTreeEntry:
       type: object
       properties:
@@ -2602,7 +2776,7 @@ components:
           type: boolean
         permissions:
           $ref: '#/components/schemas/FilePermissions'
-      required: [name, path, type, size_bytes, modified_at, git_ignored, permissions]
+      required: [name, path, type, size_bytes, modified_at, stack_id, git_ignored, permissions]
     ConfigFileResponse:
       type: object
       properties:
@@ -2637,7 +2811,9 @@ components:
           nullable: true
         permissions:
           $ref: '#/components/schemas/FilePermissions'
-      required: [path, name, type, size_bytes, modified_at, git_ignored, readable, writable, permissions]
+        repair_capability:
+          $ref: '#/components/schemas/WorkspaceRepairCapability'
+      required: [path, name, type, stack_id, content, encoding, size_bytes, modified_at, git_ignored, readable, writable, blocked_reason, permissions, repair_capability]
     ConfigFileSaveRequest:
       type: object
       properties:
@@ -2647,6 +2823,10 @@ components:
           type: string
         create_parent_directories:
           type: boolean
+        expected_modified_at:
+          type: string
+          format: date-time
+          nullable: true
       required: [path, content, create_parent_directories]
     ConfigFileSaveResponse:
       type: object
@@ -2661,6 +2841,181 @@ components:
         audit_action:
           type: string
       required: [saved, path, modified_at, audit_action]
+    WorkspaceRepairCapability:
+      type: object
+      properties:
+        supported:
+          type: boolean
+        reason:
+          type: string
+        recursive:
+          type: boolean
+      required: [supported, recursive]
+    ConfigRepairPermissionsRequest:
+      type: object
+      properties:
+        path:
+          type: string
+        recursive:
+          type: boolean
+          default: false
+      required: [path]
+    ConfigRepairPermissionsResponse:
+      type: object
+      properties:
+        repaired:
+          type: boolean
+        path:
+          type: string
+        recursive:
+          type: boolean
+        changed_items:
+          type: integer
+        warnings:
+          type: array
+          items:
+            type: string
+        target_permissions_before:
+          $ref: '#/components/schemas/FilePermissions'
+        target_permissions_after:
+          $ref: '#/components/schemas/FilePermissions'
+        audit_action:
+          type: string
+        repair_capability:
+          $ref: '#/components/schemas/WorkspaceRepairCapability'
+      required: [repaired, path, recursive, changed_items, target_permissions_before, target_permissions_after, audit_action, repair_capability]
+    StackWorkspaceTreeResponse:
+      type: object
+      properties:
+        stack_id:
+          type: string
+        workspace_root:
+          type: string
+        current_path:
+          type: string
+        parent_path:
+          type: string
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/StackWorkspaceTreeEntry'
+      required: [stack_id, workspace_root, current_path, parent_path, items]
+    StackWorkspaceTreeEntry:
+      type: object
+      properties:
+        name:
+          type: string
+        path:
+          type: string
+        type:
+          $ref: '#/components/schemas/ConfigEntryType'
+        size_bytes:
+          type: integer
+        modified_at:
+          type: string
+          format: date-time
+        permissions:
+          $ref: '#/components/schemas/FilePermissions'
+      required: [name, path, type, size_bytes, modified_at, permissions]
+    StackWorkspaceFileResponse:
+      type: object
+      properties:
+        stack_id:
+          type: string
+        path:
+          type: string
+        name:
+          type: string
+        type:
+          $ref: '#/components/schemas/ConfigEntryType'
+        content:
+          type: string
+          nullable: true
+        encoding:
+          type: string
+          nullable: true
+        size_bytes:
+          type: integer
+        modified_at:
+          type: string
+          format: date-time
+        readable:
+          type: boolean
+        writable:
+          type: boolean
+        blocked_reason:
+          type: string
+          nullable: true
+        permissions:
+          $ref: '#/components/schemas/FilePermissions'
+        repair_capability:
+          $ref: '#/components/schemas/WorkspaceRepairCapability'
+      required: [stack_id, path, name, type, content, encoding, size_bytes, modified_at, readable, writable, blocked_reason, permissions, repair_capability]
+    StackWorkspaceFileSaveRequest:
+      type: object
+      properties:
+        path:
+          type: string
+        content:
+          type: string
+        create_parent_directories:
+          type: boolean
+        expected_modified_at:
+          type: string
+          format: date-time
+          nullable: true
+      required: [path, content, create_parent_directories]
+    StackWorkspaceFileSaveResponse:
+      type: object
+      properties:
+        saved:
+          type: boolean
+        stack_id:
+          type: string
+        path:
+          type: string
+        modified_at:
+          type: string
+          format: date-time
+        audit_action:
+          type: string
+      required: [saved, stack_id, path, modified_at, audit_action]
+    StackRepairPermissionsRequest:
+      type: object
+      properties:
+        path:
+          type: string
+        recursive:
+          type: boolean
+          default: false
+      required: [path]
+    StackRepairPermissionsResponse:
+      type: object
+      properties:
+        repaired:
+          type: boolean
+        stack_id:
+          type: string
+        path:
+          type: string
+        recursive:
+          type: boolean
+        changed_items:
+          type: integer
+        warnings:
+          type: array
+          items:
+            type: string
+        target_permissions_before:
+          $ref: '#/components/schemas/FilePermissions'
+        target_permissions_after:
+          $ref: '#/components/schemas/FilePermissions'
+        audit_action:
+          type: string
+        repair_capability:
+          $ref: '#/components/schemas/WorkspaceRepairCapability'
+      required: [repaired, stack_id, path, recursive, changed_items, target_permissions_before, target_permissions_after, audit_action, repair_capability]
     GitFileStatus:
       type: string
       enum: [modified, added, deleted, renamed, untracked, conflicted]

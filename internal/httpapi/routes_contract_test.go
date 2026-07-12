@@ -3,7 +3,12 @@ package httpapi
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 type domainRoute struct {
@@ -123,6 +128,62 @@ func TestHandlerRegistersDomainRouteContract(t *testing.T) {
 		if pattern != fallback.pattern {
 			t.Fatalf("%s %s matched %q, want fallback %q", fallback.method, fallback.path, pattern, fallback.pattern)
 		}
+	}
+}
+
+func TestOpenAPICoversDomainRouteContract(t *testing.T) {
+	t.Parallel()
+
+	rawSpec, err := os.ReadFile(filepath.Join("..", "..", "docs", "api", "openapi.yaml"))
+	if err != nil {
+		t.Fatalf("read OpenAPI spec: %v", err)
+	}
+
+	var spec struct {
+		Paths map[string]map[string]any `yaml:"paths"`
+	}
+	if err := yaml.Unmarshal(rawSpec, &spec); err != nil {
+		t.Fatalf("parse OpenAPI spec: %v", err)
+	}
+
+	expected := make(map[string]struct{}, len(domainRouteContract())-1)
+	for _, route := range domainRouteContract() {
+		if route.pattern == "GET /api/ws" {
+			continue
+		}
+		expected[route.pattern] = struct{}{}
+	}
+
+	documented := make(map[string]struct{}, len(expected))
+	for path, pathItem := range spec.Paths {
+		for method := range pathItem {
+			if !isOpenAPIOperationMethod(method) {
+				continue
+			}
+			pattern := strings.ToUpper(method) + " /api" + path
+			documented[pattern] = struct{}{}
+			if _, ok := expected[pattern]; !ok {
+				t.Errorf("OpenAPI documents unregistered operation %s", pattern)
+			}
+		}
+	}
+
+	for pattern := range expected {
+		if _, ok := documented[pattern]; !ok {
+			t.Errorf("registered operation %s is missing from OpenAPI", pattern)
+		}
+	}
+	if len(documented) != len(expected) {
+		t.Fatalf("OpenAPI operation count = %d, want %d registered REST operations", len(documented), len(expected))
+	}
+}
+
+func isOpenAPIOperationMethod(method string) bool {
+	switch strings.ToUpper(method) {
+	case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodConnect, http.MethodOptions, http.MethodTrace:
+		return true
+	default:
+		return false
 	}
 }
 
