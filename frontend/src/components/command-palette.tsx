@@ -10,6 +10,7 @@ interface PaletteEntry {
   label: string
   hint: string
   to: string
+  keywords?: string[]
 }
 
 const sectionEntries: PaletteEntry[] = [
@@ -19,7 +20,42 @@ const sectionEntries: PaletteEntry[] = [
   { kind: 'section', label: 'Maintenance', hint: 'section', to: '/maintenance' },
   { kind: 'section', label: 'Docker', hint: 'section', to: '/docker' },
   { kind: 'section', label: 'Audit', hint: 'section', to: '/audit' },
-  { kind: 'section', label: 'Settings', hint: 'section', to: '/settings' },
+  { kind: 'section', label: 'Settings', hint: 'section', to: '/settings/security' },
+  {
+    kind: 'section',
+    label: 'Settings: Security',
+    hint: 'settings',
+    to: '/settings/security',
+    keywords: ['password', 'credentials', 'host', 'privacy', 'public ip'],
+  },
+  {
+    kind: 'section',
+    label: 'Settings: Notifications',
+    hint: 'settings',
+    to: '/settings/notifications',
+    keywords: ['alerts', 'telegram', 'webhook'],
+  },
+  {
+    kind: 'section',
+    label: 'Settings: Automation',
+    hint: 'settings',
+    to: '/settings/automation',
+    keywords: ['schedules', 'scheduled cleanup', 'prune'],
+  },
+  {
+    kind: 'section',
+    label: 'Settings: Updates',
+    hint: 'settings',
+    to: '/settings/updates',
+    keywords: ['stacklab version', 'upgrade', 'release channel'],
+  },
+  {
+    kind: 'section',
+    label: 'Settings: About',
+    hint: 'settings',
+    to: '/settings/about',
+    keywords: ['build information', 'version details'],
+  },
   { kind: 'section', label: 'New stack', hint: 'action', to: '/stacks/new' },
 ]
 
@@ -97,7 +133,9 @@ export function CommandPalette() {
     const all = [...stackEntries, ...sectionEntries]
     const needle = query.trim().toLowerCase()
     if (!needle) return all
-    return all.filter((entry) => entry.label.toLowerCase().includes(needle))
+    return all.filter((entry) =>
+      [entry.label, ...(entry.keywords ?? [])].some((value) => value.toLowerCase().includes(needle)),
+    )
   }, [stackEntries, query])
 
   if (!open) return null
