@@ -1,5 +1,6 @@
 import { PageHeader } from '@/components/page-header'
 import { AsyncState } from '@/components/async-state'
+import { SystemHealthCenter } from '@/components/system-health-center'
 import { HostMetricsDashboard } from '@/pages/host/host-metrics-dashboard'
 import { HostOverviewCards } from '@/pages/host/host-overview-cards'
 import { StacklabLogs } from '@/pages/host/stacklab-logs'
@@ -24,11 +25,15 @@ export function HostPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Overview cards */}
-      <section aria-busy={overviewLoading || metricsLoading} className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+      <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
         <PageHeader kicker="System" title="Host" />
+      </section>
 
-        <div className="mt-4 [&>div:first-child]:mt-0">
+      <SystemHealthCenter />
+
+      {/* Overview cards */}
+      <section aria-label="Host overview" aria-busy={overviewLoading || metricsLoading} className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+        <div className="[&>div:first-child]:mt-0">
           <AsyncState
             loading={overviewLoading}
             error={overviewLoadError}
@@ -63,7 +68,7 @@ export function HostPage() {
       </section>
 
       {/* Stacklab logs */}
-      <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+      <section id="stacklab-logs" className="scroll-mt-4 rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
         <StacklabLogs />
       </section>
     </div>

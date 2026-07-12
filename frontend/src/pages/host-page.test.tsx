@@ -14,6 +14,10 @@ vi.mock('@/lib/api-client', () => ({
   getStacklabLogs: (...args: unknown[]) => mockGetStacklabLogs(...args),
 }))
 
+vi.mock('@/components/system-health-center', () => ({
+  SystemHealthCenter: () => <section aria-label="System health">System health center</section>,
+}))
+
 const overview: HostOverviewResponse = {
   host: {
     hostname: 'homelab',
@@ -289,6 +293,8 @@ describe('HostPage', () => {
   it('renders host overview cards and initial Stacklab logs', async () => {
     render(<HostPage />)
 
+    expect(screen.getByRole('region', { name: 'System health' })).toHaveTextContent('System health center')
+    expect(screen.getByRole('region', { name: 'Host overview' })).toBeInTheDocument()
     expect(await screen.findByText('2026.04.0')).toBeInTheDocument()
     expect(screen.getByText('homelab')).toBeInTheDocument()
     expect(screen.getByText('Debian GNU/Linux')).toBeInTheDocument()
@@ -321,6 +327,7 @@ describe('HostPage', () => {
     expect(screen.getAllByText('12.5%').length).toBeGreaterThan(0)
 	    expect(await screen.findByText('Started HTTP server')).toBeInTheDocument()
 	    expect(screen.getByText('Failed to bind port')).toBeInTheDocument()
+	    expect(screen.getByRole('heading', { name: 'Stacklab logs' }).closest('section')).toHaveAttribute('id', 'stacklab-logs')
 
 	    expect(mockGetHostOverview).toHaveBeenCalledTimes(1)
 	    expect(mockGetHostMetrics).toHaveBeenCalled()
