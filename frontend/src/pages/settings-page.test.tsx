@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsPage } from "./settings-page";
 import { useAuth } from "@/hooks/use-auth";
+import type { NotificationSettingsResponse } from "@/lib/api-types";
 
 const mockGetMeta = vi.fn();
 const mockChangePassword = vi.fn();
@@ -83,6 +84,10 @@ describe("SettingsPage", () => {
       enabled: false,
       configured: false,
       webhook_url: "",
+      channels: {
+        webhook: { enabled: false, configured: false, url: "" },
+        telegram: { enabled: false, configured: false, bot_token_configured: false, chat_id: "" },
+      },
       events: {
         job_failed: true,
         job_succeeded_with_warnings: true,
@@ -92,7 +97,7 @@ describe("SettingsPage", () => {
         runtime_health_degraded: false,
         runtime_log_error_burst: false,
       },
-    });
+    } satisfies NotificationSettingsResponse);
     mockGetMaintenanceSchedules.mockResolvedValue({
       timezone: 'host_local',
       update: { enabled: false, frequency: 'weekly', time: '03:30', weekdays: ['sat'], target: { mode: 'all' }, options: { pull_images: true, build_images: true, remove_orphans: true, prune_after: false, include_volumes: false }, status: {} },
@@ -247,6 +252,10 @@ describe("SettingsPage", () => {
       enabled: true,
       configured: true,
       webhook_url: "https://hooks.example.test/stacklab",
+      channels: {
+        webhook: { enabled: true, configured: true, url: "https://hooks.example.test/stacklab" },
+        telegram: { enabled: false, configured: false, bot_token_configured: false, chat_id: "" },
+      },
       events: {
         job_failed: true,
         job_succeeded_with_warnings: true,
@@ -256,7 +265,7 @@ describe("SettingsPage", () => {
         runtime_health_degraded: true,
         runtime_log_error_burst: true,
       },
-    });
+    } satisfies NotificationSettingsResponse);
 
     render(<SettingsPage />);
     await screen.findByText("Notifications");
@@ -299,6 +308,10 @@ describe("SettingsPage", () => {
       enabled: true,
       configured: true,
       webhook_url: "https://hooks.example.test/saved",
+      channels: {
+        webhook: { enabled: true, configured: true, url: "https://hooks.example.test/saved" },
+        telegram: { enabled: false, configured: false, bot_token_configured: false, chat_id: "" },
+      },
       events: {
         job_failed: true,
         job_succeeded_with_warnings: true,
@@ -308,7 +321,7 @@ describe("SettingsPage", () => {
         runtime_health_degraded: true,
         runtime_log_error_burst: true,
       },
-    });
+    } satisfies NotificationSettingsResponse);
     mockSendNotificationTest.mockResolvedValue({ sent: true, channel: 'webhook' });
 
     render(<SettingsPage />);
@@ -363,17 +376,25 @@ describe("SettingsPage", () => {
         runtime_health_degraded: false,
         runtime_log_error_burst: false,
       },
-    });
+    } satisfies NotificationSettingsResponse);
     mockUpdateNotificationSettings.mockResolvedValue({
       enabled: true,
       configured: true,
       webhook_url: "",
+      channels: {
+        webhook: { enabled: false, configured: false, url: "" },
+        telegram: { enabled: true, configured: true, bot_token_configured: true, chat_id: "-1001234567890" },
+      },
       events: {
         job_failed: true,
         job_succeeded_with_warnings: true,
         maintenance_succeeded: true,
+        post_update_recovery_failed: false,
+        stacklab_service_error: false,
+        runtime_health_degraded: false,
+        runtime_log_error_burst: false,
       },
-    });
+    } satisfies NotificationSettingsResponse);
 
     render(<SettingsPage />);
 
@@ -688,6 +709,17 @@ describe("SettingsPage", () => {
     fireEvent.click(screen.getByText("Save schedules"));
 
     expect(await screen.findByText("Select at least one stack for scheduled updates")).toBeInTheDocument();
+    expect(mockUpdateMaintenanceSchedules).not.toHaveBeenCalled();
+  });
+
+  it("shows validation error when a weekly schedule has no weekday", async () => {
+    render(<SettingsPage />);
+    await screen.findByText("Maintenance schedules");
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Sat" })[0]);
+    fireEvent.click(screen.getByText("Save schedules"));
+
+    expect(await screen.findByText("Select at least one weekday for scheduled updates")).toBeInTheDocument();
     expect(mockUpdateMaintenanceSchedules).not.toHaveBeenCalled();
   });
 

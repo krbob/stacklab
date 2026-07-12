@@ -5,6 +5,7 @@ import { useJobStream } from '@/hooks/use-job-stream'
 import { StepCards } from '@/components/step-cards'
 import { cn } from '@/lib/cn'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import type { MaintenancePruneRequest } from '@/lib/api-types'
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
@@ -49,18 +50,23 @@ export function MaintenanceCleanup() {
 
   const handlePrune = useCallback(async () => {
     if (!previewReady) return
+    const scope: MaintenancePruneRequest['scope'] | null = pruneImages
+      ? { images: true, build_cache: pruneBuildCache, stopped_containers: pruneStopped, volumes: pruneVolumes }
+      : pruneBuildCache
+        ? { images: false, build_cache: true, stopped_containers: pruneStopped, volumes: pruneVolumes }
+        : pruneStopped
+          ? { images: false, build_cache: false, stopped_containers: true, volumes: pruneVolumes }
+          : pruneVolumes
+            ? { images: false, build_cache: false, stopped_containers: false, volumes: true }
+            : null
+    if (!scope) return
     setConfirmCleanup(false)
     setStartPending(true)
     setError(null)
     setJobId(null)
     try {
       const result = await runMaintenancePrune({
-        scope: {
-          images: pruneImages,
-          build_cache: pruneBuildCache,
-          stopped_containers: pruneStopped,
-          volumes: pruneVolumes,
-        },
+        scope,
       })
       setJobId(result.job.id)
     } catch (err) {

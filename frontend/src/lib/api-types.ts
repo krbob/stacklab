@@ -37,128 +37,23 @@ export type LivenessResponse = APISchemas['LivenessResponse']
 export type SessionResponse = APISchemas['SessionResponse']
 export type MetaResponse = APISchemas['MetaResponse']
 
-export interface NotificationEventToggles {
-  job_failed: boolean
-  job_succeeded_with_warnings: boolean
-  maintenance_succeeded: boolean
-  post_update_recovery_failed?: boolean
-  stacklab_service_error?: boolean
-  runtime_health_degraded?: boolean
-  runtime_log_error_burst?: boolean
-}
-
-export interface NotificationWebhookChannel {
-  enabled: boolean
-  configured: boolean
-  url: string
-}
-
-export interface NotificationTelegramChannel {
-  enabled: boolean
-  configured: boolean
-  bot_token_configured: boolean
-  chat_id: string
-}
-
-export interface NotificationChannels {
-  webhook: NotificationWebhookChannel
-  telegram: NotificationTelegramChannel
-}
-
-export interface NotificationSettingsResponse {
-  enabled: boolean
-  configured: boolean
-  webhook_url: string
-  events: NotificationEventToggles
-  channels?: NotificationChannels
-}
-
-export interface NotificationChannelRequest {
-  webhook?: {
-    enabled: boolean
-    url: string
-  }
-  telegram?: {
-    enabled: boolean
-    bot_token: string
-    chat_id: string
-  }
-}
-
-export interface NotificationSettingsUpdateRequest {
-  enabled: boolean
-  webhook_url: string
-  events: NotificationEventToggles
-  channels?: NotificationChannelRequest
-}
-
-export interface NotificationTestRequest {
-  channel?: 'webhook' | 'telegram'
-  enabled: boolean
-  webhook_url: string
-  events: NotificationEventToggles
-  channels?: NotificationChannelRequest
-}
-
-export interface NotificationTestResponse {
-  sent: boolean
-  channel?: 'webhook' | 'telegram'
-}
-
-export type ScheduleFrequency = 'daily' | 'weekly'
-export type ScheduleWeekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
-
-export interface MaintenanceScheduleStatus {
-  next_run_at?: string
-  last_triggered_at?: string
-  last_scheduled_for?: string
-  last_result?: string
-  last_message?: string
-  last_job_id?: string
-}
-
-export interface MaintenanceUpdateScheduleConfig {
-  enabled: boolean
-  frequency: ScheduleFrequency
-  time: string
-  weekdays?: ScheduleWeekday[]
-  target: {
-    mode: 'selected' | 'all'
-    stack_ids?: string[]
-    excluded_services?: Record<string, string[]>
-  }
-  options: {
-    pull_images: boolean
-    build_images: boolean
-    remove_orphans: boolean
-    prune_after: boolean
-    include_volumes: boolean
-  }
-}
-
-export interface MaintenancePruneScheduleConfig {
-  enabled: boolean
-  frequency: ScheduleFrequency
-  time: string
-  weekdays?: ScheduleWeekday[]
-  scope: {
-    images: boolean
-    build_cache: boolean
-    stopped_containers: boolean
-    volumes: boolean
-  }
-}
-
-export interface MaintenanceSchedulesResponse {
-  timezone: string
-  update: MaintenanceUpdateScheduleConfig & { status: MaintenanceScheduleStatus }
-  prune: MaintenancePruneScheduleConfig & { status: MaintenanceScheduleStatus }
-}
-
-export interface MaintenanceSchedulesUpdateRequest {
-  update: MaintenanceUpdateScheduleConfig
-  prune: MaintenancePruneScheduleConfig
-}
+export type NotificationEventToggles = APISchemas['NotificationEventToggles']
+export type NotificationEventTogglesRequest = APISchemas['NotificationEventTogglesRequest']
+export type NotificationWebhookChannel = APISchemas['NotificationWebhookChannel']
+export type NotificationTelegramChannel = APISchemas['NotificationTelegramChannel']
+export type NotificationChannels = APISchemas['NotificationChannelsResponse']
+export type NotificationChannelRequest = APISchemas['NotificationChannelsRequest']
+export type NotificationSettingsResponse = APISchemas['NotificationSettingsResponse']
+export type NotificationSettingsUpdateRequest = APISchemas['NotificationSettingsRequest']
+export type NotificationTestRequest = APISchemas['NotificationTestRequest']
+export type NotificationTestResponse = APISchemas['NotificationTestResponse']
+export type ScheduleFrequency = APISchemas['MaintenanceScheduleFrequency']
+export type ScheduleWeekday = APISchemas['MaintenanceScheduleWeekday']
+export type MaintenanceScheduleStatus = APISchemas['MaintenanceScheduleStatus']
+export type MaintenanceUpdateScheduleConfig = APISchemas['MaintenanceUpdateScheduleConfig']
+export type MaintenancePruneScheduleConfig = APISchemas['MaintenancePruneScheduleConfig']
+export type MaintenanceSchedulesResponse = APISchemas['MaintenanceSchedulesResponse']
+export type MaintenanceSchedulesUpdateRequest = APISchemas['MaintenanceSchedulesRequest']
 
 export type PortMapping = APISchemas['PortMapping']
 export type VolumeMount = APISchemas['VolumeMount']
@@ -275,146 +170,30 @@ export type GitPushResponse = APISchemas['GitPushResponse']
 
 // --- Maintenance ---
 
-export interface MaintenanceUpdateStacksRequest {
-  target: {
-    mode: 'selected' | 'all'
-    stack_ids?: string[]
-  }
-  options?: {
-    pull_images?: boolean
-    build_images?: boolean
-    remove_orphans?: boolean
-    prune_after?: {
-      enabled?: boolean
-      include_volumes?: boolean
-    }
-  }
-}
+export type MaintenanceUpdateStacksRequest = APISchemas['MaintenanceUpdateStacksRequest']
 
 export type MaintenanceImageUsage = 'all' | 'used' | 'unused'
 export type MaintenanceImageOrigin = 'all' | 'stack_managed' | 'external'
-export type MaintenanceImageSource = 'stack_managed' | 'external'
-
-export interface MaintenanceImageStackUsage {
-  stack_id: string
-  service_names: string[]
-}
-
-export interface MaintenanceImageItem {
-  id: string
-  repository: string
-  tag: string
-  reference: string
-  size_bytes: number
-  created_at: string
-  containers_using: number
-  stacks_using: MaintenanceImageStackUsage[]
-  is_dangling: boolean
-  is_unused: boolean
-  source: MaintenanceImageSource
-}
-
-export interface MaintenanceImagesResponse {
-  items: MaintenanceImageItem[]
-}
-
-export type MaintenanceNetworkSource = 'stack_managed' | 'external'
-
-export interface MaintenanceNetworkItem {
-  id: string
-  name: string
-  driver: string
-  scope: string
-  internal: boolean
-  attachable: boolean
-  ingress: boolean
-  containers_using: number
-  stacks_using: MaintenanceImageStackUsage[]
-  is_unused: boolean
-  source: MaintenanceNetworkSource
-}
-
-export interface MaintenanceNetworksResponse {
-  items: MaintenanceNetworkItem[]
-}
-
-export interface MaintenanceCreateNetworkRequest {
-  name: string
-}
-
-export interface MaintenanceCreateNetworkResponse {
-  created: boolean
-  name: string
-}
-
-export interface MaintenanceDeleteNetworkResponse {
-  deleted: boolean
-  name: string
-}
-
-export type MaintenanceVolumeSource = 'stack_managed' | 'external'
-
-export interface MaintenanceVolumeItem {
-  name: string
-  driver: string
-  mountpoint: string
-  scope: string
-  size_bytes: number
-  options_count: number
-  containers_using: number
-  stacks_using: MaintenanceImageStackUsage[]
-  is_unused: boolean
-  source: MaintenanceVolumeSource
-}
-
-export interface MaintenanceVolumesResponse {
-  items: MaintenanceVolumeItem[]
-}
-
-export interface MaintenanceCreateVolumeRequest {
-  name: string
-}
-
-export interface MaintenanceCreateVolumeResponse {
-  created: boolean
-  name: string
-}
-
-export interface MaintenanceDeleteVolumeResponse {
-  deleted: boolean
-  name: string
-}
-
-export interface MaintenancePrunePreviewItem {
-  reference: string
-  size_bytes: number
-  reason: string
-}
-
-export interface MaintenancePrunePreviewCategory {
-  count: number
-  reclaimable_bytes: number
-  items?: MaintenancePrunePreviewItem[]
-}
-
-export interface MaintenancePrunePreviewResponse {
-  preview: {
-    images: MaintenancePrunePreviewCategory
-    build_cache: MaintenancePrunePreviewCategory
-    stopped_containers: MaintenancePrunePreviewCategory
-    volumes: MaintenancePrunePreviewCategory
-    total_reclaimable_bytes: number
-  }
-}
-
-export interface MaintenancePruneRequest {
-  scope: {
-    images: boolean
-    build_cache: boolean
-    stopped_containers: boolean
-    volumes: boolean
-  }
-}
+export type MaintenanceImageSource = APISchemas['MaintenanceImageItem']['source']
+export type MaintenanceImageStackUsage = APISchemas['MaintenanceImageStackUsage']
+export type MaintenanceImageItem = APISchemas['MaintenanceImageItem']
+export type MaintenanceImagesResponse = APISchemas['MaintenanceImagesResponse']
+export type MaintenanceNetworkSource = APISchemas['MaintenanceNetworkItem']['source']
+export type MaintenanceNetworkItem = APISchemas['MaintenanceNetworkItem']
+export type MaintenanceNetworksResponse = APISchemas['MaintenanceNetworksResponse']
+export type MaintenanceCreateNetworkRequest = APISchemas['MaintenanceCreateNetworkRequest']
+export type MaintenanceCreateNetworkResponse = APISchemas['MaintenanceCreateNetworkResponse']
+export type MaintenanceDeleteNetworkResponse = APISchemas['MaintenanceDeleteNetworkResponse']
+export type MaintenanceVolumeSource = APISchemas['MaintenanceVolumeItem']['source']
+export type MaintenanceVolumeItem = APISchemas['MaintenanceVolumeItem']
+export type MaintenanceVolumesResponse = APISchemas['MaintenanceVolumesResponse']
+export type MaintenanceCreateVolumeRequest = APISchemas['MaintenanceCreateVolumeRequest']
+export type MaintenanceCreateVolumeResponse = APISchemas['MaintenanceCreateVolumeResponse']
+export type MaintenanceDeleteVolumeResponse = APISchemas['MaintenanceDeleteVolumeResponse']
+export type MaintenancePrunePreviewItem = APISchemas['MaintenancePrunePreviewItem']
+export type MaintenancePrunePreviewCategory = APISchemas['MaintenancePrunePreviewCategory']
+export type MaintenancePrunePreviewResponse = APISchemas['MaintenancePrunePreviewResponse']
+export type MaintenancePruneRequest = APISchemas['MaintenancePruneRequest']
 
 export interface ApiError {
   error: {

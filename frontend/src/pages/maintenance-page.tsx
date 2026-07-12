@@ -10,7 +10,7 @@ import { MaintenanceVolumes } from '@/components/maintenance-volumes'
 import { StepCards } from '@/components/step-cards'
 import { PageHeader } from '@/components/page-header'
 import { ConfirmDialog } from '@/components/confirm-dialog'
-import type { AuditEntry, StackListItem } from '@/lib/api-types'
+import type { AuditEntry, MaintenanceUpdateStacksRequest, StackListItem } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
 
 type MaintenanceTab = 'update' | 'images' | 'networks' | 'volumes' | 'cleanup'
@@ -96,6 +96,15 @@ export function MaintenancePage() {
   }, [])
 
   const handleStart = useCallback(async () => {
+    let selectedStackIds: MaintenanceUpdateStacksRequest['target']['stack_ids']
+    if (targetMode === 'selected') {
+      const [firstStackId, ...remainingStackIds] = Array.from(selectedIds)
+      if (firstStackId === undefined) {
+        setError('Select at least one stack to update')
+        return
+      }
+      selectedStackIds = [firstStackId, ...remainingStackIds]
+    }
     setStartPending(true)
     setError(null)
     setJobId(null)
@@ -103,7 +112,7 @@ export function MaintenancePage() {
       const result = await updateStacksMaintenance({
         target: {
           mode: targetMode,
-          stack_ids: targetMode === 'selected' ? Array.from(selectedIds) : undefined,
+          stack_ids: selectedStackIds,
         },
         options: {
           pull_images: pullImages,
