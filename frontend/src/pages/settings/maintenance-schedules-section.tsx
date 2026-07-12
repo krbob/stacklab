@@ -5,41 +5,14 @@ import { useJobDrawer } from '@/hooks/use-job-drawer'
 import { getMaintenanceSchedules, getStacks, getStack, updateMaintenanceSchedules } from '@/lib/api-client'
 import type { MaintenanceSchedulesResponse, ScheduleFrequency, ScheduleWeekday, StackListItem } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
+import {
+  ALL_WEEKDAYS,
+  WEEKDAY_LABELS,
+  describeSchedule,
+  filteredExcludedServices,
+  hasExcludedServices,
+} from '@/pages/settings/maintenance-schedule-utils'
 import { SettingsLoadError } from '@/pages/settings/settings-card'
-
-const ALL_WEEKDAYS: ScheduleWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
-const WEEKDAY_LABELS: Record<ScheduleWeekday, string> = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' }
-
-function describeSchedule(frequency: ScheduleFrequency, time: string, weekdays: ScheduleWeekday[]): string {
-  if (frequency === 'daily') return `daily at ${time}`
-  const days = weekdays.length > 0 ? weekdays.map((day) => WEEKDAY_LABELS[day]).join(', ') : 'no selected days'
-  return `weekly on ${days} at ${time}`
-}
-function cleanedExcludedServices(excluded: Record<string, string[]>): Record<string, string[]> | undefined {
-  const result: Record<string, string[]> = {}
-  for (const [stackId, services] of Object.entries(excluded)) {
-    const unique = Array.from(new Set(services.filter(Boolean))).sort()
-    if (unique.length > 0) {
-      result[stackId] = unique
-    }
-  }
-  return Object.keys(result).length > 0 ? result : undefined
-}
-
-function filteredExcludedServices(excluded: Record<string, string[]>, stackIds: string[]): Record<string, string[]> | undefined {
-  const allowed = new Set(stackIds)
-  const filtered: Record<string, string[]> = {}
-  for (const [stackId, services] of Object.entries(excluded)) {
-    if (allowed.has(stackId)) {
-      filtered[stackId] = services
-    }
-  }
-  return cleanedExcludedServices(filtered)
-}
-
-function hasExcludedServices(excluded: Record<string, string[]>): boolean {
-  return Object.values(excluded).some((services) => services.length > 0)
-}
 
 export function MaintenanceSchedulesSection() {
   const { openJob } = useJobDrawer()
