@@ -45,7 +45,7 @@ Repository policies:
 
 - `../CONTRIBUTING.md`
 - `../SECURITY.md`
-- `../LICENSE` and `../NOTICE`
+- `../LICENSE`, `../NOTICE`, and `../THIRD_PARTY_NOTICES.md`
 
 Recommended product entry points:
 

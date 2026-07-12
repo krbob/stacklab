@@ -1,6 +1,7 @@
 # Review ownership for high-risk areas.
 /LICENSE @krbob
 /NOTICE @krbob
+/THIRD_PARTY_NOTICES.md @krbob
 /.github/ @krbob
 /packaging/ @krbob
 /scripts/release/ @krbob

@@ -214,8 +214,10 @@ Good entry points:
 
 ## License
 
-Stacklab is licensed under the [Apache License 2.0](LICENSE). Third-party
-components and bundled fonts remain under their respective licenses.
+Stacklab is licensed under the [Apache License 2.0](LICENSE). Attribution and
+license texts for distributed dependencies are recorded in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); bundled fonts also retain
+their respective license notices in the built frontend.
 
 ## Current Constraints
 
