@@ -14,7 +14,7 @@ interface RepairResult {
 interface BlockedFileCardProps {
   stateKey?: string
   blockedReason: string | null
-  permissions: FilePermissions | null
+  permissions?: FilePermissions | null
   repairCapability?: WorkspaceRepairCapability | null
   onRepair?: (recursive: boolean) => Promise<RepairResult>
   allowRecursive?: boolean

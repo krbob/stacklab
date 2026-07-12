@@ -527,216 +527,38 @@ export type StacklabUpdateOverviewResponse = APISchemas['StacklabUpdateOverviewR
 export type StacklabUpdateApplyRequest = APISchemas['StacklabUpdateApplyRequest']
 export type StacklabUpdateApplyResponse = APISchemas['StacklabUpdateApplyResponse']
 
-export interface FilePermissions {
-  owner_uid: number | null
-  owner_name: string | null
-  group_gid: number | null
-  group_name: string | null
-  mode: string
-  readable: boolean
-  writable: boolean
-}
+export type FilePermissions = APISchemas['FilePermissions']
 
 // --- Config workspace ---
 
-export type ConfigEntryType = 'directory' | 'text_file' | 'binary_file' | 'unknown_file'
-
-export interface ConfigTreeEntry {
-  name: string
-  path: string
-  type: ConfigEntryType
-  size_bytes: number
-  modified_at: string
-  stack_id: string | null
-  git_ignored: boolean
-  permissions: FilePermissions
-}
-
-export interface ConfigTreeResponse {
-  workspace_root: string
-  current_path: string
-  parent_path: string | null
-  items: ConfigTreeEntry[]
-}
-
-export interface ConfigFileResponse {
-  path: string
-  name: string
-  type: ConfigEntryType
-  stack_id: string | null
-  content: string | null
-  encoding: string | null
-  size_bytes: number
-  modified_at: string
-  git_ignored: boolean
-  readable: boolean
-  writable: boolean
-  blocked_reason: string | null
-  permissions: FilePermissions
-  repair_capability: WorkspaceRepairCapability
-}
-
-export interface ConfigFileSaveResponse {
-  saved: boolean
-  path: string
-  modified_at: string
-  audit_action: string
-}
-
-export interface WorkspaceRepairCapability {
-  supported: boolean
-  reason?: string
-  recursive: boolean
-}
-
-export interface ConfigRepairPermissionsRequest {
-  path: string
-  recursive?: boolean
-}
-
-export interface ConfigRepairPermissionsResponse {
-  repaired: boolean
-  path: string
-  recursive: boolean
-  changed_items: number
-  warnings?: string[]
-  target_permissions_before: FilePermissions
-  target_permissions_after: FilePermissions
-  audit_action: string
-  repair_capability: WorkspaceRepairCapability
-}
+export type ConfigEntryType = APISchemas['ConfigEntryType']
+export type ConfigTreeEntry = APISchemas['ConfigTreeEntry']
+export type ConfigTreeResponse = APISchemas['ConfigTreeResponse']
+export type ConfigFileResponse = APISchemas['ConfigFileResponse']
+export type ConfigFileSaveResponse = APISchemas['ConfigFileSaveResponse']
+export type WorkspaceRepairCapability = APISchemas['WorkspaceRepairCapability']
+export type ConfigRepairPermissionsRequest = APISchemas['ConfigRepairPermissionsRequest']
+export type ConfigRepairPermissionsResponse = APISchemas['ConfigRepairPermissionsResponse']
 
 // --- Stack workspace ---
 
 export type StackWorkspaceEntryType = ConfigEntryType
-
-export interface StackWorkspaceTreeEntry {
-  name: string
-  path: string
-  type: StackWorkspaceEntryType
-  size_bytes: number
-  modified_at: string
-  permissions: FilePermissions
-}
-
-export interface StackWorkspaceTreeResponse {
-  stack_id: string
-  workspace_root: string
-  current_path: string
-  parent_path: string | null
-  items: StackWorkspaceTreeEntry[]
-}
-
-export interface StackWorkspaceFileResponse {
-  stack_id: string
-  path: string
-  name: string
-  type: StackWorkspaceEntryType
-  content: string | null
-  encoding: string | null
-  size_bytes: number
-  modified_at: string
-  readable: boolean
-  writable: boolean
-  blocked_reason: string | null
-  permissions: FilePermissions
-  repair_capability: WorkspaceRepairCapability
-}
-
-export interface StackWorkspaceFileSaveResponse {
-  saved: boolean
-  stack_id: string
-  path: string
-  modified_at: string
-  audit_action: string
-}
-
-export interface StackRepairPermissionsRequest {
-  path: string
-  recursive?: boolean
-}
-
-export interface StackRepairPermissionsResponse {
-  repaired: boolean
-  stack_id: string
-  path: string
-  recursive: boolean
-  changed_items: number
-  warnings?: string[]
-  target_permissions_before: FilePermissions
-  target_permissions_after: FilePermissions
-  audit_action: string
-  repair_capability: WorkspaceRepairCapability
-}
+export type StackWorkspaceTreeEntry = APISchemas['StackWorkspaceTreeEntry']
+export type StackWorkspaceTreeResponse = APISchemas['StackWorkspaceTreeResponse']
+export type StackWorkspaceFileResponse = APISchemas['StackWorkspaceFileResponse']
+export type StackWorkspaceFileSaveResponse = APISchemas['StackWorkspaceFileSaveResponse']
+export type StackRepairPermissionsRequest = APISchemas['StackRepairPermissionsRequest']
+export type StackRepairPermissionsResponse = APISchemas['StackRepairPermissionsResponse']
 
 // --- Git workspace ---
 
-export type GitFileStatus = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflicted'
-
-export interface GitStatusItem {
-  path: string
-  scope: 'stacks' | 'config'
-  stack_id: string | null
-  status: GitFileStatus
-  old_path: string | null
-  permissions: FilePermissions | null
-  diff_available: boolean
-  commit_allowed: boolean
-  blocked_reason: string | null
-}
-
-export interface GitWorkspaceStatusResponse {
-  available: boolean
-  repo_root: string
-  managed_roots: string[]
-  branch?: string
-  head_commit?: string
-  has_upstream?: boolean
-  upstream_name?: string
-  ahead_count?: number
-  behind_count?: number
-  clean?: boolean
-  reason?: string
-  items?: GitStatusItem[]
-}
-
-export interface GitDiffResponse {
-  available: boolean
-  path: string
-  scope: 'stacks' | 'config'
-  stack_id: string | null
-  status: GitFileStatus
-  old_path: string | null
-  permissions: FilePermissions | null
-  diff_available: boolean
-  blocked_reason: string | null
-  is_binary: boolean
-  diff: string | null
-  truncated: boolean
-}
-
-export interface GitCommitRequest {
-  message: string
-  paths: string[]
-}
-
-export interface GitCommitResponse {
-  committed: boolean
-  commit: string
-  summary: string
-  paths: string[]
-  remaining_changes: number
-}
-
-export interface GitPushResponse {
-  pushed: boolean
-  remote: string
-  branch: string
-  upstream_name: string
-  head_commit: string
-  ahead_count: number
-  behind_count: number
-}
+export type GitFileStatus = APISchemas['GitFileStatus']
+export type GitStatusItem = APISchemas['GitStatusItem']
+export type GitWorkspaceStatusResponse = APISchemas['GitWorkspaceStatusResponse']
+export type GitDiffResponse = APISchemas['GitDiffResponse']
+export type GitCommitRequest = APISchemas['GitCommitRequest']
+export type GitCommitResponse = APISchemas['GitCommitResponse']
+export type GitPushResponse = APISchemas['GitPushResponse']
 
 // --- Maintenance ---
 
