@@ -12,6 +12,7 @@ The job enforces:
 - ShellCheck `v0.11.0` for tracked shell scripts and Debian maintainer scripts
 - Gitleaks `v8.30.0` with the default rule set against the complete Git history and normalized current lockfile contents
 - local link, anchor, structure, and index checks for tracked Markdown
+- release-note generator regression tests, including the immutable compare boundary
 - `npm audit --omit=dev` for production frontend dependencies
 - ESLint with `--max-warnings=0`
 

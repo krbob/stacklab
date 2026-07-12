@@ -30,7 +30,8 @@ version differs from the repository declarations. It then runs, in order:
 2. backend formatting and `go vet` for the same explicit scope
 3. `npm ci`, frontend tests, typecheck, and production build
 4. tracked Markdown links, anchors, structure, and documentation indexes
-5. the repository hygiene gate: actionlint, ShellCheck, secret scans,
+5. release-note generator regression tests
+6. the repository hygiene gate: actionlint, ShellCheck, secret scans,
    third-party notice drift, production npm audit, and zero-warning ESLint
 
 The explicit Go package scope is intentional. It prevents the backend check

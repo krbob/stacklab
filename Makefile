@@ -8,7 +8,7 @@ GO_FORMAT_PATHS := cmd internal
 
 .PHONY: check check-toolchain check-toolchain-go check-toolchain-node
 .PHONY: check-backend check-backend-test check-backend-coverage check-backend-hygiene
-.PHONY: backend-test backend-coverage backend-hygiene frontend-dependencies frontend-api-contract frontend-checks docs-checks hygiene-checks
+.PHONY: backend-test backend-coverage backend-hygiene frontend-dependencies frontend-api-contract frontend-checks docs-checks release-script-tests hygiene-checks
 .PHONY: check-frontend check-docs check-hygiene
 
 check: check-toolchain backend-test backend-hygiene frontend-dependencies frontend-checks hygiene-checks
@@ -79,7 +79,11 @@ docs-checks:
 	@node --test scripts/quality/check-docs.test.mjs
 	@node scripts/quality/check-docs.mjs
 
+release-script-tests:
+	@echo "==> Release scripts"
+	@scripts/release/generate-release-notes.test.sh
+
 check-hygiene: check-toolchain frontend-dependencies hygiene-checks
 
-hygiene-checks: docs-checks
+hygiene-checks: docs-checks release-script-tests
 	@./scripts/quality/check-repository-hygiene.sh

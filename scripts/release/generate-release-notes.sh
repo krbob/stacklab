@@ -64,9 +64,11 @@ done
   exit 1
 }
 
-range_spec="${to_ref}"
+to_commit="$(git rev-parse --verify "${to_ref}^{commit}")"
+
+range_spec="${to_commit}"
 if [[ -n "${from_ref}" ]]; then
-  range_spec="${from_ref}..${to_ref}"
+  range_spec="${from_ref}..${to_commit}"
 fi
 
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/stacklab-release-notes.XXXXXX")"
@@ -107,7 +109,7 @@ while IFS=$'\t' read -r short_sha subject; do
       printf '%s\n' "${line}" >> "${other_file}"
       ;;
   esac
-done < <(git log --reverse --pretty=format:'%h%x09%s' "${range_spec}")
+done < <(git log --reverse --pretty=tformat:'%h%x09%s' "${range_spec}")
 
 echo "# Stacklab ${version}"
 echo
@@ -117,7 +119,7 @@ echo
 if [[ -n "${from_ref}" && -n "${repo_url}" ]]; then
   echo "Changes since \`${from_ref}\`."
   echo
-  echo "Compare: ${repo_url}/compare/${from_ref}...${to_ref}"
+  echo "Compare: ${repo_url}/compare/${from_ref}...${to_commit}"
   echo
 fi
 

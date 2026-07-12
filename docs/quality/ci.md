@@ -36,6 +36,7 @@ The `repository-hygiene` job enforces:
 - ShellCheck for tracked scripts and Debian maintainer scripts;
 - Gitleaks against complete Git history and normalized current lockfiles;
 - valid local Markdown links, anchors, document structure, and section indexes;
+- regression coverage for release-note generation and immutable compare ranges;
 - generated third-party notice consistency;
 - `npm audit --omit=dev`;
 - zero-warning ESLint.
