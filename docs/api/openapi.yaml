@@ -2413,6 +2413,7 @@ components:
       properties:
         manager:
           type: string
+          enum: [systemd]
         supported:
           type: boolean
         unit_name:
@@ -2428,10 +2429,10 @@ components:
         fragment_path:
           type: string
         started_at:
-          type: [string, 'null']
+          type: string
           format: date-time
         message:
-          type: [string, 'null']
+          type: string
       required: [manager, supported, unit_name, load_state, active_state, sub_state, unit_file_state, fragment_path]
     DockerEngineStatus:
       type: object
@@ -2453,7 +2454,7 @@ components:
         cgroup_driver:
           type: string
         message:
-          type: [string, 'null']
+          type: string
       required: [available, version, api_version, compose_version, root_dir, driver, logging_driver, cgroup_driver]
     DockerDaemonConfigSummary:
       type: object
@@ -2475,7 +2476,7 @@ components:
         data_root:
           type: string
         live_restore:
-          type: [boolean, 'null']
+          type: boolean
       required: [dns, registry_mirrors, insecure_registries, log_driver, data_root]
     DockerDaemonConfigMeta:
       type: object
@@ -2485,16 +2486,16 @@ components:
         exists:
           type: boolean
         permissions:
-          $ref: '#/components/schemas/FilePermissionsNullable'
+          $ref: '#/components/schemas/FilePermissions'
         size_bytes:
-          type: [integer, 'null']
+          type: integer
         modified_at:
-          type: [string, 'null']
+          type: string
           format: date-time
         valid_json:
           type: boolean
         parse_error:
-          type: [string, 'null']
+          type: string
         configured_keys:
           type: array
           items:
@@ -2510,18 +2511,21 @@ components:
         - type: object
           properties:
             content:
-              type: [string, 'null']
+              type: string
+    DockerManagedKey:
+      type: string
+      enum: [dns, registry_mirrors, insecure_registries, live_restore]
     DockerDaemonWriteCapability:
       type: object
       properties:
         supported:
           type: boolean
         reason:
-          type: [string, 'null']
+          type: string
         managed_keys:
           type: array
           items:
-            type: string
+            $ref: '#/components/schemas/DockerManagedKey'
       required: [supported, managed_keys]
     DockerManagedSettings:
       type: object
@@ -2548,7 +2552,7 @@ components:
         remove_keys:
           type: array
           items:
-            type: string
+            $ref: '#/components/schemas/DockerManagedKey'
       required: [settings]
     DockerDaemonConfigPreview:
       type: object
@@ -2572,7 +2576,7 @@ components:
         changed_keys:
           type: array
           items:
-            type: string
+            $ref: '#/components/schemas/DockerManagedKey'
         requires_restart:
           type: boolean
         warnings:
@@ -2590,16 +2594,16 @@ components:
         exists:
           type: boolean
         permissions:
-          $ref: '#/components/schemas/FilePermissionsNullable'
+          $ref: '#/components/schemas/FilePermissions'
         size_bytes:
-          type: [integer, 'null']
+          type: integer
         modified_at:
-          type: [string, 'null']
+          type: string
           format: date-time
         valid_json:
           type: boolean
         parse_error:
-          type: [string, 'null']
+          type: string
         items:
           type: array
           items:
@@ -2612,12 +2616,14 @@ components:
           type: string
         configured:
           type: boolean
+          enum: [true]
         username:
           type: string
         source:
           type: string
+          enum: [docker_config]
         last_verified_at:
-          type: [string, 'null']
+          type: string
           format: date-time
         last_error:
           type: string
@@ -2653,6 +2659,7 @@ components:
           type: string
         configured_channel:
           type: string
+          enum: [stable, nightly, 'nightly,stable']
         update_available:
           type: boolean
       required: [supported, name, update_available]
@@ -2677,13 +2684,14 @@ components:
           type: string
         result:
           type: string
+          enum: [succeeded, failed]
         message:
           type: string
         started_at:
-          type: [string, 'null']
+          type: string
           format: date-time
         finished_at:
-          type: [string, 'null']
+          type: string
           format: date-time
       required: [pending_finalize]
     StacklabUpdateOverviewResponse:
@@ -2693,6 +2701,7 @@ components:
           type: string
         install_mode:
           type: string
+          enum: [apt, tarball, unknown]
         package:
           $ref: '#/components/schemas/StacklabUpdatePackageStatus'
         write_capability:

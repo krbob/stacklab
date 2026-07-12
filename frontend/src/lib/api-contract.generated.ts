@@ -445,11 +445,11 @@ export interface components {
       configured_keys: string[];
       exists: boolean;
       /** Format: date-time */
-      modified_at?: string | null;
-      parse_error?: string | null;
+      modified_at?: string;
+      parse_error?: string;
       path: string;
-      permissions?: components["schemas"]["FilePermissionsNullable"];
-      size_bytes?: number | null;
+      permissions?: components["schemas"]["FilePermissions"];
+      size_bytes?: number;
       summary: components["schemas"]["DockerDaemonConfigSummary"];
       valid_json: boolean;
       write_capability: components["schemas"]["DockerDaemonWriteCapability"];
@@ -460,31 +460,31 @@ export interface components {
       path: string;
       summary: components["schemas"]["DockerDaemonConfigSummary"];
     };
-    DockerDaemonConfigResponse: components["schemas"]["DockerDaemonConfigMeta"] & ({
-      content?: string | null;
-    });
+    DockerDaemonConfigResponse: components["schemas"]["DockerDaemonConfigMeta"] & {
+      content?: string;
+    };
     DockerDaemonConfigSummary: {
       data_root: string;
       dns: string[];
       insecure_registries: string[];
-      live_restore?: boolean | null;
+      live_restore?: boolean;
       log_driver: string;
       registry_mirrors: string[];
     };
     DockerDaemonValidateRequest: {
-      remove_keys?: string[];
+      remove_keys?: components["schemas"]["DockerManagedKey"][];
       settings: components["schemas"]["DockerManagedSettings"];
     };
     DockerDaemonValidateResponse: {
-      changed_keys: string[];
+      changed_keys: components["schemas"]["DockerManagedKey"][];
       preview: components["schemas"]["DockerDaemonConfigPreview"];
       requires_restart: boolean;
       warnings: string[];
       write_capability: components["schemas"]["DockerDaemonWriteCapability"];
     };
     DockerDaemonWriteCapability: {
-      managed_keys: string[];
-      reason?: string | null;
+      managed_keys: components["schemas"]["DockerManagedKey"][];
+      reason?: string;
       supported: boolean;
     };
     DockerEngineStatus: {
@@ -494,10 +494,12 @@ export interface components {
       compose_version: string;
       driver: string;
       logging_driver: string;
-      message?: string | null;
+      message?: string;
       root_dir: string;
       version: string;
     };
+    /** @enum {string} */
+    DockerManagedKey: "dns" | "registry_mirrors" | "insecure_registries" | "live_restore";
     DockerManagedSettings: {
       dns?: string[];
       insecure_registries?: string[];
@@ -509,12 +511,14 @@ export interface components {
       engine_version: string;
     };
     DockerRegistryEntry: {
-      configured: boolean;
+      /** @enum {boolean} */
+      configured: true;
       last_error: string;
       /** Format: date-time */
-      last_verified_at?: string | null;
+      last_verified_at?: string;
       registry: string;
-      source: string;
+      /** @enum {string} */
+      source: "docker_config";
       username: string;
     };
     DockerRegistryLoginRequest: {
@@ -530,20 +534,21 @@ export interface components {
       exists: boolean;
       items: components["schemas"]["DockerRegistryEntry"][];
       /** Format: date-time */
-      modified_at?: string | null;
-      parse_error?: string | null;
-      permissions?: components["schemas"]["FilePermissionsNullable"];
-      size_bytes?: number | null;
+      modified_at?: string;
+      parse_error?: string;
+      permissions?: components["schemas"]["FilePermissions"];
+      size_bytes?: number;
       valid_json: boolean;
     };
     DockerServiceStatus: {
       active_state: string;
       fragment_path: string;
       load_state: string;
-      manager: string;
-      message?: string | null;
+      /** @enum {string} */
+      manager: "systemd";
+      message?: string;
       /** Format: date-time */
-      started_at?: string | null;
+      started_at?: string;
       sub_state: string;
       supported: boolean;
       unit_file_state: string;
@@ -1354,14 +1359,16 @@ export interface components {
     };
     StacklabUpdateOverviewResponse: {
       current_version: string;
-      install_mode: string;
+      /** @enum {string} */
+      install_mode: "apt" | "tarball" | "unknown";
       package: components["schemas"]["StacklabUpdatePackageStatus"];
       runtime?: components["schemas"]["StacklabUpdateRuntimeStatus"];
       write_capability: components["schemas"]["StacklabUpdateWriteCapability"];
     };
     StacklabUpdatePackageStatus: {
       candidate_version?: string;
-      configured_channel?: string;
+      /** @enum {string} */
+      configured_channel?: "stable" | "nightly" | "nightly,stable";
       installed_version?: string;
       message?: string;
       name: string;
@@ -1370,15 +1377,16 @@ export interface components {
     };
     StacklabUpdateRuntimeStatus: {
       /** Format: date-time */
-      finished_at?: string | null;
+      finished_at?: string;
       installed_version?: string;
       job_id?: string;
       message?: string;
       pending_finalize: boolean;
       requested_version?: string;
-      result?: string;
+      /** @enum {string} */
+      result?: "succeeded" | "failed";
       /** Format: date-time */
-      started_at?: string | null;
+      started_at?: string;
     };
     StacklabUpdateWriteCapability: {
       reason?: string;
