@@ -53,7 +53,9 @@ test.describe('Maintenance', () => {
     )
 
     await page.getByTestId('maintenance-prune').click()
-    await expect(page.getByTestId('maintenance-prune')).toHaveText('Cleaning...', { timeout: 5_000 })
+    const cleanupDialog = page.getByRole('dialog', { name: 'Review Docker cleanup' })
+    await expect(cleanupDialog.getByRole('region', { name: 'Review operation' })).toContainText('Stopped containers')
+    await cleanupDialog.getByRole('button', { name: 'Confirm cleanup' }).click()
 
     const pruneResult = await pruneResponse
     expect(pruneResult.ok()).toBeTruthy()
