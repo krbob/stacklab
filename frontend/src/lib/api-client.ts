@@ -116,7 +116,11 @@ class ApiClientError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+interface RequestPolicy {
+  acceptedStatuses?: readonly number[]
+}
+
+async function request<T>(path: string, init?: RequestInit, policy?: RequestPolicy): Promise<T> {
   const method = (init?.method ?? 'GET').toUpperCase()
   const res = await fetch(path, {
     ...init,
@@ -128,7 +132,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     },
   })
 
-  if (!res.ok) {
+  if (!res.ok && !policy?.acceptedStatuses?.includes(res.status)) {
     let code = 'unknown'
     let message = res.statusText || `Request failed with status ${res.status}`
     let details: Record<string, unknown> | undefined
@@ -153,16 +157,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 // --- Read endpoints ---
 
-export function getHealth(): Promise<HealthResponse> {
-  return request('/api/health')
+export function getHealth(signal?: AbortSignal): Promise<HealthResponse> {
+  return request('/api/health', { signal }, { acceptedStatuses: [503] })
 }
 
 export function getLiveness(): Promise<LivenessResponse> {
   return request('/api/live')
 }
 
-export function getReadiness(): Promise<HealthResponse> {
-  return request('/api/ready')
+export function getReadiness(signal?: AbortSignal): Promise<HealthResponse> {
+  return request('/api/ready', { signal }, { acceptedStatuses: [503] })
 }
 
 export function getSession(): Promise<SessionResponse> {

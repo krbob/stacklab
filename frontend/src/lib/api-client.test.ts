@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { getStacks, getStack, getGlobalAudit, getStackAudit, login, updateStacksMaintenance, commitGitWorkspace, pushGitWorkspace, getMaintenanceSchedules, updateMaintenanceSchedules, ApiClientError } from './api-client'
+import { getStacks, getStack, getGlobalAudit, getStackAudit, getReadiness, login, updateStacksMaintenance, commitGitWorkspace, pushGitWorkspace, getMaintenanceSchedules, updateMaintenanceSchedules, ApiClientError } from './api-client'
 
 const mockFetch = vi.fn()
 vi.stubGlobal('fetch', mockFetch)
@@ -28,6 +28,28 @@ function errorResponse(status: number, error: { code: string; message: string },
 }
 
 describe('api-client', () => {
+  describe('getReadiness', () => {
+    it('returns component checks from the expected 503 readiness response', async () => {
+      const data = {
+        status: 'unavailable',
+        version: '2026.07.0',
+        checks: {
+          database: { status: 'error', message: 'unavailable' },
+          frontend: { status: 'ok' },
+          runtime: { status: 'ok' },
+        },
+      }
+      mockFetch.mockReturnValueOnce(jsonResponse(data, 503))
+      const controller = new AbortController()
+
+      await expect(getReadiness(controller.signal)).resolves.toEqual(data)
+      expect(mockFetch).toHaveBeenCalledWith('/api/ready', expect.objectContaining({
+        signal: controller.signal,
+        credentials: 'same-origin',
+      }))
+    })
+  })
+
   describe('getStacks', () => {
     it('fetches stacks list', async () => {
       const data = { items: [], summary: { stack_count: 0 } }
