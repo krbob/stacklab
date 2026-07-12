@@ -414,6 +414,7 @@ export interface JobHistoryEvent {
   message?: string
   data?: string | null
   step?: JobEventStep | null
+  progress?: APISchemas['JobEventRecord']['progress']
   timestamp: string
 }
 

@@ -79,6 +79,51 @@ describe('JobDetailDrawer', () => {
     expect(screen.getByText('Action')).toBeInTheDocument()
   })
 
+  it('preserves structured progress from retained events', async () => {
+    mockGetJob.mockResolvedValue({
+      job: {
+        id: 'job_progress',
+        stack_id: 'demo',
+        action: 'pull',
+        state: 'succeeded',
+        requested_at: '2026-04-09T08:00:00Z',
+      },
+    })
+    mockGetJobEvents.mockResolvedValue({
+      job_id: 'job_progress',
+      retained: true,
+      items: [
+        {
+          job_id: 'job_progress',
+          sequence: 1,
+          event: 'job_step_started',
+          state: 'running',
+          message: 'Starting pull.',
+          step: { index: 1, total: 1, action: 'pull' },
+          timestamp: '2026-04-09T08:00:01Z',
+        },
+        {
+          job_id: 'job_progress',
+          sequence: 2,
+          event: 'job_progress',
+          state: 'running',
+          message: 'Pulling layers.',
+          step: { index: 1, total: 1, action: 'pull' },
+          progress: { phase: 'pull', completed: 7, total: 12, unit: 'layers', detail: 'extracting' },
+          timestamp: '2026-04-09T08:00:02Z',
+        },
+      ],
+    })
+
+    renderDrawer('job_progress')
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }))
+
+    const progress = await screen.findByRole('progressbar', { name: 'pull progress' })
+    expect(progress).toHaveAttribute('aria-valuenow', '7')
+    expect(progress).toHaveAttribute('aria-valuemax', '12')
+    expect(screen.getByText('extracting')).toBeInTheDocument()
+  })
+
   it('shows retention notice when detailed output is gone', async () => {
     mockGetJob.mockResolvedValue({
       job: {

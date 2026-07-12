@@ -29,6 +29,7 @@ function toJobEvent(e: JobHistoryEvent): JobEvent {
     message: e.message ?? '',
     data: e.data,
     step: e.step ? { index: e.step.index, total: e.step.total, action: e.step.action, target_stack_id: e.step.target_stack_id } : null,
+    progress: e.progress ?? null,
     timestamp: e.timestamp,
   }
 }
