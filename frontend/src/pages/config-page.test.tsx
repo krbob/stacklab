@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConfigPage } from './config-page'
@@ -502,6 +502,31 @@ describe('ConfigPage', () => {
     expect(screen.getAllByText('ignored')).toHaveLength(2)
   })
 
+  it('recovers the config tree through the shared desktop and mobile Retry state', async () => {
+    mockGetConfigTree
+      .mockRejectedValueOnce(new Error('Config tree offline'))
+      .mockResolvedValueOnce(rootTree)
+
+    renderPage()
+
+    const desktopAlert = await screen.findByRole('alert')
+    expect(desktopAlert).toHaveTextContent('Files unavailable: Config tree offline')
+    expect(screen.getByRole('button', { name: 'Retry config files' })).toBeInTheDocument()
+    expect(screen.queryByText('Empty directory')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('config-open-tree'))
+    const mobileWorkspace = screen.getByRole('dialog', { name: 'Config workspace' })
+    expect(within(mobileWorkspace).getByRole('alert')).toHaveTextContent(
+      'Files unavailable: Config tree offline',
+    )
+
+    fireEvent.click(within(mobileWorkspace).getByRole('button', { name: 'Retry config files' }))
+
+    await waitFor(() => expect(mockGetConfigTree).toHaveBeenCalledTimes(2))
+    expect((await screen.findAllByRole('button', { name: 'demo' })).length).toBeGreaterThanOrEqual(1)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
   it('renders Changes mode and opens a diff, then switches back to editor', async () => {
     mockGetConfigFile.mockResolvedValue(fileBefore)
 
@@ -528,6 +553,34 @@ describe('ConfigPage', () => {
       expect(mockGetConfigFile).toHaveBeenCalledWith('demo/app.conf')
     })
     expect(await screen.findByLabelText('yaml-editor')).toBeInTheDocument()
+  })
+
+  it('keeps Git Retry available on desktop and mobile, then restores Refresh', async () => {
+    mockGetGitWorkspaceStatus
+      .mockRejectedValueOnce(new Error('Git status offline'))
+      .mockResolvedValueOnce(gitStatus)
+
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Changes/ }))
+
+    const desktopAlert = await screen.findByRole('alert')
+    expect(desktopAlert).toHaveTextContent('Git status unavailable: Git status offline')
+    expect(screen.getByRole('button', { name: 'Retry Git status' })).toBeInTheDocument()
+    expect(screen.queryByText('Working tree clean')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('config-open-tree'))
+    const mobileWorkspace = screen.getByRole('dialog', { name: 'Config workspace' })
+    expect(within(mobileWorkspace).getByRole('alert')).toHaveTextContent(
+      'Git status unavailable: Git status offline',
+    )
+
+    fireEvent.click(within(mobileWorkspace).getByRole('button', { name: 'Retry Git status' }))
+
+    await waitFor(() => expect(mockGetGitWorkspaceStatus).toHaveBeenCalledTimes(2))
+    expect((await screen.findAllByText('main')).length).toBeGreaterThanOrEqual(1)
+    expect(within(mobileWorkspace).getByRole('button', { name: 'Refresh' })).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('shows "Not a Git repository" when Git is unavailable', async () => {

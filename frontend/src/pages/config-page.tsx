@@ -15,6 +15,7 @@ import { usePendingAction } from '@/hooks/use-pending-action'
 import { StatusMessage } from '@/components/status-message'
 
 type Mode = 'files' | 'changes'
+type TreeLoadError = { message: string; path: string }
 
 const entryIcons: Record<string, typeof File> = {
   directory: Folder,
@@ -42,7 +43,7 @@ export function ConfigPage() {
   const [treeEntries, setTreeEntries] = useState<ConfigTreeEntry[]>([])
   const [parentPath, setParentPath] = useState<string | null>(null)
   const [treeLoading, setTreeLoading] = useState(true)
-  const [treeError, setTreeError] = useState<string | null>(null)
+  const [treeError, setTreeError] = useState<TreeLoadError | null>(null)
 
   const [selectedFile, setSelectedFile] = useState<ConfigFileResponse | null>(null)
   const [fileLoading, setFileLoading] = useState(false)
@@ -99,7 +100,10 @@ export function ConfigPage() {
       setParentPath(result.parent_path)
       setTreePath(result.current_path)
     } catch (err) {
-      setTreeError(err instanceof Error ? err.message : 'Failed to load tree')
+      setTreeError({
+        message: err instanceof Error ? err.message : 'Failed to load tree',
+        path,
+      })
     } finally {
       setTreeLoading(false)
     }
@@ -347,7 +351,13 @@ export function ConfigPage() {
                 ))}
               </div>
             )}
-            {treeError && <p className="text-xs text-[var(--danger)]">{treeError}</p>}
+            {treeError && (
+              <WorkspaceLoadError
+                message={`Files unavailable: ${treeError.message}`}
+                retryLabel="Retry config files"
+                onRetry={() => { void loadTree(treeError.path) }}
+              />
+            )}
             {!treeLoading && !treeError && (
               <nav className="flex-1 space-y-0.5 overflow-y-auto">
                 {parentPath !== null && (
@@ -391,7 +401,13 @@ export function ConfigPage() {
                 {[1, 2, 3].map((i) => <div key={i} className="h-6 animate-pulse rounded bg-[rgba(255,255,255,0.05)]" />)}
               </div>
             )}
-            {gitError && <p className="text-xs text-[var(--danger)]">{gitError}</p>}
+            {gitError && (
+              <WorkspaceLoadError
+                message={`Git status unavailable: ${gitError}`}
+                retryLabel="Retry Git status"
+                onRetry={() => { void loadGitStatus() }}
+              />
+            )}
             {!gitLoading && !gitError && gitAvailable && (
               <div className="flex-1 space-y-2 overflow-y-auto">
                 {gitBranch && (
@@ -451,7 +467,7 @@ export function ConfigPage() {
                 )}
               </div>
             )}
-            {!gitLoading && !gitAvailable && (
+            {!gitLoading && !gitError && !gitAvailable && (
               <p className="px-2 py-4 text-xs text-[var(--muted)]">
                 {gitReason === 'not_a_git_repository' ? 'Not a Git repository. Initialize Git to track changes.' : gitReason ?? 'Git not available'}
               </p>
@@ -519,7 +535,13 @@ export function ConfigPage() {
                 ))}
               </div>
             )}
-            {treeError && <p className="text-xs text-[var(--danger)]">{treeError}</p>}
+            {treeError && (
+              <WorkspaceLoadError
+                message={`Files unavailable: ${treeError.message}`}
+                retryLabel="Retry config files"
+                onRetry={() => { void loadTree(treeError.path) }}
+              />
+            )}
             {!treeLoading && !treeError && (
               <nav className="flex-1 space-y-0.5 overflow-y-auto">
                 {parentPath !== null && (
@@ -563,7 +585,13 @@ export function ConfigPage() {
                 {[1, 2, 3].map((i) => <div key={i} className="h-6 animate-pulse rounded bg-[rgba(255,255,255,0.05)]" />)}
               </div>
             )}
-            {gitError && <p className="text-xs text-[var(--danger)]">{gitError}</p>}
+            {gitError && (
+              <WorkspaceLoadError
+                message={`Git status unavailable: ${gitError}`}
+                retryLabel="Retry Git status"
+                onRetry={() => { void loadGitStatus() }}
+              />
+            )}
             {!gitLoading && !gitError && gitAvailable && (
               <div className="flex-1 space-y-2 overflow-y-auto">
                 {gitBranch && (
@@ -623,7 +651,7 @@ export function ConfigPage() {
                 )}
               </div>
             )}
-            {!gitLoading && !gitAvailable && (
+            {!gitLoading && !gitError && !gitAvailable && (
               <p className="px-2 py-4 text-xs text-[var(--muted)]">
                 {gitReason === 'not_a_git_repository' ? 'Not a Git repository. Initialize Git to track changes.' : gitReason ?? 'Git not available'}
               </p>
@@ -809,6 +837,28 @@ export function ConfigPage() {
           onConfirm={confirmPendingAction}
         />
       )}
+    </div>
+  )
+}
+
+function WorkspaceLoadError({ message, retryLabel, onRetry }: {
+  message: string
+  retryLabel: string
+  onRetry: () => void
+}) {
+  return (
+    <div
+      role="alert"
+      className="rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-3 py-2 text-xs text-[var(--danger)]"
+    >
+      <p>{message}</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="mt-2 rounded-md border border-[var(--danger)]/30 px-2 py-1 hover:bg-[var(--danger)]/10"
+      >
+        {retryLabel}
+      </button>
     </div>
   )
 }
