@@ -448,6 +448,30 @@ func TestNewServiceReaderSecuresExistingStackEnvironmentFiles(t *testing.T) {
 	}
 }
 
+func TestSecureExistingStackEnvironmentFilesPreservesForeignOwnedMode(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	stackDir := filepath.Join(rootDir, "stacks", "demo")
+	if err := os.MkdirAll(stackDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(stackDir) error = %v", err)
+	}
+	envPath := filepath.Join(stackDir, ".env")
+	if err := os.WriteFile(envPath, []byte("SECRET=fixture\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(.env) error = %v", err)
+	}
+	if err := os.Chmod(envPath, 0o644); err != nil {
+		t.Fatalf("Chmod(.env) error = %v", err)
+	}
+
+	if err := secureExistingStackEnvFilesForUID(rootDir, os.Geteuid()+1); err != nil {
+		t.Fatalf("secureExistingStackEnvFilesForUID() error = %v", err)
+	}
+	if info, err := os.Stat(envPath); err != nil || info.Mode().Perm() != 0o644 {
+		t.Fatalf("foreign-owned .env mode = %v, %v; want preserved 0644", infoMode(info), err)
+	}
+}
+
 func TestDeleteStackWithRuntimeStopsWhenDockerUnavailable(t *testing.T) {
 	ctx := context.Background()
 	reader := newTestServiceReader(t)

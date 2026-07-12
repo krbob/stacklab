@@ -184,6 +184,10 @@ func NewServiceReader(cfg config.Config, logger *slog.Logger) *ServiceReader {
 }
 
 func secureExistingStackEnvFiles(rootDir string) error {
+	return secureExistingStackEnvFilesForUID(rootDir, os.Geteuid())
+}
+
+func secureExistingStackEnvFilesForUID(rootDir string, effectiveUID int) error {
 	stacksRoot := filepath.Join(rootDir, "stacks")
 	entries, err := os.ReadDir(stacksRoot)
 	if err != nil {
@@ -206,6 +210,10 @@ func secureExistingStackEnvFiles(rootDir string) error {
 			return fmt.Errorf("stat stack environment file %q: %w", envPath, err)
 		}
 		if !info.Mode().IsRegular() {
+			continue
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || int(stat.Uid) != effectiveUID {
 			continue
 		}
 		if err := os.Chmod(envPath, 0o600); err != nil {

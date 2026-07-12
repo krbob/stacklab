@@ -238,6 +238,8 @@ secure_runtime_file_modes() {
   local stacklab_root="$1"
   local data_dir="$2"
   local env_path="$3"
+  local service_user="$4"
+  local service_group="$5"
 
   chmod 0700 "${data_dir}"
   for file in "${data_dir}/stacklab.db" "${data_dir}/stacklab.db-wal" "${data_dir}/stacklab.db-shm"; do
@@ -246,7 +248,19 @@ secure_runtime_file_modes() {
     fi
   done
   if [[ -d "${stacklab_root}/stacks" ]]; then
-    find "${stacklab_root}/stacks" -mindepth 2 -maxdepth 2 -type f -name .env -exec chmod 0600 {} +
+    local stack_env_file
+    local stack_env_owner
+    for stack_env_file in "${stacklab_root}"/stacks/*/.env; do
+      [[ -f "${stack_env_file}" && ! -L "${stack_env_file}" ]] || continue
+      stack_env_owner="$(stat -c %U "${stack_env_file}")"
+      if [[ "${stack_env_owner}" == "${service_user}" ]]; then
+        chown "${service_user}:${service_group}" "${stack_env_file}"
+        chmod 0600 "${stack_env_file}"
+      else
+        chgrp "${service_group}" "${stack_env_file}"
+        chmod 0640 "${stack_env_file}"
+      fi
+    done
   fi
   if [[ -f "${env_path}" ]]; then
     chown root:root "${env_path}"
@@ -426,7 +440,7 @@ main() {
     systemctl daemon-reload
     systemctl enable "${service_name}" >/dev/null 2>&1 || true
   fi
-  secure_runtime_file_modes "${stacklab_root}" "${data_dir}" "${env_path}"
+  secure_runtime_file_modes "${stacklab_root}" "${data_dir}" "${env_path}" "${service_user}" "${service_group}"
 
   if [[ -L "${current_link}" || -e "${current_link}" ]]; then
     previous_target="$(readlink -f "${current_link}" || true)"

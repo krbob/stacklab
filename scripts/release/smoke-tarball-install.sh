@@ -193,7 +193,8 @@ EOF
       test "$(readlink -f /opt/stacklab/app/current)" = "${release_a}"
 
       "${artifact_a}/host-tools/upgrade.sh" --no-health-check /tmp/release-assets/stacklab-upgrade-b.tar.gz
-      test "$(stat -c %a /opt/stacklab/stacks/demo/.env)" = "600"
+      test "$(stat -c %U:%G /opt/stacklab/stacks/demo/.env)" = "root:stacklab"
+      test "$(stat -c %a /opt/stacklab/stacks/demo/.env)" = "640"
 
       release_b="$(readlink -f /opt/stacklab/app/current)"
       test -n "${release_b}"

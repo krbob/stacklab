@@ -43,6 +43,22 @@ ensure_runtime_dirs() {
   install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0700 "${DATA_DIR}/docker"
 }
 
+secure_stack_env_files() {
+  [ -d "${WORKSPACE_ROOT}/stacks" ] || return 0
+
+  for file in "${WORKSPACE_ROOT}"/stacks/*/.env; do
+    [ -f "${file}" ] && [ ! -L "${file}" ] || continue
+    owner="$(stat -c %U "${file}")"
+    if [ "${owner}" = "${SERVICE_USER}" ]; then
+      chown "${SERVICE_USER}:${SERVICE_GROUP}" "${file}"
+      chmod 0600 "${file}"
+    else
+      chgrp "${SERVICE_GROUP}" "${file}"
+      chmod 0640 "${file}"
+    fi
+  done
+}
+
 ensure_sensitive_file_modes() {
   if [ -f "${ENV_FILE}" ]; then
     chown root:root "${ENV_FILE}"
@@ -55,9 +71,7 @@ ensure_sensitive_file_modes() {
     fi
   done
 
-  if [ -d "${WORKSPACE_ROOT}/stacks" ]; then
-    find "${WORKSPACE_ROOT}/stacks" -mindepth 2 -maxdepth 2 -type f -name .env -exec chmod 0600 {} +
-  fi
+  secure_stack_env_files
 }
 
 ensure_groups() {

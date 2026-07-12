@@ -158,6 +158,15 @@ create_persistent_fixtures() {
     /srv/stacklab/data/systemd-smoke \
     /var/lib/stacklab/systemd-smoke-state.txt
   chmod 0600 /srv/stacklab/stacks/systemd-smoke/.env
+
+  install -d -o root -g root -m 0755 /srv/stacklab/stacks/systemd-smoke-external
+  printf 'services:\n  app:\n    image: busybox:stable\n' \
+    >/srv/stacklab/stacks/systemd-smoke-external/compose.yaml
+  printf 'EXTERNAL_SECRET=preserved\n' \
+    >/srv/stacklab/stacks/systemd-smoke-external/.env
+  chown root:root /srv/stacklab/stacks/systemd-smoke-external/compose.yaml \
+    /srv/stacklab/stacks/systemd-smoke-external/.env
+  chmod 0644 /srv/stacklab/stacks/systemd-smoke-external/.env
 }
 
 assert_persistent_fixtures() {
@@ -173,6 +182,9 @@ assert_persistent_fixtures() {
   grep -q '^runtime=preserved$' /var/lib/stacklab/systemd-smoke-state.txt
   test "$(stat -c %U:%G /srv/stacklab/stacks/systemd-smoke/compose.yaml)" = stacklab:stacklab
   test "$(stat -c %a /srv/stacklab/stacks/systemd-smoke/.env)" = 600
+  grep -q '^EXTERNAL_SECRET=preserved$' /srv/stacklab/stacks/systemd-smoke-external/.env
+  test "$(stat -c %U:%G /srv/stacklab/stacks/systemd-smoke-external/.env)" = root:stacklab
+  test "$(stat -c %a /srv/stacklab/stacks/systemd-smoke-external/.env)" = 640
 }
 
 assert_legal_documentation() {

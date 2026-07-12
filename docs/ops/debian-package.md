@@ -94,8 +94,10 @@ The implemented `postinst` is idempotent. On configuration it:
 1. creates the system group and non-login service account when absent;
 2. creates `/srv/stacklab/{stacks,config,data}` only when missing;
 3. creates private runtime, home, and Docker config directories;
-4. enforces mode `0600` on the environment file, SQLite/WAL/SHM files, and
-   stack-root `.env` files it encounters;
+4. enforces mode `0600` on the service environment file and SQLite/WAL/SHM
+   files; service-owned stack `.env` files remain `0600`, while externally
+   owned stack `.env` files preserve their owner and receive group
+   `stacklab` with mode `0640` so the service can read them;
 5. adds the service account to existing `docker` and `systemd-journal` groups;
 6. reloads and enables the service, starts it on first install, or performs a
    best-effort restart after upgrade;
