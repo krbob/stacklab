@@ -1,14 +1,19 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { StacksPage } from './stacks-page'
-import { WsProvider } from '@/contexts/ws-context'
 import type { StackListItem, StackListResponse } from '@/lib/api-types'
 
 const mockGetStacks = vi.fn()
+const mockCheckImageUpdates = vi.fn()
 
 vi.mock('@/lib/api-client', () => ({
   getStacks: (...args: unknown[]) => mockGetStacks(...args),
+  checkImageUpdates: (...args: unknown[]) => mockCheckImageUpdates(...args),
+}))
+
+vi.mock('@/hooks/use-job-stream', () => ({
+  useJobStream: () => ({ state: null, events: [] }),
 }))
 
 function makeStack(partial: Partial<StackListItem> & Pick<StackListItem, 'id'>): StackListItem {
@@ -53,17 +58,21 @@ const response: StackListResponse = {
 }
 
 function renderPage() {
-  mockGetStacks.mockResolvedValue(response)
   return render(
     <MemoryRouter>
-      <WsProvider>
-        <StacksPage />
-      </WsProvider>
+      <StacksPage />
     </MemoryRouter>,
   )
 }
 
 describe('StacksPage', () => {
+  beforeEach(() => {
+    mockGetStacks.mockReset().mockResolvedValue(response)
+    mockCheckImageUpdates.mockReset()
+  })
+
+  afterEach(() => vi.useRealTimers())
+
   it('renders tiles with stats, drift badge, and metadata links', async () => {
     renderPage()
 
@@ -88,5 +97,76 @@ describe('StacksPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /Problems/ }))
     expect(screen.getByTestId('stack-card-transmission')).toBeInTheDocument()
     expect(screen.queryByTestId('stack-card-adguardhome')).not.toBeInTheDocument()
+  })
+
+  it('shows an initial error without false counts and recovers on Retry', async () => {
+    mockGetStacks
+      .mockReset()
+      .mockRejectedValueOnce(new Error('backend unavailable'))
+      .mockResolvedValueOnce(response)
+
+    renderPage()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to load stacks: backend unavailable')
+    expect(screen.getByRole('button', { name: 'Problems' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Updates' })).toBeInTheDocument()
+    expect(screen.queryByText('No stacks found')).not.toBeInTheDocument()
+    expect(screen.queryByText('3 stacks')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+    expect(await screen.findByTestId('stack-card-adguardhome')).toBeInTheDocument()
+    expect(mockGetStacks).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the last stack cards visible when a background poll fails', async () => {
+    vi.useFakeTimers()
+    renderPage()
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId('stack-card-adguardhome')).toBeInTheDocument()
+
+    mockGetStacks.mockRejectedValueOnce(new Error('poll unavailable'))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000)
+    })
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Failed to load stacks: poll unavailable')
+    expect(screen.getByText('Showing the last successfully loaded data.')).toBeInTheDocument()
+    expect(screen.getByTestId('stack-card-adguardhome')).toBeInTheDocument()
+    expect(screen.getByText('3 stacks')).toBeInTheDocument()
+  })
+
+  it('shows a useful empty state after a successful response', async () => {
+    mockGetStacks.mockResolvedValueOnce({
+      items: [],
+      summary: {
+        stack_count: 0,
+        defined_count: 0,
+        running_count: 0,
+        stopped_count: 0,
+        error_count: 0,
+        orphaned_count: 0,
+        container_count: { running: 0, total: 0 },
+      },
+    })
+
+    renderPage()
+
+    expect(await screen.findByText('No stacks found')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Create your first stack' })).toHaveAttribute('href', '/stacks/new')
+  })
+
+  it('surfaces image-update start failures with a retry action', async () => {
+    mockCheckImageUpdates.mockRejectedValueOnce(new Error('Docker unavailable'))
+    renderPage()
+    await screen.findByTestId('stack-card-adguardhome')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Check updates' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to check image updates: Docker unavailable')
+    expect(screen.getByRole('button', { name: 'Retry check' })).toBeInTheDocument()
   })
 })

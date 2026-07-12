@@ -7,6 +7,7 @@ interface AsyncStateProps {
   isEmpty: boolean
   loadingLabel: string
   emptyMessage: string
+  emptyFallback?: ReactNode
   onRetry: () => void
   loadingFallback: ReactNode
   children: ReactNode
@@ -19,6 +20,7 @@ export function AsyncState({
   isEmpty,
   loadingLabel,
   emptyMessage,
+  emptyFallback,
   onRetry,
   loadingFallback,
   children,
@@ -43,7 +45,7 @@ export function AsyncState({
       )}
       {error && <LoadError error={error} onRetry={onRetry} stale />}
       {isEmpty
-        ? <p className="py-6 text-center text-sm text-[var(--muted)]">{emptyMessage}</p>
+        ? emptyFallback ?? <p className="py-6 text-center text-sm text-[var(--muted)]">{emptyMessage}</p>
         : children}
     </>
   )

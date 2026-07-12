@@ -3,8 +3,10 @@ import { Link } from 'react-router-dom'
 import { ExternalLink } from 'lucide-react'
 
 import { checkImageUpdates, getStacks } from '@/lib/api-client'
-import type { StackListItem, StackListResponse } from '@/lib/api-types'
+import type { StackListItem } from '@/lib/api-types'
+import { useApi } from '@/hooks/use-api'
 import { useJobStream } from '@/hooks/use-job-stream'
+import { AsyncState } from '@/components/async-state'
 import { PageHeader } from '@/components/page-header'
 import { cn } from '@/lib/cn'
 
@@ -157,65 +159,57 @@ function StackGlyph({ name, icon }: { name: string; icon?: string }) {
 }
 
 export function StacksPage() {
-  const [reloadKey, setReloadKey] = useState(0)
-  const [data, setData] = useState<StackListResponse | null>(null)
-  const [error, setError] = useState<Error | null>(null)
-  const loading = data === null && error === null
+  const { data, error, loading, refetch } = useApi(() => getStacks(), [])
+  const loadError = error ? new Error(`Failed to load stacks: ${error.message}`) : null
 
   // The stats collector samples every 10s server-side; refresh the list on
-  // the same cadence — silently, keeping the previous data on screen (and on
-  // poll errors), and only while the tab is visible.
+  // the same cadence, preserving the last successful response when a poll
+  // fails, and only while the tab is visible.
   useEffect(() => {
-    let cancelled = false
-    let hasData = false
-    const load = () => {
-      getStacks()
-        .then((response) => {
-          if (cancelled) return
-          hasData = true
-          setData(response)
-          setError(null)
-        })
-        .catch((err) => {
-          if (!cancelled && !hasData) setError(err instanceof Error ? err : new Error('Failed to load stacks'))
-        })
-    }
-    load()
     const interval = setInterval(() => {
-      if (document.visibilityState === 'visible') load()
+      if (document.visibilityState === 'visible') refetch()
     }, 10_000)
-    return () => {
-      cancelled = true
-      clearInterval(interval)
-    }
-  }, [reloadKey])
+    return () => clearInterval(interval)
+  }, [refetch])
 
   const [filter, setFilter] = useState('')
   const [status, setStatus] = useState<StatusFilter>('all')
   const [checkJobId, setCheckJobId] = useState<string | null>(null)
+  const [startingCheck, setStartingCheck] = useState(false)
+  const [checkError, setCheckError] = useState<Error | null>(null)
   const filterRef = useRef<HTMLInputElement>(null)
 
   // The check runs as a detached job — follow its stream and reload the list
   // only once it reaches a terminal state (the response returns immediately).
   const checkStream = useJobStream({ jobId: checkJobId })
   const checkTerminal = ['succeeded', 'failed', 'cancelled', 'timed_out'].includes(checkStream.state ?? '')
-  const checking = checkJobId !== null && !checkTerminal
-  const checkProgress = checking
+  const followingCheck = checkJobId !== null && !checkTerminal
+  const checking = startingCheck || followingCheck
+  const checkProgress = followingCheck
     ? [...checkStream.events].reverse().find((event) => event.progress)?.progress ?? null
     : null
 
   useEffect(() => {
     if (!checkJobId || !checkTerminal) return
+    if (checkStream.state !== 'succeeded') {
+      setCheckError(new Error(`Image update check ${checkStream.state?.replace('_', ' ') ?? 'failed'}.`))
+    }
     setCheckJobId(null)
-    setReloadKey((key) => key + 1)
-  }, [checkJobId, checkTerminal])
+    refetch()
+  }, [checkJobId, checkStream.state, checkTerminal, refetch])
 
   async function handleCheckUpdates() {
+    if (checking) return
+    setCheckError(null)
+    setStartingCheck(true)
     try {
       const result = await checkImageUpdates()
       setCheckJobId(result.job.id)
-    } catch {
-      // start failures surface in audit; the button simply stays idle
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      setCheckError(new Error(`Failed to check image updates: ${message}`))
+    } finally {
+      setStartingCheck(false)
     }
   }
 
@@ -292,7 +286,7 @@ export function StacksPage() {
               : 'border-[var(--panel-border)] text-[var(--muted)] hover:text-[var(--text)]',
           )}
         >
-          All {items.length > 0 && items.length}
+          All {data !== null && items.length}
         </button>
         <button
           onClick={() => setStatus('problems')}
@@ -305,7 +299,7 @@ export function StacksPage() {
             problemCount > 0 && status !== 'problems' && 'text-[var(--warning)]',
           )}
         >
-          Problems {problemCount}
+          Problems {data !== null && problemCount}
         </button>
         <button
           onClick={() => setStatus('updates')}
@@ -318,14 +312,16 @@ export function StacksPage() {
             updateCount > 0 && status !== 'updates' && 'text-[var(--accent)]',
           )}
         >
-          Updates {updateCount}
+          Updates {data !== null && updateCount}
         </button>
         <button
           onClick={handleCheckUpdates}
           disabled={checking}
           className="ml-auto rounded-md border border-[var(--panel-border)] px-3 py-1.5 text-xs text-[var(--muted)] transition hover:text-[var(--text)] disabled:opacity-50"
         >
-          {checking
+          {startingCheck
+            ? 'Starting…'
+            : followingCheck
             ? checkProgress
               ? `Checking… ${checkProgress.completed}/${checkProgress.total}`
               : 'Checking…'
@@ -333,54 +329,70 @@ export function StacksPage() {
         </button>
       </div>
 
+      {checkError && (
+        <div
+          role="alert"
+          className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]"
+        >
+          <p>{checkError.message}</p>
+          <button
+            type="button"
+            onClick={handleCheckUpdates}
+            disabled={checking}
+            className="rounded-md border border-[var(--danger)]/30 px-3 py-1.5 text-xs text-[var(--danger)] hover:bg-[var(--danger)]/10 disabled:opacity-50"
+          >
+            Retry check
+          </button>
+        </div>
+      )}
+
       {/* Tile grid */}
       <div className="mt-5">
-        {loading && (
-          <div className="columns-[15rem] gap-3">
-            <span className="sr-only" role="status" aria-live="polite">Loading stacks...</span>
-            {[1, 2, 3, 4, 5, 6].map((i) => (
-              <div key={i} className="break-inside-avoid pb-3">
-                <div className="h-20 animate-pulse rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)]" />
-              </div>
-            ))}
-          </div>
-        )}
-
-        {error && (
-          <div className="rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 p-5">
-            <p className="text-sm text-[var(--danger)]">Failed to load stacks: {error.message}</p>
-          </div>
-        )}
-
-        {!loading && !error && (
+        <AsyncState
+          loading={loading}
+          error={loadError}
+          hasData={data !== null}
+          isEmpty={data !== null && items.length === 0}
+          loadingLabel="Loading stacks…"
+          emptyMessage="No stacks found."
+          emptyFallback={
+            <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-10 text-center">
+              <p className="text-lg text-[var(--text)]">No stacks found</p>
+              <p className="mt-2 text-sm text-[var(--muted)]">
+                No compose.yaml files detected in the managed stacks root.
+              </p>
+              <Link
+                to="/stacks/new"
+                className="mt-4 inline-block rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)]"
+              >
+                Create your first stack
+              </Link>
+            </div>
+          }
+          onRetry={refetch}
+          loadingFallback={
+            <div className="columns-[15rem] gap-3">
+              {[1, 2, 3, 4, 5, 6].map((i) => (
+                <div key={i} className="break-inside-avoid pb-3">
+                  <div className="h-20 animate-pulse rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)]" />
+                </div>
+              ))}
+            </div>
+          }
+        >
           <div className="columns-[15rem] gap-3">
             {visible.map((stack) => (
               <StackTile key={stack.id} stack={stack} />
             ))}
           </div>
-        )}
 
-        {!loading && !error && visible.length === 0 && items.length > 0 && (
-          <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-10 text-center">
-            <p className="text-[var(--text)]">No stacks match</p>
-            <p className="mt-1 text-sm text-[var(--muted)]">Adjust the filter or status chips above.</p>
-          </div>
-        )}
-
-        {data && items.length === 0 && (
-          <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-10 text-center">
-            <p className="text-lg text-[var(--text)]">No stacks found</p>
-            <p className="mt-2 text-sm text-[var(--muted)]">
-              No compose.yaml files detected in the managed stacks root.
-            </p>
-            <Link
-              to="/stacks/new"
-              className="mt-4 inline-block rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)]"
-            >
-              Create your first stack
-            </Link>
-          </div>
-        )}
+          {visible.length === 0 && items.length > 0 && (
+            <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-10 text-center">
+              <p className="text-[var(--text)]">No stacks match</p>
+              <p className="mt-1 text-sm text-[var(--muted)]">Adjust the filter or status chips above.</p>
+            </div>
+          )}
+        </AsyncState>
       </div>
     </section>
   )

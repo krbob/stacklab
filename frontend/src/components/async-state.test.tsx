@@ -64,4 +64,14 @@ describe('AsyncState', () => {
     expect(screen.getByText('No inventory found.')).toBeInTheDocument()
     expect(screen.queryByText('Inventory row')).not.toBeInTheDocument()
   })
+
+  it('supports a richer empty-state action', () => {
+    renderState({
+      isEmpty: true,
+      emptyFallback: <a href="/inventory/new">Create inventory</a>,
+    })
+
+    expect(screen.getByRole('link', { name: 'Create inventory' })).toHaveAttribute('href', '/inventory/new')
+    expect(screen.queryByText('Inventory row')).not.toBeInTheDocument()
+  })
 })
