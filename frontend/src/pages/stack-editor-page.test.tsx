@@ -1,9 +1,9 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider, useOutletContext } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { getDefinition, getResolvedConfig, invokeAction, resolveConfigDraft, saveDefinition } from '@/lib/api-client'
 import { StackEditorPage } from './stack-editor-page'
-import type { DefinitionResponse } from '@/lib/api-types'
+import type { DefinitionResponse, ResolvedConfigResponse } from '@/lib/api-types'
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
@@ -29,7 +29,12 @@ vi.mock('@/components/yaml-editor', () => ({
 }))
 
 vi.mock('@/components/progress-panel', () => ({
-  ProgressPanel: ({ jobId }: { jobId: string | null }) => <div data-testid="progress-panel">{jobId}</div>,
+  ProgressPanel: ({ jobId, onDone }: { jobId: string | null; onDone?: (state: string) => void }) => (
+    <div data-testid="progress-panel">
+      {jobId}
+      <button type="button" onClick={() => onDone?.('succeeded')}>Finish {jobId}</button>
+    </div>
+  ),
 }))
 
 const mockUseOutletContext = vi.mocked(useOutletContext)
@@ -42,6 +47,17 @@ const mockInvokeAction = vi.mocked(invokeAction)
 function renderPage() {
   const router = createMemoryRouter([{ path: '/', element: <StackEditorPage /> }])
   return render(<RouterProvider router={router} />)
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve
+    reject = promiseReject
+  })
+
+  return { promise, resolve, reject }
 }
 
 const stack = {
@@ -257,7 +273,8 @@ describe('StackEditorPage', () => {
 
     const editor = await screen.findByLabelText('yaml-editor')
     expect(editor).toHaveValue('services:\n  app:\n    image: nginx:alpine\n')
-    expect(await screen.findByText('Docker is unavailable')).toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent('Docker is unavailable')
+    expect(screen.getByRole('button', { name: 'Retry resolved preview' })).toBeInTheDocument()
     expect(screen.getByTestId('editor-save')).toBeDisabled()
 
     fireEvent.change(editor, {
@@ -298,5 +315,124 @@ describe('StackEditorPage', () => {
     expect(await screen.findByLabelText('yaml-editor')).toHaveValue('services:\n  recovered:\n    image: nginx:stable\n')
     expect(mockGetDefinition).toHaveBeenCalledTimes(2)
     expect(screen.getByTestId('editor-save')).toBeDisabled()
+  })
+
+  it('preserves and retries a stale resolved preview after a successful save', async () => {
+    const initialResolved: ResolvedConfigResponse = {
+      stack_id: 'demo',
+      valid: true,
+      content: 'services:\n  app:\n    image: nginx:previous-preview\n',
+      warnings: [],
+    }
+    const recoveredResolved: ResolvedConfigResponse = {
+      stack_id: 'demo',
+      valid: true,
+      content: 'services:\n  app:\n    image: nginx:refreshed-preview\n',
+      warnings: [],
+    }
+    const refresh = deferred<ResolvedConfigResponse>()
+    mockGetResolvedConfig
+      .mockResolvedValueOnce(initialResolved)
+      .mockReturnValueOnce(refresh.promise)
+      .mockResolvedValueOnce(recoveredResolved)
+    mockSaveDefinition.mockResolvedValue({
+      job: { id: 'job-save-refresh', stack_id: 'demo', action: 'save_definition', state: 'running', requested_at: '2026-07-09T08:00:00Z' },
+      definition: {
+        ...definition,
+        files: {
+          ...definition.files,
+          compose_yaml: {
+            ...definition.files.compose_yaml,
+            content: 'services:\n  app:\n    image: nginx:saved\n',
+            modified_at: '2026-07-09T09:00:00Z',
+          },
+        },
+      },
+    })
+
+    renderPage()
+
+    const editor = await screen.findByLabelText('yaml-editor')
+    const preview = within(screen.getByTestId('resolved-preview'))
+    expect(await preview.findByText(/nginx:previous-preview/)).toBeInTheDocument()
+
+    fireEvent.change(editor, {
+      target: { value: 'services:\n  app:\n    image: nginx:saved\n' },
+    })
+    fireEvent.click(screen.getByTestId('editor-save'))
+    expect(await screen.findByText('job-save-refresh')).toBeInTheDocument()
+
+    fireEvent.change(editor, {
+      target: { value: 'services:\n  app:\n    image: nginx:newer-draft\n' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Finish job-save-refresh' }))
+
+    await waitFor(() => expect(mockGetResolvedConfig).toHaveBeenCalledTimes(2))
+    expect(preview.getByRole('status')).toHaveTextContent('Refreshing resolved preview...')
+    expect(preview.getByText(/nginx:previous-preview/)).toBeInTheDocument()
+
+    await act(async () => {
+      refresh.reject(new Error('Docker restarted during preview refresh'))
+      await Promise.allSettled([refresh.promise])
+      await Promise.resolve()
+    })
+
+    expect(preview.getByRole('alert')).toHaveTextContent(
+      'Failed to refresh resolved preview: Docker restarted during preview refresh',
+    )
+    expect(preview.getByRole('alert')).toHaveTextContent('Showing the last successfully loaded preview.')
+    expect(preview.getByText(/nginx:previous-preview/)).toBeInTheDocument()
+
+    fireEvent.click(preview.getByRole('button', { name: 'Retry resolved preview' }))
+
+    expect(await preview.findByText(/nginx:refreshed-preview/)).toBeInTheDocument()
+    expect(preview.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByText('Preview current changes before deploy')).toBeInTheDocument()
+    expect(editor).toHaveValue('services:\n  app:\n    image: nginx:newer-draft\n')
+    expect(mockSaveDefinition).toHaveBeenCalledTimes(1)
+    expect(mockInvokeAction).not.toHaveBeenCalled()
+  })
+
+  it('continues Save & Deploy when the post-save preview refresh fails', async () => {
+    mockGetResolvedConfig
+      .mockResolvedValueOnce({
+        stack_id: 'demo',
+        valid: true,
+        content: 'services:\n  app:\n    image: nginx:previous-preview\n',
+        warnings: [],
+      })
+      .mockRejectedValueOnce(new Error('preview endpoint unavailable'))
+    mockResolveConfigDraft.mockResolvedValue({
+      stack_id: 'demo',
+      valid: true,
+      content: 'services:\n  app:\n    image: nginx:next\n',
+      warnings: [],
+    })
+    mockSaveDefinition.mockResolvedValue({
+      job: { id: 'job-save-deploy', stack_id: 'demo', action: 'save_definition', state: 'running', requested_at: '2026-07-09T08:00:00Z' },
+      definition,
+    })
+    mockInvokeAction.mockResolvedValue({
+      job: { id: 'job-deploy', stack_id: 'demo', action: 'up', state: 'running', requested_at: '2026-07-09T08:00:01Z' },
+    })
+
+    renderPage()
+
+    await screen.findByText('✓ Config valid')
+    fireEvent.change(screen.getByLabelText('yaml-editor'), {
+      target: { value: 'services:\n  app:\n    image: nginx:next\n' },
+    })
+    fireEvent.click(screen.getByTestId('editor-save-deploy'))
+    expect(await screen.findByText('job-save-deploy')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Finish job-save-deploy' }))
+
+    await waitFor(() => expect(mockInvokeAction).toHaveBeenCalledWith('demo', 'up'))
+    expect(await screen.findByText('job-deploy')).toBeInTheDocument()
+    expect(within(screen.getByTestId('resolved-preview')).getByRole('alert')).toHaveTextContent(
+      'Failed to refresh resolved preview: preview endpoint unavailable',
+    )
+    expect(mockSaveDefinition).toHaveBeenCalledTimes(1)
+    expect(mockInvokeAction).toHaveBeenCalledTimes(1)
   })
 })

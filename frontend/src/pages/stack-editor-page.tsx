@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import type { DefinitionResponse, StackDetailResponse } from '@/lib/api-types'
 import { getDefinition, getResolvedConfig, invokeAction, resolveConfigDraft, saveDefinition } from '@/lib/api-client'
@@ -40,6 +40,7 @@ export function StackEditorPage() {
   const [resolvedSource, setResolvedSource] = useState<'current' | 'draft' | 'last_valid'>('current')
   const [warnings, setWarnings] = useState<import('@/lib/api-types').ComposeWarning[]>([])
   const [resolvedError, setResolvedError] = useState('')
+  const [resolvedLoadError, setResolvedLoadError] = useState<Error | null>(null)
   const [draftValidationState, setDraftValidationState] = useState<DraftValidationState>('stale')
   const [draftValidationMessage, setDraftValidationMessage] = useState('Preview current changes before deploy')
 
@@ -52,8 +53,14 @@ export function StackEditorPage() {
   const [definitionLoadAttempt, setDefinitionLoadAttempt] = useState(0)
   const [loadingResolved, setLoadingResolved] = useState(true)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
+  const resolvedRequestIDRef = useRef(0)
 
   const isDirty = composeYaml !== savedCompose || envContent !== savedEnv
+  const isDirtyRef = useRef(isDirty)
+
+  useEffect(() => {
+    isDirtyRef.current = isDirty
+  }, [isDirty])
 
   const markDraftStale = useCallback(() => {
     setDraftValidationState('stale')
@@ -94,43 +101,63 @@ export function StackEditorPage() {
     return () => { cancelled = true }
   }, [stack.id, definitionLoadAttempt])
 
-  // Resolved config is an optional preview. Its failure must not hide a
-  // successfully loaded definition or replace it with an empty editor.
-  useEffect(() => {
-    let cancelled = false
+  const loadResolvedConfig = useCallback(async (reset: boolean) => {
+    const requestID = resolvedRequestIDRef.current + 1
+    resolvedRequestIDRef.current = requestID
     setLoadingResolved(true)
-    setResolvedContent('')
-    setResolvedSource('current')
-    setResolvedError('')
-    setWarnings([])
-    setDraftValidationState('stale')
-    setDraftValidationMessage('Preview current changes before deploy')
-    getResolvedConfig(stack.id).then((resolved) => {
-      if (cancelled) return
+    setResolvedLoadError(null)
+    if (reset) {
+      setResolvedContent('')
+      setResolvedSource('current')
+      setResolvedError('')
+      setWarnings([])
+      setDraftValidationState('stale')
+      setDraftValidationMessage('Preview current changes before deploy')
+    }
+
+    try {
+      const resolved = await getResolvedConfig(stack.id)
+      if (resolvedRequestIDRef.current !== requestID) return
       if (resolved.valid && resolved.content) {
         setResolvedContent(resolved.content)
         setResolvedSource('current')
         setResolvedError('')
         setWarnings(resolved.warnings ?? [])
-        setDraftValidationState('valid')
-        setDraftValidationMessage('')
+        if (!isDirtyRef.current) {
+          setDraftValidationState('valid')
+          setDraftValidationMessage('')
+        }
       } else if (resolved.error) {
         setResolvedContent('')
         setResolvedSource('current')
         setResolvedError(resolved.error.message)
-        setDraftValidationState('invalid')
-        setDraftValidationMessage(resolved.error.message)
+        if (!isDirtyRef.current) {
+          setDraftValidationState('invalid')
+          setDraftValidationMessage(resolved.error.message)
+        }
       }
-    }).catch((err) => {
-      if (cancelled) return
-      setResolvedError(err instanceof Error ? err.message : 'Resolved preview is unavailable')
-    }).finally(() => {
-      if (!cancelled) setLoadingResolved(false)
-    })
-    return () => { cancelled = true }
-  }, [stack.id, definitionLoadAttempt])
+    } catch (err) {
+      if (resolvedRequestIDRef.current !== requestID) return
+      const message = err instanceof Error ? err.message : 'Resolved preview is unavailable'
+      setResolvedLoadError(new Error(`${reset ? 'Failed to load' : 'Failed to refresh'} resolved preview: ${message}`))
+    } finally {
+      if (resolvedRequestIDRef.current === requestID) setLoadingResolved(false)
+    }
+  }, [stack.id])
+
+  // Resolved config is an optional preview. Its failure must not hide a
+  // successfully loaded definition or replace it with an empty editor.
+  useEffect(() => {
+    void loadResolvedConfig(true)
+    return () => {
+      resolvedRequestIDRef.current += 1
+    }
+  }, [loadResolvedConfig, definitionLoadAttempt])
 
   const previewDraft = useCallback(async () => {
+    resolvedRequestIDRef.current += 1
+    setLoadingResolved(false)
+    setResolvedLoadError(null)
     try {
       const result = await resolveConfigDraft(stack.id, {
         compose_yaml: composeYaml,
@@ -169,6 +196,9 @@ export function StackEditorPage() {
   }, [previewDraft])
 
   const handleLastValid = useCallback(async () => {
+    resolvedRequestIDRef.current += 1
+    setLoadingResolved(false)
+    setResolvedLoadError(null)
     try {
       const result = await getResolvedConfig(stack.id, 'last_valid')
       if (result.valid && result.content) {
@@ -193,6 +223,7 @@ export function StackEditorPage() {
     if (!definitionRevision || !isDirty) return
     setSaving(true)
     setError(null)
+    setResolvedLoadError(null)
     setActiveJobId(null)
     setPendingDeploy(deploy)
     try {
@@ -244,23 +275,7 @@ export function StackEditorPage() {
   const handleJobDone = useCallback(async (state: string) => {
     if (state === 'succeeded') {
       refetch()
-      // Refresh resolved config
-      getResolvedConfig(stack.id).then((resolved) => {
-        if (resolved.valid && resolved.content) {
-          setResolvedContent(resolved.content)
-          setResolvedSource('current')
-          setResolvedError('')
-          setWarnings(resolved.warnings ?? [])
-          setDraftValidationState('valid')
-          setDraftValidationMessage('')
-        } else if (resolved.error) {
-          setResolvedContent('')
-          setResolvedSource('current')
-          setResolvedError(resolved.error.message)
-          setDraftValidationState('invalid')
-          setDraftValidationMessage(resolved.error.message)
-        }
-      }).catch(() => {})
+      void loadResolvedConfig(false)
 
       // Chain deploy if Save & Deploy was requested
       if (pendingDeploy) {
@@ -276,7 +291,7 @@ export function StackEditorPage() {
       // Save failed — don't chain deploy
       setPendingDeploy(false)
     }
-  }, [refetch, stack.id, pendingDeploy])
+  }, [refetch, stack.id, pendingDeploy, loadResolvedConfig])
 
   if (loadingDef) {
     return (
@@ -461,18 +476,41 @@ export function StackEditorPage() {
             />
           )}
         </div>
-        <div aria-busy={loadingResolved} className="max-h-[min(55vh,560px)] min-h-[260px] min-w-0 overflow-auto rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs text-[var(--muted)] xl:max-h-none xl:min-h-0">
+        <div data-testid="resolved-preview" aria-busy={loadingResolved} className="max-h-[min(55vh,560px)] min-h-[260px] min-w-0 overflow-auto rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.3)] p-3 font-mono text-xs text-[var(--muted)] xl:max-h-none xl:min-h-0">
           <div className="mb-2 text-[var(--accent)] text-xs uppercase tracking-wider">
             {resolvedSource === 'last_valid' ? 'Last deployed config' : resolvedSource === 'draft' ? 'Draft resolved config' : 'Resolved config'}
           </div>
-          {loadingResolved ? (
+          {loadingResolved && !resolvedContent && !resolvedError ? (
             <span role="status" aria-live="polite" aria-atomic="true">Loading resolved preview...</span>
-          ) : resolvedContent ? (
-            <pre className="whitespace-pre-wrap break-words text-[var(--text)]">{resolvedContent}</pre>
-          ) : resolvedError ? (
-            <pre className="text-[var(--danger)]">{resolvedError}</pre>
           ) : (
-            <span>Click "Preview" to resolve current editor contents.</span>
+            <>
+              {loadingResolved && (
+                <p className="mb-2" role="status" aria-live="polite">Refreshing resolved preview...</p>
+              )}
+              {resolvedLoadError && (
+                <div className="mb-2 rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-3 py-2" role="alert">
+                  <p className="text-[var(--danger)]">{resolvedLoadError.message}</p>
+                  {(resolvedContent || resolvedError) && (
+                    <p className="mt-1 text-[var(--muted)]">Showing the last successfully loaded preview.</p>
+                  )}
+                  <button
+                    type="button"
+                    disabled={loadingResolved}
+                    onClick={() => { void loadResolvedConfig(false) }}
+                    className="mt-2 rounded-md border border-[var(--danger)]/30 px-2 py-1 text-[var(--danger)] hover:bg-[var(--danger)]/10 disabled:opacity-40"
+                  >
+                    Retry resolved preview
+                  </button>
+                </div>
+              )}
+              {resolvedContent ? (
+                <pre className="whitespace-pre-wrap break-words text-[var(--text)]">{resolvedContent}</pre>
+              ) : resolvedError ? (
+                <pre className="text-[var(--danger)]">{resolvedError}</pre>
+              ) : !resolvedLoadError ? (
+                <span>Click "Preview" to resolve current editor contents.</span>
+              ) : null}
+            </>
           )}
         </div>
       </div>
