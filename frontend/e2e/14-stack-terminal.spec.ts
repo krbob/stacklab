@@ -1,9 +1,24 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Locator } from '@playwright/test'
 import { login } from './helpers'
 import { startRuntimeStack, stopRuntimeStack } from './runtime-fixture'
 
 const STACK_ID = 'e2e-runtime-terminal'
-const TERMINAL_COMMAND = `printf 'terminal-result-%s\\n' "$$"`
+const TERMINAL_COMMAND = 'echo terminal-result-$$'
+
+async function establishShellInput(input: Locator, rows: Locator) {
+  const promptCount = async () => ((await rows.textContent())?.match(/\/ #/g) ?? []).length
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const initialPromptCount = await promptCount()
+    await input.press('Enter')
+    try {
+      await expect.poll(promptCount, { timeout: 2_000 }).toBeGreaterThan(initialPromptCount)
+      return
+    } catch (error) {
+      if (attempt === 2) throw error
+    }
+  }
+}
 
 test.describe('Stack terminal', () => {
   test.describe.configure({ timeout: 45_000 })
@@ -30,10 +45,18 @@ test.describe('Stack terminal', () => {
     await page.getByRole('button', { name: 'Connect', exact: true }).click()
     await expect(page.getByText('Connected', { exact: true })).toBeVisible({ timeout: 20_000 })
 
+    const terminalRows = page.locator('.xterm-rows')
+    await expect(terminalRows).toContainText('/ #', { timeout: 20_000 })
     const terminalInput = page.getByLabel('Terminal input')
-    await terminalInput.pressSequentially(TERMINAL_COMMAND)
+    await terminalInput.focus()
+    await establishShellInput(terminalInput, terminalRows)
+    await terminalInput.evaluate((input, command) => {
+      const clipboardData = new DataTransfer()
+      clipboardData.setData('text/plain', command)
+      input.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }))
+    }, TERMINAL_COMMAND)
     await terminalInput.press('Enter')
-    await expect(page.locator('.xterm-rows')).toContainText(/terminal-result-\d+/, { timeout: 20_000 })
+    await expect(terminalRows).toContainText(/terminal-result-\d+/, { timeout: 20_000 })
 
     await page.getByRole('button', { name: 'Disconnect', exact: true }).click()
     await expect(page.getByText('Disconnected', { exact: true })).toBeVisible()
