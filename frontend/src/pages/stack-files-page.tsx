@@ -11,6 +11,7 @@ import { UnsavedChangesGuard } from '@/components/unsaved-changes-guard'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { usePendingAction } from '@/hooks/use-pending-action'
 import { StatusMessage } from '@/components/status-message'
+import { AsyncState } from '@/components/async-state'
 
 const RESERVED_ROOT_FILES = ['compose.yaml', '.env']
 
@@ -134,8 +135,12 @@ export function StackFilesPage() {
     requestDiscardingAction(() => { void handleCreateFile() })
   }, [handleCreateFile, newFileName, requestDiscardingAction])
 
-  const treeEntries = treeData?.items ?? []
-  const parentPath = treeData?.parent_path ?? null
+  const currentTree = treeData?.current_path === treePath ? treeData : null
+  const treeEntries = currentTree?.items ?? []
+  const parentPath = currentTree?.parent_path ?? null
+  const treeLoadError = treeError
+    ? new Error(`Failed to load file tree: ${treeError.message}`)
+    : null
 
   return (
     <div aria-busy={treeLoading || fileLoading || saving} className="flex flex-col gap-4 lg:flex-row" style={{ minHeight: '400px' }}>
@@ -143,14 +148,21 @@ export function StackFilesPage() {
 
       {/* Tree panel */}
       <div className="w-full shrink-0 overflow-y-auto lg:w-56">
-        {treeLoading && (
-          <div className="space-y-2">
-            <p className="sr-only" role="status" aria-live="polite">Loading files...</p>
-            {[1, 2, 3].map((i) => <div key={i} className="h-6 animate-pulse rounded bg-[rgba(255,255,255,0.05)]" />)}
-          </div>
-        )}
-        {treeError && <p className="text-xs text-[var(--danger)]">{treeError.message}</p>}
-        {!treeLoading && !treeError && (
+        <AsyncState
+          loading={treeLoading}
+          error={treeLoadError}
+          hasData={currentTree !== null}
+          isEmpty={false}
+          loadingLabel="Loading file tree."
+          emptyMessage="File tree unavailable."
+          onRetry={refetchTree}
+          retryLabel="Retry file tree"
+          loadingFallback={(
+            <div className="space-y-2">
+              {[1, 2, 3].map((i) => <div key={i} className="h-6 animate-pulse rounded bg-[rgba(255,255,255,0.05)]" />)}
+            </div>
+          )}
+        >
           <nav className="space-y-0.5">
             {parentPath !== null && (
               <button onClick={() => requestNavigateDir(parentPath)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-[var(--muted)] transition hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]">
@@ -180,7 +192,7 @@ export function StackFilesPage() {
               </div>
             )}
           </nav>
-        )}
+        </AsyncState>
       </div>
 
       {/* Editor panel */}

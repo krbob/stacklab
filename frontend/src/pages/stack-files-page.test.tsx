@@ -170,6 +170,25 @@ describe('StackFilesPage', () => {
     mockSaveStackWorkspaceFile.mockReset()
   })
 
+  it('shows a file-tree failure with Retry and recovers without a false empty state', async () => {
+    mockGetStackWorkspaceTree
+      .mockRejectedValueOnce(new Error('workspace tree unavailable'))
+      .mockResolvedValueOnce(rootTree)
+
+    renderPage()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Failed to load file tree: workspace tree unavailable',
+    )
+    expect(screen.queryByText('Empty directory')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry file tree' }))
+
+    expect(await screen.findByRole('button', { name: /compose\.yaml/i })).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(mockGetStackWorkspaceTree).toHaveBeenCalledTimes(2)
+  })
+
   it('shows reserved root files and redirects them to the Editor tab', async () => {
     mockGetStackWorkspaceTree.mockResolvedValue(rootTree)
     const { router } = renderPage()
