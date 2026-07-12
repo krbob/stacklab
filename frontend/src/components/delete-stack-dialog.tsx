@@ -1,6 +1,7 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { deleteStack } from '@/lib/api-client'
+import { Dialog } from '@/components/dialog'
 import { ProgressPanel } from '@/components/progress-panel'
 
 interface DeleteStackDialogProps {
@@ -18,6 +19,7 @@ export function DeleteStackDialog({ stackId, stackName, onClose }: DeleteStackDi
   const [deleting, setDeleting] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const cancelRef = useRef<HTMLButtonElement>(null)
 
   const handleDelete = useCallback(async () => {
     setDeleting(true)
@@ -48,65 +50,66 @@ export function DeleteStackDialog({ stackId, stackName, onClose }: DeleteStackDi
   }, [navigate, removeDefinition, onClose])
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
-      <div
-        className="w-full max-w-lg rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-6 shadow-[var(--shadow)]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-lg font-semibold text-[var(--text)]">Remove stack "{stackName}"?</h2>
-
-        <div className="mt-4 space-y-3">
-          <label className="flex items-center gap-2 text-sm text-[var(--text)]">
-            <input type="checkbox" checked={removeRuntime} onChange={(e) => setRemoveRuntime(e.target.checked)} disabled={deleting} className="rounded" />
-            Stop and remove containers (runtime)
-          </label>
-          <label className="flex items-center gap-2 text-sm text-[var(--text)]">
-            <input type="checkbox" checked={removeDefinition} onChange={(e) => setRemoveDefinition(e.target.checked)} disabled={deleting} className="rounded" />
-            Delete stack definition (compose.yaml, .env)
-          </label>
-          <label className="flex items-center gap-2 text-sm text-[var(--text)]">
-            <input type="checkbox" checked={removeConfig} onChange={(e) => setRemoveConfig(e.target.checked)} disabled={deleting} className="rounded" />
-            Delete this stack's config directory
-          </label>
-          <label className="flex items-center gap-2 text-sm text-[var(--warning)]">
-            <input type="checkbox" checked={removeData} onChange={(e) => setRemoveData(e.target.checked)} disabled={deleting} className="rounded" />
-            Delete this stack's data directory
-          </label>
-          {removeData && (
-            <p className="ml-6 text-xs text-[var(--danger)]">Deleting data is irreversible.</p>
-          )}
-        </div>
-
-        {error && (
-          <div className="mt-4 rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">
-            {error}
-          </div>
+    <Dialog
+      title={`Remove stack "${stackName}"?`}
+      onClose={onClose}
+      preventClose={deleting}
+      busy={deleting}
+      initialFocusRef={cancelRef}
+      panelClassName="max-w-lg p-6"
+    >
+      <div className="mt-4 space-y-3">
+        <label className="flex items-center gap-2 text-sm text-[var(--text)]">
+          <input type="checkbox" checked={removeRuntime} onChange={(e) => setRemoveRuntime(e.target.checked)} disabled={deleting} className="rounded" />
+          Stop and remove containers (runtime)
+        </label>
+        <label className="flex items-center gap-2 text-sm text-[var(--text)]">
+          <input type="checkbox" checked={removeDefinition} onChange={(e) => setRemoveDefinition(e.target.checked)} disabled={deleting} className="rounded" />
+          Delete stack definition (compose.yaml, .env)
+        </label>
+        <label className="flex items-center gap-2 text-sm text-[var(--text)]">
+          <input type="checkbox" checked={removeConfig} onChange={(e) => setRemoveConfig(e.target.checked)} disabled={deleting} className="rounded" />
+          Delete this stack's config directory
+        </label>
+        <label className="flex items-center gap-2 text-sm text-[var(--warning)]">
+          <input type="checkbox" checked={removeData} onChange={(e) => setRemoveData(e.target.checked)} disabled={deleting} className="rounded" />
+          Delete this stack's data directory
+        </label>
+        {removeData && (
+          <p className="ml-6 text-xs text-[var(--danger)]">Deleting data is irreversible.</p>
         )}
-
-        {jobId && (
-          <div className="mt-4">
-            <ProgressPanel jobId={jobId} onDone={handleJobDone} />
-          </div>
-        )}
-
-        <div className="mt-6 flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            disabled={deleting}
-            className="rounded-md border border-[var(--panel-border)] px-4 py-2 text-sm text-[var(--muted)] hover:text-[var(--text)] disabled:opacity-40"
-          >
-            Cancel
-          </button>
-          <button
-            data-testid="delete-confirm"
-            onClick={handleDelete}
-            disabled={deleting || (!removeRuntime && !removeDefinition && !removeConfig && !removeData)}
-            className="rounded-md border border-[var(--danger)]/30 bg-[var(--danger)]/10 px-4 py-2 text-sm text-[var(--danger)] transition hover:bg-[var(--danger)]/20 disabled:opacity-40"
-          >
-            {deleting ? 'Removing...' : 'Remove selected'}
-          </button>
-        </div>
       </div>
-    </div>
+
+      {error && (
+        <div className="mt-4 rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">
+          {error}
+        </div>
+      )}
+
+      {jobId && (
+        <div className="mt-4">
+          <ProgressPanel jobId={jobId} onDone={handleJobDone} />
+        </div>
+      )}
+
+      <div className="mt-6 flex justify-end gap-2">
+        <button
+          ref={cancelRef}
+          onClick={onClose}
+          disabled={deleting}
+          className="rounded-md border border-[var(--panel-border)] px-4 py-2 text-sm text-[var(--muted)] hover:text-[var(--text)] disabled:opacity-40"
+        >
+          Cancel
+        </button>
+        <button
+          data-testid="delete-confirm"
+          onClick={handleDelete}
+          disabled={deleting || (!removeRuntime && !removeDefinition && !removeConfig && !removeData)}
+          className="rounded-md border border-[var(--danger)]/30 bg-[var(--danger)]/10 px-4 py-2 text-sm text-[var(--danger)] transition hover:bg-[var(--danger)]/20 disabled:opacity-40"
+        >
+          {deleting ? 'Removing...' : 'Remove selected'}
+        </button>
+      </div>
+    </Dialog>
   )
 }

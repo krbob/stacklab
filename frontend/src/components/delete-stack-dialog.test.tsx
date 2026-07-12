@@ -28,6 +28,8 @@ describe('DeleteStackDialog', () => {
 
   it('renders with runtime checkbox checked by default', () => {
     renderDialog()
+    expect(screen.getByRole('dialog', { name: 'Remove stack "demo"?' })).toHaveAttribute('aria-modal', 'true')
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus()
     expect(screen.getByLabelText(/Stop and remove containers/)).toBeChecked()
     expect(screen.getByLabelText(/Delete stack definition/)).not.toBeChecked()
     expect(screen.getByLabelText(/Delete this stack's config directory/)).not.toBeChecked()
@@ -91,5 +93,27 @@ describe('DeleteStackDialog', () => {
     renderDialog(onClose)
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(onClose).toHaveBeenCalled()
+  })
+
+  it('closes on Escape when idle', () => {
+    const onClose = vi.fn()
+    renderDialog(onClose)
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('blocks Escape and backdrop dismissal while deletion is starting', async () => {
+    mockDeleteStack.mockReturnValue(new Promise(() => {}))
+    const onClose = vi.fn()
+    renderDialog(onClose)
+
+    fireEvent.click(screen.getByTestId('delete-confirm'))
+    await waitFor(() => expect(screen.getByRole('dialog')).toHaveAttribute('aria-busy', 'true'))
+
+    const dialog = screen.getByRole('dialog')
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.click(dialog.parentElement!)
+    expect(onClose).not.toHaveBeenCalled()
   })
 })
