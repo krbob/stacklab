@@ -48,6 +48,42 @@ describe('HostStrip activity state', () => {
     expect(screen.getByText('idle')).toBeInTheDocument()
   })
 
+  it('keeps activity visible while host metadata is loading', () => {
+    mockGetMeta.mockReturnValue(new Promise(() => {}))
+
+    render(<HostStrip />)
+
+    expect(screen.getByRole('status')).toHaveTextContent('host metadata loading')
+    expect(screen.getByText('idle')).toBeInTheDocument()
+  })
+
+  it('shows a metadata error without hiding activity and recovers on retry', async () => {
+    mockGetMeta
+      .mockRejectedValueOnce(new Error('metadata offline'))
+      .mockResolvedValueOnce({
+        app: { name: 'Stacklab', version: 'recovered' },
+        environment: { stack_root: '/srv/stacklab', platform: 'linux' },
+        docker: { engine_version: '29.1.0', compose_version: '2.41.0' },
+        features: { host_shell: true },
+      })
+
+    render(<HostStrip />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Host metadata unavailable: metadata offline',
+    )
+    expect(screen.getByText('idle')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry host metadata' }))
+
+    expect(await screen.findByText('stacklab recovered')).toBeInTheDocument()
+    expect(screen.getByText('docker 29.1.0')).toBeInTheDocument()
+    expect(screen.getByText('compose 2.41.0')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByText('idle')).toBeInTheDocument()
+    expect(mockGetMeta).toHaveBeenCalledTimes(2)
+  })
+
   it('does not show idle before the first activity snapshot', () => {
     mockUseActivity.mockReturnValue({ response: null, freshness: 'loading', updatedAt: null })
 
