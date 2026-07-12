@@ -3632,7 +3632,7 @@ components:
             $ref: '#/components/schemas/AuditEntry'
         next_cursor:
           type: [string, 'null']
-      required: [items]
+      required: [items, next_cursor]
     AuditEntry:
       type: object
       properties:
@@ -3658,10 +3658,14 @@ components:
           type: [integer, 'null']
       required:
         - id
+        - stack_id
+        - job_id
         - action
         - requested_by
         - result
         - requested_at
+        - finished_at
+        - duration_ms
     LoginRequest:
       type: object
       properties:
@@ -4065,13 +4069,13 @@ components:
           type: string
           format: date-time
         started_at:
-          type: [string, 'null']
+          type: string
           format: date-time
         finished_at:
-          type: [string, 'null']
+          type: string
           format: date-time
         workflow:
-          type: [object, 'null']
+          type: object
           properties:
             steps:
               type: array
@@ -4095,6 +4099,7 @@ components:
         - stack_id
         - action
         - state
+        - requested_at
     JobEventRecord:
       type: object
       properties:
@@ -4109,7 +4114,7 @@ components:
         message:
           type: string
         data:
-          type: [string, 'null']
+          type: string
         step:
           $ref: '#/components/schemas/ActiveJobStep'
         progress:
@@ -4119,7 +4124,7 @@ components:
           format: date-time
       required: [job_id, sequence, event, state, timestamp]
     JobProgress:
-      type: [object, 'null']
+      type: object
       properties:
         phase:
           type: string
@@ -4150,7 +4155,7 @@ components:
           type: string
           format: date-time
         started_at:
-          type: [string, 'null']
+          type: string
           format: date-time
         workflow:
           $ref: '#/components/schemas/ActiveJobWorkflow'
@@ -4160,7 +4165,7 @@ components:
           $ref: '#/components/schemas/ActiveJobLatestEvent'
       required: [id, stack_id, action, state, requested_at]
     ActiveJobWorkflow:
-      type: [object, 'null']
+      type: object
       properties:
         steps:
           type: array
@@ -4173,14 +4178,10 @@ components:
                 $ref: '#/components/schemas/JobState'
               target_stack_id:
                 type: string
-              target_service_names:
-                type: array
-                items:
-                  type: string
             required: [action, state]
       required: [steps]
     ActiveJobStep:
-      type: [object, 'null']
+      type: object
       properties:
         index:
           type: integer
@@ -4190,20 +4191,16 @@ components:
           type: string
         target_stack_id:
           type: string
-        target_service_names:
-          type: array
-          items:
-            type: string
       required: [index, total, action]
     ActiveJobLatestEvent:
-      type: [object, 'null']
+      type: object
       properties:
         event:
           type: string
         message:
           type: string
         data:
-          type: [string, 'null']
+          type: string
         timestamp:
           type: string
           format: date-time

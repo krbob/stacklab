@@ -267,18 +267,18 @@ export interface components {
       requested_at: string;
       stack_id: string | null;
       /** Format: date-time */
-      started_at?: string | null;
+      started_at?: string;
       state: components["schemas"]["JobState"];
       workflow?: components["schemas"]["ActiveJobWorkflow"];
     };
-    ActiveJobLatestEvent: ({
-      data?: string | null;
+    ActiveJobLatestEvent: {
+      data?: string;
       event: string;
       message?: string;
       step?: components["schemas"]["ActiveJobStep"];
       /** Format: date-time */
       timestamp: string;
-    }) | null;
+    };
     ActiveJobsResponse: {
       items: components["schemas"]["ActiveJobItem"][];
       summary: components["schemas"]["ActiveJobSummary"];
@@ -286,10 +286,9 @@ export interface components {
     ActiveJobStep: {
       action: string;
       index: number;
-      target_service_names?: string[];
       target_stack_id?: string;
       total: number;
-    } | null;
+    };
     ActiveJobSummary: {
       active_count: number;
       cancel_requested_count: number;
@@ -300,28 +299,27 @@ export interface components {
       steps: {
           action: string;
           state: components["schemas"]["JobState"];
-          target_service_names?: string[];
           target_stack_id?: string;
         }[];
-    } | null;
+    };
     /** @enum {string} */
     ActivityState: "idle" | "locked";
     AuditEntry: {
       action: string;
-      duration_ms?: number | null;
+      duration_ms: number | null;
       /** Format: date-time */
-      finished_at?: string | null;
+      finished_at: string | null;
       id: string;
-      job_id?: string | null;
+      job_id: string | null;
       /** Format: date-time */
       requested_at: string;
       requested_by: string;
       result: string;
-      stack_id?: string | null;
+      stack_id: string | null;
     };
     AuditListResponse: {
       items: components["schemas"]["AuditEntry"][];
-      next_cursor?: string | null;
+      next_cursor: string | null;
     };
     ComposeWarning: {
       code: string;
@@ -829,15 +827,15 @@ export interface components {
     Job: {
       action: string;
       /** Format: date-time */
-      finished_at?: string | null;
+      finished_at?: string;
       id: string;
       /** @description HTTP request that started the job, when available. */
       request_id?: string;
       /** Format: date-time */
-      requested_at?: string;
+      requested_at: string;
       stack_id: string | null;
       /** Format: date-time */
-      started_at?: string | null;
+      started_at?: string;
       state: components["schemas"]["JobState"];
       workflow?: {
         steps: {
@@ -846,7 +844,7 @@ export interface components {
             target_service_names?: string[];
             target_stack_id?: string;
           }[];
-      } | null;
+      };
     };
     JobDetailResponse: {
       job: components["schemas"]["Job"];
@@ -855,7 +853,7 @@ export interface components {
       job: components["schemas"]["Job"];
     };
     JobEventRecord: {
-      data?: string | null;
+      data?: string;
       event: string;
       job_id: string;
       message?: string;
@@ -878,7 +876,7 @@ export interface components {
       phase: string;
       total: number;
       unit: string;
-    } | null;
+    };
     /** @enum {string} */
     JobState: "queued" | "running" | "succeeded" | "failed" | "cancel_requested" | "cancelled" | "timed_out";
     /** @enum {string} */
