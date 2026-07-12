@@ -50,12 +50,21 @@ export function StacklabUpdateSection() {
       {confirmUpdate && overview && (
         <ConfirmDialog
           title="Update Stacklab?"
-          message="This installs the selected Stacklab package and restarts the Stacklab service. The UI may disconnect briefly."
-          items={[
-            `current: ${overview.current_version}`,
-            `candidate: ${overview.package.candidate_version || 'unknown'}`,
-            `channel: ${overview.package.configured_channel || 'unknown'}`,
-          ]}
+          message="Review the selected package, service interruption, and manual recovery path before updating."
+          review={{
+            target: `${overview.package.name} ${overview.package.installed_version || overview.current_version} → ${overview.package.candidate_version || 'unknown version'}`,
+            scope: [
+              `Refresh the APT package index from the ${overview.package.configured_channel || 'configured'} channel.`,
+              `Upgrade only the ${overview.package.name} package to the selected candidate.`,
+              'Verify the configured Stacklab service and readiness endpoint after restart.',
+            ],
+            impact: [
+              'The Stacklab HTTP service will restart; UI and API connections may disconnect briefly.',
+              'New mutating stack operations are blocked while the global update job runs.',
+            ],
+            snapshot: `No automatic package snapshot is created. Current installed version: ${overview.package.installed_version || overview.current_version}.`,
+            recovery: 'Rollback is manual: reinstall a previous Stacklab package version from the APT pool or release archive, then verify the service.',
+          }}
           confirmLabel="Update Stacklab"
           confirmingLabel="Updating..."
           confirming={applying}

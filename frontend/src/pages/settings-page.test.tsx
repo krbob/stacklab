@@ -991,6 +991,12 @@ describe("SettingsPage", () => {
     expect(await screen.findByText("Update available: 2026.04.1")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Update Stacklab"));
     const dialog = screen.getByRole("dialog", { name: "Update Stacklab?" });
+    const review = within(dialog).getByRole("region", { name: "Review operation" });
+    expect(review).toHaveTextContent("stacklab 2026.04.0 → 2026.04.1");
+    expect(review).toHaveTextContent("Refresh the APT package index from the stable channel.");
+    expect(review).toHaveTextContent("UI and API connections may disconnect briefly");
+    expect(review).toHaveTextContent("No automatic package snapshot is created.");
+    expect(review).toHaveTextContent("Rollback is manual");
     expect(mockApplyStacklabUpdate).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole("button", { name: "Update Stacklab" }));
 
