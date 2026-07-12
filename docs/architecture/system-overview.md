@@ -20,6 +20,24 @@ Communication:
 - REST for request-response actions and resource fetches
 - WebSocket for logs, terminal streams, stats, and job progress
 
+The route-level Settings and Host pages are composition shells. Settings
+delegates operator tasks to dedicated host, password, notification,
+maintenance, self-update, and about sections. Stateful host and self-update
+flows live in focused hooks, while schedule normalization is kept in a tested
+model module.
+
+Host observability follows the same boundary: one hook owns overview and
+metrics polling, visibility/focus handling, no-overlap guards, and incremental
+history merging. Presentational modules own overview cards, the metrics
+dashboard and widgets, the process table, and Stacklab logs. This keeps polling
+lifecycle independent from rendering while preserving page-local UI state such
+as process sorting and public-IP visibility.
+
+Characterization tests cover retry paths, polling cadence and overlap guards,
+visibility/focus transitions, update refresh timing, persisted schedule values,
+notification configuration, and log filtering/follow controls. Structural
+refactors must keep those contracts stable.
+
 ### Backend API
 
 Responsibilities:
