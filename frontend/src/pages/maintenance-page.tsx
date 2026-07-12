@@ -7,6 +7,7 @@ import { MaintenanceImages } from '@/components/maintenance-images'
 import { MaintenanceCleanup } from '@/components/maintenance-cleanup'
 import { MaintenanceNetworks } from '@/components/maintenance-networks'
 import { MaintenanceVolumes } from '@/components/maintenance-volumes'
+import { AsyncState } from '@/components/async-state'
 import { StepCards } from '@/components/step-cards'
 import { PageHeader } from '@/components/page-header'
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -348,6 +349,8 @@ export function MaintenancePage() {
           entries={recentMaintenance}
           loading={auditLoading}
           error={auditError}
+          hasData={auditData !== null}
+          onRetry={refetchAudit}
           onOpenJob={openJob}
         />
       </div>
@@ -357,10 +360,12 @@ export function MaintenancePage() {
   )
 }
 
-function RecentMaintenance({ entries, loading, error, onOpenJob }: {
+function RecentMaintenance({ entries, loading, error, hasData, onRetry, onOpenJob }: {
   entries: AuditEntry[]
   loading: boolean
   error: Error | null
+  hasData: boolean
+  onRetry: () => void
   onOpenJob: (jobId: string) => void
 }) {
   const resultColors: Record<string, string> = {
@@ -370,44 +375,67 @@ function RecentMaintenance({ entries, loading, error, onOpenJob }: {
     cancelled: 'text-[var(--muted)]',
   }
 
+  const loadError = error ? new Error(`Failed to load recent maintenance: ${error.message}`) : null
+
   return (
-    <div data-testid="recent-maintenance" className="mt-6 border-t border-[var(--panel-border)] pt-4">
+    <div
+      data-testid="recent-maintenance"
+      aria-busy={loading}
+      className="mt-6 border-t border-[var(--panel-border)] pt-4"
+    >
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-sm font-medium text-[var(--text)]">Recent maintenance</h3>
         <span className="text-xs text-[var(--muted)]">durable audit history</span>
       </div>
-      {loading && entries.length === 0 && <p className="mt-3 text-xs text-[var(--muted)]" role="status">Loading recent runs…</p>}
-      {error && !loading && <p className="mt-3 text-xs text-[var(--danger)]">Recent runs unavailable.</p>}
-      {!loading && !error && entries.length === 0 && (
-        <p className="mt-3 text-xs text-[var(--muted)]">No update or cleanup run has finished yet.</p>
-      )}
-      {entries.length > 0 && (
-        <div className="mt-3 space-y-1">
-          {entries.map((entry) => {
-            const content = (
-              <>
-                <span className="font-medium text-[var(--text)]">{entry.action === 'prune' ? 'Cleanup' : 'Update stacks'}</span>
-                <span className={cn('ml-auto', resultColors[entry.result] ?? 'text-[var(--muted)]')}>{entry.result}</span>
-                <span className="w-28 text-right tabular-nums text-[var(--muted)]">{new Date(entry.requested_at).toLocaleString()}</span>
-              </>
-            )
-            return entry.job_id ? (
-              <button
-                type="button"
-                key={entry.id}
-                onClick={() => onOpenJob(entry.job_id!)}
-                className="flex w-full items-center gap-3 rounded-md border border-[var(--panel-border)] px-3 py-2 text-left text-xs transition hover:border-[rgba(245,165,36,0.25)] hover:bg-[rgba(255,255,255,0.03)]"
-              >
-                {content}
-              </button>
-            ) : (
-              <div key={entry.id} className="flex items-center gap-3 rounded-md border border-[var(--panel-border)] px-3 py-2 text-xs">
-                {content}
-              </div>
-            )
-          })}
-        </div>
-      )}
+      <div className="mt-3">
+        <AsyncState
+          loading={loading}
+          error={loadError}
+          hasData={hasData}
+          isEmpty={hasData && entries.length === 0}
+          loadingLabel="Loading recent maintenance."
+          emptyMessage="No update or cleanup run has finished yet."
+          emptyFallback={(
+            <p className="text-xs text-[var(--muted)]">No update or cleanup run has finished yet.</p>
+          )}
+          onRetry={onRetry}
+          retryLabel="Retry recent maintenance"
+          loadingFallback={(
+            <div className="space-y-1">
+              <div className="h-8 animate-pulse rounded-md bg-[rgba(255,255,255,0.03)]" />
+              <div className="h-8 animate-pulse rounded-md bg-[rgba(255,255,255,0.03)]" />
+            </div>
+          )}
+        >
+          {entries.length > 0 && (
+            <div className="space-y-1">
+              {entries.map((entry) => {
+                const content = (
+                  <>
+                    <span className="font-medium text-[var(--text)]">{entry.action === 'prune' ? 'Cleanup' : 'Update stacks'}</span>
+                    <span className={cn('ml-auto', resultColors[entry.result] ?? 'text-[var(--muted)]')}>{entry.result}</span>
+                    <span className="w-28 text-right tabular-nums text-[var(--muted)]">{new Date(entry.requested_at).toLocaleString()}</span>
+                  </>
+                )
+                return entry.job_id ? (
+                  <button
+                    type="button"
+                    key={entry.id}
+                    onClick={() => onOpenJob(entry.job_id!)}
+                    className="flex w-full items-center gap-3 rounded-md border border-[var(--panel-border)] px-3 py-2 text-left text-xs transition hover:border-[rgba(245,165,36,0.25)] hover:bg-[rgba(255,255,255,0.03)]"
+                  >
+                    {content}
+                  </button>
+                ) : (
+                  <div key={entry.id} className="flex items-center gap-3 rounded-md border border-[var(--panel-border)] px-3 py-2 text-xs">
+                    {content}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </AsyncState>
+      </div>
     </div>
   )
 }

@@ -8,6 +8,13 @@ const mockRunMaintenancePrune = vi.fn()
 const mockUseApi = vi.fn()
 const mockUseJobStream = vi.fn()
 const mockPruneRefetch = vi.fn()
+const mockAuditRefetch = vi.fn()
+
+let auditStateOverride: {
+  data: unknown
+  error: Error | null
+  loading: boolean
+} | null = null
 
 vi.mock('@/lib/api-client', () => ({
   getGlobalAudit: vi.fn(),
@@ -80,6 +87,45 @@ const stacksData: StackListResponse = {
   },
 }
 
+const maintenanceAuditData = {
+  items: [
+    {
+      id: 'audit-update',
+      stack_id: null,
+      job_id: 'job-update-history',
+      action: 'update_stacks',
+      requested_by: 'local',
+      result: 'succeeded',
+      requested_at: '2026-07-11T10:00:00Z',
+      finished_at: '2026-07-11T10:01:00Z',
+      duration_ms: 60_000,
+    },
+    {
+      id: 'audit-prune',
+      stack_id: null,
+      job_id: 'job-prune-history',
+      action: 'prune',
+      requested_by: 'local',
+      result: 'failed',
+      requested_at: '2026-07-10T10:00:00Z',
+      finished_at: '2026-07-10T10:00:10Z',
+      duration_ms: 10_000,
+    },
+    {
+      id: 'audit-login',
+      stack_id: null,
+      job_id: null,
+      action: 'login',
+      requested_by: 'local',
+      result: 'succeeded',
+      requested_at: '2026-07-09T10:00:00Z',
+      finished_at: '2026-07-09T10:00:00Z',
+      duration_ms: 1,
+    },
+  ],
+  next_cursor: null,
+}
+
 describe('MaintenancePage', () => {
   beforeEach(() => {
     mockUseApi.mockReset()
@@ -87,6 +133,8 @@ describe('MaintenancePage', () => {
     mockUpdateStacksMaintenance.mockReset()
     mockRunMaintenancePrune.mockReset()
     mockPruneRefetch.mockReset()
+    mockAuditRefetch.mockReset()
+    auditStateOverride = null
 
     mockUseApi.mockImplementation((factory?: unknown) => {
       const source = String(factory ?? '')
@@ -101,48 +149,18 @@ describe('MaintenancePage', () => {
       }
 
       if (source.includes('getGlobalAudit')) {
+        if (auditStateOverride) {
+          return {
+            ...auditStateOverride,
+            refetch: mockAuditRefetch,
+          }
+        }
+
         return {
-          data: {
-            items: [
-              {
-                id: 'audit-update',
-                stack_id: null,
-                job_id: 'job-update-history',
-                action: 'update_stacks',
-                requested_by: 'local',
-                result: 'succeeded',
-                requested_at: '2026-07-11T10:00:00Z',
-                finished_at: '2026-07-11T10:01:00Z',
-                duration_ms: 60_000,
-              },
-              {
-                id: 'audit-prune',
-                stack_id: null,
-                job_id: 'job-prune-history',
-                action: 'prune',
-                requested_by: 'local',
-                result: 'failed',
-                requested_at: '2026-07-10T10:00:00Z',
-                finished_at: '2026-07-10T10:00:10Z',
-                duration_ms: 10_000,
-              },
-              {
-                id: 'audit-login',
-                stack_id: null,
-                job_id: null,
-                action: 'login',
-                requested_by: 'local',
-                result: 'succeeded',
-                requested_at: '2026-07-09T10:00:00Z',
-                finished_at: '2026-07-09T10:00:00Z',
-                duration_ms: 1,
-              },
-            ],
-            next_cursor: null,
-          },
+          data: maintenanceAuditData,
           error: null,
           loading: false,
-          refetch: vi.fn(),
+          refetch: mockAuditRefetch,
         }
       }
 
@@ -287,6 +305,72 @@ describe('MaintenancePage', () => {
     fireEvent.click(screen.getByLabelText('Selected stacks'))
     expect(screen.getByText('defined · 0/1')).toBeInTheDocument()
     expect(screen.getByText('running · 1/1')).toBeInTheDocument()
+  })
+
+  it('shows a retryable recent maintenance error without a false empty state', () => {
+    auditStateOverride = {
+      data: null,
+      error: new Error('audit service unavailable'),
+      loading: false,
+    }
+
+    render(<MaintenancePage />)
+
+    const recent = within(screen.getByTestId('recent-maintenance'))
+    expect(recent.getByRole('alert')).toHaveTextContent(
+      'Failed to load recent maintenance: audit service unavailable',
+    )
+    expect(recent.queryByText('No update or cleanup run has finished yet.')).not.toBeInTheDocument()
+    expect(recent.queryByText('Update stacks')).not.toBeInTheDocument()
+
+    fireEvent.click(recent.getByRole('button', { name: 'Retry recent maintenance' }))
+    expect(mockAuditRefetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves recent maintenance entries while refreshing and after a refresh error', () => {
+    auditStateOverride = {
+      data: maintenanceAuditData,
+      error: new Error('audit refresh failed'),
+      loading: false,
+    }
+
+    const { rerender } = render(<MaintenancePage />)
+    let recent = within(screen.getByTestId('recent-maintenance'))
+
+    expect(recent.getByText('Update stacks')).toBeInTheDocument()
+    expect(recent.getByText('Cleanup')).toBeInTheDocument()
+    expect(recent.getByRole('alert')).toHaveTextContent('Showing the last successfully loaded data.')
+
+    auditStateOverride = {
+      data: maintenanceAuditData,
+      error: null,
+      loading: true,
+    }
+    rerender(<MaintenancePage />)
+    recent = within(screen.getByTestId('recent-maintenance'))
+
+    expect(screen.getByTestId('recent-maintenance')).toHaveAttribute('aria-busy', 'true')
+    expect(recent.getByRole('status')).toHaveTextContent('Refreshing…')
+    expect(recent.getByText('Update stacks')).toBeInTheDocument()
+    expect(recent.getByText('Cleanup')).toBeInTheDocument()
+  })
+
+  it('shows an empty recent maintenance state only after a successful audit response', () => {
+    auditStateOverride = {
+      data: {
+        items: [maintenanceAuditData.items[2]],
+        next_cursor: null,
+      },
+      error: null,
+      loading: false,
+    }
+
+    render(<MaintenancePage />)
+
+    const recent = within(screen.getByTestId('recent-maintenance'))
+    expect(recent.getByText('No update or cleanup run has finished yet.')).toBeInTheDocument()
+    expect(recent.queryByText('Update stacks')).not.toBeInTheDocument()
+    expect(recent.queryByText('Cleanup')).not.toBeInTheDocument()
   })
 
   it('never sends include_volumes when prune_after is disabled', async () => {
