@@ -2,10 +2,10 @@
 
 ## Navigation Model
 
-Stacklab uses a flat two-level navigation:
+Stacklab uses a two-level navigation:
 
 - top level: global sections accessible from a persistent sidebar or top bar
-- second level: contextual views within a stack
+- second level: contextual views within a stack and task-focused Settings views
 
 There is no deeper nesting. Every screen is reachable in at most two clicks from any other screen.
 
@@ -37,7 +37,7 @@ There is no deeper nesting. Every screen is reachable in at most two clicks from
 | **Maintenance** | `/maintenance` | Bulk update, images inventory, and cleanup workflows |
 | **Docker** | `/docker` | Docker daemon status, Engine metadata, and read-only `daemon.json` visibility |
 | **Audit** | `/audit` | Global audit log of all mutating actions |
-| **Settings** | `/settings` | Application settings, auth, notifications, preferences, and later update schedules |
+| **Settings** | `/settings/security` | Task-focused security, notifications, automation, updates, and system information. `/settings` redirects here. |
 
 The sidebar is collapsible on tablet widths (below 1024px) to a narrow icon bar.
 
@@ -72,6 +72,28 @@ Entering a stack opens a detail view with tabbed sub-navigation:
 | **Stats** | `/stacks/:id/stats` | CPU, memory, network per container and aggregated |
 | **Terminal** | `/stacks/:id/terminal` | Container shell sessions (host shell post-MVP) |
 | **History** | `/stacks/:id/audit` | Per-stack audit log |
+
+## Settings Task Navigation
+
+Settings uses a shared page shell with a responsive task-link grid. The
+canonical entry point is Security; the base `/settings` URL redirects to it.
+
+```
+/settings                  → /settings/security
+/settings/security
+/settings/notifications
+/settings/automation
+/settings/updates
+/settings/about
+```
+
+| Task | Route | Purpose |
+|---|---|---|
+| **Security** | `/settings/security` | Change the password and manage host observability privacy preferences |
+| **Notifications** | `/settings/notifications` | Configure webhook and Telegram delivery, event selection, and connection tests |
+| **Automation** | `/settings/automation` | Configure recurring stack update and Docker cleanup schedules |
+| **Updates** | `/settings/updates` | Check for and apply Stacklab application updates |
+| **About** | `/settings/about` | Review Stacklab, Docker Engine, Docker Compose, and environment details |
 
 ## Document Metadata And Heading Hierarchy
 
@@ -108,7 +130,7 @@ panel for Docker Compose stacks, host health, updates, and maintenance.
 | Config Workspace | Browse, edit, diff, commit, and push managed config files | Yes |
 | Maintenance | Bulk stack update, image inventory, and cleanup | Yes |
 | Global Audit | Chronological log of all mutating operations | Yes |
-| Settings | App configuration, password change | Yes |
+| Settings | Task shell for security, notifications, automation, updates, and system information | Yes |
 | Login | Authentication screen | Yes |
 
 ### Stack-scoped screens
@@ -173,6 +195,12 @@ Stacks → Host → inspect host health → inspect Stacklab logs
 Stacks → Docker → inspect daemon status → inspect daemon.json
 ```
 
+### Settings flow
+
+```
+Settings → Security | Notifications | Automation | Updates | About
+```
+
 ## Responsive Breakpoints
 
 | Breakpoint | Name | Behavior |
@@ -187,7 +215,8 @@ Mobile navigation rules:
   landing URL;
 - Stacks, Host, Maintenance, and Audit stay in the bottom navigation;
 - Config, Docker, and Settings activate the `More` affordance and remain
-  available in its drawer;
+  available in its drawer; Settings enters at `/settings/security`;
+- the Settings task-link grid remains visible above the active task content;
 - stack views use a single-line, horizontally scrollable sticky tab bar;
 - stack actions stay directly below that tab bar while scrolling and are
   separated into deployment, image, and disruptive groups.
@@ -213,6 +242,11 @@ All routes are client-side (SPA with history mode):
 /stacks/:stackId/audit
 /audit
 /settings
+/settings/security
+/settings/notifications
+/settings/automation
+/settings/updates
+/settings/about
 ```
 
 Stack IDs in URLs match the filesystem directory name (lowercase ASCII with dashes).

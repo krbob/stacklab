@@ -170,9 +170,9 @@ Audit / job details:
   - `excluded_services` for update jobs that skip selected services
 - skipped runs without a started job are recorded as system audit events
 
-Recommended first UI direction:
+Current UI placement:
 
-- configuration surface can live either:
-  - under `/settings` as policy/configuration
-  - or in `/maintenance` as a `Schedules` tab
-- the data model intentionally supports either placement
+- configuration lives at `/settings/automation` in the Settings task
+  navigation
+- `/maintenance` remains the execution and inventory surface for manual
+  maintenance workflows

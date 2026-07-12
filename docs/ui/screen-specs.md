@@ -585,6 +585,12 @@ Notes:
 
 ## 13. Settings
 
+> Current navigation replaces this early monolithic Settings concept with a
+> shared task shell and five routes: `/settings/security`,
+> `/settings/notifications`, `/settings/automation`, `/settings/updates`, and
+> `/settings/about`. The wireframe below is retained as implementation history;
+> `/settings` now redirects to the Security task.
+
 Route: `/settings`
 
 Purpose: Application configuration.

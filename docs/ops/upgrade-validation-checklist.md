@@ -92,7 +92,12 @@ readlink -f /opt/stacklab/app/current
 - `/config` loads, file browse or edit works, and Git `Changes` mode behaves correctly
 - `/maintenance` loads and update, images, networks, volumes, and cleanup tabs render
 - `/docker` overview loads
-- `/settings` loads
+- `/settings` redirects to `/settings/security`
+- `/settings/security` loads directly
+- `/settings/notifications` loads directly
+- `/settings/automation` loads directly
+- `/settings/updates` loads directly
+- `/settings/about` loads directly
 
 ### Mutating checks
 

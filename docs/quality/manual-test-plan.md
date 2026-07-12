@@ -157,7 +157,8 @@ go run ./scripts/dev/seed-retention-fixtures.go \
   bez pętli reconnectu.
 - **A8** Absolute lifetime (`STACKLAB_SESSION_ABSOLUTE_LIFETIME`): sesja wygasa
   mimo aktywności po przekroczeniu limitu.
-- **A9** Zmiana hasła (`/settings`): złe „current" → błąd; nowe ≠ confirm → błąd;
+- **A9** Zmiana hasła (`/settings/security`): złe „current" → błąd;
+  nowe ≠ confirm → błąd;
   poprawna zmiana → stare hasło przestaje działać, nowe działa.
 - **A10** Nieuwierzytelniony dostęp do chronionego REST (np. `curl /api/stacks`
   bez cookie) → 401. `/api/live`, `/api/ready` i zgodnościowe `/api/health`
@@ -429,12 +430,18 @@ go run ./scripts/dev/seed-retention-fixtures.go \
 
 ## 13. Scenariusze — Host, Notyfikacje, Harmonogramy, Self-update
 
+**Trasy zadaniowe Settings**
+- **SET1** `/settings` przekierowuje do `/settings/security`. Otwórz bezpośrednio
+  i odśwież kolejno `/settings/security`, `/settings/notifications`,
+  `/settings/automation`, `/settings/updates` oraz `/settings/about` → właściwa
+  sekcja pozostaje widoczna i aktywna w nawigacji Settings.
+
 **Host (`/host`)**
 - **HO1** Overview hosta: metryki (CPU/RAM/dysk/uptime itp.) sensowne na Linux.
 - **HO2** Viewer logów StackLab: filtr poziomu, Follow (na żywo), Refresh;
   na Linux z systemd czyta journal jednostki `STACKLAB_SYSTEMD_UNIT`.
 
-**Notyfikacje (`/settings`)**
+**Notyfikacje (`/settings/notifications`)**
 - **NT1** Konfiguracja webhook: zapis, „Test" → realny POST na endpoint
   (zweryfikuj np. na webhook.site).
 - **NT2** Telegram: token + chat_id, „Test" → wiadomość dociera; złe dane →
@@ -443,13 +450,13 @@ go run ./scripts/dev/seed-retention-fixtures.go \
   konfiguracją (job/maintenance/runtime/self-health).
 - **NT4** Walidacja pól (pusty URL, zły token) — komunikaty inline.
 
-**Harmonogramy (`/settings`)**
+**Harmonogramy (`/settings/automation`)**
 - **SC1** Ustaw harmonogram update i prune; zapis persystuje po restarcie
   backendu.
 - **SC2** (jeśli wykonalne w oknie testu) harmonogram wyzwala job o czasie;
   alternatywnie weryfikacja przez skrócony interwał/logi schedulera.
 
-**Self-update (`/settings`, tylko instalacja pakietowa)**
+**Self-update (`/settings/updates`, tylko instalacja pakietowa)**
 - **SU1** Overview: aktualna vs dostępna wersja z APT.
 - **SU2** Apply → helper `stacklab-self-update-helper run` instaluje pakiet,
   health-check `STACKLAB_SELF_UPDATE_HEALTH_URL`, `pending_finalize`, usługa
