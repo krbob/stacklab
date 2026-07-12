@@ -1972,9 +1972,8 @@ components:
           type: string
           enum: [unknown, ok, unavailable]
         checked_at:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
         checks:
           type: object
           additionalProperties:
@@ -2144,9 +2143,9 @@ components:
         history_window_seconds:
           type: integer
         current:
-          nullable: true
-          allOf:
+          anyOf:
             - $ref: '#/components/schemas/HostMetricSample'
+            - type: 'null'
         history:
           type: array
           items:
@@ -2212,13 +2211,12 @@ components:
       type: object
       properties:
         cpu_celsius:
-          type: number
+          type: [number, 'null']
           format: double
-          nullable: true
         cpu_sensor:
-          allOf:
+          anyOf:
             - $ref: '#/components/schemas/HostTemperatureSensor'
-          nullable: true
+            - type: 'null'
         sensors:
           type: array
           items:
@@ -2380,8 +2378,7 @@ components:
           items:
             $ref: '#/components/schemas/StacklabLogEntry'
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, 'null']
         has_more:
           type: boolean
       required: [items, has_more]
@@ -2431,12 +2428,10 @@ components:
         fragment_path:
           type: string
         started_at:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
         message:
-          type: string
-          nullable: true
+          type: [string, 'null']
       required: [manager, supported, unit_name, load_state, active_state, sub_state, unit_file_state, fragment_path]
     DockerEngineStatus:
       type: object
@@ -2458,8 +2453,7 @@ components:
         cgroup_driver:
           type: string
         message:
-          type: string
-          nullable: true
+          type: [string, 'null']
       required: [available, version, api_version, compose_version, root_dir, driver, logging_driver, cgroup_driver]
     DockerDaemonConfigSummary:
       type: object
@@ -2481,8 +2475,7 @@ components:
         data_root:
           type: string
         live_restore:
-          type: boolean
-          nullable: true
+          type: [boolean, 'null']
       required: [dns, registry_mirrors, insecure_registries, log_driver, data_root]
     DockerDaemonConfigMeta:
       type: object
@@ -2494,17 +2487,14 @@ components:
         permissions:
           $ref: '#/components/schemas/FilePermissionsNullable'
         size_bytes:
-          type: integer
-          nullable: true
+          type: [integer, 'null']
         modified_at:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
         valid_json:
           type: boolean
         parse_error:
-          type: string
-          nullable: true
+          type: [string, 'null']
         configured_keys:
           type: array
           items:
@@ -2520,16 +2510,14 @@ components:
         - type: object
           properties:
             content:
-              type: string
-              nullable: true
+              type: [string, 'null']
     DockerDaemonWriteCapability:
       type: object
       properties:
         supported:
           type: boolean
         reason:
-          type: string
-          nullable: true
+          type: [string, 'null']
         managed_keys:
           type: array
           items:
@@ -2604,17 +2592,14 @@ components:
         permissions:
           $ref: '#/components/schemas/FilePermissionsNullable'
         size_bytes:
-          type: integer
-          nullable: true
+          type: [integer, 'null']
         modified_at:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
         valid_json:
           type: boolean
         parse_error:
-          type: string
-          nullable: true
+          type: [string, 'null']
         items:
           type: array
           items:
@@ -2632,9 +2617,8 @@ components:
         source:
           type: string
         last_verified_at:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
         last_error:
           type: string
       required: [registry, configured, username, source, last_error]
@@ -2696,13 +2680,11 @@ components:
         message:
           type: string
         started_at:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
         finished_at:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
       required: [pending_finalize]
     StacklabUpdateOverviewResponse:
       type: object
@@ -2748,8 +2730,7 @@ components:
         current_path:
           type: string
         parent_path:
-          type: string
-          nullable: true
+          type: [string, 'null']
         items:
           type: array
           items:
@@ -2770,8 +2751,7 @@ components:
           type: string
           format: date-time
         stack_id:
-          type: string
-          nullable: true
+          type: [string, 'null']
         git_ignored:
           type: boolean
         permissions:
@@ -2787,14 +2767,11 @@ components:
         type:
           $ref: '#/components/schemas/ConfigEntryType'
         stack_id:
-          type: string
-          nullable: true
+          type: [string, 'null']
         content:
-          type: string
-          nullable: true
+          type: [string, 'null']
         encoding:
-          type: string
-          nullable: true
+          type: [string, 'null']
         size_bytes:
           type: integer
         modified_at:
@@ -2807,8 +2784,7 @@ components:
         writable:
           type: boolean
         blocked_reason:
-          type: string
-          nullable: true
+          type: [string, 'null']
         permissions:
           $ref: '#/components/schemas/FilePermissions'
         repair_capability:
@@ -2824,9 +2800,8 @@ components:
         create_parent_directories:
           type: boolean
         expected_modified_at:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
       required: [path, content, create_parent_directories]
     ConfigFileSaveResponse:
       type: object
@@ -2894,8 +2869,7 @@ components:
         current_path:
           type: string
         parent_path:
-          type: string
-          nullable: true
+          type: [string, 'null']
         items:
           type: array
           items:
@@ -2930,11 +2904,9 @@ components:
         type:
           $ref: '#/components/schemas/ConfigEntryType'
         content:
-          type: string
-          nullable: true
+          type: [string, 'null']
         encoding:
-          type: string
-          nullable: true
+          type: [string, 'null']
         size_bytes:
           type: integer
         modified_at:
@@ -2945,8 +2917,7 @@ components:
         writable:
           type: boolean
         blocked_reason:
-          type: string
-          nullable: true
+          type: [string, 'null']
         permissions:
           $ref: '#/components/schemas/FilePermissions'
         repair_capability:
@@ -2962,9 +2933,8 @@ components:
         create_parent_directories:
           type: boolean
         expected_modified_at:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
       required: [path, content, create_parent_directories]
     StackWorkspaceFileSaveResponse:
       type: object
@@ -3062,13 +3032,11 @@ components:
         scope:
           $ref: '#/components/schemas/GitScope'
         stack_id:
-          type: string
-          nullable: true
+          type: [string, 'null']
         status:
           $ref: '#/components/schemas/GitFileStatus'
         old_path:
-          type: string
-          nullable: true
+          type: [string, 'null']
         permissions:
           $ref: '#/components/schemas/FilePermissionsNullable'
         diff_available:
@@ -3076,8 +3044,7 @@ components:
         commit_allowed:
           type: boolean
         blocked_reason:
-          type: string
-          nullable: true
+          type: [string, 'null']
       required: [path, scope, status, diff_available, commit_allowed]
     GitDiffResponse:
       type: object
@@ -3089,25 +3056,21 @@ components:
         scope:
           $ref: '#/components/schemas/GitScope'
         stack_id:
-          type: string
-          nullable: true
+          type: [string, 'null']
         status:
           $ref: '#/components/schemas/GitFileStatus'
         old_path:
-          type: string
-          nullable: true
+          type: [string, 'null']
         permissions:
           $ref: '#/components/schemas/FilePermissionsNullable'
         diff_available:
           type: boolean
         blocked_reason:
-          type: string
-          nullable: true
+          type: [string, 'null']
         is_binary:
           type: boolean
         diff:
-          type: string
-          nullable: true
+          type: [string, 'null']
         truncated:
           type: boolean
       required: [available, path, scope, status, diff_available, is_binary, truncated]
@@ -3115,17 +3078,13 @@ components:
       type: object
       properties:
         owner_uid:
-          type: integer
-          nullable: true
+          type: [integer, 'null']
         owner_name:
-          type: string
-          nullable: true
+          type: [string, 'null']
         group_gid:
-          type: integer
-          nullable: true
+          type: [integer, 'null']
         group_name:
-          type: string
-          nullable: true
+          type: [string, 'null']
         mode:
           type: string
         readable:
@@ -3245,8 +3204,7 @@ components:
         - orphaned_count
         - container_count
     StackMetadata:
-      type: object
-      nullable: true
+      type: [object, 'null']
       properties:
         icon:
           type: string
@@ -3261,8 +3219,7 @@ components:
                 type: string
             required: [label, url]
     StackStats:
-      type: object
-      nullable: true
+      type: [object, 'null']
       properties:
         cpu_percent:
           type: number
@@ -3273,8 +3230,7 @@ components:
           format: date-time
       required: [cpu_percent, memory_bytes, sampled_at]
     StackUpdates:
-      type: object
-      nullable: true
+      type: [object, 'null']
       properties:
         state:
           type: string
@@ -3388,9 +3344,8 @@ components:
               items:
                 $ref: '#/components/schemas/Container'
             last_deployed_at:
-              type: string
+              type: [string, 'null']
               format: date-time
-              nullable: true
             last_action:
               $ref: '#/components/schemas/LastAction'
           required:
@@ -3472,14 +3427,11 @@ components:
         mode:
           $ref: '#/components/schemas/ServiceMode'
         image_ref:
-          type: string
-          nullable: true
+          type: [string, 'null']
         build_context:
-          type: string
-          nullable: true
+          type: [string, 'null']
         dockerfile_path:
-          type: string
-          nullable: true
+          type: [string, 'null']
         ports:
           type: array
           items:
@@ -3513,12 +3465,10 @@ components:
         status:
           $ref: '#/components/schemas/ContainerStatus'
         health_status:
-          type: string
-          nullable: true
+          type: [string, 'null']
         started_at:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
         image_id:
           type: string
         image_ref:
@@ -3559,7 +3509,7 @@ components:
           type: string
       required: [source, target]
     LastAction:
-      type: object
+      type: [object, 'null']
       properties:
         action:
           type: string
@@ -3569,7 +3519,6 @@ components:
           type: string
           format: date-time
       required: [action, result, finished_at]
-      nullable: true
     StackDefinitionResponse:
       type: object
       properties:
@@ -3638,8 +3587,7 @@ components:
           items:
             $ref: '#/components/schemas/AuditEntry'
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, 'null']
       required: [items]
     AuditEntry:
       type: object
@@ -3647,11 +3595,9 @@ components:
         id:
           type: string
         stack_id:
-          type: string
-          nullable: true
+          type: [string, 'null']
         job_id:
-          type: string
-          nullable: true
+          type: [string, 'null']
         action:
           type: string
         requested_by:
@@ -3662,12 +3608,10 @@ components:
           type: string
           format: date-time
         finished_at:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
         duration_ms:
-          type: integer
-          nullable: true
+          type: [integer, 'null']
       required:
         - id
         - action
@@ -4053,8 +3997,7 @@ components:
         id:
           type: string
         stack_id:
-          type: string
-          nullable: true
+          type: [string, 'null']
         action:
           type: string
         state:
@@ -4066,15 +4009,13 @@ components:
           type: string
           format: date-time
         started_at:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
         finished_at:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
         workflow:
-          type: object
+          type: [object, 'null']
           properties:
             steps:
               type: array
@@ -4093,7 +4034,6 @@ components:
                       type: string
                 required: [action, state]
           required: [steps]
-          nullable: true
       required:
         - id
         - stack_id
@@ -4113,8 +4053,7 @@ components:
         message:
           type: string
         data:
-          type: string
-          nullable: true
+          type: [string, 'null']
         step:
           $ref: '#/components/schemas/ActiveJobStep'
         progress:
@@ -4124,8 +4063,7 @@ components:
           format: date-time
       required: [job_id, sequence, event, state, timestamp]
     JobProgress:
-      type: object
-      nullable: true
+      type: [object, 'null']
       properties:
         phase:
           type: string
@@ -4144,8 +4082,7 @@ components:
         id:
           type: string
         stack_id:
-          type: string
-          nullable: true
+          type: [string, 'null']
         action:
           type: string
         state:
@@ -4157,9 +4094,8 @@ components:
           type: string
           format: date-time
         started_at:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
         workflow:
           $ref: '#/components/schemas/ActiveJobWorkflow'
         current_step:
@@ -4168,7 +4104,7 @@ components:
           $ref: '#/components/schemas/ActiveJobLatestEvent'
       required: [id, stack_id, action, state, requested_at]
     ActiveJobWorkflow:
-      type: object
+      type: [object, 'null']
       properties:
         steps:
           type: array
@@ -4187,9 +4123,8 @@ components:
                   type: string
             required: [action, state]
       required: [steps]
-      nullable: true
     ActiveJobStep:
-      type: object
+      type: [object, 'null']
       properties:
         index:
           type: integer
@@ -4204,24 +4139,21 @@ components:
           items:
             type: string
       required: [index, total, action]
-      nullable: true
     ActiveJobLatestEvent:
-      type: object
+      type: [object, 'null']
       properties:
         event:
           type: string
         message:
           type: string
         data:
-          type: string
-          nullable: true
+          type: [string, 'null']
         timestamp:
           type: string
           format: date-time
         step:
           $ref: '#/components/schemas/ActiveJobStep'
       required: [event, timestamp]
-      nullable: true
     ActiveJobSummary:
       type: object
       properties:
@@ -4528,8 +4460,7 @@ components:
         message:
           type: string
         details:
-          type: object
-          nullable: true
+          type: [object, 'null']
       required: [code, message]
     RuntimeState:
       type: string
