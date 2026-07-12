@@ -80,6 +80,7 @@ describe('AppRoutes page metadata', () => {
     expect(await screen.findByTestId('route-path')).toHaveTextContent('/settings/security')
     expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 2, name: 'Security' })).toBeInTheDocument()
+    expect(document.title).toBe('Settings — Security | Stacklab')
   })
 })
 

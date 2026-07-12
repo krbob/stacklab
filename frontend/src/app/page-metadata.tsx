@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom'
 import { StackIdentityContext, type RegisteredStackIdentity } from '@/app/stack-page-identity'
 
 const APPLICATION_NAME = 'Stacklab'
+const DEFAULT_DESCRIPTION = 'Manage Docker Compose stacks, host health, updates, and maintenance from a host-native control panel.'
 
 const globalScreenTitles: Record<string, string> = {
   '/': 'Stacks',
@@ -13,8 +14,34 @@ const globalScreenTitles: Record<string, string> = {
   '/maintenance': 'Maintenance',
   '/docker': 'Docker',
   '/audit': 'Audit log',
-  '/settings': 'Settings',
   '/login': 'Log in',
+}
+
+const settingsScreenMetadata: Record<string, PageDescriptor> = {
+  '/settings': {
+    screen: 'Settings',
+    description: 'Manage Stacklab security, notifications, automation, updates, and system information.',
+  },
+  '/settings/security': {
+    screen: 'Settings — Security',
+    description: 'Manage the Stacklab password and host observability privacy preferences.',
+  },
+  '/settings/notifications': {
+    screen: 'Settings — Notifications',
+    description: 'Configure Stacklab notification channels, delivery events, and connection tests.',
+  },
+  '/settings/automation': {
+    screen: 'Settings — Automation',
+    description: 'Configure recurring stack updates and Docker cleanup schedules in Stacklab.',
+  },
+  '/settings/updates': {
+    screen: 'Settings — Updates',
+    description: 'Check for and apply Stacklab application updates.',
+  },
+  '/settings/about': {
+    screen: 'Settings — About',
+    description: 'Review Stacklab, Docker Engine, Docker Compose, and environment details.',
+  },
 }
 
 const stackScreenTitles: Record<string, string> = {
@@ -30,6 +57,7 @@ const stackScreenTitles: Record<string, string> = {
 interface PageDescriptor {
   screen: string
   stackId?: string
+  description?: string
 }
 
 export function PageMetadataProvider({ children }: { children: ReactNode }) {
@@ -54,10 +82,18 @@ export function PageMetadataProvider({ children }: { children: ReactNode }) {
   const title = stackLabel
     ? `${descriptor.screen} — ${stackLabel} | ${APPLICATION_NAME}`
     : `${descriptor.screen} | ${APPLICATION_NAME}`
+  const description = descriptor.description ?? DEFAULT_DESCRIPTION
 
   useLayoutEffect(() => {
     document.title = title
-  }, [title])
+    let descriptionMeta = document.head.querySelector<HTMLMetaElement>('meta[name="description"]')
+    if (!descriptionMeta) {
+      descriptionMeta = document.createElement('meta')
+      descriptionMeta.name = 'description'
+      document.head.append(descriptionMeta)
+    }
+    descriptionMeta.content = description
+  }, [description, title])
 
   return (
     <StackIdentityContext.Provider value={setStackIdentity}>
@@ -68,6 +104,9 @@ export function PageMetadataProvider({ children }: { children: ReactNode }) {
 
 function describePath(pathname: string): PageDescriptor {
   const normalizedPath = pathname !== '/' ? pathname.replace(/\/+$/, '') : pathname
+  const settingsMetadata = settingsScreenMetadata[normalizedPath]
+  if (settingsMetadata) return settingsMetadata
+
   const globalTitle = globalScreenTitles[normalizedPath]
   if (globalTitle) return { screen: globalTitle }
 
