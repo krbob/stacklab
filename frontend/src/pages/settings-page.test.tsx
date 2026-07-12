@@ -275,9 +275,9 @@ describe("SettingsPage", () => {
     renderSettings();
 
     const passwordCard = screen.getByText("Change password").closest("section") ?? document.body;
-    fireEvent.change(within(passwordCard).getByPlaceholderText("Current password"), { target: { value: "secret" } });
-    fireEvent.change(within(passwordCard).getByPlaceholderText("New password"), { target: { value: "new-test-password" } });
-    fireEvent.change(within(passwordCard).getByPlaceholderText("Confirm new password"), { target: { value: "new-test-password" } });
+    fireEvent.change(within(passwordCard).getByLabelText("Current password"), { target: { value: "secret" } });
+    fireEvent.change(within(passwordCard).getByLabelText("New password"), { target: { value: "new-test-password" } });
+    fireEvent.change(within(passwordCard).getByLabelText("Confirm new password"), { target: { value: "new-test-password" } });
     fireEvent.click(within(passwordCard).getByRole("button", { name: "Update password" }));
 
     await waitFor(() => expect(mockRequireReauthentication).toHaveBeenCalledWith("password_changed"));
@@ -287,10 +287,10 @@ describe("SettingsPage", () => {
     renderSettings();
 
     const passwordCard = screen.getByText("Change password").closest("section") ?? document.body;
-    fireEvent.change(within(passwordCard).getByPlaceholderText("Current password"), { target: { value: "test-password" } });
+    fireEvent.change(within(passwordCard).getByLabelText("Current password"), { target: { value: "test-password" } });
     for (const invalidPassword of ["too-short", "x".repeat(257)]) {
-      fireEvent.change(within(passwordCard).getByPlaceholderText("New password"), { target: { value: invalidPassword } });
-      fireEvent.change(within(passwordCard).getByPlaceholderText("Confirm new password"), { target: { value: invalidPassword } });
+      fireEvent.change(within(passwordCard).getByLabelText("New password"), { target: { value: invalidPassword } });
+      fireEvent.change(within(passwordCard).getByLabelText("Confirm new password"), { target: { value: invalidPassword } });
       fireEvent.click(within(passwordCard).getByRole("button", { name: "Update password" }));
       expect(within(passwordCard).getByText("Password must contain between 12 and 256 characters")).toBeInTheDocument();
     }
@@ -302,6 +302,13 @@ describe("SettingsPage", () => {
 
     expect(await screen.findByRole("heading", { level: 2, name: "Notifications" })).toBeInTheDocument();
     expect(screen.getByLabelText("Enable notifications")).not.toBeChecked();
+    expect(screen.getByLabelText("Webhook URL")).toHaveAttribute("type", "url");
+    expect(screen.getByLabelText("Bot token")).toHaveAttribute("type", "password");
+    expect(screen.getByLabelText("Chat ID")).toHaveAttribute("type", "text");
+    expect(screen.getByRole("button", { name: "Show bot token" })).toHaveAttribute("aria-controls", "notification-telegram-bot-token");
+    for (const button of screen.getAllByRole("button")) {
+      expect(button).toHaveAttribute("type", "button");
+    }
     expect(screen.getByText("Failed jobs")).toBeInTheDocument();
     expect(screen.getByText("Succeeded with warnings")).toBeInTheDocument();
   });
@@ -338,7 +345,7 @@ describe("SettingsPage", () => {
 
     expect(await screen.findByText("notification load failed")).toBeInTheDocument();
     expect(screen.queryByLabelText("Enable notifications")).not.toBeInTheDocument();
-    expect(screen.queryByPlaceholderText("https://hooks.example.com/stacklab")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Webhook URL")).not.toBeInTheDocument();
     expect(mockUpdateNotificationSettings).not.toHaveBeenCalled();
   });
 
@@ -391,7 +398,7 @@ describe("SettingsPage", () => {
 
     fireEvent.click(screen.getByLabelText("Enable notifications"));
     fireEvent.change(
-      screen.getByPlaceholderText("https://hooks.example.com/stacklab"),
+      screen.getByLabelText("Webhook URL"),
       {
         target: { value: "https://hooks.example.test/stacklab" },
       },
@@ -448,7 +455,7 @@ describe("SettingsPage", () => {
 
     fireEvent.click(screen.getByLabelText("Enable notifications"));
     fireEvent.change(
-      screen.getByPlaceholderText("https://hooks.example.com/stacklab"),
+      screen.getByLabelText("Webhook URL"),
       {
         target: { value: "https://hooks.example.test/draft" },
       },
@@ -518,7 +525,7 @@ describe("SettingsPage", () => {
     renderSettings("notifications");
 
     expect(await screen.findByText("(configured)")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("(leave empty to keep current)")).toHaveValue("");
+    expect(screen.getByLabelText(/Bot token/)).toHaveValue("");
     fireEvent.click(screen.getByText("Maintenance succeeded"));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
@@ -535,6 +542,57 @@ describe("SettingsPage", () => {
         }),
       );
     });
+  });
+
+  it("exposes maintenance toggle state and job actions to assistive technology", async () => {
+    mockGetMaintenanceSchedules.mockResolvedValue({
+      timezone: 'host_local',
+      update: {
+        enabled: false,
+        frequency: 'weekly',
+        time: '03:30',
+        weekdays: ['sat'],
+        target: { mode: 'all' },
+        options: { pull_images: true, build_images: true, remove_orphans: true, prune_after: false, include_volumes: false },
+        status: { last_result: 'succeeded', last_job_id: 'update-job' },
+      },
+      prune: {
+        enabled: false,
+        frequency: 'weekly',
+        time: '04:30',
+        weekdays: ['sun'],
+        scope: { images: true, build_cache: true, stopped_containers: true, volumes: false },
+        status: { last_result: 'failed', last_job_id: 'cleanup-job' },
+      },
+    });
+
+    renderSettings("automation");
+
+    const updateFrequency = await screen.findByRole("group", { name: "Stack update frequency" });
+    const updateWeekdays = screen.getByRole("group", { name: "Stack update weekdays" });
+    expect(screen.getByLabelText("Stack update time")).toHaveAttribute("type", "time");
+    expect(screen.getByRole("group", { name: "Cleanup frequency" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Cleanup weekdays" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Cleanup time")).toHaveAttribute("type", "time");
+
+    const updateDaily = within(updateFrequency).getByRole("button", { name: "Daily" });
+    const updateWeekly = within(updateFrequency).getByRole("button", { name: "Weekly" });
+    const updateSaturday = within(updateWeekdays).getByRole("button", { name: "Sat" });
+    expect(updateDaily).toHaveAttribute("type", "button");
+    expect(updateDaily).toHaveAttribute("aria-pressed", "false");
+    expect(updateWeekly).toHaveAttribute("aria-pressed", "true");
+    expect(updateSaturday).toHaveAttribute("type", "button");
+    expect(updateSaturday).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(updateDaily);
+    expect(updateDaily).toHaveAttribute("aria-pressed", "true");
+    expect(updateWeekly).toHaveAttribute("aria-pressed", "false");
+
+    const viewJobButtons = screen.getAllByRole("button", { name: "View job" });
+    expect(viewJobButtons).toHaveLength(2);
+    expect(viewJobButtons[0]).toHaveAttribute("type", "button");
+    fireEvent.click(viewJobButtons[0]);
+    expect(mockOpenJob).toHaveBeenCalledWith("update-job");
   });
 
   it("protects and saves a maintenance schedule with selected stacks", async () => {

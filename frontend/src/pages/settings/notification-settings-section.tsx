@@ -180,9 +180,12 @@ export function NotificationsSection() {
             <input type="checkbox" checked={webhookEnabled} onChange={(e) => setWebhookEnabled(e.target.checked)} className="rounded" />
             Webhook
           </label>
-          <input type="url" value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} placeholder="https://hooks.example.com/stacklab" className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
+          <div>
+            <label htmlFor="notification-webhook-url" className="mb-1 block text-xs text-[var(--muted)]">Webhook URL</label>
+            <input id="notification-webhook-url" type="url" value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} placeholder="https://hooks.example.com/stacklab" className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
+          </div>
           {webhookTestResult && <StatusMessage className={webhookTestResult.type === 'success' ? 'text-xs text-[var(--ok)]' : 'text-xs text-[var(--danger)]'}>{webhookTestResult.text}</StatusMessage>}
-          <button onClick={handleTestWebhook} disabled={testingWebhook || !webhookUrl.trim()} className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)] disabled:opacity-40">
+          <button type="button" onClick={handleTestWebhook} disabled={testingWebhook || !webhookUrl.trim()} className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)] disabled:opacity-40">
             {testingWebhook ? 'Sending...' : 'Send test'}
           </button>
         </div>
@@ -195,27 +198,28 @@ export function NotificationsSection() {
           </label>
           <div className="space-y-2">
             <div>
-              <label className="mb-1 block text-xs text-[var(--muted)]">Bot token {botTokenConfigured && !telegramBotToken && <span className="text-[var(--ok)]">(configured)</span>}</label>
+              <label htmlFor="notification-telegram-bot-token" className="mb-1 block text-xs text-[var(--muted)]">Bot token {botTokenConfigured && !telegramBotToken && <span className="text-[var(--ok)]">(configured)</span>}</label>
               <div className="flex gap-2">
                 <input
+                  id="notification-telegram-bot-token"
                   type={showBotToken ? 'text' : 'password'}
                   value={telegramBotToken}
                   onChange={(e) => setTelegramBotToken(e.target.value)}
                   placeholder={botTokenConfigured ? '(leave empty to keep current)' : '123456:ABC-DEF1234'}
                   className="min-w-0 flex-1 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
                 />
-                <button onClick={() => setShowBotToken(!showBotToken)} aria-pressed={showBotToken} className="rounded-md border border-[var(--panel-border)] px-2 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]">
+                <button type="button" onClick={() => setShowBotToken(!showBotToken)} aria-label={`${showBotToken ? 'Hide' : 'Show'} bot token`} aria-controls="notification-telegram-bot-token" aria-pressed={showBotToken} className="rounded-md border border-[var(--panel-border)] px-2 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]">
                   {showBotToken ? 'Hide' : 'Show'}
                 </button>
               </div>
             </div>
             <div>
-              <label className="mb-1 block text-xs text-[var(--muted)]">Chat ID</label>
-              <input type="text" value={telegramChatId} onChange={(e) => setTelegramChatId(e.target.value)} placeholder="-1001234567890" className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
+              <label htmlFor="notification-telegram-chat-id" className="mb-1 block text-xs text-[var(--muted)]">Chat ID</label>
+              <input id="notification-telegram-chat-id" type="text" value={telegramChatId} onChange={(e) => setTelegramChatId(e.target.value)} placeholder="-1001234567890" className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
             </div>
           </div>
           {telegramTestResult && <StatusMessage className={telegramTestResult.type === 'success' ? 'text-xs text-[var(--ok)]' : 'text-xs text-[var(--danger)]'}>{telegramTestResult.text}</StatusMessage>}
-          <button onClick={handleTestTelegram} disabled={testingTelegram || (!telegramBotToken && !botTokenConfigured) || !telegramChatId.trim()} className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)] disabled:opacity-40">
+          <button type="button" onClick={handleTestTelegram} disabled={testingTelegram || (!telegramBotToken && !botTokenConfigured) || !telegramChatId.trim()} className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)] disabled:opacity-40">
             {testingTelegram ? 'Sending...' : 'Send test'}
           </button>
         </div>
@@ -275,7 +279,7 @@ export function NotificationsSection() {
         {/* Save feedback */}
         {saveResult && <StatusMessage className={saveResult.type === 'success' ? 'text-xs text-[var(--ok)]' : 'text-xs text-[var(--danger)]'}>{saveResult.text}</StatusMessage>}
 
-        <button onClick={handleSave} disabled={savingNotif || !isDirty} className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-xs text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40">
+        <button type="button" onClick={handleSave} disabled={savingNotif || !isDirty} className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-xs text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40">
           {savingNotif ? 'Saving...' : 'Save'}
         </button>
       </div>

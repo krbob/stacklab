@@ -303,12 +303,12 @@ export function MaintenanceSchedulesSection() {
           </label>
 
           <div className="flex flex-wrap items-center gap-2">
-            <FrequencyToggle value={updateFreq} onChange={setUpdateFreq} />
-            <input type="time" value={updateTime} onChange={(e) => setUpdateTime(e.target.value)} className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none" />
+            <FrequencyToggle label="Stack update frequency" value={updateFreq} onChange={setUpdateFreq} />
+            <input aria-label="Stack update time" type="time" value={updateTime} onChange={(e) => setUpdateTime(e.target.value)} className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none" />
           </div>
 
           {updateFreq === 'weekly' && (
-            <WeekdayPicker value={updateWeekdays} onChange={setUpdateWeekdays} />
+            <WeekdayPicker label="Stack update weekdays" value={updateWeekdays} onChange={setUpdateWeekdays} />
           )}
 
           <div className="space-y-1">
@@ -428,12 +428,12 @@ export function MaintenanceSchedulesSection() {
           </label>
 
           <div className="flex flex-wrap items-center gap-2">
-            <FrequencyToggle value={pruneFreq} onChange={setPruneFreq} />
-            <input type="time" value={pruneTime} onChange={(e) => setPruneTime(e.target.value)} className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none" />
+            <FrequencyToggle label="Cleanup frequency" value={pruneFreq} onChange={setPruneFreq} />
+            <input aria-label="Cleanup time" type="time" value={pruneTime} onChange={(e) => setPruneTime(e.target.value)} className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none" />
           </div>
 
           {pruneFreq === 'weekly' && (
-            <WeekdayPicker value={pruneWeekdays} onChange={setPruneWeekdays} />
+            <WeekdayPicker label="Cleanup weekdays" value={pruneWeekdays} onChange={setPruneWeekdays} />
           )}
 
           <div className="space-y-1 text-xs text-[var(--muted)]">

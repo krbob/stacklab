@@ -2,11 +2,11 @@ import type { MaintenanceSchedulesResponse, ScheduleFrequency, ScheduleWeekday }
 import { cn } from '@/lib/cn'
 import { ALL_WEEKDAYS, WEEKDAY_LABELS } from '@/pages/settings/maintenance-schedule-utils'
 
-export function FrequencyToggle({ value, onChange }: { value: ScheduleFrequency; onChange: (v: ScheduleFrequency) => void }) {
+export function FrequencyToggle({ label, value, onChange }: { label: string; value: ScheduleFrequency; onChange: (v: ScheduleFrequency) => void }) {
   return (
-    <div className="flex gap-1">
+    <div role="group" aria-label={label} className="flex gap-1">
       {(['daily', 'weekly'] as const).map((f) => (
-        <button key={f} onClick={() => onChange(f)} className={cn('rounded-md border px-2.5 py-1 text-xs transition', value === f ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}>
+        <button type="button" key={f} aria-pressed={value === f} onClick={() => onChange(f)} className={cn('rounded-md border px-2.5 py-1 text-xs transition', value === f ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}>
           {f === 'daily' ? 'Daily' : 'Weekly'}
         </button>
       ))}
@@ -14,12 +14,14 @@ export function FrequencyToggle({ value, onChange }: { value: ScheduleFrequency;
   )
 }
 
-export function WeekdayPicker({ value, onChange }: { value: ScheduleWeekday[]; onChange: (v: ScheduleWeekday[]) => void }) {
+export function WeekdayPicker({ label, value, onChange }: { label: string; value: ScheduleWeekday[]; onChange: (v: ScheduleWeekday[]) => void }) {
   return (
-    <div className="flex flex-wrap gap-1">
+    <div role="group" aria-label={label} className="flex flex-wrap gap-1">
       {ALL_WEEKDAYS.map((d) => (
         <button
+          type="button"
           key={d}
+          aria-pressed={value.includes(d)}
           onClick={() => onChange(value.includes(d) ? value.filter((w) => w !== d) : [...value, d])}
           className={cn('rounded-md border px-2 py-1 text-xs transition', value.includes(d) ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'border-[var(--panel-border)] text-[var(--muted)]')}
         >
@@ -43,7 +45,7 @@ export function ScheduleStatusFooter({ status, onOpenJob }: { status?: Maintenan
           <span>Last: <span className={resultColors[status.last_result] ?? ''}>{status.last_result}</span></span>
           {status.last_scheduled_for && <span>{new Date(status.last_scheduled_for).toLocaleString()}</span>}
           {status.last_job_id && (
-            <button onClick={() => onOpenJob(status.last_job_id!)} className="text-[var(--accent)] hover:underline">View job</button>
+            <button type="button" onClick={() => onOpenJob(status.last_job_id!)} className="text-[var(--accent)] hover:underline">View job</button>
           )}
         </div>
       )}

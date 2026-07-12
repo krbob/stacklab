@@ -52,10 +52,19 @@ export function PasswordSettingsSection() {
     <>
       <h2 className="text-sm font-medium text-[var(--text)]">Change password</h2>
       <form onSubmit={handlePasswordChange} className="mt-3 max-w-md space-y-3">
-        <input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} placeholder="Current password" disabled={saving} className="w-full rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50" />
-        <input type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="New password" disabled={saving} aria-describedby="new-password-requirements" className="w-full rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50" />
-        <p id="new-password-requirements" className="text-xs text-[var(--muted)]">Use {PASSWORD_MINIMUM_LENGTH}–{PASSWORD_MAXIMUM_LENGTH} characters.</p>
-        <input type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Confirm new password" disabled={saving} className="w-full rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50" />
+        <div className="space-y-1">
+          <label htmlFor="current-password" className="block text-xs text-[var(--muted)]">Current password</label>
+          <input id="current-password" type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} placeholder="Current password" disabled={saving} className="w-full rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50" />
+        </div>
+        <div className="space-y-1">
+          <label htmlFor="new-password" className="block text-xs text-[var(--muted)]">New password</label>
+          <input id="new-password" type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="New password" disabled={saving} aria-describedby="new-password-requirements" className="w-full rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50" />
+          <p id="new-password-requirements" className="text-xs text-[var(--muted)]">Use {PASSWORD_MINIMUM_LENGTH}–{PASSWORD_MAXIMUM_LENGTH} characters.</p>
+        </div>
+        <div className="space-y-1">
+          <label htmlFor="confirm-new-password" className="block text-xs text-[var(--muted)]">Confirm new password</label>
+          <input id="confirm-new-password" type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Confirm new password" disabled={saving} className="w-full rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm text-[var(--text)] outline-none transition focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50" />
+        </div>
         {passwordError && <StatusMessage className="text-sm text-[var(--danger)]">{passwordError}</StatusMessage>}
         <button type="submit" disabled={saving || !currentPassword || !newPassword || !confirmPassword} className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-4 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.2)] disabled:opacity-40">
           {saving ? 'Updating...' : 'Update password'}
