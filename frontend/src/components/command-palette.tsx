@@ -31,7 +31,9 @@ export function CommandPalette() {
   const [stackEntries, setStackEntries] = useState<PaletteEntry[]>([])
   const [loadingStacks, setLoadingStacks] = useState(false)
   const [loadError, setLoadError] = useState(false)
+  const [loadAttempt, setLoadAttempt] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
+  const retryButtonRef = useRef<HTMLButtonElement>(null)
   const listboxId = useId()
   const instructionsId = useId()
 
@@ -51,13 +53,22 @@ export function CommandPalette() {
   useEffect(() => {
     if (!open) return
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    let cancelled = false
     setQuery('')
     setSelected(0)
     setStackEntries([])
+    inputRef.current?.focus()
+
+    return () => {
+      previousFocus?.focus()
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
     setLoadingStacks(true)
     setLoadError(false)
-    inputRef.current?.focus()
+
     getStacks()
       .then((response) => {
         if (cancelled) return
@@ -79,9 +90,8 @@ export function CommandPalette() {
 
     return () => {
       cancelled = true
-      previousFocus?.focus()
     }
-  }, [open])
+  }, [open, loadAttempt])
 
   const entries = useMemo(() => {
     const all = [...stackEntries, ...sectionEntries]
@@ -98,6 +108,28 @@ export function CommandPalette() {
     navigate(entry.to)
   }
 
+  function retryStackLoad() {
+    if (loadingStacks) return
+    inputRef.current?.focus()
+    setLoadingStacks(true)
+    setLoadError(false)
+    setLoadAttempt((current) => current + 1)
+  }
+
+  function handleDialogTab(event: React.KeyboardEvent) {
+    if (event.key !== 'Tab') return
+    const focusable = [inputRef.current, retryButtonRef.current]
+      .filter((element): element is HTMLInputElement | HTMLButtonElement => element !== null && !element.disabled)
+    if (focusable.length === 0) return
+
+    const currentIndex = focusable.findIndex((element) => element === document.activeElement)
+    const nextIndex = event.shiftKey
+      ? currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1
+      : currentIndex < 0 || currentIndex === focusable.length - 1 ? 0 : currentIndex + 1
+    event.preventDefault()
+    focusable[nextIndex]?.focus()
+  }
+
   const selectedOptionId = entries[selected] ? `${listboxId}-option-${selected}` : undefined
   const resultAnnouncement = loadingStacks
     ? 'Loading stacks.'
@@ -112,12 +144,7 @@ export function CommandPalette() {
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
-        onKeyDown={(event) => {
-          if (event.key === 'Tab') {
-            event.preventDefault()
-            inputRef.current?.focus()
-          }
-        }}
+        onKeyDown={handleDialogTab}
         className="absolute inset-x-4 top-[15vh] mx-auto max-w-lg overflow-hidden rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] shadow-[0_24px_60px_rgba(0,0,0,0.6)]"
       >
         <input
@@ -165,7 +192,7 @@ export function CommandPalette() {
           aria-busy={loadingStacks}
           className="max-h-[45vh] overflow-y-auto p-1.5"
         >
-          {entries.length === 0 && (
+          {entries.length === 0 && !loadingStacks && !loadError && (
             <div className="px-3 py-4 text-center text-xs text-[var(--muted)]">No matches</div>
           )}
           {entries.map((entry, index) => (
@@ -188,6 +215,22 @@ export function CommandPalette() {
             </button>
           ))}
         </div>
+        {loadError && (
+          <div
+            role="alert"
+            className="flex items-center gap-3 border-t border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-xs text-[var(--danger)]"
+          >
+            <span>Stack shortcuts are unavailable. Section shortcuts still work.</span>
+            <button
+              ref={retryButtonRef}
+              type="button"
+              onClick={retryStackLoad}
+              className="ml-auto shrink-0 rounded-md border border-[var(--danger)]/30 px-3 py-1.5 font-medium hover:bg-[var(--danger)]/10"
+            >
+              Retry
+            </button>
+          </div>
+        )}
         <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
           {resultAnnouncement}
         </div>
