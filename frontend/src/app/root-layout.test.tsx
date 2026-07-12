@@ -118,7 +118,8 @@ describe('RootLayout keyboard navigation', () => {
     expect(screen.getByTestId('path')).toHaveTextContent('/stacks')
   })
 
-  it('marks More active on secondary mobile routes and exposes drawer state', () => {
+  it('exposes an accessible mobile drawer and restores focus on Escape', () => {
+    document.body.style.overflow = 'auto'
     renderRoot({ initialEntry: '/settings' })
 
     const more = screen.getByRole('button', { name: 'More navigation' })
@@ -129,7 +130,34 @@ describe('RootLayout keyboard navigation', () => {
     fireEvent.click(more)
 
     expect(more).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByRole('dialog', { name: 'Navigation' })).toBeInTheDocument()
+    const navigation = screen.getByRole('dialog', { name: 'Navigation' })
+    expect(navigation).toHaveAttribute('id', 'mobile-navigation')
+    expect(navigation).toHaveAttribute('aria-modal', 'true')
+    expect(more).toHaveAttribute('aria-controls', navigation.id)
+    expect(within(navigation).getByRole('button', { name: 'Close navigation' })).toHaveFocus()
+    expect(document.body).toHaveStyle({ overflow: 'hidden' })
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    expect(screen.queryByRole('dialog', { name: 'Navigation' })).not.toBeInTheDocument()
+    expect(more).toHaveAttribute('aria-expanded', 'false')
+    expect(more).toHaveFocus()
+    expect(document.body).toHaveStyle({ overflow: 'auto' })
+    document.body.style.overflow = ''
+  })
+
+  it('closes mobile navigation after following a link', async () => {
+    renderRoot({ initialEntry: '/settings' })
+
+    const more = screen.getByRole('button', { name: 'More navigation' })
+    fireEvent.click(more)
+    const navigation = screen.getByRole('dialog', { name: 'Navigation' })
+
+    fireEvent.click(within(navigation).getByRole('link', { name: /Host/ }))
+
+    await waitFor(() => expect(screen.getByTestId('path')).toHaveTextContent('/host'))
+    expect(screen.queryByRole('dialog', { name: 'Navigation' })).not.toBeInTheDocument()
+    expect(more).toHaveAttribute('aria-expanded', 'false')
   })
 
   it('disables logout while the request is pending and prevents duplicate calls', async () => {

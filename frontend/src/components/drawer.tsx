@@ -12,6 +12,7 @@ type DrawerAccessibleName =
   | { label?: never; labelledBy: string }
 
 interface DrawerBaseProps {
+  id?: string
   children: ReactNode
   onClose: () => void
   preventClose?: boolean
@@ -26,6 +27,7 @@ interface DrawerBaseProps {
 export type DrawerProps = DrawerBaseProps & DrawerAccessibleName
 
 export function Drawer({
+  id,
   children,
   onClose,
   label,
@@ -105,6 +107,7 @@ export function Drawer({
         aria-hidden="true"
       />
       <div
+        id={id}
         ref={drawerRef}
         role="dialog"
         aria-modal="true"

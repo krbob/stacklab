@@ -4,6 +4,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/use-auth'
 import { GlobalActivity } from '@/components/global-activity'
 import { JobDetailDrawer } from '@/components/job-detail-drawer'
+import { Drawer } from '@/components/drawer'
 import { HostStrip } from '@/components/host-strip'
 import { ActivityProvider } from '@/contexts/activity-context'
 import { CommandPalette } from '@/components/command-palette'
@@ -78,6 +79,7 @@ export function RootLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const scrollRef = useRef<HTMLDivElement>(null)
+  const mobileNavCloseRef = useRef<HTMLButtonElement>(null)
   const logoutPendingRef = useRef(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
@@ -99,15 +101,6 @@ export function RootLayout() {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [navigate])
-
-  useEffect(() => {
-    if (!mobileNavOpen) return
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.body.style.overflow = prev
-    }
-  }, [mobileNavOpen])
 
   // Reset scroll on navigation. On mobile the app-shell scrolls inside
   // scrollRef; on desktop the document scrolls. Reset both so opening a stack
@@ -153,40 +146,36 @@ export function RootLayout() {
       </header>
 
       {mobileNavOpen && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
+        <Drawer
+          id="mobile-navigation"
+          label="Navigation"
+          onClose={() => setMobileNavOpen(false)}
+          initialFocusRef={mobileNavCloseRef}
+          side="left"
+          panelClassName="w-72 max-w-[85vw] p-4 shadow-xl lg:hidden"
+          backdropClassName="bg-black/60 backdrop-blur-sm lg:hidden"
+          style={{
+            paddingTop: 'max(1rem, env(safe-area-inset-top))',
+            paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',
+            paddingLeft: 'max(1rem, env(safe-area-inset-left))',
+          }}
+        >
+          <button
+            ref={mobileNavCloseRef}
+            type="button"
             onClick={() => setMobileNavOpen(false)}
-            aria-hidden
-          />
-          <aside
-            id="mobile-navigation"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Navigation"
-            className="fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] flex-col border-r border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-xl lg:hidden"
-            style={{
-              paddingTop: 'max(1rem, env(safe-area-inset-top))',
-              paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',
-              paddingLeft: 'max(1rem, env(safe-area-inset-left))',
-            }}
+            aria-label="Close navigation"
+            className="absolute right-3 top-3 flex size-10 items-center justify-center rounded-lg text-[var(--muted)] hover:text-[var(--text)]"
           >
-            <button
-              type="button"
-              onClick={() => setMobileNavOpen(false)}
-              aria-label="Close navigation"
-              className="absolute right-3 top-3 flex size-10 items-center justify-center rounded-lg text-[var(--muted)] hover:text-[var(--text)]"
-            >
-              <X className="size-5" />
-            </button>
-            <SidebarContent
-              onNavigate={() => setMobileNavOpen(false)}
-              onLogout={() => { void handleLogout() }}
-              loggingOut={loggingOut}
-              logoutError={logoutError}
-            />
-          </aside>
-        </>
+            <X className="size-5" />
+          </button>
+          <SidebarContent
+            onNavigate={() => setMobileNavOpen(false)}
+            onLogout={() => { void handleLogout() }}
+            loggingOut={loggingOut}
+            logoutError={logoutError}
+          />
+        </Drawer>
       )}
 
       {/* Scroll region: the only scrollable element on mobile (flex-1 + min-h-0
@@ -238,7 +227,10 @@ export function RootLayout() {
         ))}
         <button
           type="button"
-          onClick={() => setMobileNavOpen(true)}
+          onClick={(event) => {
+            event.currentTarget.focus()
+            setMobileNavOpen(true)
+          }}
           aria-label="More navigation"
           aria-controls="mobile-navigation"
           aria-expanded={mobileNavOpen}

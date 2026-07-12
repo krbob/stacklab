@@ -11,6 +11,7 @@ function ExampleDrawer({ onClose, preventClose = false }: {
 
   return (
     <Drawer
+      id="activity-drawer"
       label="Activity"
       onClose={onClose}
       preventClose={preventClose}
@@ -33,6 +34,7 @@ describe('Drawer', () => {
 
     const { unmount } = render(<ExampleDrawer onClose={onClose} />)
 
+    expect(screen.getByRole('dialog', { name: 'Activity' })).toHaveAttribute('id', 'activity-drawer')
     expect(screen.getByRole('dialog', { name: 'Activity' })).toHaveAttribute('aria-modal', 'true')
     expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus()
     expect(document.body).toHaveStyle({ overflow: 'hidden' })
