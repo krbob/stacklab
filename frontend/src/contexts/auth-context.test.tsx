@@ -1,10 +1,11 @@
+import { useState } from 'react'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiClientError, getSession, logout } from '@/lib/api-client'
 import type { SessionResponse } from '@/lib/api-types'
 import { useAuth } from '@/hooks/use-auth'
-import { AuthProvider, type AuthContextValue } from './auth-context'
+import { AuthProvider } from './auth-context'
 
 vi.mock('@/lib/api-client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api-client')>()
@@ -18,7 +19,6 @@ vi.mock('@/lib/api-client', async (importOriginal) => {
 
 const mockGetSession = vi.mocked(getSession)
 const mockApiLogout = vi.mocked(logout)
-let latestAuth: AuthContextValue | null = null
 const authenticatedSession: SessionResponse = {
   authenticated: true,
   user: { id: 'local', display_name: 'Local Operator' },
@@ -38,8 +38,23 @@ function deferred<T>() {
 
 function AuthProbe() {
   const auth = useAuth()
-  latestAuth = auth
-  return <div>Auth child: {auth.status}</div>
+  const [logoutError, setLogoutError] = useState<string | null>(null)
+  return (
+    <div>
+      <div>Auth child: {auth.status}</div>
+      <button
+        type="button"
+        onClick={() => {
+          void auth.logout().catch((error) => {
+            setLogoutError(error instanceof Error ? error.message : 'Logout failed')
+          })
+        }}
+      >
+        Context logout
+      </button>
+      {logoutError && <div>Logout error: {logoutError}</div>}
+    </div>
+  )
 }
 
 function LocationProbe() {
@@ -62,7 +77,6 @@ describe('AuthProvider session bootstrap', () => {
   beforeEach(() => {
     mockGetSession.mockReset()
     mockApiLogout.mockReset()
-    latestAuth = null
   })
 
   it('keeps protected children unmounted when session verification fails', async () => {
@@ -117,11 +131,9 @@ describe('AuthProvider session bootstrap', () => {
     renderProvider()
     await screen.findByText('Auth child: authenticated')
 
-    await act(async () => {
-      await latestAuth!.logout()
-    })
+    fireEvent.click(screen.getByRole('button', { name: 'Context logout' }))
 
-    expect(screen.getByText('Auth child: unauthenticated')).toBeInTheDocument()
+    expect(await screen.findByText('Auth child: unauthenticated')).toBeInTheDocument()
     expect(screen.getByTestId('location')).toHaveTextContent('/login')
   })
 
@@ -131,8 +143,9 @@ describe('AuthProvider session bootstrap', () => {
     renderProvider()
     await screen.findByText('Auth child: authenticated')
 
-    await expect(latestAuth!.logout()).rejects.toThrow('Failed to fetch')
+    fireEvent.click(screen.getByRole('button', { name: 'Context logout' }))
 
+    expect(await screen.findByText('Logout error: Failed to fetch')).toBeInTheDocument()
     expect(screen.getByText('Auth child: authenticated')).toBeInTheDocument()
     expect(screen.getByTestId('location')).toHaveTextContent('/stacks?view=compact')
   })
