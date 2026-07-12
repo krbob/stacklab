@@ -7,49 +7,13 @@ import { cn } from '@/lib/cn'
 import { latestMetricSampleTimestamp, mergeHostMetrics } from '@/lib/host-metrics'
 import { PageHeader } from '@/components/page-header'
 import { formatBytes, formatUptime } from '@/pages/host-page-utils'
+import { PercentBar } from '@/pages/host/metric-primitives'
+import { utilizationTone } from '@/pages/host/metric-style'
 import { StacklabLogs } from '@/pages/host/stacklab-logs'
 
 const OVERVIEW_POLL_INTERVAL_MS = 5_000
 const METRICS_POLL_INTERVAL_MS = 1_000
 type ProcessSortKey = 'cpu' | 'memory'
-
-function PercentBar({ value, color, label }: { value: number; color: string; label: string }) {
-  const normalized = Math.min(Math.max(value, 0), 100)
-  return (
-    <div
-      role="progressbar"
-      aria-label={label}
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-valuenow={Number(normalized.toFixed(1))}
-      className="h-2 w-full rounded-full bg-[rgba(255,255,255,0.06)]"
-    >
-      <div className={`h-2 rounded-full ${color}`} style={{ width: `${normalized}%` }} aria-hidden="true" />
-    </div>
-  )
-}
-
-function utilizationTone(value: number, normalBar = 'bg-[var(--accent)]', normalLine = 'var(--accent)') {
-  if (value >= 90) {
-    return {
-      bar: 'bg-[var(--danger)]',
-      line: 'var(--danger)',
-      text: 'text-[var(--danger)]',
-    }
-  }
-  if (value >= 80) {
-    return {
-      bar: 'bg-[var(--warning)]',
-      line: 'var(--warning)',
-      text: 'text-[var(--warning)]',
-    }
-  }
-  return {
-    bar: normalBar,
-    line: normalLine,
-    text: 'text-[var(--text)]',
-  }
-}
 
 export function HostPage() {
   const [overview, setOverview] = useState<HostOverviewResponse | null>(null)
