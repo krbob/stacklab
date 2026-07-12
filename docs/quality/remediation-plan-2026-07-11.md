@@ -131,7 +131,7 @@ HTML dla awarii, a workflow wykonuje preflight Dockera i readiness backendu.
 
 | ID | Status | Krok | Kryterium odbioru | Planowany commit |
 | --- | --- | --- | --- | --- |
-| UX-06 | in_progress | Ujednolicić async error/loading/empty | wspólny `AsyncState`, Retry, route Error Boundary i Suspense fallback; brak pustych `catch` dla działań operatora | seria `refactor(ui): standardize async states` |
+| UX-06 | done | Ujednolicić async error/loading/empty | wspólny `AsyncState`, Retry, route Error Boundary i Suspense fallback; brak pustych `catch` dla działań operatora | seria `refactor(ui): standardize async states` |
 | UX-07 | in_progress | Zbudować dostępne prymitywy overlay | Dialog/Drawer/BottomSheet z focus trap, Escape, restore focus i ARIA; migracja wszystkich modalów | seria `refactor(ui): adopt accessible ...` |
 | UX-08 | done | Dodać semantykę dynamicznych statusów | `aria-live`, `role=status`, `aria-busy`, progressbar, `aria-pressed`/tabs i dostępna command palette | `fix(a11y): announce dynamic interface state` |
 | UX-09 | done | Poprawić czytelność wizualną | kontrast AA, mniej tekstu 9–11 px, reduced motion, lokalne WOFF2, ograniczona tekstura noise | seria `fix(ui): improve ...` |
@@ -143,16 +143,16 @@ HTML dla awarii, a workflow wykonuje preflight Dockera i readiness backendu.
 | PROD-02 | planned | Dodać System Health Center | widoczny stan Backend/Docker/WS, last success, Retry i linki do diagnostyki | `feat(ui): add system health center` |
 | PROD-03 | planned | Podzielić Settings według zadań | Security, Notifications, Automation, Updates i About jako odnajdywalne sekcje/subroutes, także mobile | `refactor(ui): split settings navigation` |
 
-Weryfikacja częściowa UX-06 z 2026-07-12 objęła rozdzielenie niezależnych odczytów,
+Weryfikacja końcowa UX-06 z 2026-07-12 objęła rozdzielenie niezależnych odczytów,
 zachowanie ostatnich poprawnych danych przy błędzie odświeżania, jawne Retry oraz
 rozróżnienie loading/error/empty w ekranach operacyjnych, aktywności, sesji,
-obserwowalności hosta i palecie poleceń. Opcjonalne fallbacki service workera,
-izolacji uszkodzonej ramki WebSocket i krótkotrwałego wzbogacenia aktywności są
-udokumentowane w kodzie jako świadome best effort. Pełny gate frontendu na Node
-24.18.0 zakończył się wynikiem 61/61 plików i 418/418 testów, lintem bez ostrzeżeń
-oraz poprawnym buildem produkcyjnym. Audyt konsumentów pozostawił do realizacji
-stany odczytu stosów w Maintenance oraz Retry dla Docker Admin, drzewa i statusu
-Git w Config, a także drzewa plików stacka.
+Maintenance, Docker Admin, Config, Stack Files, obserwowalności hosta i palecie
+poleceń. Strumień jobów przechodzi na REST po utracie WebSocket, a terminal do
+czasu reattach pozostaje widoczny i tylko do odczytu. Opcjonalne fallbacki service
+workera, izolacji uszkodzonej ramki WebSocket i krótkotrwałego wzbogacenia
+aktywności są udokumentowane w kodzie jako świadome best effort. Pełny gate
+frontendu na Node 24.18.0 zakończył się wynikiem 64/64 plików i 445/445 testów,
+lintem bez ostrzeżeń oraz poprawnym buildem produkcyjnym.
 
 ## Kolejność wykonania
 
