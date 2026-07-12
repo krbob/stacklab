@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from 'react'
 import { UnsavedChangesGuard } from '@/components/unsaved-changes-guard'
 
 interface SettingsDraftRegistry {
@@ -39,7 +39,7 @@ export function SettingsDraftProvider({ children }: { children: ReactNode }) {
 export function useSettingsDraft(sectionId: string, isDirty: boolean) {
   const registry = useContext(SettingsDraftContext)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     registry?.setDraftDirty(sectionId, isDirty)
   }, [isDirty, registry, sectionId])
 
