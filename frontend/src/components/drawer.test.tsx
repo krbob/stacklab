@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { Drawer } from './drawer'
@@ -20,6 +20,23 @@ function ExampleDrawer({ onClose, preventClose = false }: {
     >
       <button type="button" ref={closeRef}>Close</button>
       <button type="button">Inspect</button>
+    </Drawer>
+  )
+}
+
+function NestedDrawers() {
+  const [outerOpen, setOuterOpen] = useState(true)
+  const [innerOpen, setInnerOpen] = useState(false)
+
+  if (!outerOpen) return null
+  return (
+    <Drawer label="Outer drawer" onClose={() => setOuterOpen(false)}>
+      <button type="button" onClick={() => setInnerOpen(true)}>Open inner</button>
+      {innerOpen && (
+        <Drawer label="Inner drawer" onClose={() => setInnerOpen(false)}>
+          <button type="button" onClick={() => setInnerOpen(false)}>Close inner</button>
+        </Drawer>
+      )}
     </Drawer>
   )
 }
@@ -93,5 +110,29 @@ describe('Drawer', () => {
     rerender(<ExampleDrawer onClose={onClose} />)
     fireEvent.click(screen.getByRole('dialog', { name: 'Activity' }).previousElementSibling as HTMLElement)
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the background locked and closes only the topmost nested drawer', () => {
+    document.body.style.overflow = 'auto'
+    render(<NestedDrawers />)
+
+    const openInner = screen.getByRole('button', { name: 'Open inner' })
+    openInner.focus()
+    fireEvent.click(openInner)
+    expect(screen.getByRole('dialog', { name: 'Inner drawer' })).toBeInTheDocument()
+    expect(document.body).toHaveStyle({ overflow: 'hidden' })
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    expect(screen.queryByRole('dialog', { name: 'Inner drawer' })).not.toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Outer drawer' })).toBeInTheDocument()
+    expect(document.body).toHaveStyle({ overflow: 'hidden' })
+    expect(openInner).toHaveFocus()
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    expect(screen.queryByRole('dialog', { name: 'Outer drawer' })).not.toBeInTheDocument()
+    expect(document.body).toHaveStyle({ overflow: 'auto' })
+    document.body.style.overflow = ''
   })
 })

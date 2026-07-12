@@ -1,8 +1,9 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getStacks } from '@/lib/api-client'
 import { cn } from '@/lib/cn'
 import { hasActiveModal } from '@/lib/modal-state'
+import { useModalBehavior } from '@/hooks/use-modal-behavior'
 
 interface PaletteEntry {
   kind: 'section' | 'stack'
@@ -33,34 +34,33 @@ export function CommandPalette() {
   const [loadError, setLoadError] = useState(false)
   const [loadAttempt, setLoadAttempt] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
-  const retryButtonRef = useRef<HTMLButtonElement>(null)
   const listboxId = useId()
   const instructionsId = useId()
+  const closePalette = useCallback(() => setOpen(false), [])
+  const { panelRef, requestClose } = useModalBehavior<HTMLDivElement>({
+    active: open,
+    onClose: closePalette,
+    initialFocusRef: inputRef,
+  })
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         if (!open && hasActiveModal()) return
         e.preventDefault()
-        setOpen((current) => !current)
+        if (open) requestClose()
+        else setOpen(true)
       }
-      if (e.key === 'Escape') setOpen(false)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [open])
+  }, [open, requestClose])
 
   useEffect(() => {
     if (!open) return
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
     setQuery('')
     setSelected(0)
     setStackEntries([])
-    inputRef.current?.focus()
-
-    return () => {
-      previousFocus?.focus()
-    }
   }, [open])
 
   useEffect(() => {
@@ -116,20 +116,6 @@ export function CommandPalette() {
     setLoadAttempt((current) => current + 1)
   }
 
-  function handleDialogTab(event: React.KeyboardEvent) {
-    if (event.key !== 'Tab') return
-    const focusable = [inputRef.current, retryButtonRef.current]
-      .filter((element): element is HTMLInputElement | HTMLButtonElement => element !== null && !element.disabled)
-    if (focusable.length === 0) return
-
-    const currentIndex = focusable.findIndex((element) => element === document.activeElement)
-    const nextIndex = event.shiftKey
-      ? currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1
-      : currentIndex < 0 || currentIndex === focusable.length - 1 ? 0 : currentIndex + 1
-    event.preventDefault()
-    focusable[nextIndex]?.focus()
-  }
-
   const selectedOptionId = entries[selected] ? `${listboxId}-option-${selected}` : undefined
   const resultAnnouncement = loadingStacks
     ? 'Loading stacks.'
@@ -139,12 +125,13 @@ export function CommandPalette() {
 
   return (
     <div className="fixed inset-0 z-[60]">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setOpen(false)} aria-hidden />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={requestClose} aria-hidden />
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
-        onKeyDown={handleDialogTab}
+        tabIndex={-1}
         className="absolute inset-x-4 top-[15vh] mx-auto max-w-lg overflow-hidden rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] shadow-[0_24px_60px_rgba(0,0,0,0.6)]"
       >
         <input
@@ -222,7 +209,6 @@ export function CommandPalette() {
           >
             <span>Stack shortcuts are unavailable. Section shortcuts still work.</span>
             <button
-              ref={retryButtonRef}
               type="button"
               onClick={retryStackLoad}
               className="ml-auto shrink-0 rounded-md border border-[var(--danger)]/30 px-3 py-1.5 font-medium hover:bg-[var(--danger)]/10"

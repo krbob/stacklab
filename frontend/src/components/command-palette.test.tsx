@@ -30,6 +30,7 @@ describe('CommandPalette', () => {
   })
 
   it('exposes a keyboard-operated combobox and listbox', async () => {
+    document.body.style.overflow = 'auto'
     render(
       <MemoryRouter>
         <button>Before palette</button>
@@ -45,6 +46,7 @@ describe('CommandPalette', () => {
     const combobox = screen.getByRole('combobox', { name: 'Search commands' })
     expect(dialog).toBeInTheDocument()
     expect(combobox).toHaveFocus()
+    expect(document.body).toHaveStyle({ overflow: 'hidden' })
     expect(combobox).toHaveAttribute('aria-controls', screen.getByRole('listbox').id)
 
     await waitFor(() => expect(screen.getAllByRole('option')).toHaveLength(9))
@@ -60,6 +62,8 @@ describe('CommandPalette', () => {
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument()
     expect(trigger).toHaveFocus()
+    expect(document.body).toHaveStyle({ overflow: 'auto' })
+    document.body.style.overflow = ''
   })
 
   it('announces an empty filtered result without creating an alert', async () => {
