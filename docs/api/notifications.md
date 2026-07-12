@@ -78,7 +78,7 @@ Webhook headers:
 
 Telegram delivery:
 
-- uses the official `sendMessage` Bot API endpoint with plain text messages  
+- uses the official `sendMessage` Bot API endpoint with plain text messages
   Source: https://core.telegram.org/bots/api#sendmessage
 
 Delivery semantics:

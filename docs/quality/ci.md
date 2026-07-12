@@ -19,9 +19,9 @@ The following workflows run for every pull request and every push to `main`:
 
 `make check` is the canonical source-tree gate before a push. It verifies the
 pinned toolchains, backend tests and hygiene, the generated OpenAPI client,
-frontend tests/typecheck/build, and repository hygiene. Docker integration and
-browser E2E remain separate because they require a running Docker daemon and
-additional runtime setup.
+frontend tests/typecheck/build, documentation integrity, and repository
+hygiene. Docker integration and browser E2E remain separate because they
+require a running Docker daemon and additional runtime setup.
 
 The backend coverage job reports global statement coverage as a trend and
 enforces package-specific floors defined in
@@ -35,9 +35,13 @@ The `repository-hygiene` job enforces:
 - valid GitHub Actions syntax with actionlint;
 - ShellCheck for tracked scripts and Debian maintainer scripts;
 - Gitleaks against complete Git history and normalized current lockfiles;
+- valid local Markdown links, anchors, document structure, and section indexes;
 - generated third-party notice consistency;
 - `npm audit --omit=dev`;
 - zero-warning ESLint.
+
+The documentation check operates on tracked Markdown and never requests
+external URLs. Its focused local equivalent is `make check-docs`.
 
 GitHub Actions use full commit SHAs. Tool versions and the ShellCheck archive
 checksum are pinned. See [Repository Hygiene Checks](repository-hygiene.md) for

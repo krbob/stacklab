@@ -29,8 +29,9 @@ version differs from the repository declarations. It then runs, in order:
 1. backend tests for `./cmd/...` and `./internal/...`
 2. backend formatting and `go vet` for the same explicit scope
 3. `npm ci`, frontend tests, typecheck, and production build
-4. the existing repository hygiene gate: actionlint, ShellCheck, secret scans,
-   production npm audit, and zero-warning ESLint
+4. tracked Markdown links, anchors, structure, and documentation indexes
+5. the repository hygiene gate: actionlint, ShellCheck, secret scans,
+   third-party notice drift, production npm audit, and zero-warning ESLint
 
 The explicit Go package scope is intentional. It prevents the backend check
 from traversing `frontend/node_modules` or treating frontend tooling as Go
@@ -41,6 +42,7 @@ For a focused iteration, use:
 ```bash
 make check-backend
 make check-frontend
+make check-docs
 make check-hygiene
 ```
 
@@ -50,6 +52,22 @@ request.
 
 Docker-backed integration and browser E2E remain separate CI workflows because
 they require runtime services beyond the reproducible source-tree baseline.
+
+## Documentation Integrity
+
+Run the documentation gate without installing frontend dependencies:
+
+```bash
+make check-docs
+```
+
+The command validates the checker with Node's built-in test runner, then scans
+every tracked Markdown file. It verifies local inline, reference, and image
+targets, URL-decoded relative paths, Markdown anchors, heading hierarchy,
+whitespace, and the direct-file indexes under `docs/`. Fenced and inline code
+are excluded from link parsing, and generated `THIRD_PARTY_NOTICES.md` content
+is excluded from authoring-style checks. External URLs are recognized but are
+not requested, so the result does not depend on network availability.
 
 ## OpenAPI Contract Generation
 

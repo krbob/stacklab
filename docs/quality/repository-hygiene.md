@@ -11,6 +11,7 @@ The job enforces:
 - actionlint `v1.7.12` for every GitHub Actions workflow
 - ShellCheck `v0.11.0` for tracked shell scripts and Debian maintainer scripts
 - Gitleaks `v8.30.0` with the default rule set against the complete Git history and normalized current lockfile contents
+- local link, anchor, structure, and index checks for tracked Markdown
 - `npm audit --omit=dev` for production frontend dependencies
 - ESLint with `--max-warnings=0`
 
@@ -37,6 +38,17 @@ already installed:
 Both commands require the repository Go and Node toolchains plus ShellCheck
 `0.11.0`. actionlint and Gitleaks are resolved by Go at the versions embedded
 in the script.
+
+The documentation portion can be run independently without frontend
+dependencies or network access:
+
+```bash
+make check-docs
+```
+
+It validates local inline, reference, and image targets and anchors, basic
+Markdown structure, and the completeness of documentation section indexes.
+External URLs are intentionally not fetched in CI.
 
 ## Secret Scan Exceptions
 
