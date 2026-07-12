@@ -239,8 +239,8 @@ export function getStacklabLogs(params?: StacklabLogsQueryParams): Promise<Stack
   return request(`/api/host/stacklab-logs${qs ? `?${qs}` : ''}`)
 }
 
-export function getDockerAdminOverview(): Promise<DockerAdminOverviewResponse> {
-  return request('/api/docker/admin/overview')
+export function getDockerAdminOverview(signal?: AbortSignal): Promise<DockerAdminOverviewResponse> {
+  return request('/api/docker/admin/overview', { signal })
 }
 
 export function getDockerDaemonConfig(): Promise<DockerDaemonConfigResponse> {
