@@ -154,7 +154,7 @@ describe('StackEditorPage', () => {
       warnings: [],
     })
     mockSaveDefinition.mockResolvedValue({
-      job: { id: 'job-save-deploy', stack_id: 'demo', action: 'save_definition', state: 'running' },
+      job: { id: 'job-save-deploy', stack_id: 'demo', action: 'save_definition', state: 'running', requested_at: '2026-07-09T08:00:00Z' },
     })
 
     renderPage()
@@ -205,7 +205,7 @@ describe('StackEditorPage', () => {
 
   it('saves with the loaded definition revision', async () => {
     mockSaveDefinition.mockResolvedValue({
-      job: { id: 'job-save', stack_id: 'demo', action: 'save_definition', state: 'succeeded' },
+      job: { id: 'job-save', stack_id: 'demo', action: 'save_definition', state: 'succeeded', requested_at: '2026-07-09T08:00:00Z' },
     })
 
     renderPage()

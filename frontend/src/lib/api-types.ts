@@ -16,7 +16,7 @@ export type ServiceMode = 'image' | 'build' | 'hybrid'
 export type ContainerStatus = 'created' | 'running' | 'restarting' | 'paused' | 'exited' | 'dead'
 export type HealthStatus = 'healthy' | 'unhealthy' | 'starting' | null
 
-export type JobState = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancel_requested' | 'cancelled' | 'timed_out'
+export type JobState = APISchemas['JobState']
 export type JobEventType =
   | 'job_started'
   | 'job_step_started'
@@ -374,113 +374,17 @@ export interface ComposeWarning {
   message: string
 }
 
-export interface JobRef {
-  id: string
-  stack_id: string | null
-  action: string
-  state: JobState
-  request_id?: string
-  workflow?: {
-    steps: { action: string; state: string; target_stack_id?: string }[]
-  }
-}
-
-export interface JobDetail {
-  id: string
-  stack_id: string | null
-  action: string
-  state: JobState
-  request_id?: string
-  requested_at: string
-  started_at: string | null
-  finished_at: string | null
-  workflow?: {
-    steps: { action: string; state: string; target_stack_id?: string }[]
-  } | null
-}
-
-export interface JobEventStep {
-  index: number
-  total: number
-  action: string
-  target_stack_id?: string
-}
-
-export interface JobHistoryEvent {
-  job_id: string
-  sequence: number
-  event: JobEventType | string
-  state: JobState | string
-  message?: string
-  data?: string | null
-  step?: JobEventStep | null
-  progress?: APISchemas['JobEventRecord']['progress']
-  timestamp: string
-}
-
-export interface JobEventsResponse {
-  job_id: string
-  retained: boolean
-  message?: string
-  items: JobHistoryEvent[]
-}
-
-export interface ActiveJobStep {
-  index: number
-  total: number
-  action: string
-  target_stack_id?: string
-}
-
-export interface ActiveJobLatestEvent {
-  event: JobEventType | string
-  message?: string
-  data?: string | null
-  timestamp: string
-  step?: ActiveJobStep | null
-}
-
-export interface ActiveJobItem {
-  id: string
-  stack_id: string | null
-  action: string
-  state: JobState
-  request_id?: string
-  requested_at: string
-  started_at: string | null
-  workflow?: {
-    steps: { action: string; state: string; target_stack_id?: string }[]
-  } | null
-  current_step?: ActiveJobStep | null
-  latest_event?: ActiveJobLatestEvent | null
-}
-
-export interface ActiveJobsResponse {
-  items: ActiveJobItem[]
-  summary: {
-    active_count: number
-    running_count: number
-    queued_count: number
-    cancel_requested_count: number
-  }
-}
-
-export interface AuditEntry {
-  id: string
-  stack_id: string | null
-  job_id: string | null
-  action: string
-  requested_by: string
-  result: string
-  requested_at: string
-  finished_at: string | null
-  duration_ms: number | null
-}
-
-export interface AuditResponse {
-  items: AuditEntry[]
-  next_cursor: string | null
-}
+export type JobRef = APISchemas['Job']
+export type JobDetail = APISchemas['Job']
+export type JobEventStep = APISchemas['ActiveJobStep']
+export type JobHistoryEvent = APISchemas['JobEventRecord']
+export type JobEventsResponse = APISchemas['JobEventsResponse']
+export type ActiveJobStep = APISchemas['ActiveJobStep']
+export type ActiveJobLatestEvent = APISchemas['ActiveJobLatestEvent']
+export type ActiveJobItem = APISchemas['ActiveJobItem']
+export type ActiveJobsResponse = APISchemas['ActiveJobsResponse']
+export type AuditEntry = APISchemas['AuditEntry']
+export type AuditResponse = APISchemas['AuditListResponse']
 
 // --- Host observability ---
 

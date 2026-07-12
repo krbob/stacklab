@@ -33,8 +33,6 @@ function toActiveJobItem(job: JobDetail): ActiveJobItem {
     requested_at: job.requested_at,
     started_at: job.started_at,
     workflow: job.workflow,
-    current_step: null,
-    latest_event: null,
   }
 }
 

@@ -168,8 +168,6 @@ describe('GlobalActivity', () => {
         state: 'running',
         requested_at: '2026-04-09T08:00:00Z',
         started_at: '2026-04-09T08:00:01Z',
-        finished_at: null,
-        workflow: null,
       } satisfies JobDetail,
     })
     mockGetJobEvents.mockResolvedValue({
@@ -222,7 +220,6 @@ describe('GlobalActivity', () => {
         requested_at: '2026-04-09T08:00:00Z',
         started_at: '2026-04-09T08:00:01Z',
         finished_at: '2026-04-09T08:00:05Z',
-        workflow: null,
       } satisfies JobDetail,
     })
 
@@ -272,7 +269,6 @@ describe('GlobalActivity', () => {
         requested_at: '2026-04-09T08:00:00Z',
         started_at: '2026-04-09T08:00:01Z',
         finished_at: '2026-04-09T08:00:05Z',
-        workflow: null,
       } satisfies JobDetail,
     })
 

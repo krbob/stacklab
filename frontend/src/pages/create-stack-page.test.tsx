@@ -54,7 +54,7 @@ describe('CreateStackPage', () => {
       ],
     })
     mockCreateStack.mockResolvedValue({
-      job: { id: 'job_create', stack_id: 'demo-web', action: 'create_stack', state: 'running' },
+      job: { id: 'job_create', stack_id: 'demo-web', action: 'create_stack', state: 'running', requested_at: '2026-07-09T08:00:00Z' },
     })
   })
 
