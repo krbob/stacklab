@@ -228,6 +228,7 @@ EOF
 
       make_archive stacklab-upgrade-d 0.0.0-smoke-rollback
       expected_d="$(awk "NR == 1 { print \$1 }" /tmp/release-assets/stacklab-upgrade-d.tar.gz.sha256)"
+      echo "[stacklab-smoke] Expecting a forced restart failure to exercise rollback"
       if SYSTEMCTL_FAIL_RESTART=1 "${artifact_a}/host-tools/upgrade.sh" \
         --sha256 "${expected_d}" \
         --no-health-check \
@@ -235,10 +236,19 @@ EOF
         echo "expected restart failure to trigger rollback" >&2
         exit 1
       fi
+      echo "[stacklab-smoke] Expected restart failure observed; verifying rollback"
 
-      test "$(readlink -f /opt/stacklab/app/current)" = "${release_c}"
+      current_release="$(readlink -f /opt/stacklab/app/current)"
+      if [[ "${current_release}" != "${release_c}" ]]; then
+        echo "rollback left current release at ${current_release}; expected ${release_c}" >&2
+        exit 1
+      fi
       restart_count="$(grep -c "^restart stacklab$" /var/tmp/stacklab-systemctl.log)"
-      test "${restart_count}" -ge 5
+      if [[ "${restart_count}" -lt 5 ]]; then
+        echo "rollback restart was not attempted; observed ${restart_count} total restarts" >&2
+        exit 1
+      fi
+      echo "[stacklab-smoke] Rollback verified at ${release_c}"
     '
 }
 
