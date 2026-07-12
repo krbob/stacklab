@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { deleteStack } from '@/lib/api-client'
 import { Dialog } from '@/components/dialog'
 import { ProgressPanel } from '@/components/progress-panel'
+import { OperationReview } from '@/components/operation-review'
 
 interface DeleteStackDialogProps {
   stackId: string
@@ -49,6 +50,20 @@ export function DeleteStackDialog({ stackId, stackName, onClose }: DeleteStackDi
     }
   }, [navigate, removeDefinition, onClose])
 
+  const reviewScope = [
+    removeRuntime && 'runtime containers',
+    removeDefinition && 'compose.yaml and .env',
+    removeConfig && 'stack configuration directory',
+    removeData && 'stack data directory',
+  ].filter((item): item is string => Boolean(item))
+  const reviewImpact = [
+    removeRuntime && 'Running services will stop and their containers will be removed.',
+    removeDefinition && 'The Compose definition and environment file will be deleted.',
+    removeConfig && 'Stack-specific configuration files will be deleted.',
+    removeData && 'Persistent application data selected here will be deleted permanently.',
+  ].filter((item): item is string => Boolean(item))
+  const removesFiles = removeDefinition || removeConfig || removeData
+
   return (
     <Dialog
       title={`Remove stack "${stackName}"?`}
@@ -79,6 +94,20 @@ export function DeleteStackDialog({ stackId, stackName, onClose }: DeleteStackDi
           <p className="ml-6 text-xs text-[var(--danger)]">Deleting data is irreversible.</p>
         )}
       </div>
+
+      <OperationReview review={{
+        target: stackName === stackId ? stackName : `${stackName} (${stackId})`,
+        scope: reviewScope.length > 0 ? reviewScope : ['No removal scope selected.'],
+        impact: reviewImpact.length > 0 ? reviewImpact : ['Nothing will be changed.'],
+        snapshot: removesFiles
+          ? 'No automatic snapshot is created by this operation.'
+          : 'The stack definition, configuration, and data remain unchanged.',
+        recovery: removeData
+          ? 'Restore data from an external backup; Stacklab cannot undo data deletion.'
+          : removesFiles
+            ? 'Restore removed files from Git or backup, then deploy the stack again.'
+            : 'Deploy or start the retained stack definition again.',
+      }} />
 
       {error && (
         <div className="mt-4 rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">

@@ -53,6 +53,23 @@ describe('DeleteStackDialog', () => {
     expect(screen.getByText(/Deleting data is irreversible/)).toBeInTheDocument()
   })
 
+  it('updates the operation review with snapshot and recovery consequences', () => {
+    renderDialog()
+
+    const review = screen.getByRole('region', { name: 'Review operation' })
+    expect(review).toHaveTextContent('runtime containers')
+    expect(review).toHaveTextContent('The stack definition, configuration, and data remain unchanged.')
+    expect(review).toHaveTextContent('Deploy or start the retained stack definition again.')
+
+    fireEvent.click(screen.getByLabelText(/Delete stack definition/))
+    fireEvent.click(screen.getByLabelText(/Delete this stack's data directory/))
+
+    expect(review).toHaveTextContent('compose.yaml and .env')
+    expect(review).toHaveTextContent('stack data directory')
+    expect(review).toHaveTextContent('No automatic snapshot is created by this operation.')
+    expect(review).toHaveTextContent('Restore data from an external backup; Stacklab cannot undo data deletion.')
+  })
+
   it('calls deleteStack with correct flags', async () => {
     mockDeleteStack.mockResolvedValue({ job: { id: 'job_del', stack_id: 'demo', action: 'remove_stack_definition', state: 'running' } })
 
