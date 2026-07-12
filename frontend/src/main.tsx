@@ -6,6 +6,7 @@ import { AuthProvider } from '@/contexts/auth-context'
 import { JobDrawerProvider } from '@/contexts/job-drawer-context'
 import { AuthenticatedWsProvider } from '@/app/authenticated-ws-provider'
 import { AppRoutes } from '@/app/routes'
+import { RouteErrorPage } from '@/app/route-error-page'
 import '@/index.css'
 
 const router = createBrowserRouter([
@@ -20,6 +21,7 @@ const router = createBrowserRouter([
         </JobDrawerProvider>
       </AuthProvider>
     ),
+    errorElement: <RouteErrorPage />,
   },
 ])
 
