@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
 import type { HostMetricsResponse, HostOverviewResponse } from '@/lib/api-types'
+import { AsyncState } from '@/components/async-state'
 import { formatBytes } from '@/pages/host-page-utils'
 import { formatLoadAverage, formatRate, formatTemperature, maskPublicIP } from '@/pages/host/host-metric-format'
 import {
@@ -19,34 +20,77 @@ export function HostMetricsDashboard({
   overview,
   loading,
   error,
+  onRetry,
 }: {
   metrics: HostMetricsResponse | null
   overview: HostOverviewResponse
   loading: boolean
   error: Error | null
+  onRetry: () => void
 }) {
   const [processSort, setProcessSort] = useState<ProcessSortKey>('cpu')
   const [publicIPVisible, setPublicIPVisible] = useState(false)
   const current = metrics?.current ?? null
   const history = (metrics?.history ?? []).slice(-180)
+  const loadError = error ? new Error(`Failed to load host metrics: ${error.message}`) : null
 
-  if (loading && !current) {
-    return (
-      <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {[1, 2, 3, 4].map((i) => (
-          <div key={i} className="h-36 animate-pulse rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)]" />
-        ))}
-      </div>
-    )
-  }
+  return (
+    <div className="mt-5 space-y-3">
+      <AsyncState
+        loading={loading}
+        error={loadError}
+        hasData={metrics !== null}
+        isEmpty={metrics !== null && current === null}
+        loadingLabel="Loading host metrics."
+        emptyMessage="Waiting for host metrics..."
+        emptyFallback={(
+          <div className="rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-4 py-3 text-sm text-[var(--muted)]">
+            Waiting for host metrics...
+          </div>
+        )}
+        onRetry={onRetry}
+        retryLabel="Retry host metrics"
+        loadingFallback={(
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="h-36 animate-pulse rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)]" />
+            ))}
+          </div>
+        )}
+      >
+        {current && (
+          <HostMetricsContent
+            current={current}
+            history={history}
+            overview={overview}
+            processSort={processSort}
+            onProcessSortChange={setProcessSort}
+            publicIPVisible={publicIPVisible}
+            onTogglePublicIP={() => setPublicIPVisible((visible) => !visible)}
+          />
+        )}
+      </AsyncState>
+    </div>
+  )
+}
 
-  if (!current) {
-    return (
-      <div className="mt-5 rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-4 py-3 text-sm text-[var(--muted)]">
-        Waiting for host metrics...
-      </div>
-    )
-  }
+function HostMetricsContent({
+  current,
+  history,
+  overview,
+  processSort,
+  onProcessSortChange,
+  publicIPVisible,
+  onTogglePublicIP,
+}: {
+  current: NonNullable<HostMetricsResponse['current']>
+  history: HostMetricsResponse['history']
+  overview: HostOverviewResponse
+  processSort: ProcessSortKey
+  onProcessSortChange: (sortKey: ProcessSortKey) => void
+  publicIPVisible: boolean
+  onTogglePublicIP: () => void
+}) {
 
   const primaryFilesystem = current.filesystems.find((filesystem) => filesystem.primary) ?? current.filesystems[0]
   const fallbackDisk = {
@@ -69,17 +113,11 @@ export function HostMetricsDashboard({
   const storageTone = utilizationTone(storage.usage_percent, 'bg-[var(--warning)]', '#D66F3F')
 
   return (
-    <div className="mt-5 flex flex-col gap-3">
+    <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-medium text-[var(--text)]">Host metrics</h2>
         <div className="text-xs text-[var(--muted)]">Sampled {sampledAt}</div>
       </div>
-
-      {error && (
-        <div className="rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">
-          Failed to load host metrics: {error.message}
-        </div>
-      )}
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
@@ -131,7 +169,7 @@ export function HostMetricsDashboard({
                   <button
                     type="button"
                     className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded border border-[var(--panel-border)] text-[var(--muted)] transition hover:text-[var(--text)]"
-                    onClick={() => setPublicIPVisible((visible) => !visible)}
+                    onClick={onTogglePublicIP}
                     aria-pressed={publicIPVisible}
                     aria-label={publicIPVisible ? 'Hide public IP' : 'Show public IP'}
                     title={publicIPVisible ? 'Hide public IP' : 'Show public IP'}
@@ -162,7 +200,7 @@ export function HostMetricsDashboard({
         </MetricCard>
       </div>
 
-      <HostProcessesPanel processes={current.processes ?? null} sortKey={processSort} onSortChange={setProcessSort} />
+      <HostProcessesPanel processes={current.processes ?? null} sortKey={processSort} onSortChange={onProcessSortChange} />
 
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
         <div className="min-w-0 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4">

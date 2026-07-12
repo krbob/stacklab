@@ -22,13 +22,13 @@ export function useHostObservability() {
   const overviewInFlightRef = useRef(false)
   const metricsInFlightRef = useRef(false)
 
-  const loadOverview = useCallback(async () => {
+  const loadOverview = useCallback(async (announce = false) => {
+    if (initialOverviewLoadRef.current || announce) {
+      setOverviewLoading(true)
+      setOverviewError(null)
+    }
     if (overviewInFlightRef.current) return
     overviewInFlightRef.current = true
-
-    if (initialOverviewLoadRef.current) {
-      setOverviewLoading(true)
-    }
 
     try {
       const nextOverview = await getHostOverview()
@@ -44,13 +44,13 @@ export function useHostObservability() {
     }
   }, [])
 
-  const loadMetrics = useCallback(async () => {
+  const loadMetrics = useCallback(async (announce = false) => {
+    if (initialMetricsLoadRef.current || announce) {
+      setMetricsLoading(true)
+      setMetricsError(null)
+    }
     if (metricsInFlightRef.current) return
     metricsInFlightRef.current = true
-
-    if (initialMetricsLoadRef.current) {
-      setMetricsLoading(true)
-    }
 
     try {
       const since = latestMetricSampleTimestamp(metricsRef.current)
@@ -122,6 +122,14 @@ export function useHostObservability() {
     return () => clearInterval(interval)
   }, [overview, pageVisible])
 
+  const retryOverview = useCallback(() => {
+    void loadOverview(true)
+  }, [loadOverview])
+
+  const retryMetrics = useCallback(() => {
+    void loadMetrics(true)
+  }, [loadMetrics])
+
   return {
     overview,
     overviewError,
@@ -131,5 +139,7 @@ export function useHostObservability() {
     metricsError,
     metricsLoading,
     nowMs,
+    retryOverview,
+    retryMetrics,
   }
 }

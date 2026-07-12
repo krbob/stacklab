@@ -389,12 +389,145 @@ describe('HostPage', () => {
     expect(await screen.findByText(/No Stacklab log entries match/)).toBeInTheDocument()
   })
 
-  it('shows host overview error', async () => {
-    mockGetHostOverview.mockRejectedValue(new Error('Connection refused'))
+  it('recovers an initial host overview error without refetching metrics', async () => {
+    vi.spyOn(globalThis, 'setInterval').mockImplementation(() => 1 as unknown as ReturnType<typeof setInterval>)
+    mockGetHostOverview.mockRejectedValueOnce(new Error('Connection refused'))
 
     render(<HostPage />)
 
-    expect(await screen.findByText(/Connection refused/)).toBeInTheDocument()
+    const retry = await screen.findByRole('button', { name: 'Retry host overview' })
+    expect(retry.closest('[role="alert"]')).toHaveTextContent('Failed to load host overview: Connection refused')
+    expect(screen.queryByText('homelab')).not.toBeInTheDocument()
+    expect(mockGetHostOverview).toHaveBeenCalledTimes(1)
+    expect(mockGetHostMetrics).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(retry)
+
+    expect(await screen.findByText('homelab')).toBeInTheDocument()
+    expect(mockGetHostOverview).toHaveBeenCalledTimes(2)
+    expect(mockGetHostMetrics).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows an initial metrics error instead of a false waiting state and recovers on Retry', async () => {
+    vi.spyOn(globalThis, 'setInterval').mockImplementation(() => 1 as unknown as ReturnType<typeof setInterval>)
+    mockGetHostMetrics.mockRejectedValueOnce(new Error('Metrics unavailable'))
+
+    render(<HostPage />)
+
+    const retry = await screen.findByRole('button', { name: 'Retry host metrics' })
+    expect(retry.closest('[role="alert"]')).toHaveTextContent('Failed to load host metrics: Metrics unavailable')
+    expect(screen.queryByText('Waiting for host metrics...')).not.toBeInTheDocument()
+    expect(mockGetHostOverview).toHaveBeenCalledTimes(1)
+    expect(mockGetHostMetrics).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(retry)
+
+    expect(await screen.findByRole('heading', { name: 'Host metrics' })).toBeInTheDocument()
+    expect(mockGetHostOverview).toHaveBeenCalledTimes(1)
+    expect(mockGetHostMetrics).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows the waiting state only after a successful response without a current metrics sample', async () => {
+    vi.spyOn(globalThis, 'setInterval').mockImplementation(() => 1 as unknown as ReturnType<typeof setInterval>)
+    mockGetHostMetrics.mockResolvedValue({
+      ...metrics,
+      current: null,
+      history: [],
+    })
+
+    render(<HostPage />)
+
+    expect(await screen.findByText('Waiting for host metrics...')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Retry host metrics' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/Failed to load host metrics/)).not.toBeInTheDocument()
+  })
+
+  it('keeps the last metrics snapshot after a polling failure and recovers on Retry', async () => {
+    const refreshedMetrics: HostMetricsResponse = {
+      ...metrics,
+      current: metrics.current && {
+        ...metrics.current,
+        sampled_at: '2026-04-04T12:00:11Z',
+        cpu: {
+          ...metrics.current.cpu,
+          usage_percent: 3.2,
+        },
+      },
+    }
+    mockGetHostMetrics
+      .mockResolvedValueOnce(metrics)
+      .mockRejectedValueOnce(new Error('Metrics refresh failed'))
+      .mockResolvedValueOnce(refreshedMetrics)
+    let metricsPoll: (() => void) | null = null
+    vi.spyOn(globalThis, 'setInterval').mockImplementation((handler: TimerHandler, timeout?: number) => {
+      if (timeout === 1_000 && metricsPoll === null) {
+        metricsPoll = () => {
+          if (typeof handler === 'function') handler()
+        }
+      }
+      return 1 as unknown as ReturnType<typeof setInterval>
+    })
+
+    render(<HostPage />)
+
+    expect((await screen.findAllByText('17.5%')).length).toBeGreaterThan(0)
+    expect(metricsPoll).not.toBeNull()
+
+    await act(async () => {
+      metricsPoll?.()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const retry = await screen.findByRole('button', { name: 'Retry host metrics' })
+    expect(retry.closest('[role="alert"]')).toHaveTextContent('Metrics refresh failed')
+    expect(retry.closest('[role="alert"]')).toHaveTextContent('Showing the last successfully loaded data.')
+    expect(screen.getAllByText('17.5%').length).toBeGreaterThan(0)
+
+    fireEvent.click(retry)
+
+    expect((await screen.findAllByText('3.2%')).length).toBeGreaterThan(0)
+    expect(mockGetHostMetrics).toHaveBeenCalledTimes(3)
+  })
+
+  it('keeps the last overview after a polling failure and recovers on Retry', async () => {
+    mockGetHostOverview
+      .mockResolvedValueOnce(overview)
+      .mockRejectedValueOnce(new Error('Overview refresh failed'))
+      .mockResolvedValueOnce({
+        ...overview,
+        host: { ...overview.host, hostname: 'homelab-refreshed' },
+      })
+    let overviewPoll: (() => void) | null = null
+    vi.spyOn(globalThis, 'setInterval').mockImplementation((handler: TimerHandler, timeout?: number) => {
+      if (timeout === 5_000 && overviewPoll === null) {
+        overviewPoll = () => {
+          if (typeof handler === 'function') handler()
+        }
+      }
+      return 1 as unknown as ReturnType<typeof setInterval>
+    })
+
+    render(<HostPage />)
+
+    expect(await screen.findByText('homelab')).toBeInTheDocument()
+    expect(overviewPoll).not.toBeNull()
+
+    await act(async () => {
+      overviewPoll?.()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const retry = await screen.findByRole('button', { name: 'Retry host overview' })
+    expect(retry.closest('[role="alert"]')).toHaveTextContent('Overview refresh failed')
+    expect(retry.closest('[role="alert"]')).toHaveTextContent('Showing the last successfully loaded data.')
+    expect(screen.getByText('homelab')).toBeInTheDocument()
+
+    fireEvent.click(retry)
+
+    expect(await screen.findByText('homelab-refreshed')).toBeInTheDocument()
+    expect(mockGetHostOverview).toHaveBeenCalledTimes(3)
   })
 
   it('displays architecture in system card', async () => {
