@@ -152,4 +152,52 @@ describe('CreateStackPage', () => {
       variables: expect.any(Object),
     }))
   })
+
+  it('keeps blank compose creation available while retrying a failed template catalog', async () => {
+    mockGetTemplates.mockRejectedValueOnce(new Error('template catalog unavailable'))
+
+    render(
+      <MemoryRouter>
+        <CreateStackPage />
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Failed to load stack templates: template catalog unavailable',
+    )
+    expect(screen.getByText('Templates are optional; you can continue with a blank compose.')).toBeInTheDocument()
+
+    const editor = screen.getByLabelText('yaml-editor') as HTMLTextAreaElement
+    const manualCompose = `services:
+  app:
+    image: caddy:2
+`
+    fireEvent.change(editor, { target: { value: manualCompose } })
+    fireEvent.change(screen.getByTestId('create-stack-name'), { target: { value: 'manual-stack' } })
+    fireEvent.click(screen.getByLabelText('Deploy immediately after creation'))
+
+    expect(screen.getByTestId('create-stack-submit')).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry templates' }))
+
+    expect(await screen.findByTestId('template-option-web-service')).toBeInTheDocument()
+    expect(mockGetTemplates).toHaveBeenCalledTimes(2)
+    expect(editor.value).toBe(manualCompose)
+    expect(screen.getByTestId('create-stack-name')).toHaveValue('manual-stack')
+    expect(screen.getByLabelText('Deploy immediately after creation')).toBeChecked()
+    expect(screen.queryByTestId('template-variable-IMAGE')).not.toBeInTheDocument()
+  })
+
+  it('distinguishes an empty template catalog from a load failure', async () => {
+    mockGetTemplates.mockResolvedValueOnce({ items: [] })
+
+    render(
+      <MemoryRouter>
+        <CreateStackPage />
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText('No templates available. Continue with a blank compose.')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('yaml-editor')).toBeInTheDocument()
+  })
 })

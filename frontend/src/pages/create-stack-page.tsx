@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createStack, getTemplates } from '@/lib/api-client'
+import { useApi } from '@/hooks/use-api'
 import type { StackTemplate } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
+import { AsyncState } from '@/components/async-state'
 import { YamlEditor } from '@/components/yaml-editor'
 import { ProgressPanel } from '@/components/progress-panel'
 import { PageHeader } from '@/components/page-header'
@@ -23,15 +25,18 @@ export function CreateStackPage() {
   const navigate = useNavigate()
   const [stackId, setStackId] = useState('')
   const [composeYaml, setComposeYaml] = useState(DEFAULT_COMPOSE)
-  const [templates, setTemplates] = useState<StackTemplate[]>([])
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null)
   const [templateVariables, setTemplateVariables] = useState<Record<string, string>>({})
-
-  useEffect(() => {
-    getTemplates()
-      .then((response) => setTemplates(response.items))
-      .catch(() => {})
-  }, [])
+  const {
+    data: templatesData,
+    error: templatesError,
+    loading: templatesLoading,
+    refetch: refetchTemplates,
+  } = useApi(() => getTemplates(), [])
+  const templates = templatesData?.items ?? []
+  const templateLoadError = templatesError
+    ? new Error(`Failed to load stack templates: ${templatesError.message}`)
+    : null
 
   function applyTemplate(template: StackTemplate | null) {
     setSelectedTemplate(template?.id ?? null)
@@ -135,78 +140,105 @@ export function CreateStackPage() {
           )}
         </label>
 
-        {templates.length > 0 && (
-          <div>
-            <span className="mb-2 block text-sm text-[var(--muted)]">Start from</span>
-            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-              <button
-                type="button"
-                onClick={() => applyTemplate(null)}
-                className={cn(
-                  'min-h-20 rounded-md border px-3 py-3 text-left transition',
-                  selectedTemplate === null
-                    ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
-                    : 'border-[var(--panel-border)] text-[var(--muted)] hover:text-[var(--text)]',
-                )}
-              >
-                <span className="block text-sm font-medium">Blank compose</span>
-                <span className="mt-1 block text-xs text-[var(--muted)]">Start with a minimal editable compose.yaml.</span>
-              </button>
-              {templates.map((template) => (
+        <div aria-busy={templatesLoading}>
+          <span className="mb-2 block text-sm text-[var(--muted)]">Start from</span>
+          <AsyncState
+            loading={templatesLoading}
+            error={templateLoadError}
+            hasData={templatesData !== null}
+            isEmpty={templatesData !== null && templates.length === 0}
+            loadingLabel="Loading stack templates."
+            emptyMessage="No templates available. Continue with a blank compose."
+            emptyFallback={(
+              <p className="rounded-md border border-[var(--panel-border)] px-3 py-3 text-xs text-[var(--muted)]">
+                No templates available. Continue with a blank compose.
+              </p>
+            )}
+            onRetry={refetchTemplates}
+            retryLabel="Retry templates"
+            loadingFallback={(
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                <div className="h-20 animate-pulse rounded-md bg-[rgba(255,255,255,0.03)]" />
+                <div className="h-20 animate-pulse rounded-md bg-[rgba(255,255,255,0.03)]" />
+              </div>
+            )}
+          >
+            <>
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
                 <button
-                  key={template.id}
-                  data-testid={`template-option-${template.id}`}
                   type="button"
-                  onClick={() => applyTemplate(template)}
-                  title={template.description}
+                  onClick={() => applyTemplate(null)}
                   className={cn(
                     'min-h-20 rounded-md border px-3 py-3 text-left transition',
-                    selectedTemplate === template.id
+                    selectedTemplate === null
                       ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
                       : 'border-[var(--panel-border)] text-[var(--muted)] hover:text-[var(--text)]',
                   )}
                 >
-                  <span className="flex items-center justify-between gap-3">
-                    <span className="text-sm font-medium">{template.name}</span>
-                    {template.variables && template.variables.length > 0 && (
-                      <span className="shrink-0 rounded border border-[var(--panel-border)] px-1.5 py-0.5 text-xs uppercase tracking-normal text-[var(--muted)]">
-                        {template.variables.length} vars
-                      </span>
-                    )}
-                  </span>
-                  {template.description && <span className="mt-1 block text-xs text-[var(--muted)]">{template.description}</span>}
+                  <span className="block text-sm font-medium">Blank compose</span>
+                  <span className="mt-1 block text-xs text-[var(--muted)]">Start with a minimal editable compose.yaml.</span>
                 </button>
-              ))}
-            </div>
-            {selectedTemplateObject && (
-              <p className="mt-1 text-xs text-[var(--muted)]">
-                {selectedTemplateObject.description}
-              </p>
-            )}
-            {selectedTemplateObject && (selectedTemplateObject.variables?.length ?? 0) > 0 && (
-              <div className="mt-3 grid gap-3 md:grid-cols-2">
-                {selectedTemplateObject.variables!.map((variable) => (
-                  <label key={variable.name} className="block">
-                    <span className="mb-1 block text-xs text-[var(--muted)]">{variable.label || variable.name}</span>
-                    <input
-                      data-testid={`template-variable-${variable.name}`}
-                      type="text"
-                      value={templateVariables[variable.name] ?? ''}
-                      onChange={(e) => updateTemplateVariable(variable.name, e.target.value)}
-                      disabled={creating}
-                      aria-invalid={variable.required && (templateVariables[variable.name] ?? '').trim() === ''}
-                      className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
-                    />
-                    {variable.required && (templateVariables[variable.name] ?? '').trim() === '' && (
-                      <span className="mt-1 block text-xs text-[var(--danger)]">{variable.label || variable.name} is required.</span>
+                {templates.map((template) => (
+                  <button
+                    key={template.id}
+                    data-testid={`template-option-${template.id}`}
+                    type="button"
+                    onClick={() => applyTemplate(template)}
+                    title={template.description}
+                    className={cn(
+                      'min-h-20 rounded-md border px-3 py-3 text-left transition',
+                      selectedTemplate === template.id
+                        ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] text-[var(--text)]'
+                        : 'border-[var(--panel-border)] text-[var(--muted)] hover:text-[var(--text)]',
                     )}
-                    {variable.description && <span className="mt-1 block text-xs text-[var(--muted)]">{variable.description}</span>}
-                  </label>
+                  >
+                    <span className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-medium">{template.name}</span>
+                      {template.variables && template.variables.length > 0 && (
+                        <span className="shrink-0 rounded border border-[var(--panel-border)] px-1.5 py-0.5 text-xs uppercase tracking-normal text-[var(--muted)]">
+                          {template.variables.length} vars
+                        </span>
+                      )}
+                    </span>
+                    {template.description && <span className="mt-1 block text-xs text-[var(--muted)]">{template.description}</span>}
+                  </button>
                 ))}
               </div>
-            )}
-          </div>
-        )}
+              {selectedTemplateObject && (
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  {selectedTemplateObject.description}
+                </p>
+              )}
+              {selectedTemplateObject && (selectedTemplateObject.variables?.length ?? 0) > 0 && (
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  {selectedTemplateObject.variables!.map((variable) => (
+                    <label key={variable.name} className="block">
+                      <span className="mb-1 block text-xs text-[var(--muted)]">{variable.label || variable.name}</span>
+                      <input
+                        data-testid={`template-variable-${variable.name}`}
+                        type="text"
+                        value={templateVariables[variable.name] ?? ''}
+                        onChange={(e) => updateTemplateVariable(variable.name, e.target.value)}
+                        disabled={creating}
+                        aria-invalid={variable.required && (templateVariables[variable.name] ?? '').trim() === ''}
+                        className="w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]"
+                      />
+                      {variable.required && (templateVariables[variable.name] ?? '').trim() === '' && (
+                        <span className="mt-1 block text-xs text-[var(--danger)]">{variable.label || variable.name} is required.</span>
+                      )}
+                      {variable.description && <span className="mt-1 block text-xs text-[var(--muted)]">{variable.description}</span>}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </>
+          </AsyncState>
+          {templateLoadError && templatesData === null && (
+            <p className="mt-2 text-xs text-[var(--muted)]">
+              Templates are optional; you can continue with a blank compose.
+            </p>
+          )}
+        </div>
 
         <div>
           <span className="mb-2 block text-sm text-[var(--muted)]">
