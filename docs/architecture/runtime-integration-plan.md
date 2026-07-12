@@ -2,6 +2,21 @@
 
 This document turns ADR 0003 into an implementation plan.
 
+## Status And Lifecycle
+
+- **Document status:** active technical plan, last reconciled on 2026-07-12
+- **Decision status:** the hybrid integration model from ADR 0003 remains
+  accepted
+- **Implementation status:** Stages 1-5 remain planned and are not currently
+  scheduled on the product roadmap
+- **Lifecycle:** update the stage status when runtime migration work is
+  scheduled or completed; archive this document only after every retained
+  stage has either shipped or been superseded by a new ADR
+
+This document defines the order and boundaries of the runtime migration. The
+current product priorities and delivery order are maintained separately in the
+[product roadmap](../roadmap.md).
+
 ## Goal
 
 Keep Compose lifecycle operations on `docker compose` CLI while migrating runtime-heavy behavior toward Docker Engine API based adapters.
@@ -171,14 +186,12 @@ Each migration stage should preserve:
 
 Additional tests should be added per stage for the new provider implementation.
 
-## Recommended Immediate Next Step
+## Scheduling
 
-Do not start the runtime migration immediately.
+Host observability, the config workspace, and local Git workspace visibility
+from the original sequencing have shipped and are part of the current product
+baseline. They are no longer prerequisites for this plan.
 
-Priority should remain on the product roadmap:
-
-1. host observability
-2. config workspace
-3. local Git workspace visibility
-
-After those milestones, Stage 1 and Stage 2 of this plan become the most sensible runtime refactor work.
+Use the [product roadmap](../roadmap.md) as the authoritative source for current
+priorities. When runtime migration is scheduled, begin with Stage 1 and then
+Stage 2 unless new evidence requires revisiting ADR 0003 or this sequence.

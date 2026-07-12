@@ -1,5 +1,16 @@
 # Kompleksowy plan testów StackLab (manualne + eksploracyjne)
 
+## Status dokumentu
+
+To jest aktualny, żywy plan scenariuszy manualnych i eksploracyjnych. Liczba
+plików oraz testów automatycznych zmienia się wraz z projektem, dlatego zakres
+baseline'u określają poniższe komendy, a nie zapisane tu liczniki.
+
+Wyniki konkretnych wykonań pozostają datowanymi zapisami. Najnowszy dostępny
+raport z manualnej walidacji na Linuxie to
+[przebieg z 2026-07-06](test-run-2026-07-06.md); nie zastępuje on tego planu ani
+nie potwierdza automatycznie późniejszych zmian.
+
 ## Cel
 
 Przetestować możliwie jak najwięcej ścieżek aplikacji na docelowym środowisku
@@ -9,11 +20,20 @@ responsywność, reconnect/sesje).
 
 Plan uzupełnia — a nie zastępuje — testy automatyczne:
 
-- backend: `go test ./...` (29 plików `*_test.go`, w tym integracyjne HTTP/WS i
-  Docker-backed)
-- frontend: `npm test` (Vitest, 28 plików), `npm run typecheck`, `npm run lint`
-- E2E: Playwright (`frontend/e2e`, 6 speców: login/dashboard, editor,
-  create/delete, audit, maintenance, config-workspace)
+- pełny powtarzalny baseline repozytorium: `make check` (backend, frontend,
+  kontrakt OpenAPI i kontrola higieny repozytorium)
+- backend, gdy potrzebna jest krótsza iteracja: `make check-backend`
+- frontend, gdy potrzebna jest krótsza iteracja: `make check-frontend`
+- Docker-backed integration:
+  `go test -tags=integration ./internal/httpapi -count=1`
+- browser E2E:
+  `npm --prefix frontend run test:e2e`
+
+Docker-backed integration i browser E2E wymagają usług runtime poza bazowym
+drzewem źródeł, dlatego pozostają również osobnymi workflow CI.
+
+Dokładny, obowiązujący zakres komend i wersje narzędzi opisują
+[Reproducible Developer Checks](developer-checks.md).
 
 Skupiamy się na **lukach**: przepływy, których automaty nie dotykają, warstwa
 UX/wizualna, ścieżki błędów, bezpieczeństwo, oraz funkcje świeżo dodane
@@ -561,8 +581,9 @@ DA/R (docker admin/rejestry), self-update, deployment/odporność (16).
 
 **Tura 4 — przekrojowe UX** (17) — równolegle podczas tur 1–3.
 
-Sugerowany przebieg na VM: najpierw `go test ./...` + `npm test` (baseline
-zielony), potem eksploracja manualna wg tur, dokumentując odchylenia.
+Sugerowany przebieg na VM: najpierw `make check`, potem Docker-backed integration
+i browser E2E wskazane w sekcji „Cel”, a następnie eksploracja manualna wg tur,
+dokumentując odchylenia.
 
 ---
 
