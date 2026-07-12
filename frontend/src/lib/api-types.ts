@@ -502,174 +502,29 @@ export type HostProcessContainerInfo = APISchemas['HostProcessContainer']
 export type StacklabLogEntry = APISchemas['StacklabLogEntry']
 export type StacklabLogsResponse = APISchemas['StacklabLogsResponse']
 
-export interface DockerServiceStatus {
-  manager: string
-  supported: boolean
-  unit_name: string
-  load_state: string
-  active_state: string
-  sub_state: string
-  unit_file_state: string
-  fragment_path: string
-  started_at?: string | null
-  message?: string | null
-}
-
-export interface DockerEngineStatus {
-  available: boolean
-  version: string
-  api_version: string
-  compose_version: string
-  root_dir: string
-  driver: string
-  logging_driver: string
-  cgroup_driver: string
-  message?: string | null
-}
-
-export interface DockerDaemonConfigSummary {
-  dns: string[]
-  registry_mirrors: string[]
-  insecure_registries: string[]
-  log_driver: string
-  data_root: string
-  live_restore?: boolean | null
-}
-
-export interface DockerDaemonConfigMeta {
-  path: string
-  exists: boolean
-  permissions?: FilePermissions | null
-  size_bytes?: number | null
-  modified_at?: string | null
-  valid_json: boolean
-  parse_error?: string | null
-  configured_keys: string[]
-  summary: DockerDaemonConfigSummary
-  write_capability: DockerDaemonWriteCapability
-}
-
-export interface DockerAdminOverviewResponse {
-  service: DockerServiceStatus
-  engine: DockerEngineStatus
-  daemon_config: DockerDaemonConfigMeta
-  write_capability: DockerDaemonWriteCapability
-}
-
-export interface DockerDaemonConfigResponse extends DockerDaemonConfigMeta {
-  content?: string | null
-}
-
-export interface DockerDaemonWriteCapability {
-  supported: boolean
-  reason?: string | null
-  managed_keys: string[]
-}
-
-export interface DockerManagedSettings {
-  dns?: string[]
-  registry_mirrors?: string[]
-  insecure_registries?: string[]
-  live_restore?: boolean
-}
-
-export interface DockerDaemonValidateRequest {
-  settings: DockerManagedSettings
-  remove_keys?: string[]
-}
-
-export type DockerDaemonApplyRequest = DockerDaemonValidateRequest
-
-export interface DockerDaemonConfigPreview {
-  path: string
-  content: string
-  configured_keys: string[]
-  summary: DockerDaemonConfigSummary
-}
-
-export interface DockerDaemonValidateResponse {
-  write_capability: DockerDaemonWriteCapability
-  changed_keys: string[]
-  requires_restart: boolean
-  warnings: string[]
-  preview: DockerDaemonConfigPreview
-}
-
-export interface DockerRegistryEntry {
-  registry: string
-  configured: boolean
-  username: string
-  source: string
-  last_verified_at?: string | null
-  last_error: string
-}
-
-export interface DockerRegistryStatusResponse {
-  docker_config_path: string
-  exists: boolean
-  permissions?: FilePermissions | null
-  size_bytes?: number | null
-  modified_at?: string | null
-  valid_json: boolean
-  parse_error?: string | null
-  items: DockerRegistryEntry[]
-}
-
-export interface DockerRegistryLoginRequest {
-  registry: string
-  username: string
-  password: string
-}
-
-export interface DockerRegistryLogoutRequest {
-  registry: string
-}
-
-export interface StacklabUpdatePackageStatus {
-  supported: boolean
-  message?: string
-  name: string
-  installed_version?: string
-  candidate_version?: string
-  configured_channel?: string
-  update_available: boolean
-}
-
-export interface StacklabUpdateWriteCapability {
-  supported: boolean
-  reason?: string
-}
-
-export interface StacklabUpdateRuntimeStatus {
-  job_id?: string
-  pending_finalize: boolean
-  requested_version?: string
-  installed_version?: string
-  result?: string
-  message?: string
-  started_at?: string
-  finished_at?: string
-}
-
-export interface StacklabUpdateOverviewResponse {
-  current_version: string
-  install_mode: 'apt' | 'tarball' | 'unknown' | string
-  package: StacklabUpdatePackageStatus
-  write_capability: StacklabUpdateWriteCapability
-  runtime?: StacklabUpdateRuntimeStatus | null
-}
-
-export interface StacklabUpdateApplyRequest {
-  expected_candidate_version?: string
-  refresh_package_index?: boolean
-}
-
-export interface StacklabUpdateApplyResponse {
-  started: boolean
-  job: JobRef
-  package: StacklabUpdatePackageStatus
-  runtime?: StacklabUpdateRuntimeStatus | null
-}
+export type DockerServiceStatus = APISchemas['DockerServiceStatus']
+export type DockerEngineStatus = APISchemas['DockerEngineStatus']
+export type DockerDaemonConfigSummary = APISchemas['DockerDaemonConfigSummary']
+export type DockerManagedKey = APISchemas['DockerManagedKey']
+export type DockerDaemonConfigMeta = APISchemas['DockerDaemonConfigMeta']
+export type DockerAdminOverviewResponse = APISchemas['DockerAdminOverviewResponse']
+export type DockerDaemonConfigResponse = APISchemas['DockerDaemonConfigResponse']
+export type DockerDaemonWriteCapability = APISchemas['DockerDaemonWriteCapability']
+export type DockerManagedSettings = APISchemas['DockerManagedSettings']
+export type DockerDaemonValidateRequest = APISchemas['DockerDaemonValidateRequest']
+export type DockerDaemonApplyRequest = APISchemas['DockerDaemonValidateRequest']
+export type DockerDaemonConfigPreview = APISchemas['DockerDaemonConfigPreview']
+export type DockerDaemonValidateResponse = APISchemas['DockerDaemonValidateResponse']
+export type DockerRegistryEntry = APISchemas['DockerRegistryEntry']
+export type DockerRegistryStatusResponse = APISchemas['DockerRegistryStatusResponse']
+export type DockerRegistryLoginRequest = APISchemas['DockerRegistryLoginRequest']
+export type DockerRegistryLogoutRequest = APISchemas['DockerRegistryLogoutRequest']
+export type StacklabUpdatePackageStatus = APISchemas['StacklabUpdatePackageStatus']
+export type StacklabUpdateWriteCapability = APISchemas['StacklabUpdateWriteCapability']
+export type StacklabUpdateRuntimeStatus = APISchemas['StacklabUpdateRuntimeStatus']
+export type StacklabUpdateOverviewResponse = APISchemas['StacklabUpdateOverviewResponse']
+export type StacklabUpdateApplyRequest = APISchemas['StacklabUpdateApplyRequest']
+export type StacklabUpdateApplyResponse = APISchemas['StacklabUpdateApplyResponse']
 
 export interface FilePermissions {
   owner_uid: number | null

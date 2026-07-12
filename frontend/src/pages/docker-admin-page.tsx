@@ -16,6 +16,7 @@ import type {
   DockerAdminOverviewResponse,
   DockerDaemonConfigResponse,
   DockerDaemonValidateResponse,
+  DockerManagedKey,
   DockerRegistryStatusResponse,
 } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
@@ -303,7 +304,7 @@ function ManagedSettingsForm({ currentSummary, writeCapability, onApplyDone }: {
       const dnsList = parseCommaSeparatedList(dns)
       const mirrorsList = parseCommaSeparatedList(mirrors)
       const insecureList = parseCommaSeparatedList(insecure)
-      const removeKeys: string[] = []
+      const removeKeys: DockerManagedKey[] = []
       if (dnsList.length === 0) removeKeys.push('dns')
       if (mirrorsList.length === 0) removeKeys.push('registry_mirrors')
       if (insecureList.length === 0) removeKeys.push('insecure_registries')
@@ -333,7 +334,7 @@ function ManagedSettingsForm({ currentSummary, writeCapability, onApplyDone }: {
       const dnsList = parseCommaSeparatedList(dns)
       const mirrorsList = parseCommaSeparatedList(mirrors)
       const insecureList = parseCommaSeparatedList(insecure)
-      const removeKeys: string[] = []
+      const removeKeys: DockerManagedKey[] = []
       if (dnsList.length === 0) removeKeys.push('dns')
       if (mirrorsList.length === 0) removeKeys.push('registry_mirrors')
       if (insecureList.length === 0) removeKeys.push('insecure_registries')

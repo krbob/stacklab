@@ -257,7 +257,6 @@ describe('DockerAdminPage', () => {
   it('shows no daemon.json state', () => {
     const noDaemonConfig: DockerDaemonConfigResponse = {
       ...noDaemonOverview.daemon_config,
-      content: null,
     }
     mockDockerPage(noDaemonOverview, noDaemonConfig)
     render(<DockerAdminPage />)
