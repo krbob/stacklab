@@ -60,6 +60,32 @@ func TestParseJournalEntriesSkipsNonJSONLines(t *testing.T) {
 	}
 }
 
+func TestParseJournalEntriesPrefersStructuredApplicationLevel(t *testing.T) {
+	t.Parallel()
+
+	output := strings.Join([]string{
+		`{"__REALTIME_TIMESTAMP":"1712336000000000","PRIORITY":"6","MESSAGE":"time=2026-07-12T22:35:13+02:00 level=WARN msg=\"failed to read env file\"","__CURSOR":"s=cursor-1"}`,
+		`{"__REALTIME_TIMESTAMP":"1712336010000000","PRIORITY":"6","MESSAGE":"{\"time\":\"2026-07-12T22:35:14+02:00\",\"level\":\"ERROR\",\"msg\":\"failed\"}","__CURSOR":"s=cursor-2"}`,
+		`{"__REALTIME_TIMESTAMP":"1712336020000000","PRIORITY":"4","MESSAGE":"systemd warning","__CURSOR":"s=cursor-3"}`,
+	}, "\n")
+
+	entries, err := parseJournalEntries([]byte(output))
+	if err != nil {
+		t.Fatalf("parseJournalEntries() error = %v", err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("len(entries) = %d, want 3: %#v", len(entries), entries)
+	}
+	if entries[0].Level != "warn" || entries[1].Level != "error" || entries[2].Level != "warn" {
+		t.Fatalf("parsed levels = %q, %q, %q; want warn, error, warn", entries[0].Level, entries[1].Level, entries[2].Level)
+	}
+
+	filtered := filterLogEntries(entries, "warn", "", true)
+	if len(filtered) != 2 || filtered[0].Cursor != "s=cursor-1" || filtered[1].Cursor != "s=cursor-3" {
+		t.Fatalf("unexpected warning filter result: %#v", filtered)
+	}
+}
+
 func TestFilterLogEntries(t *testing.T) {
 	t.Parallel()
 

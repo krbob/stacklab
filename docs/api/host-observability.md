@@ -404,6 +404,10 @@ Expected UI uses:
 - severity filter
 - text search
 
+For Stacklab's structured text or JSON records, severity comes from the
+embedded application `level`; journald `PRIORITY` remains the fallback for
+systemd and other unstructured unit messages.
+
 Not required initially:
 
 - ANSI formatting

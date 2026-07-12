@@ -290,10 +290,15 @@ func parseJournalEntries(output []byte) ([]StacklabLogEntry, error) {
 			continue
 		}
 
+		message := journalValueToString(raw["MESSAGE"])
+		level := normalizeJournalLevel(raw["PRIORITY"])
+		if applicationLevel, ok := parseApplicationLogLevel(message); ok {
+			level = applicationLevel
+		}
 		entry := StacklabLogEntry{
 			Timestamp: parseJournalTimestamp(raw["__REALTIME_TIMESTAMP"]),
-			Level:     normalizeJournalLevel(raw["PRIORITY"]),
-			Message:   journalValueToString(raw["MESSAGE"]),
+			Level:     level,
+			Message:   message,
 			Cursor:    journalValueToString(raw["__CURSOR"]),
 		}
 		if entry.Message == "" {
@@ -361,6 +366,43 @@ func normalizeJournalLevel(value any) string {
 		return "debug"
 	default:
 		return "info"
+	}
+}
+
+func parseApplicationLogLevel(message string) (string, bool) {
+	trimmed := strings.TrimSpace(message)
+	if strings.HasPrefix(trimmed, "{") {
+		var payload struct {
+			Level string `json:"level"`
+		}
+		if err := json.Unmarshal([]byte(trimmed), &payload); err == nil {
+			return normalizeApplicationLogLevel(payload.Level)
+		}
+	}
+
+	for _, field := range strings.Fields(trimmed) {
+		value, ok := strings.CutPrefix(field, "level=")
+		if !ok {
+			continue
+		}
+		return normalizeApplicationLogLevel(strings.Trim(value, `"`))
+	}
+	return "", false
+}
+
+func normalizeApplicationLogLevel(value string) (string, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch {
+	case strings.HasPrefix(normalized, "debug"):
+		return "debug", true
+	case strings.HasPrefix(normalized, "info"):
+		return "info", true
+	case strings.HasPrefix(normalized, "warn"):
+		return "warn", true
+	case strings.HasPrefix(normalized, "error"):
+		return "error", true
+	default:
+		return "", false
 	}
 }
 
