@@ -8,7 +8,7 @@ GO_FORMAT_PATHS := cmd internal
 
 .PHONY: check check-toolchain check-toolchain-go check-toolchain-node
 .PHONY: check-backend check-backend-test check-backend-coverage check-backend-hygiene
-.PHONY: backend-test backend-coverage backend-hygiene frontend-dependencies frontend-checks hygiene-checks
+.PHONY: backend-test backend-coverage backend-hygiene frontend-dependencies frontend-api-contract frontend-checks hygiene-checks
 .PHONY: check-frontend check-hygiene
 
 check: check-toolchain backend-test backend-hygiene frontend-dependencies frontend-checks hygiene-checks
@@ -59,7 +59,12 @@ frontend-dependencies:
 
 check-frontend: check-toolchain-node frontend-dependencies frontend-checks
 
-frontend-checks:
+frontend-api-contract:
+	@echo "==> Frontend API contract"
+	@npm --prefix frontend run generate
+	@git diff --exit-code -- frontend/src/lib/api-contract.generated.ts
+
+frontend-checks: frontend-api-contract
 	@echo "==> Frontend tests"
 	@npm --prefix frontend test
 	@echo "==> Frontend typecheck"
