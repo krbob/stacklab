@@ -71,6 +71,8 @@ export function GlobalActivity({ variant = 'sidebar' }: { variant?: 'sidebar' | 
           const { job } = await getJob(id)
           return toActiveJobItem(job)
         } catch {
+          // This lookup only enriches the short-lived completion notice. The
+          // authoritative activity snapshot has already removed the job.
           return null
         }
       }),

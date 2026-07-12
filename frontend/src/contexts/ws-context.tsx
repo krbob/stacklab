@@ -48,6 +48,8 @@ export function WsProvider({ children, authenticated = false }: { children: Reac
       try {
         frame = JSON.parse(event.data)
       } catch {
+        // Isolate a malformed frame without disrupting the live stream; a
+        // later valid snapshot remains authoritative for every subscriber.
         return
       }
 
