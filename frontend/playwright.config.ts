@@ -10,7 +10,7 @@ export default defineConfig({
     baseURL: process.env.STACKLAB_E2E_URL ?? 'http://127.0.0.1:18081',
     headless: true,
     screenshot: 'only-on-failure',
-    trace: 'on-first-retry',
+    trace: 'retain-on-failure',
   },
   projects: [
     { name: 'chromium', use: { browserName: 'chromium' } },
