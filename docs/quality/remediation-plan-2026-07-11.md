@@ -119,7 +119,7 @@ rozszerzania zakresu produktu poza model single-host i Compose-first.
 | QA-03 | done | Włączyć dodatkowe bramki statyczne | actionlint, ShellCheck, secret scan, npm production audit i `eslint --max-warnings=0` | `ci: enforce repository hygiene checks` |
 | QA-04 | done | Usunąć flake testów schedulera | lokalizacja czasu jako zależność, pełne oczekiwanie na finalizację; wielokrotny race run jest stabilny | `test(scheduler): isolate local time state` |
 | DX-01 | done | Ujednolicić toolchain i jedno polecenie check | zgodne wersje Go/Node w docs i plikach narzędzi; `make check`/równoważne nie skanuje `frontend/node_modules` jako Go | `build: add reproducible developer checks` |
-| DX-02 | deferred | Uporządkować dokumentację i governance | aktualny indeks docs; historyczne plany oznaczone; `SECURITY.md`, `CONTRIBUTING.md`, `CODEOWNERS`, licencja po decyzji właściciela | seria `docs: ...` |
+| DX-02 | done | Uporządkować dokumentację i governance | aktualny indeks docs i lifecycle planów; `SECURITY.md`, `CONTRIBUTING.md`, `CODEOWNERS`; Apache-2.0; deterministyczne notices w artefaktach wydaniowych | seria `docs: ...` / `build(release): ...` |
 
 Weryfikacja QA-02 z 2026-07-12 objęła pełny lokalny przebieg na prawdziwym
 Dockerze: 24 testy przeszły na desktopowym i mobilnym Chromium, a jeden test
@@ -127,10 +127,18 @@ naprawy uprawnień został zgodnie z konfiguracją pominięty lokalnie i pozosta
 włączony w CI z helperem `sudo`. Playwright zachowuje trace, screenshot i raport
 HTML dla awarii, a workflow wykonuje preflight Dockera i readiness backendu.
 
-DX-02 jest odłożone wyłącznie w części wymagającej decyzji właściciela o modelu
-licencji. Indeks dokumentacji, oznaczenie materiałów historycznych,
-`SECURITY.md`, `CONTRIBUTING.md` i `CODEOWNERS` są wdrożone; repozytorium nie
-otrzyma domyślnej licencji bez jawnego wyboru.
+Weryfikacja końcowa DX-02 z 2026-07-12 objęła decyzję właściciela o przyjęciu
+Apache-2.0, dodanie `LICENSE` i `NOTICE`, metadane pakietu frontendowego oraz
+zasady contributions i ownershipu. `THIRD_PARTY_NOTICES.md` jest generowany
+deterministycznie dla 12 modułów Go i 37 pakietów frontendowych dystrybuowanych
+w buildzie, a kontrola driftu jest częścią bramki higieny. Tarball zawiera
+licencję projektu, notice i komplet notices zależności; pakiet Debian mapuje je
+do nieskompresowanego `/usr/share/doc/stacklab/copyright` oraz `NOTICE` zgodnie z
+kontraktem platformy. Lokalnie przeszły inspekcje obu artefaktów, pełny smoke
+instalacji/upgrade/rollback tarballa oraz natywny arm64 smoke instalacji i
+upgrade'u `.deb` A→B pod prawdziwym systemd. Indeks dokumentacji, aktywne plany
+i materiały historyczne mają teraz jawny lifecycle, a `SECURITY.md`,
+`CONTRIBUTING.md` i `CODEOWNERS` są wdrożone.
 
 ## P2 — UX/UI i propozycje produktowe
 
