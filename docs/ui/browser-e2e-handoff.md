@@ -16,6 +16,7 @@ The current suite covers:
 - Settings navigation and maintenance schedule persistence;
 - Maintenance inventory/cleanup and Docker Admin status;
 - live stack logs, stats, and an interactive terminal session;
+- recovery from a failed lazy-loaded route chunk through a full-page retry;
 - desktop Chromium plus a focused mobile Chromium navigation smoke.
 
 Protocol edge cases, replay semantics, reconnect behavior, terminal limits, and
@@ -173,5 +174,7 @@ The authoritative workflow is `.github/workflows/browser-e2e.yml`. It:
 - Use unique stack IDs for Docker tests and always clean them in `afterEach`.
 - Avoid exact timestamps, container IDs, CPU values, Tailwind classes, and
   animation timing.
+- Block service workers when simulating asset failures so the cache cannot hide
+  the controlled network error.
 - A new Docker-dependent test must pass both in isolation and in the full
   single-worker suite.
