@@ -1,375 +1,379 @@
 # SQLite Schema
 
-## Purpose
+## Purpose and source of truth
 
-This document defines the SQLite persistence model for Stacklab v1.
+SQLite stores Stacklab's operational state and metadata. It does not replace
+the filesystem as the source of truth for stack definitions.
 
-The database stores operational state and metadata. It does **not** replace the filesystem as the source of truth for stack definitions.
+The authoritative schema is the migration registry in
+[`internal/store/migrations.go`](../../internal/store/migrations.go). This
+document describes the current schema at version 5 and its application-level
+contract. When this document and executable migrations disagree, migrations
+win and this document must be corrected in the same change.
 
-## Design Principles
+The persistence models and queries in
+[`internal/store/store.go`](../../internal/store/store.go) define how the
+schema is used after migration.
 
-- stack definitions stay on disk under the managed stacks root
-- SQLite stores only metadata, settings, sessions, jobs, audit entries, and deploy baselines
-- database loss must be survivable without losing stack definitions
-- write volume should remain moderate and predictable on a single host
+## Design principles
 
-## Current Retention Policy
+- stack definitions stay on disk under the managed stacks root;
+- SQLite stores settings, credentials metadata, sessions, jobs, audit entries,
+  deploy baselines, and small operational read models;
+- database loss must be survivable without losing stack definitions;
+- writes remain moderate and predictable on a single host;
+- references between operational tables are logical rather than enforced by
+  foreign keys, which keeps retention and partial recovery simple.
 
-- `audit_entries`: 180 days
-- `jobs`: 180 days
-- `job_events`: 14 days
-- expired or revoked `auth_sessions`: 7 days
+## Runtime configuration
 
-## What Belongs In SQLite
+The store configures SQLite on startup with:
 
-- application settings
-- password hash metadata
-- authenticated sessions
-- mutating jobs
-- audit entries
-- deploy baseline metadata used for drift detection
-- optional lightweight caches
+- `PRAGMA journal_mode = WAL`;
+- `PRAGMA busy_timeout = 5000`.
 
-## What Does Not Belong In SQLite
+The data directory is restricted to mode `0700` and the database, WAL, and SHM
+files to mode `0600`. Timestamps written by the store are UTC RFC 3339 values
+with nanosecond precision.
 
-- full `compose.yaml` source of truth
-- full `.env` source of truth
-- container logs as a primary log store
-- metrics history in v1; stats charts keep only a frontend session buffer
-- arbitrary Docker runtime inventory as authoritative state
+## Current tables
 
-## Entity Overview
+| Table | Responsibility |
+|---|---|
+| `schema_migrations` | Applied migration history |
+| `app_settings` | Versioned JSON settings and small runtime state |
+| `auth_password` | Single-operator password hash and credential generation |
+| `auth_sessions` | Server-side authenticated sessions |
+| `jobs` | Current state of mutating operations |
+| `job_events` | Retained, ordered job event stream |
+| `audit_entries` | Durable summaries of operations |
+| `image_update_status` | Cached image digest comparison results |
+| `stack_deploy_baselines` | Last successful deployment snapshots for drift detection |
 
-Proposed v1 tables:
+There are no `job_locks`, `terminal_audit_events`, or `metrics_rollups` tables
+in schema version 5. Job locks are process-local, terminal metadata uses
+`audit_entries`, and charts keep a frontend-session buffer.
 
-- `schema_migrations`
-- `app_settings`
-- `auth_password`
-- `auth_sessions`
-- `jobs`
-- `job_events`
-- `audit_entries`
-- `stack_deploy_baselines`
+## Table specifications
 
-Optional later tables:
+### `schema_migrations`
 
-- `job_locks`
-- `terminal_audit_events`
-- `metrics_rollups`
+Records the authoritative, append-only migration history.
 
-## Table Specifications
-
-## `app_settings`
-
-Stores singleton-like application settings.
-
-Suggested columns:
-
-| Column | Type | Notes |
+| Column | Type | Contract |
 |---|---|---|
-| `key` | `TEXT PRIMARY KEY` | Setting name |
+| `version` | `INTEGER PRIMARY KEY` | Contiguous schema version |
+| `name` | `TEXT NOT NULL` | Stable registry name |
+| `applied_at` | `TEXT NOT NULL` | UTC RFC 3339 migration commit time |
+
+Rules:
+
+- each numbered migration runs in its own transaction;
+- its schema changes, data backfill, and history row commit or roll back
+  together;
+- recorded versions must be contiguous and names must match the binary's
+  registry;
+- a binary refuses to open a database containing a newer schema version;
+- migrations are forward-only and additive where practical.
+
+Current registry:
+
+| Version | Name | Change |
+|---|---|---|
+| 1 | `initial_schema` | Operational tables and indexes |
+| 2 | `job_event_progress` | Adds `job_events.progress_json` |
+| 3 | `password_version` | Adds credential generations to password and session rows |
+| 4 | `job_event_sequence` | Adds and backfills `jobs.event_sequence` |
+| 5 | `job_request_id` | Adds optional `jobs.request_id` correlation |
+
+Before rolling application code back across a schema-changing release, restore
+the corresponding database backup or use a binary that supports the recorded
+schema version.
+
+### `app_settings`
+
+Stores JSON settings and small persisted runtime state, keyed by subsystem.
+
+| Column | Type | Contract |
+|---|---|---|
+| `key` | `TEXT PRIMARY KEY` | Stable, usually versioned setting name |
 | `value_json` | `TEXT NOT NULL` | JSON-encoded value |
-| `updated_at` | `TEXT NOT NULL` | ISO 8601 UTC |
+| `updated_at` | `TEXT NOT NULL` | UTC RFC 3339 update time |
 
-Examples:
+Current consumers include notifications, maintenance schedules, host
+observability, and self-update state. Values are replaced atomically with an
+upsert; their JSON shape is owned by the corresponding subsystem.
 
-- `feature_flags`
-- `auth_policy`
-- `ui_preferences`
-
-## `auth_password`
+### `auth_password`
 
 Stores password hash metadata for the single local operator.
 
-Suggested columns:
-
-| Column | Type | Notes |
+| Column | Type | Contract |
 |---|---|---|
 | `id` | `INTEGER PRIMARY KEY CHECK (id = 1)` | Singleton row |
-| `password_hash` | `TEXT NOT NULL` | Argon2id hash |
-| `updated_at` | `TEXT NOT NULL` | ISO 8601 UTC |
-| `password_version` | `INTEGER NOT NULL DEFAULT 1` | Credential generation incremented on password change |
+| `password_hash` | `TEXT NOT NULL` | One-way password hash |
+| `updated_at` | `TEXT NOT NULL` | UTC RFC 3339 update time |
+| `password_version` | `INTEGER NOT NULL DEFAULT 1` | Credential generation |
 
 Rules:
 
-- exactly one logical row
-- no plaintext password or reversible secret storage
+- there is at most one logical row and its ID is always `1`;
+- plaintext passwords and reversible secrets are never stored;
+- changing a password increments `password_version` and revokes all active
+  sessions in the same transaction.
 
-## `auth_sessions`
+### `auth_sessions`
 
-Stores authenticated application sessions.
+Stores authenticated server-side sessions.
 
-Suggested columns:
-
-| Column | Type | Notes |
+| Column | Type | Contract |
 |---|---|---|
-| `id` | `TEXT PRIMARY KEY` | Server-side session ID |
-| `user_id` | `TEXT NOT NULL` | `local` in v1 |
-| `created_at` | `TEXT NOT NULL` | ISO 8601 UTC |
-| `last_seen_at` | `TEXT NOT NULL` | ISO 8601 UTC |
-| `expires_at` | `TEXT NOT NULL` | Idle or absolute expiry |
+| `id` | `TEXT PRIMARY KEY` | Session ID |
+| `user_id` | `TEXT NOT NULL` | Local operator ID |
+| `created_at` | `TEXT NOT NULL` | UTC RFC 3339 creation time |
+| `last_seen_at` | `TEXT NOT NULL` | Last successful activity time |
+| `expires_at` | `TEXT NOT NULL` | Current expiry time |
 | `user_agent` | `TEXT` | Optional forensic context |
 | `ip_address` | `TEXT` | Optional forensic context |
-| `revoked_at` | `TEXT` | Null if active |
-| `password_version` | `INTEGER NOT NULL DEFAULT 1` | Credential generation verified when the session was created |
+| `revoked_at` | `TEXT` | Null while active |
+| `password_version` | `INTEGER NOT NULL DEFAULT 1` | Credential generation verified at login |
 
 Indexes:
 
-- index on `expires_at`
-- index on `revoked_at`
+- `idx_auth_sessions_expires_at` on `(expires_at)`;
+- `idx_auth_sessions_revoked_at` on `(revoked_at)`.
 
 Rules:
 
-- expired or revoked sessions are invalid
-- a session is invalid when its password version differs from the current credential generation
-- changing the password increments the generation and revokes all sessions in the same transaction
-- WebSocket upgrade and REST requests resolve through this table or an equivalent server-side session store
+- expired or revoked sessions are invalid;
+- a session is invalid when its `password_version` differs from the current
+  `auth_password.password_version`;
+- session creation can be conditioned on the verified credential generation,
+  closing the login-versus-password-change race;
+- session activity updates use optimistic concurrency on `last_seen_at` and the
+  credential generation.
 
-## `jobs`
+### `jobs`
 
-Stores mutating stack jobs.
+Stores the current summary state of mutating operations.
 
-Suggested columns:
-
-| Column | Type | Notes |
+| Column | Type | Contract |
 |---|---|---|
 | `id` | `TEXT PRIMARY KEY` | Stable job ID |
-| `stack_id` | `TEXT NOT NULL` | Stack directory name |
+| `stack_id` | `TEXT NOT NULL` | Stack ID, or an empty string for a global job |
 | `action` | `TEXT NOT NULL` | Domain action name |
-| `state` | `TEXT NOT NULL` | Domain job state |
-| `requested_by` | `TEXT NOT NULL` | `local` in v1 |
-| `request_id` | `TEXT` | HTTP request that started the job; null for internal/legacy jobs |
-| `requested_at` | `TEXT NOT NULL` | ISO 8601 UTC |
-| `started_at` | `TEXT` | Null until running |
+| `state` | `TEXT NOT NULL` | Current application-level job state |
+| `requested_by` | `TEXT NOT NULL` | Initiating operator |
+| `requested_at` | `TEXT NOT NULL` | UTC RFC 3339 request time |
+| `started_at` | `TEXT` | Null until started |
 | `finished_at` | `TEXT` | Null until terminal |
-| `workflow_json` | `TEXT` | Optional workflow steps metadata |
-| `error_code` | `TEXT` | Terminal failure classification |
-| `error_message` | `TEXT` | Short failure summary |
-| `event_sequence` | `INTEGER NOT NULL DEFAULT 0` | Last sequence reserved for this job's retained events |
-
-Allowed `state` values:
-
-- `queued`
-- `running`
-- `succeeded`
-- `failed`
-- `cancel_requested`
-- `cancelled`
-- `timed_out`
+| `workflow_json` | `TEXT` | Optional `JobWorkflow` payload |
+| `error_code` | `TEXT` | Optional terminal failure classification |
+| `error_message` | `TEXT` | Optional short failure summary |
+| `event_sequence` | `INTEGER NOT NULL DEFAULT 0` | Last sequence reserved for this job |
+| `request_id` | `TEXT` | Optional originating HTTP request ID |
 
 Indexes:
 
-- index on `(stack_id, requested_at DESC)`
-- index on `(state, requested_at DESC)`
+- `idx_jobs_stack_requested_at` on `(stack_id, requested_at DESC)`;
+- `idx_jobs_state_requested_at` on `(state, requested_at DESC)`.
+
+Application states are `queued`, `running`, `cancel_requested`, `succeeded`,
+`failed`, `cancelled`, and `timed_out`. They are intentionally not constrained
+with a database `CHECK`, so transitions remain an application contract.
 
 Rules:
 
-- this table stores the current summary view of a job
-- detailed streamed output belongs in `job_events`
-- job creation, its initial workflow, and `job_started` are committed together
-- state transitions reserve event sequences and persist their related events in the same transaction
+- `jobs` is the current summary; detailed retained output belongs in
+  `job_events`;
+- initial workflow metadata, the job row, and sequence-1 `job_started` event
+  are committed together;
+- transitions reserve event sequences and persist their events in the same
+  transaction;
+- active-job queries include `queued`, `running`, and `cancel_requested`.
 
-## `job_events`
+`workflow_json` has the shape represented by `JobWorkflow`: a `steps` array in
+which each item has `action`, `state`, optional `target_stack_id`, and optional
+`target_service_names`.
 
-Stores append-only event records for mutating jobs.
+### `job_events`
 
-Suggested columns:
+Stores the retained, append-only event stream for jobs.
 
-| Column | Type | Notes |
+| Column | Type | Contract |
 |---|---|---|
-| `id` | `INTEGER PRIMARY KEY AUTOINCREMENT` | Monotonic DB-local ID |
-| `job_id` | `TEXT NOT NULL` | FK-like reference to `jobs.id` |
-| `sequence_no` | `INTEGER NOT NULL` | Per-job monotonic sequence |
-| `event_type` | `TEXT NOT NULL` | `job_started`, `job_log`, etc. |
-| `state` | `TEXT` | Job state at time of event |
-| `message` | `TEXT` | Human-readable summary |
-| `data` | `TEXT` | Raw output chunk when relevant |
-| `step_json` | `TEXT` | Optional workflow step metadata |
-| `created_at` | `TEXT NOT NULL` | ISO 8601 UTC |
+| `job_id` | `TEXT NOT NULL` | Logical reference to `jobs.id` |
+| `sequence` | `INTEGER NOT NULL` | Per-job monotonically increasing sequence |
+| `event` | `TEXT NOT NULL` | Application event name |
+| `state` | `TEXT NOT NULL` | Persisted job state at append time |
+| `message` | `TEXT` | Optional human-readable summary |
+| `data` | `TEXT` | Optional output chunk or event data |
+| `step_json` | `TEXT` | Optional `JobEventStep` payload |
+| `timestamp` | `TEXT NOT NULL` | UTC RFC 3339 event time |
+| `progress_json` | `TEXT` | Optional `JobProgress` payload |
 
-Indexes:
+Primary key and indexes:
 
-- unique index on `(job_id, sequence_no)`
-- index on `(job_id, created_at)`
+- composite primary key `(job_id, sequence)`;
+- `idx_job_events_job_sequence` on `(job_id, sequence ASC)`;
+- `idx_job_events_timestamp` on `(timestamp)`.
+
+There is no synthetic event ID, `sequence_no`, `event_type`, or `created_at`
+column. Consumers replay rows ordered by `sequence`.
+
+Current application event names include `job_started`, `job_step_started`,
+`job_step_finished`, `job_progress`, `job_log`, `job_warning`, `job_error`,
+`job_cancel_requested`, and `job_finished`. Event names are not database-
+constrained.
 
 Rules:
 
-- append-only
-- per-job sequences are allocated through the owning `jobs` row, not with a separate `MAX(sequence)` read
-- suitable for replaying progress panels within retention limits
-- not intended as an infinite log sink
+- event sequences are allocated by atomically incrementing
+  `jobs.event_sequence`, then reading the job's persisted state;
+- appending and advancing the owning job sequence happen in one transaction;
+- terminal state transitions and their final events are atomic;
+- rows are intended for UI replay within retention limits, not as an unlimited
+  log sink.
 
-Allowed `event_type` values:
+`step_json` represents `JobEventStep`: `index`, `total`, `action`, optional
+`target_stack_id`, and optional `target_service_names`.
 
-- `job_started`
-- `job_step_started`
-- `job_step_finished`
-- `job_progress`
-- `job_log`
-- `job_warning`
-- `job_error`
-- `job_finished`
+`progress_json` represents `JobProgress`: `phase`, `completed`, `total`,
+`unit`, and optional `detail`.
 
-## `audit_entries`
+### `audit_entries`
 
-Stores high-level audit records for mutating operations and terminal metadata events.
+Stores durable summaries of mutating operations and terminal metadata events.
 
-Suggested columns:
-
-| Column | Type | Notes |
+| Column | Type | Contract |
 |---|---|---|
 | `id` | `TEXT PRIMARY KEY` | Stable audit ID |
-| `stack_id` | `TEXT` | Nullable for global/system events |
-| `job_id` | `TEXT` | Nullable link to `jobs.id` for stack operation audit entries |
-| `action` | `TEXT NOT NULL` | Domain action or terminal metadata action |
-| `requested_by` | `TEXT NOT NULL` | `local` in v1 |
-| `requested_at` | `TEXT NOT NULL` | ISO 8601 UTC |
-| `finished_at` | `TEXT` | Null for instant metadata events if unused |
-| `result` | `TEXT NOT NULL` | `succeeded`, `failed`, etc. |
-| `duration_ms` | `INTEGER` | Nullable for non-duration events |
-| `target_type` | `TEXT NOT NULL` | `stack`, `terminal_session`, `system` |
-| `target_id` | `TEXT` | Stack ID or session ID |
-| `detail_json` | `TEXT` | Small structured summary |
+| `stack_id` | `TEXT` | Optional stack scope |
+| `job_id` | `TEXT` | Optional logical reference to `jobs.id` |
+| `action` | `TEXT NOT NULL` | Domain or metadata action |
+| `requested_by` | `TEXT NOT NULL` | Initiating operator |
+| `requested_at` | `TEXT NOT NULL` | UTC RFC 3339 request time |
+| `finished_at` | `TEXT` | Optional completion time |
+| `result` | `TEXT NOT NULL` | Application-level result |
+| `duration_ms` | `INTEGER` | Optional duration |
+| `target_type` | `TEXT NOT NULL` | Target category |
+| `target_id` | `TEXT` | Optional target ID |
+| `detail_json` | `TEXT` | Optional structured summary |
 
 Indexes:
 
-- index on `(stack_id, requested_at DESC)`
-- index on `(requested_at DESC)`
-- index on `(action, requested_at DESC)`
+- `idx_audit_entries_stack_requested_at` on
+  `(stack_id, requested_at DESC)`;
+- `idx_audit_entries_requested_at` on `(requested_at DESC)`;
+- `idx_audit_entries_action_requested_at` on
+  `(action, requested_at DESC)`.
 
 Rules:
 
-- audit entries are durable summaries, not raw logs
-- audit is optimized for read and filtering, not for streaming raw output
-- `job_id` should be populated for stack operation audit entries so UI can jump from history to job details and replayable job events
-- `job_id` may remain null for terminal metadata events and system-level audit entries
+- audit rows are summaries, not raw logs;
+- stack operation rows should carry `job_id` so the UI can navigate to retained
+  job details;
+- `job_id` may be null for terminal metadata and system-level entries;
+- list queries order by `(requested_at DESC, id DESC)` and use that pair for
+  cursor pagination.
 
-Examples:
+### `image_update_status`
 
-- stack `pull`
-- stack `save_definition`
-- terminal session `opened`
-- terminal session `closed`
+Caches the latest comparison between local and remote image digests.
 
-## `stack_deploy_baselines`
+| Column | Type | Contract |
+|---|---|---|
+| `image_ref` | `TEXT PRIMARY KEY` | Normalized image reference |
+| `local_digest` | `TEXT` | Optional locally present digest |
+| `remote_digest` | `TEXT` | Optional registry digest |
+| `state` | `TEXT NOT NULL` | Comparison result |
+| `checked_at` | `TEXT NOT NULL` | UTC RFC 3339 check time |
 
-Stores the last known successful deployment baseline for drift detection and
+Current states are `up_to_date`, `available`, and `unknown`. Rows are upserted
+by image reference and loaded into the in-memory image-update read model at
+startup. `unknown` covers cases where either digest cannot be resolved, such as
+missing local images or inaccessible registry metadata.
+
+These rows are a cache, not authoritative runtime inventory, and are not
+removed by the operational retention job.
+
+### `stack_deploy_baselines`
+
+Stores the last successful deployment snapshot used for drift detection and
 `resolved-config?source=last_valid`.
 
-| Column | Type | Notes |
+| Column | Type | Contract |
 |---|---|---|
-| `stack_id` | `TEXT PRIMARY KEY` | Stack directory name |
-| `compose_sha256` | `TEXT NOT NULL` | Hash of normalized saved compose content |
-| `env_sha256` | `TEXT NOT NULL` | Hash of saved `.env` content or empty string hash |
-| `compose_yaml` | `TEXT NOT NULL` | Compose snapshot captured after successful deploy |
-| `env` | `TEXT NOT NULL` | `.env` snapshot captured after successful deploy, empty if absent |
-| `env_exists` | `INTEGER NOT NULL DEFAULT 0` | Whether `.env` existed in the deployed revision |
-| `last_deployed_at` | `TEXT NOT NULL` | ISO 8601 UTC |
-| `last_job_id` | `TEXT` | Reference to deployment job |
+| `stack_id` | `TEXT PRIMARY KEY` | Stack ID |
+| `compose_sha256` | `TEXT NOT NULL` | Hash of normalized saved Compose content |
+| `env_sha256` | `TEXT NOT NULL` | Hash of saved `.env` content |
+| `compose_yaml` | `TEXT NOT NULL` | Compose snapshot after successful deploy |
+| `env` | `TEXT NOT NULL` | `.env` snapshot, empty when absent |
+| `env_exists` | `INTEGER NOT NULL` | Boolean encoded as `0` or `1` |
+| `last_deployed_at` | `TEXT NOT NULL` | UTC RFC 3339 deployment time |
+| `last_job_id` | `TEXT` | Optional deployment job ID |
 
 Rules:
 
-- updated only on successful deployment-oriented actions
-- basis for `config_state = in_sync` vs `drifted`
-- snapshot source for resolving the last deployed config in the editor
+- rows are upserted only for successful deployment-oriented actions;
+- the hashes determine `config_state = in_sync` versus `drifted`;
+- snapshots allow the editor to resolve the last deployed configuration;
+- deleting a stack baseline returns drift state to `unknown`;
+- stack-scoped files outside Compose and `.env` are not included in the drift
+  hash.
 
-v1 scope:
+`env_exists` has no database default in schema version 5; every insert must
+supply it explicitly.
 
-- does not include stack-scoped files under the managed config workspace in the drift hash
+## Retention behavior
 
-## Schema Migrations
+Default retention values are:
 
-`schema_migrations` is the authoritative, append-only migration history:
+| Data | Default | Pruning behavior |
+|---|---:|---|
+| `audit_entries` | 180 days | Delete by `requested_at` |
+| terminal `jobs` | 180 days | Keep active jobs and jobs referenced by retained audit rows |
+| `job_events` | 14 days | Keep events for active jobs regardless of age |
+| expired or revoked `auth_sessions` | 7 days | Delete after the corresponding expiry or revocation age |
 
-| Column | Type | Notes |
-|---|---|---|
-| `version` | `INTEGER PRIMARY KEY` | Contiguous schema version |
-| `name` | `TEXT NOT NULL` | Stable migration identifier |
-| `applied_at` | `TEXT NOT NULL` | ISO 8601 UTC commit time |
+Pruning is transactional. When deleting an old terminal job, its events are
+removed first. Password metadata, settings, image update status, and deploy
+baselines are not part of this operational pruning pass.
 
-Rules:
+See [Retention and audit](./retention-and-audit.md) for the lifecycle and audit
+policy.
 
-- every numbered migration runs in its own SQLite transaction;
-- schema changes, data backfills, and the corresponding version row commit or
-  roll back together;
-- an unversioned legacy database is adopted by idempotently applying the full
-  registry and recording every completed version;
-- migration history must be contiguous and names must match the binary's
-  registry;
-- a binary refuses to open a database with a newer schema version instead of
-  attempting a destructive downgrade;
-- migrations are forward-only and additive where practical. Before rolling
-  back application code across a schema-changing release, restore the database
-  backup created for that release or use a binary supporting the recorded
-  schema version.
+## JSON storage
 
-Current versions:
+`*_json` columns store small structured payloads as JSON text. JSON validity is
+enforced by application encoding and decoding, not by SQLite constraints.
+This applies to settings, job workflow and event payloads, and audit details.
 
-1. initial operational tables and indexes;
-2. structured progress payloads for job events;
-3. password-generation binding for credentials and sessions;
-4. serialized per-job event sequence with a legacy event backfill.
-5. optional HTTP request correlation identifier on jobs.
+## Concurrency and atomicity
 
-## Schema Notes
+SQLite fits the single-host workload, but the store still uses short
+transactions and avoids holding a transaction while streaming external
+process output.
 
-## Foreign Keys
+Important atomic boundaries are:
 
-SQLite foreign keys may be enabled, but Stacklab should not depend too heavily on rigid FK enforcement for operational tables if it complicates retention and cleanup.
+- password replacement, credential generation increment, and session
+  revocation;
+- job creation, workflow persistence, and the initial event;
+- job state transitions, event-sequence reservation, and transition events;
+- each schema migration and its migration-history row;
+- a complete retention pruning pass.
 
-Recommended posture:
+## Derived data and recovery
 
-- use logical references
-- optionally enable foreign keys where beneficial
-- keep retention jobs simple
+Read models combine several sources:
 
-## JSON Storage
+- stack list state = filesystem + Docker + `jobs` +
+  `stack_deploy_baselines` + `image_update_status`;
+- audit screens = `audit_entries`;
+- job recovery after navigation = `jobs` + `job_events`.
 
-`*_json` columns store small structured payloads as JSON text.
-
-Use cases:
-
-- workflow metadata
-- audit detail summaries
-- future-compatible structured settings
-
-## Concurrency Expectations
-
-SQLite is acceptable because:
-
-- Stacklab is single-host
-- write throughput is moderate
-- most screens are read-heavy
-- mutating operations are serialized per stack
-
-Backend should still:
-
-- use short transactions
-- avoid long write transactions during streaming
-- batch event persistence reasonably
-
-## Derived Data Strategy
-
-Read models should be assembled from:
-
-- filesystem scan
-- Docker runtime inspection
-- SQLite metadata
-
-Important examples:
-
-- stack list state = filesystem + Docker + `jobs` + `stack_deploy_baselines`
-- audit screens = `audit_entries`
-- progress recovery after navigation = `jobs` + `job_events`
-
-## Recovery Expectations
-
-If SQLite is lost:
-
-- stack definitions remain on disk
-- stack discovery still works
-- runtime state still works
-- audit history and deploy baselines are lost
-- drift detection falls back to `config_state = unknown` until new successful deploys happen
-
-This is acceptable for v1.
+If SQLite is lost, stack definitions remain on disk and runtime discovery still
+works. Settings, sessions, audit history, jobs, cached image status, and deploy
+baselines are lost. Drift detection falls back to `unknown` until a new
+successful deployment establishes a baseline.
