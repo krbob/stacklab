@@ -164,6 +164,7 @@ func TestHandlerServesTemplatesImageStatusFrontendAndFallbacks(t *testing.T) {
 		{path: "/", want: "<title>Stacklab</title>"},
 		{path: "/app.js", want: "console.log('stacklab')"},
 		{path: "/stacks/demo", want: "<title>Stacklab</title>"},
+		{path: "/settings/automation", want: "<title>Stacklab</title>"},
 	} {
 		response := httptest.NewRecorder()
 		served.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://stacklab.test"+test.path, nil))
