@@ -145,7 +145,7 @@ otrzyma domyślnej licencji bez jawnego wyboru.
 | UX-12 | done | Uporządkować Audit i Logs | filtry serwerowe z URL state, zakres dat, poprawne empty states, zachowane `Load more`, eksport/copy/wrap | seria `feat(ui): improve diagnostics ...` |
 | UX-13 | done | Uporządkować dokument title i nagłówki | jeden `h1` per ekran, tytuł karty zawiera ekran/stack; poprawiona meta description PWA | `fix(a11y): add page titles and heading hierarchy` |
 | PROD-01 | done | Wprowadzić wspólny `Review operation` | cel, zakres, wpływ, snapshot i recovery są prezentowane jednolicie dla delete/prune/update/apply | seria `feat(ui): review ... impact` |
-| PROD-02 | planned | Dodać System Health Center | widoczny stan Backend/Docker/WS, last success, Retry i linki do diagnostyki | `feat(ui): add system health center` |
+| PROD-02 | done | Dodać System Health Center | widoczny stan Backend/Docker/WS, last success, Retry i linki do diagnostyki | `feat(ui): add system health center` |
 | PROD-03 | planned | Podzielić Settings według zadań | Security, Notifications, Automation, Updates i About jako odnajdywalne sekcje/subroutes, także mobile | `refactor(ui): split settings navigation` |
 
 Weryfikacja końcowa UX-06 z 2026-07-12 objęła rozdzielenie niezależnych odczytów,
@@ -177,6 +177,16 @@ samoaktualizacją Stacklab. Komunikaty rozróżniają automatyczny rollback
 gdzie system ich nie tworzy. Pełny gate frontendu na Node 24.18.0 zakończył się
 wynikiem 65/65 plików i 451/451 testów, lintem bez ostrzeżeń oraz poprawnym
 buildem produkcyjnym.
+
+Weryfikacja końcowa PROD-02 z 2026-07-12 objęła System Health Center osadzone na
+mobilnie i desktopowo dostępnym ekranie Host. Niezależne karty Backend, Docker i
+WebSocket pokazują jawny stan tekstowy, ostatni sukces w bieżącej sesji, osobne
+Retry oraz linki do logów, Docker Admin i audytu. Odpowiedź readiness `503`
+zachowuje szczegóły komponentów, brak systemd nie jest traktowany jako awaria
+dostępnego Docker Engine, a ręczny reconnect WebSocket nie dubluje oczekującego
+backoffu. Nieudane odświeżenie zachowuje ostatni poprawny stan i jego timestamp.
+Pełny gate frontendu na Node 24.18.0 zakończył się wynikiem 66/66 plików i
+458/458 testów, lintem bez ostrzeżeń oraz poprawnym buildem produkcyjnym.
 
 ## Kolejność wykonania
 
