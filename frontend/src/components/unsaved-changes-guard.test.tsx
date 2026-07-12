@@ -9,6 +9,7 @@ function GuardHarness({ when = true }: { when?: boolean }) {
   return (
     <>
       <UnsavedChangesGuard when={when} />
+      <Link to="/current">Current page</Link>
       <Link to="/linked">Link navigation</Link>
       <button onClick={() => navigate('/programmatic')}>Programmatic navigation</button>
       <button onClick={() => navigate(-1)}>Back navigation</button>
@@ -25,6 +26,15 @@ function renderGuard(initialEntries = ['/current'], initialIndex = initialEntrie
 }
 
 describe('UnsavedChangesGuard', () => {
+  it('ignores navigation to the current URL', () => {
+    const { router } = renderGuard()
+
+    fireEvent.click(screen.getByRole('link', { name: 'Current page' }))
+
+    expect(router.state.location.pathname).toBe('/current')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
   it('blocks link navigation and preserves the original destination through cancel and confirm', () => {
     const { router } = renderGuard()
 

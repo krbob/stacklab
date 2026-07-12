@@ -13,7 +13,11 @@ export function UnsavedChangesGuard({
   title = 'Discard unsaved changes?',
   message = 'This page has unsaved changes. Leaving now will discard them.',
 }: UnsavedChangesGuardProps) {
-  const blocker = useBlocker(when)
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => (
+    when
+    && `${currentLocation.pathname}${currentLocation.search}${currentLocation.hash}`
+      !== `${nextLocation.pathname}${nextLocation.search}${nextLocation.hash}`
+  ))
 
   useEffect(() => {
     if (!when) return
