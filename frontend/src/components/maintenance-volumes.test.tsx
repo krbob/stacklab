@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MaintenanceVolumes } from './maintenance-volumes'
@@ -174,7 +174,13 @@ describe('MaintenanceVolumes', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Remove external_media' }))
 
-    expect(screen.getByRole('dialog', { name: 'Remove volume "external_media"?' })).toBeInTheDocument()
+    const dialog = screen.getByRole('dialog', { name: 'Remove volume "external_media"?' })
+    const review = within(dialog).getByRole('region', { name: 'Review operation' })
+    expect(review).toHaveTextContent('external_media')
+    expect(review).toHaveTextContent('/var/lib/docker/volumes/external_media/_data')
+    expect(review).toHaveTextContent('All data inside the volume is deleted permanently.')
+    expect(review).toHaveTextContent('No automatic volume snapshot or backup is created.')
+    expect(review).toHaveTextContent('Restore the volume data from an external backup')
     expect(deleteMaintenanceVolume).not.toHaveBeenCalled()
 
     const confirm = screen.getByRole('button', { name: 'Remove volume' })

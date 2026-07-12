@@ -182,11 +182,22 @@ export function MaintenanceVolumes() {
       {pendingDelete && (
         <ConfirmDialog
           title={`Remove volume "${pendingDelete.name}"?`}
-          message="This deletes the Docker volume. Any data inside it is removed permanently."
-          items={[
-            `volume: ${pendingDelete.name}`,
-            pendingDelete.mountpoint ? `mountpoint: ${pendingDelete.mountpoint}` : 'mountpoint: unavailable',
-          ]}
+          message="Review the stored data and recovery requirement before removing this volume."
+          review={{
+            target: pendingDelete.name,
+            scope: [
+              `Remove one unused external Docker volume using the ${pendingDelete.driver} driver.`,
+              pendingDelete.mountpoint
+                ? `Delete volume data at ${pendingDelete.mountpoint}.`
+                : 'Delete volume data at a Docker-managed mountpoint.',
+            ],
+            impact: [
+              'All data inside the volume is deleted permanently.',
+              'Future containers cannot attach this volume unless it is recreated or restored.',
+            ],
+            snapshot: 'No automatic volume snapshot or backup is created.',
+            recovery: 'Restore the volume data from an external backup, or recreate an empty volume with the same name.',
+          }}
           requireText={pendingDelete.name}
           confirmLabel="Remove volume"
           confirming={deletingName === pendingDelete.name}
