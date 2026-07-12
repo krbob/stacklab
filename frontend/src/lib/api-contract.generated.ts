@@ -992,14 +992,15 @@ export interface components {
       preview: components["schemas"]["MaintenancePrunePreview"];
     };
     MaintenancePruneRequest: {
-      scope: components["schemas"]["MaintenancePruneScope"];
+      scope: components["schemas"]["MaintenancePruneScopeRequest"];
     };
     MaintenancePruneScheduleConfig: {
       enabled: boolean;
       frequency: components["schemas"]["MaintenanceScheduleFrequency"];
       scope: components["schemas"]["MaintenancePruneScope"];
       time: string;
-      weekdays?: components["schemas"]["MaintenanceScheduleWeekday"][];
+      /** @description Required and non-empty when frequency is weekly. */
+      weekdays?: [components["schemas"]["MaintenanceScheduleWeekday"], ...components["schemas"]["MaintenanceScheduleWeekday"][]];
     };
     MaintenancePruneSchedulePolicy: components["schemas"]["MaintenancePruneScheduleConfig"] & {
       status: components["schemas"]["MaintenanceScheduleStatus"];
@@ -1010,6 +1011,29 @@ export interface components {
       stopped_containers: boolean;
       volumes: boolean;
     };
+    /** @description At least one scope flag must be true; omitted flags default to false. */
+    MaintenancePruneScopeRequest: {
+      /** @default false */
+      build_cache?: boolean;
+      /** @default false */
+      images?: boolean;
+      /** @default false */
+      stopped_containers?: boolean;
+      /** @default false */
+      volumes?: boolean;
+    } & ({
+      /** @constant */
+      images: true;
+    } | {
+      /** @constant */
+      build_cache: true;
+    } | {
+      /** @constant */
+      stopped_containers: true;
+    } | {
+      /** @constant */
+      volumes: true;
+    });
     /** @enum {string} */
     MaintenanceScheduleFrequency: "daily" | "weekly";
     MaintenanceSchedulesRequest: {
@@ -1025,7 +1049,7 @@ export interface components {
       last_job_id?: string;
       last_message?: string;
       /** @enum {string} */
-      last_result?: "running" | "succeeded" | "failed" | "skipped";
+      last_result?: "running" | "succeeded" | "failed" | "skipped" | "cancelled" | "timed_out";
       /** Format: date-time */
       last_scheduled_for?: string;
       /** Format: date-time */
@@ -1040,9 +1064,11 @@ export interface components {
       frequency: components["schemas"]["MaintenanceScheduleFrequency"];
       options: {
         build_images: boolean;
+        /** @description May be true only when prune_after is true. */
         include_volumes: boolean;
         prune_after: boolean;
         pull_images: boolean;
+        /** @description Must be false when excluded_services contains any service. */
         remove_orphans: boolean;
       };
       target: {
@@ -1051,10 +1077,12 @@ export interface components {
         };
         /** @enum {string} */
         mode: "selected" | "all";
-        stack_ids?: string[];
+        /** @description Required and non-empty when mode is selected. */
+        stack_ids?: [string, ...string[]];
       };
       time: string;
-      weekdays?: components["schemas"]["MaintenanceScheduleWeekday"][];
+      /** @description Required and non-empty when frequency is weekly. */
+      weekdays?: [components["schemas"]["MaintenanceScheduleWeekday"], ...components["schemas"]["MaintenanceScheduleWeekday"][]];
     };
     MaintenanceUpdateSchedulePolicy: components["schemas"]["MaintenanceUpdateScheduleConfig"] & {
       status: components["schemas"]["MaintenanceScheduleStatus"];
@@ -1066,12 +1094,15 @@ export interface components {
         prune_after?: {
           /** @default false */
           enabled?: boolean;
-          /** @default false */
+          /**
+           * @description May be true only when enabled is true.
+           * @default false
+           */
           include_volumes?: boolean;
         };
         /** @default true */
         pull_images?: boolean;
-        /** @default true */
+        /** @description Defaults to false when excluded_services is non-empty; true otherwise. Must be false when exclusions are present. */
         remove_orphans?: boolean;
       };
       target: {
@@ -1080,7 +1111,8 @@ export interface components {
         };
         /** @enum {string} */
         mode: "selected" | "all";
-        stack_ids?: string[];
+        /** @description Required and non-empty when mode is selected. */
+        stack_ids?: [string, ...string[]];
       };
     };
     MaintenanceVolumeItem: {
@@ -1091,6 +1123,7 @@ export interface components {
       name: string;
       options_count: number;
       scope: string;
+      size_bytes: number;
       /** @enum {string} */
       source: "stack_managed" | "external";
       stacks_using: components["schemas"]["MaintenanceImageStackUsage"][];
@@ -1125,6 +1158,15 @@ export interface components {
       job_failed: boolean;
       job_succeeded_with_warnings: boolean;
       maintenance_succeeded: boolean;
+      post_update_recovery_failed: boolean;
+      runtime_health_degraded: boolean;
+      runtime_log_error_burst: boolean;
+      stacklab_service_error: boolean;
+    };
+    NotificationEventTogglesRequest: {
+      job_failed: boolean;
+      job_succeeded_with_warnings: boolean;
+      maintenance_succeeded: boolean;
       post_update_recovery_failed?: boolean;
       runtime_health_degraded?: boolean;
       runtime_log_error_burst?: boolean;
@@ -1132,10 +1174,15 @@ export interface components {
     };
     NotificationSettingsRequest: {
       channels?: components["schemas"]["NotificationChannelsRequest"];
+      enabled?: boolean;
+      events: components["schemas"]["NotificationEventTogglesRequest"];
+      webhook_url?: string;
+    } & ({
       enabled: boolean;
-      events: components["schemas"]["NotificationEventToggles"];
       webhook_url: string;
-    };
+    } | {
+      channels: components["schemas"]["NotificationChannelsRequest"];
+    });
     NotificationSettingsResponse: {
       channels: components["schemas"]["NotificationChannelsResponse"];
       configured: boolean;
@@ -1154,14 +1201,22 @@ export interface components {
       chat_id: string;
       enabled: boolean;
     };
-    NotificationTestRequest: {
-      /** @enum {string} */
+    NotificationTestRequest: ({
+      /**
+       * @default webhook
+       * @enum {string}
+       */
       channel?: "webhook" | "telegram";
       channels?: components["schemas"]["NotificationChannelsRequest"];
+      enabled?: boolean;
+      events: components["schemas"]["NotificationEventTogglesRequest"];
+      webhook_url?: string;
+    }) & ({
       enabled: boolean;
-      events: components["schemas"]["NotificationEventToggles"];
       webhook_url: string;
-    };
+    } | {
+      channels: components["schemas"]["NotificationChannelsRequest"];
+    });
     NotificationTestResponse: {
       /** @enum {string} */
       channel: "webhook" | "telegram";

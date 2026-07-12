@@ -707,12 +707,14 @@ paths:
           schema:
             type: string
             enum: [all, used, unused]
+            default: all
         - in: query
           name: origin
           required: false
           schema:
             type: string
             enum: [all, stack_managed, external]
+            default: all
       responses:
         '200':
           description: Maintenance image inventory.
@@ -746,12 +748,14 @@ paths:
           schema:
             type: string
             enum: [all, used, unused]
+            default: all
         - in: query
           name: origin
           required: false
           schema:
             type: string
             enum: [all, stack_managed, external]
+            default: all
       responses:
         '200':
           description: Maintenance network inventory.
@@ -856,12 +860,14 @@ paths:
           schema:
             type: string
             enum: [all, used, unused]
+            default: all
         - in: query
           name: origin
           required: false
           schema:
             type: string
             enum: [all, stack_managed, external]
+            default: all
       responses:
         '200':
           description: Maintenance volume inventory.
@@ -960,21 +966,25 @@ paths:
           required: false
           schema:
             type: boolean
+            default: true
         - in: query
           name: build_cache
           required: false
           schema:
             type: boolean
+            default: true
         - in: query
           name: stopped_containers
           required: false
           schema:
             type: boolean
+            default: true
         - in: query
           name: volumes
           required: false
           schema:
             type: boolean
+            default: false
       responses:
         '200':
           description: Prune preview summary.
@@ -3780,7 +3790,7 @@ components:
         reauthentication_required:
           type: boolean
       required: [updated, reauthentication_required]
-    NotificationEventToggles:
+    NotificationEventTogglesRequest:
       type: object
       properties:
         job_failed:
@@ -3798,6 +3808,31 @@ components:
         runtime_log_error_burst:
           type: boolean
       required: [job_failed, job_succeeded_with_warnings, maintenance_succeeded]
+    NotificationEventToggles:
+      type: object
+      properties:
+        job_failed:
+          type: boolean
+        job_succeeded_with_warnings:
+          type: boolean
+        maintenance_succeeded:
+          type: boolean
+        post_update_recovery_failed:
+          type: boolean
+        stacklab_service_error:
+          type: boolean
+        runtime_health_degraded:
+          type: boolean
+        runtime_log_error_burst:
+          type: boolean
+      required:
+        - job_failed
+        - job_succeeded_with_warnings
+        - maintenance_succeeded
+        - post_update_recovery_failed
+        - stacklab_service_error
+        - runtime_health_degraded
+        - runtime_log_error_burst
     NotificationWebhookChannel:
       type: object
       properties:
@@ -3861,10 +3896,23 @@ components:
         webhook_url:
           type: string
         events:
-          $ref: '#/components/schemas/NotificationEventToggles'
+          $ref: '#/components/schemas/NotificationEventTogglesRequest'
         channels:
           $ref: '#/components/schemas/NotificationChannelsRequest'
-      required: [enabled, webhook_url, events]
+      required: [events]
+      anyOf:
+        - type: object
+          properties:
+            enabled:
+              type: boolean
+            webhook_url:
+              type: string
+          required: [enabled, webhook_url]
+        - type: object
+          properties:
+            channels:
+              $ref: '#/components/schemas/NotificationChannelsRequest'
+          required: [channels]
     NotificationSettingsResponse:
       type: object
       properties:
@@ -3885,15 +3933,29 @@ components:
         channel:
           type: string
           enum: [webhook, telegram]
+          default: webhook
         enabled:
           type: boolean
         webhook_url:
           type: string
         events:
-          $ref: '#/components/schemas/NotificationEventToggles'
+          $ref: '#/components/schemas/NotificationEventTogglesRequest'
         channels:
           $ref: '#/components/schemas/NotificationChannelsRequest'
-      required: [enabled, webhook_url, events]
+      required: [events]
+      anyOf:
+        - type: object
+          properties:
+            enabled:
+              type: boolean
+            webhook_url:
+              type: string
+          required: [enabled, webhook_url]
+        - type: object
+          properties:
+            channels:
+              $ref: '#/components/schemas/NotificationChannelsRequest'
+          required: [channels]
     NotificationTestResponse:
       type: object
       properties:
@@ -3923,7 +3985,7 @@ components:
           format: date-time
         last_result:
           type: string
-          enum: [running, succeeded, failed, skipped]
+          enum: [running, succeeded, failed, skipped, cancelled, timed_out]
         last_message:
           type: string
         last_job_id:
@@ -3939,6 +4001,8 @@ components:
           type: string
         weekdays:
           type: array
+          description: Required and non-empty when frequency is weekly.
+          minItems: 1
           items:
             $ref: '#/components/schemas/MaintenanceScheduleWeekday'
         target:
@@ -3949,6 +4013,8 @@ components:
               enum: [selected, all]
             stack_ids:
               type: array
+              description: Required and non-empty when mode is selected.
+              minItems: 1
               items:
                 type: string
             excluded_services:
@@ -3967,10 +4033,12 @@ components:
               type: boolean
             remove_orphans:
               type: boolean
+              description: Must be false when excluded_services contains any service.
             prune_after:
               type: boolean
             include_volumes:
               type: boolean
+              description: May be true only when prune_after is true.
           required: [pull_images, build_images, remove_orphans, prune_after, include_volumes]
       required: [enabled, frequency, time, target, options]
     MaintenancePruneScheduleConfig:
@@ -3984,6 +4052,8 @@ components:
           type: string
         weekdays:
           type: array
+          description: Required and non-empty when frequency is weekly.
+          minItems: 1
           items:
             $ref: '#/components/schemas/MaintenanceScheduleWeekday'
         scope:
@@ -4238,6 +4308,8 @@ components:
               enum: [selected, all]
             stack_ids:
               type: array
+              description: Required and non-empty when mode is selected.
+              minItems: 1
               items:
                 type: string
             excluded_services:
@@ -4258,7 +4330,7 @@ components:
               default: true
             remove_orphans:
               type: boolean
-              default: true
+              description: Defaults to false when excluded_services is non-empty; true otherwise. Must be false when exclusions are present.
             prune_after:
               type: object
               properties:
@@ -4268,6 +4340,7 @@ components:
                 include_volumes:
                   type: boolean
                   default: false
+                  description: May be true only when enabled is true.
       required: [target]
     MaintenanceImagesResponse:
       type: object
@@ -4428,6 +4501,8 @@ components:
           type: string
         scope:
           type: string
+        size_bytes:
+          type: integer
         options_count:
           type: integer
         containers_using:
@@ -4441,7 +4516,7 @@ components:
         source:
           type: string
           enum: [stack_managed, external]
-      required: [name, driver, mountpoint, scope, options_count, containers_using, stacks_using, is_unused, source]
+      required: [name, driver, mountpoint, scope, size_bytes, options_count, containers_using, stacks_using, is_unused, source]
     MaintenancePrunePreviewResponse:
       type: object
       properties:
@@ -4493,8 +4568,41 @@ components:
       type: object
       properties:
         scope:
-          $ref: '#/components/schemas/MaintenancePruneScope'
+          $ref: '#/components/schemas/MaintenancePruneScopeRequest'
       required: [scope]
+    MaintenancePruneScopeRequest:
+      type: object
+      description: At least one scope flag must be true; omitted flags default to false.
+      properties:
+        images:
+          type: boolean
+          default: false
+        build_cache:
+          type: boolean
+          default: false
+        stopped_containers:
+          type: boolean
+          default: false
+        volumes:
+          type: boolean
+          default: false
+      anyOf:
+        - properties:
+            images:
+              const: true
+          required: [images]
+        - properties:
+            build_cache:
+              const: true
+          required: [build_cache]
+        - properties:
+            stopped_containers:
+              const: true
+          required: [stopped_containers]
+        - properties:
+            volumes:
+              const: true
+          required: [volumes]
     MaintenancePruneScope:
       type: object
       properties:
