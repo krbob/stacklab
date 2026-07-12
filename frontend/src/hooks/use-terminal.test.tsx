@@ -341,6 +341,14 @@ describe('useTerminal', () => {
 
     // Disconnect
     act(() => { controls.setConnected(false) })
+    expect(result.current.state).toBe('disconnected')
+
+    act(() => {
+      result.current.write('lost input')
+      result.current.resize(160, 48)
+    })
+    expect(controls.getSentFrames().filter((f) => f.type === 'terminal.input')).toHaveLength(0)
+    expect(controls.getSentFrames().filter((f) => f.type === 'terminal.resize')).toHaveLength(0)
 
     // Reconnect — should auto-attach via queueMicrotask
     act(() => { controls.setConnected(true) })
@@ -353,6 +361,16 @@ describe('useTerminal', () => {
     expect(attachFrames[attachFrames.length - 1]).toMatchObject({
       payload: expect.objectContaining({ session_id: 'term_reconnect' }),
     })
+    expect(result.current.state).toBe('connecting')
+
+    act(() => {
+      controls.emit(streamId, {
+        type: 'terminal.opened',
+        stream_id: streamId,
+        payload: { session_id: 'term_reconnect', container_id: 'abc123', shell: '/bin/sh' },
+      })
+    })
+    expect(result.current.state).toBe('connected')
   })
 
   it('shows ended state when attach fails after reconnect', async () => {

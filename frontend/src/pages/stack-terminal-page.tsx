@@ -33,7 +33,12 @@ export function StackTerminalPage() {
     containerId: selectedContainerId,
     shell,
   })
-  const showTerminal = terminal.state === 'connected' || terminal.state === 'ended'
+  const terminalSessionActive = terminal.state === 'connecting'
+    || terminal.state === 'connected'
+    || terminal.state === 'disconnected'
+  const showTerminal = terminal.state === 'connected'
+    || terminal.state === 'disconnected'
+    || terminal.state === 'ended'
 
   // Ref that TerminalView will call to write WS output into XTerm.js
   const writeToXtermRef = useRef<((data: string) => void) | null>(null)
@@ -46,7 +51,11 @@ export function StackTerminalPage() {
   }, [terminal])
 
   useEffect(() => {
-    if (terminal.state === 'connected' || terminal.state === 'connecting') return
+    if (
+      terminal.state === 'connected'
+      || terminal.state === 'connecting'
+      || terminal.state === 'disconnected'
+    ) return
     if (requestedContainerId) {
       setSelectedContainerId(requestedContainerId)
     } else if (!selectedContainerId && runningContainers[0]) {
@@ -82,7 +91,7 @@ export function StackTerminalPage() {
           <select
             value={selectedContainerId}
             onChange={(e) => setSelectedContainerId(e.target.value)}
-            disabled={terminal.state === 'connected'}
+            disabled={terminalSessionActive}
             className="rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-2 py-1 text-xs text-[var(--text)] outline-none"
           >
             {runningContainers.map((c) => (
@@ -96,7 +105,7 @@ export function StackTerminalPage() {
           <select
             value={shell}
             onChange={(e) => setShell(e.target.value)}
-            disabled={terminal.state === 'connected'}
+            disabled={terminalSessionActive}
             className="rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-2 py-1 text-xs text-[var(--text)] outline-none"
           >
             <option value="/bin/sh">/bin/sh</option>
@@ -119,7 +128,7 @@ export function StackTerminalPage() {
             onClick={terminal.close}
             className="rounded-md border border-[var(--danger)]/30 px-3 py-1 text-xs text-[var(--danger)] transition hover:bg-[var(--danger)]/10"
           >
-            Disconnect
+            {terminal.state === 'disconnected' ? 'End session' : 'Disconnect'}
           </button>
         )}
       </div>
@@ -134,7 +143,7 @@ export function StackTerminalPage() {
       {terminal.state === 'error' && terminal.errorMessage && (
         <div className="text-xs text-[var(--danger)]">{terminal.errorMessage}</div>
       )}
-      {!connected && terminal.state === 'connected' && (
+      {terminal.state === 'disconnected' && (
         <div className="text-xs text-[var(--warning)]">Connection lost. Attempting to reattach...</div>
       )}
 
@@ -142,9 +151,19 @@ export function StackTerminalPage() {
       <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
         <span className={cn(
           'inline-block size-2 rounded-full',
-          terminal.state === 'connected' ? 'bg-[var(--ok)]' : 'bg-stone-600',
+          terminal.state === 'connected'
+            ? 'bg-[var(--ok)]'
+            : terminal.state === 'disconnected'
+              ? 'bg-[var(--warning)]'
+              : 'bg-stone-600',
         )} />
-        {terminal.state === 'connected' ? 'Connected' : terminal.state === 'connecting' ? 'Connecting...' : 'Disconnected'}
+        {terminal.state === 'connected'
+          ? 'Connected'
+          : terminal.state === 'connecting'
+            ? 'Connecting...'
+            : terminal.state === 'disconnected'
+              ? 'Reconnecting...'
+              : 'Disconnected'}
       </div>
 
       {/* Terminal */}

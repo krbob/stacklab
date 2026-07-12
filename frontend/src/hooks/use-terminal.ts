@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useWs } from '@/hooks/use-ws'
 import type { TerminalExitedPayload, TerminalOpenedPayload, WsServerFrame } from '@/lib/ws-types'
 
-type TerminalState = 'idle' | 'connecting' | 'connected' | 'ended' | 'error'
+type TerminalState = 'idle' | 'connecting' | 'connected' | 'disconnected' | 'ended' | 'error'
 const terminalInputChunkSize = 8 * 1024
 
 interface UseTerminalOptions {
@@ -58,7 +58,7 @@ export function useTerminal({ stackId, containerId, shell = '/bin/sh', cols = 12
     const reqId = `req_term_attach_${++requestIdRef.current}`
 
     setErrorMessage(null)
-    setTermState((current) => (current === 'connected' ? current : 'connecting'))
+    setTermState('connecting')
 
     send({
       type: 'terminal.attach',
@@ -80,6 +80,7 @@ export function useTerminal({ stackId, containerId, shell = '/bin/sh', cols = 12
   }, [connected, attach, termState, sessionId])
 
   const write = useCallback((data: string) => {
+    if (!connected || !sessionId || termState !== 'connected') return
     for (let offset = 0; offset < data.length; offset += terminalInputChunkSize) {
       send({
         type: 'terminal.input',
@@ -87,17 +88,17 @@ export function useTerminal({ stackId, containerId, shell = '/bin/sh', cols = 12
         payload: { session_id: sessionId, data: data.slice(offset, offset + terminalInputChunkSize) },
       })
     }
-  }, [send, streamId, sessionId])
+  }, [connected, send, streamId, sessionId, termState])
 
   const resize = useCallback((newCols: number, newRows: number) => {
     dimsRef.current = { cols: newCols, rows: newRows }
-    if (!sessionId) return
+    if (!connected || !sessionId || termState !== 'connected') return
     send({
       type: 'terminal.resize',
       stream_id: streamId,
       payload: { session_id: sessionId, cols: newCols, rows: newRows },
     })
-  }, [send, streamId, sessionId])
+  }, [connected, send, streamId, sessionId, termState])
 
   const close = useCallback(() => {
     if (!sessionId) return
@@ -151,8 +152,12 @@ export function useTerminal({ stackId, containerId, shell = '/bin/sh', cols = 12
     })
   }, [subscribe, streamId])
 
+  const state: TerminalState = !connected && sessionId && termState === 'connected'
+    ? 'disconnected'
+    : termState
+
   return {
-    state: termState,
+    state,
     exitInfo,
     errorMessage,
     sessionId,
