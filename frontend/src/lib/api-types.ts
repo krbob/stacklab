@@ -1,4 +1,8 @@
-// Domain types derived from docs/api/rest-endpoints.md and docs/domain/stack-model.md
+import type { components } from './api-contract.generated'
+
+type APISchemas = components['schemas']
+
+// Stable application-facing aliases for the generated OpenAPI contract.
 
 // --- Enums ---
 
@@ -40,45 +44,10 @@ export type TerminalExitReason = 'process_exit' | 'idle_timeout' | 'server_clean
 
 // --- REST response shapes ---
 
-export interface HealthResponse {
-  status: 'ok' | 'unavailable'
-  version: string
-  checks: Record<string, { status: 'ok' | 'error'; message?: string }>
-}
-
-export interface LivenessResponse {
-  status: 'ok'
-  version: string
-}
-
-export interface SessionResponse {
-  authenticated: boolean
-  user: {
-    id: string
-    display_name: string
-  }
-  features: {
-    host_shell: boolean
-  }
-}
-
-export interface MetaResponse {
-  app: {
-    name: string
-    version: string
-  }
-  environment: {
-    stack_root: string
-    platform: string
-  }
-  docker: {
-    engine_version: string
-    compose_version: string
-  }
-  features: {
-    host_shell: boolean
-  }
-}
+export type HealthResponse = APISchemas['HealthResponse']
+export type LivenessResponse = APISchemas['LivenessResponse']
+export type SessionResponse = APISchemas['SessionResponse']
+export type MetaResponse = APISchemas['MetaResponse']
 
 export interface NotificationEventToggles {
   job_failed: boolean
@@ -514,169 +483,24 @@ export interface AuditResponse {
 
 // --- Host observability ---
 
-export interface HostOverviewResponse {
-  host: {
-    hostname: string
-    os_name: string
-    kernel_version: string
-    architecture: string
-    uptime_seconds: number
-  }
-  stacklab: {
-    version: string
-    commit: string
-    started_at: string
-  }
-  docker: {
-    engine_version: string
-    compose_version: string
-  }
-  resources: {
-    cpu: {
-      core_count: number
-      load_average: [number, number, number]
-      usage_percent: number
-    }
-    memory: {
-      total_bytes: number
-      used_bytes: number
-      available_bytes: number
-      usage_percent: number
-    }
-    disk: {
-      path: string
-      total_bytes: number
-      used_bytes: number
-      available_bytes: number
-      usage_percent: number
-    }
-  }
-}
-
-export interface HostMetricsResponse {
-  sample_interval_seconds: number
-  background_sample_interval_seconds: number
-  active_sample_interval_seconds: number
-  history_window_seconds: number
-  current: HostMetricSample | null
-  history: HostMetricSample[]
-}
-
-export interface HostSettingsResponse {
-  public_ip_lookup_enabled: boolean
-}
-
-export interface HostSettingsUpdateRequest {
-  public_ip_lookup_enabled: boolean
-}
-
-export interface HostMetricSample {
-  sampled_at: string
-  cpu: HostOverviewResponse['resources']['cpu']
-  memory: HostOverviewResponse['resources']['memory']
-  swap: HostSwapUsage
-  temperatures: HostTemperatureUsage
-  filesystems: HostFilesystemUsage[]
-  disk_io: HostDiskIOUsage
-  network: HostNetworkUsage
-  processes?: HostProcessUsage
-}
-
-export interface HostSwapUsage {
-  total_bytes: number
-  used_bytes: number
-  available_bytes: number
-  usage_percent: number
-}
-
-export interface HostTemperatureUsage {
-  cpu_celsius: number | null
-  cpu_sensor?: HostTemperatureSensor | null
-  sensors: HostTemperatureSensor[]
-}
-
-export interface HostTemperatureSensor {
-  name: string
-  label: string
-  temperature_celsius: number
-}
-
-export interface HostFilesystemUsage {
-  mount_point: string
-  device: string
-  fs_type: string
-  total_bytes: number
-  used_bytes: number
-  available_bytes: number
-  usage_percent: number
-  primary: boolean
-}
-
-export interface HostDiskIOUsage {
-  total_read_bytes_per_sec: number
-  total_write_bytes_per_sec: number
-  devices: HostDiskIODeviceUsage[]
-}
-
-export interface HostDiskIODeviceUsage {
-  name: string
-  read_bytes: number
-  write_bytes: number
-  read_bytes_per_sec: number
-  write_bytes_per_sec: number
-}
-
-export interface HostNetworkUsage {
-  total_rx_bytes_per_sec: number
-  total_tx_bytes_per_sec: number
-  public_ip?: string
-  interfaces: HostNetworkInterfaceUsage[]
-}
-
-export interface HostNetworkInterfaceUsage {
-  name: string
-  rx_bytes: number
-  tx_bytes: number
-  rx_bytes_per_sec: number
-  tx_bytes_per_sec: number
-}
-
-export interface HostProcessUsage {
-  total: number
-  items: HostProcessInfo[]
-}
-
-export interface HostProcessInfo {
-  pid: number
-  user: string
-  state: string
-  cpu_percent: number
-  memory_bytes: number
-  memory_percent: number
-  command: string
-  display_command?: string
-  container?: HostProcessContainerInfo
-}
-
-export interface HostProcessContainerInfo {
-  id: string
-  name?: string
-  stack_id?: string
-  service_name?: string
-}
-
-export interface StacklabLogEntry {
-  timestamp: string
-  level: string
-  message: string
-  cursor: string
-}
-
-export interface StacklabLogsResponse {
-  items: StacklabLogEntry[]
-  next_cursor: string | null
-  has_more: boolean
-}
+export type HostOverviewResponse = APISchemas['HostOverviewResponse']
+export type HostMetricsResponse = APISchemas['HostMetricsResponse']
+export type HostSettingsResponse = APISchemas['HostSettingsResponse']
+export type HostSettingsUpdateRequest = APISchemas['HostSettingsRequest']
+export type HostMetricSample = APISchemas['HostMetricSample']
+export type HostSwapUsage = APISchemas['HostSwap']
+export type HostTemperatureUsage = APISchemas['HostTemperatures']
+export type HostTemperatureSensor = APISchemas['HostTemperatureSensor']
+export type HostFilesystemUsage = APISchemas['HostFilesystem']
+export type HostDiskIOUsage = APISchemas['HostDiskIO']
+export type HostDiskIODeviceUsage = APISchemas['HostDiskIODevice']
+export type HostNetworkUsage = APISchemas['HostNetwork']
+export type HostNetworkInterfaceUsage = APISchemas['HostNetworkInterface']
+export type HostProcessUsage = APISchemas['HostProcesses']
+export type HostProcessInfo = APISchemas['HostProcess']
+export type HostProcessContainerInfo = APISchemas['HostProcessContainer']
+export type StacklabLogEntry = APISchemas['StacklabLogEntry']
+export type StacklabLogsResponse = APISchemas['StacklabLogsResponse']
 
 export interface DockerServiceStatus {
   manager: string
