@@ -119,13 +119,18 @@ rozszerzania zakresu produktu poza model single-host i Compose-first.
 | QA-03 | done | Włączyć dodatkowe bramki statyczne | actionlint, ShellCheck, secret scan, npm production audit i `eslint --max-warnings=0` | `ci: enforce repository hygiene checks` |
 | QA-04 | done | Usunąć flake testów schedulera | lokalizacja czasu jako zależność, pełne oczekiwanie na finalizację; wielokrotny race run jest stabilny | `test(scheduler): isolate local time state` |
 | DX-01 | done | Ujednolicić toolchain i jedno polecenie check | zgodne wersje Go/Node w docs i plikach narzędzi; `make check`/równoważne nie skanuje `frontend/node_modules` jako Go | `build: add reproducible developer checks` |
-| DX-02 | planned | Uporządkować dokumentację i governance | aktualny indeks docs; historyczne plany oznaczone; `SECURITY.md`, `CONTRIBUTING.md`, `CODEOWNERS`, licencja po decyzji właściciela | seria `docs: ...` |
+| DX-02 | deferred | Uporządkować dokumentację i governance | aktualny indeks docs; historyczne plany oznaczone; `SECURITY.md`, `CONTRIBUTING.md`, `CODEOWNERS`, licencja po decyzji właściciela | seria `docs: ...` |
 
 Weryfikacja QA-02 z 2026-07-12 objęła pełny lokalny przebieg na prawdziwym
 Dockerze: 24 testy przeszły na desktopowym i mobilnym Chromium, a jeden test
 naprawy uprawnień został zgodnie z konfiguracją pominięty lokalnie i pozostaje
 włączony w CI z helperem `sudo`. Playwright zachowuje trace, screenshot i raport
 HTML dla awarii, a workflow wykonuje preflight Dockera i readiness backendu.
+
+DX-02 jest odłożone wyłącznie w części wymagającej decyzji właściciela o modelu
+licencji. Indeks dokumentacji, oznaczenie materiałów historycznych,
+`SECURITY.md`, `CONTRIBUTING.md` i `CODEOWNERS` są wdrożone; repozytorium nie
+otrzyma domyślnej licencji bez jawnego wyboru.
 
 ## P2 — UX/UI i propozycje produktowe
 
