@@ -79,7 +79,8 @@ Version: ${deb_version}
 Section: admin
 Priority: optional
 Architecture: ${deb_arch}
-Maintainer: Stacklab Maintainers <maintainers@stacklab.invalid>
+Maintainer: Krzysztof Bobiński <krzysztof@bobinski.net>
+Homepage: https://github.com/krbob/stacklab
 Depends: adduser, systemd, docker.io | docker-ce | moby-engine, docker-cli | docker-ce-cli | moby-cli | docker.io (<< 26.0), docker-compose | docker-compose-plugin, git
 Recommends: ca-certificates
 Description: Compose-first control panel for Docker Compose homelabs
