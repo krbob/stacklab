@@ -70,6 +70,13 @@ Each release should publish:
 - `stacklab_<version>_arm64.deb`
 - checksums
 
+Every tarball carries the project `LICENSE` and `NOTICE` plus the generated
+`THIRD_PARTY_NOTICES.md`. Debian packages expose the project license and all
+distributed third-party license texts through
+`/usr/share/doc/stacklab/copyright`, with the project `NOTICE` installed next
+to it. Packaging smoke tests verify these files and representative required
+attributions.
+
 Rationale:
 
 - `.deb` serves the primary Debian-family path

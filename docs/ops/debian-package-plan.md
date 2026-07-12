@@ -88,6 +88,9 @@ Recommended package layout:
 /usr/lib/stacklab/
   bin/stacklab
   frontend/dist/
+/usr/share/doc/stacklab/
+  copyright
+  NOTICE
 /etc/stacklab/
   stacklab.env
 /srv/stacklab/
@@ -150,6 +153,7 @@ Notes:
 The package should:
 
 - install Stacklab binaries and frontend assets
+- install project and third-party license notices under `/usr/share/doc/stacklab`
 - install a `systemd` unit
 - create or install `/etc/stacklab/stacklab.env`
 - create a dedicated service account such as `stacklab`

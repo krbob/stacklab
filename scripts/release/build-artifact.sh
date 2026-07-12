@@ -36,6 +36,8 @@ mkdir -p "${output_dir}"
 rm -rf "${stage_dir}" "${tarball_path}" "${sha_path}"
 mkdir -p "${stage_dir}/bin" "${stage_dir}/frontend" "${stage_dir}/metadata" "${stage_dir}/systemd" "${stage_dir}/host-tools"
 
+"${repo_root}/scripts/release/generate-third-party-notices.sh" --check
+
 if [[ "${skip_frontend_build}" != "1" ]]; then
   echo "Building frontend assets..."
   (
@@ -73,6 +75,9 @@ echo "Building backend binary for ${platform}..."
 )
 
 cp -R "${repo_root}/frontend/dist" "${stage_dir}/frontend/dist"
+install -m 0644 "${repo_root}/LICENSE" "${stage_dir}/LICENSE"
+install -m 0644 "${repo_root}/NOTICE" "${stage_dir}/NOTICE"
+install -m 0644 "${repo_root}/THIRD_PARTY_NOTICES.md" "${stage_dir}/THIRD_PARTY_NOTICES.md"
 cp "${repo_root}/packaging/systemd/stacklab.service.example" "${stage_dir}/systemd/stacklab.service.example"
 cp "${repo_root}/packaging/systemd/stacklab.env.example" "${stage_dir}/systemd/stacklab.env.example"
 cp "${repo_root}/packaging/systemd/stacklab-docker-admin.sudoers.example" "${stage_dir}/systemd/stacklab-docker-admin.sudoers.example"

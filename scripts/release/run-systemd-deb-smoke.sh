@@ -175,6 +175,31 @@ assert_persistent_fixtures() {
   test "$(stat -c %a /srv/stacklab/stacks/systemd-smoke/.env)" = 600
 }
 
+assert_legal_documentation() {
+  local copyright_file="/usr/share/doc/stacklab/copyright"
+  local notice_file="/usr/share/doc/stacklab/NOTICE"
+  local font_notices_file="/usr/lib/stacklab/frontend/dist/font-licenses.txt"
+
+  test -f "${copyright_file}" || die "package copyright file is missing"
+  test ! -L "${copyright_file}" || die "package copyright file must not be a symlink"
+  test "$(stat -c %a "${copyright_file}")" = 644 \
+    || die "package copyright file must have mode 0644"
+  test -f "${notice_file}" || die "package NOTICE file is missing"
+  test "$(stat -c %a "${notice_file}")" = 644 \
+    || die "package NOTICE file must have mode 0644"
+  test -f /usr/share/common-licenses/Apache-2.0 \
+    || die "Debian Apache-2.0 common license is missing"
+  grep -Fq "/usr/share/common-licenses/Apache-2.0" "${copyright_file}" \
+    || die "package copyright file does not reference Apache-2.0"
+  grep -Fq "modernc.org/libc" "${copyright_file}" \
+    || die "package copyright file is missing third-party notices"
+  grep -Fq "Copyright 2011-2016 Canonical Ltd." "${notice_file}" \
+    || die "package NOTICE file is missing the Canonical attribution"
+  test -f "${font_notices_file}" || die "bundled font notices are missing"
+  grep -Fq "SIL Open Font License, Version 1.1" "${font_notices_file}" \
+    || die "bundled font notices are incomplete"
+}
+
 main() {
   [[ $# -eq 1 ]] || die "usage: run-systemd-deb-smoke.sh TARGET_DEB"
   [[ "$(cat /proc/1/comm)" = systemd ]] || die "systemd is not PID 1"
@@ -224,6 +249,7 @@ main() {
     || die "package A version was not installed"
   test "$(cat /usr/lib/stacklab/metadata/version.txt)" = "${SOURCE_PACKAGE_VERSION}" \
     || die "package A payload was not installed"
+  assert_legal_documentation
   assert_service_identity
   assert_health_and_frontend "install-a" "${work_dir}"
   login "install-a" "${work_dir}" "${cookie_jar}"
@@ -247,6 +273,7 @@ main() {
   test "$(stat -c %a /var/lib/stacklab/stacklab.db)" = 600
   test "$(systemctl show stacklab.service --property=MainPID --value)" != "${service_pid_a}" \
     || die "package upgrade did not restart stacklab.service"
+  assert_legal_documentation
   assert_service_identity
   assert_health_and_frontend "upgrade-b" "${work_dir}"
   assert_persistent_fixtures

@@ -118,6 +118,14 @@ EOF
       test -x "${artifact_a}/host-tools/upgrade.sh"
       test -f "${artifact_a}/systemd/stacklab.service.example"
       test -f "${artifact_a}/systemd/stacklab.env.example"
+      test -f "${artifact_a}/LICENSE"
+      test -f "${artifact_a}/NOTICE"
+      test -f "${artifact_a}/THIRD_PARTY_NOTICES.md"
+      test -f "${artifact_a}/frontend/dist/font-licenses.txt"
+      grep -Fq "Apache License" "${artifact_a}/LICENSE"
+      grep -Fq "Copyright 2011-2016 Canonical Ltd." "${artifact_a}/NOTICE"
+      grep -Fq "modernc.org/libc" "${artifact_a}/THIRD_PARTY_NOTICES.md"
+      grep -Fq "SIL Open Font License, Version 1.1" "${artifact_a}/frontend/dist/font-licenses.txt"
 
       STACKLAB_BOOTSTRAP_PASSWORD=smoke-pass \
         "${artifact_a}/host-tools/upgrade.sh" --install-unit --no-health-check
@@ -125,6 +133,9 @@ EOF
       release_a="$(readlink -f /opt/stacklab/app/current)"
       test -n "${release_a}"
       test -d "${release_a}"
+      test -f "${release_a}/LICENSE"
+      test -f "${release_a}/NOTICE"
+      test -f "${release_a}/THIRD_PARTY_NOTICES.md"
       test -f /etc/systemd/system/stacklab.service
       test -f /etc/stacklab/stacklab.env
       test "$(stat -c %a /etc/stacklab/stacklab.env)" = "600"

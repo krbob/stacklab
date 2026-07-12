@@ -47,9 +47,17 @@ if [[ ! -d "${artifact_dir}" ]]; then
   exit 1
 fi
 
+for required_file in LICENSE NOTICE THIRD_PARTY_NOTICES.md; do
+  if [[ ! -f "${artifact_dir}/${required_file}" ]]; then
+    echo "release artifact file not found: ${artifact_dir}/${required_file}" >&2
+    exit 1
+  fi
+done
+
 pkg_root="${output_dir}/${package_name}_${deb_version}_${deb_arch}.pkg"
 deb_path="${output_dir}/${package_name}_${deb_version}_${deb_arch}.deb"
 sha_path="${deb_path}.sha256"
+doc_dir="${pkg_root}/usr/share/doc/${package_name}"
 
 rm -rf "${pkg_root}" "${deb_path}" "${sha_path}"
 mkdir -p \
@@ -57,7 +65,7 @@ mkdir -p \
   "${pkg_root}/usr/lib/stacklab/bin" \
   "${pkg_root}/usr/lib/stacklab/frontend" \
   "${pkg_root}/usr/lib/stacklab/metadata" \
-  "${pkg_root}/usr/share/doc/stacklab/examples" \
+  "${doc_dir}/examples" \
   "${pkg_root}/lib/systemd/system" \
   "${pkg_root}/etc/stacklab"
 
@@ -69,9 +77,30 @@ cp -R "${artifact_dir}/frontend/dist" "${pkg_root}/usr/lib/stacklab/frontend/dis
 cp -R "${artifact_dir}/metadata/." "${pkg_root}/usr/lib/stacklab/metadata/"
 install -m 0644 "${repo_root}/packaging/debian/stacklab.service" "${pkg_root}/lib/systemd/system/stacklab.service"
 install -m 0600 "${repo_root}/packaging/debian/stacklab.env" "${pkg_root}/etc/stacklab/stacklab.env"
-install -m 0644 "${repo_root}/packaging/systemd/stacklab-docker-admin.sudoers.example" "${pkg_root}/usr/share/doc/stacklab/examples/stacklab-docker-admin.sudoers.example"
-install -m 0644 "${repo_root}/packaging/systemd/stacklab-workspace-admin.sudoers.example" "${pkg_root}/usr/share/doc/stacklab/examples/stacklab-workspace-admin.sudoers.example"
-install -m 0644 "${repo_root}/packaging/systemd/stacklab-self-update.sudoers.example" "${pkg_root}/usr/share/doc/stacklab/examples/stacklab-self-update.sudoers.example"
+install -m 0644 "${repo_root}/packaging/systemd/stacklab-docker-admin.sudoers.example" "${doc_dir}/examples/stacklab-docker-admin.sudoers.example"
+install -m 0644 "${repo_root}/packaging/systemd/stacklab-workspace-admin.sudoers.example" "${doc_dir}/examples/stacklab-workspace-admin.sudoers.example"
+install -m 0644 "${repo_root}/packaging/systemd/stacklab-self-update.sudoers.example" "${doc_dir}/examples/stacklab-self-update.sudoers.example"
+install -m 0644 "${artifact_dir}/NOTICE" "${doc_dir}/NOTICE"
+
+cat > "${doc_dir}/copyright" <<'EOF'
+Stacklab
+========
+
+Upstream source: https://github.com/krbob/stacklab
+Upstream contact: https://github.com/krbob/stacklab/issues
+Copyright: 2026 Krzysztof Bobiński and Stacklab contributors
+
+Stacklab is licensed under the Apache License, Version 2.0. On Debian systems,
+the complete license text is available at:
+
+  /usr/share/common-licenses/Apache-2.0
+
+Third-party copyright and license information
+=============================================
+
+EOF
+cat "${artifact_dir}/THIRD_PARTY_NOTICES.md" >> "${doc_dir}/copyright"
+chmod 0644 "${doc_dir}/copyright"
 
 cat > "${pkg_root}/DEBIAN/control" <<EOF
 Package: ${package_name}

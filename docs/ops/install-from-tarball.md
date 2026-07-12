@@ -60,6 +60,9 @@ A release tarball contains:
 
 ```text
 stacklab-<version>-linux-<arch>/
+  LICENSE
+  NOTICE
+  THIRD_PARTY_NOTICES.md
   bin/stacklab
   frontend/dist/
   metadata/
@@ -78,6 +81,9 @@ stacklab-<version>-linux-<arch>/
 ```
 
 `host-tools/upgrade.sh` is the supported installation and upgrade entrypoint.
+
+`LICENSE`, `NOTICE`, and `THIRD_PARTY_NOTICES.md` document the terms and
+attributions for Stacklab and the dependencies distributed in the archive.
 
 The tarball also includes:
 

@@ -98,6 +98,9 @@ flow instead:
   - `/usr/share/doc/stacklab/examples/stacklab-docker-admin.sudoers.example`
   - `/usr/share/doc/stacklab/examples/stacklab-workspace-admin.sudoers.example`
   - `/usr/share/doc/stacklab/examples/stacklab-self-update.sudoers.example`
+- Project and third-party licensing information is installed at:
+  - `/usr/share/doc/stacklab/copyright`
+  - `/usr/share/doc/stacklab/NOTICE`
 - The package depends on:
   - `adduser`
   - `systemd`
