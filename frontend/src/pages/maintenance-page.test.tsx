@@ -9,6 +9,13 @@ const mockUseApi = vi.fn()
 const mockUseJobStream = vi.fn()
 const mockPruneRefetch = vi.fn()
 const mockAuditRefetch = vi.fn()
+const mockStacksRefetch = vi.fn()
+
+let stacksStateOverride: {
+  data: StackListResponse | null
+  error: Error | null
+  loading: boolean
+} | null = null
 
 let auditStateOverride: {
   data: unknown
@@ -134,17 +141,26 @@ describe('MaintenancePage', () => {
     mockRunMaintenancePrune.mockReset()
     mockPruneRefetch.mockReset()
     mockAuditRefetch.mockReset()
+    mockStacksRefetch.mockReset()
+    stacksStateOverride = null
     auditStateOverride = null
 
     mockUseApi.mockImplementation((factory?: unknown) => {
       const source = String(factory ?? '')
 
       if (source.includes('getStacks')) {
+        if (stacksStateOverride) {
+          return {
+            ...stacksStateOverride,
+            refetch: mockStacksRefetch,
+          }
+        }
+
         return {
           data: stacksData,
           error: null,
           loading: false,
-          refetch: vi.fn(),
+          refetch: mockStacksRefetch,
         }
       }
 
@@ -225,6 +241,63 @@ describe('MaintenancePage', () => {
             clear: vi.fn(),
           }
     ))
+  })
+
+  it('shows a stack-list failure with Retry instead of a false zero-stack scope', () => {
+    stacksStateOverride = {
+      data: null,
+      error: new Error('stack endpoint unavailable'),
+      loading: false,
+    }
+
+    render(<MaintenancePage />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Failed to load stacks: stack endpoint unavailable',
+    )
+    expect(screen.queryByText('All stacks (0)')).not.toBeInTheDocument()
+    expect(screen.queryByText('0 stacks in scope')).not.toBeInTheDocument()
+    expect(screen.getByTestId('maintenance-start')).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry stack list' }))
+    expect(mockStacksRefetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows stack loading without presenting an empty scope', () => {
+    stacksStateOverride = {
+      data: null,
+      error: null,
+      loading: true,
+    }
+
+    render(<MaintenancePage />)
+
+    expect(screen.getByRole('status')).toHaveTextContent('Loading stack update scope.')
+    expect(screen.getByTestId('maintenance-stacks-loading')).toBeInTheDocument()
+    expect(screen.queryByText('All stacks (0)')).not.toBeInTheDocument()
+    expect(screen.queryByText('0 stacks in scope')).not.toBeInTheDocument()
+  })
+
+  it('shows an empty scope only after a successful stack-list response', () => {
+    stacksStateOverride = {
+      data: {
+        ...stacksData,
+        items: [],
+        summary: {
+          ...stacksData.summary,
+          stack_count: 0,
+        },
+      },
+      error: null,
+      loading: false,
+    }
+
+    render(<MaintenancePage />)
+
+    expect(screen.getByText('No stacks available to update.')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByText('All stacks (0)')).not.toBeInTheDocument()
+    expect(screen.getByTestId('maintenance-start')).toBeDisabled()
   })
 
   it('starts selected-stack maintenance and renders step progress', async () => {

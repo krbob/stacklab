@@ -33,7 +33,12 @@ const stepStatusColors: Record<string, string> = {
 }
 
 export function MaintenancePage() {
-  const { data: stacksData } = useApi(() => getStacks(), [])
+  const {
+    data: stacksData,
+    error: stacksError,
+    loading: stacksLoading,
+    refetch: refetchStacks,
+  } = useApi(() => getStacks(), [])
   const {
     data: auditData,
     error: auditError,
@@ -67,7 +72,11 @@ export function MaintenancePage() {
   )
   const isTerminal = jobState === 'succeeded' || jobState === 'failed' || jobState === 'cancelled' || jobState === 'timed_out'
   const running = startPending || (jobId !== null && !isTerminal)
-  const canStart = targetMode === 'all' ? stacks.length > 0 : selectedIds.size > 0
+  const canStart = stacksData !== null
+    && (targetMode === 'all' ? stacks.length > 0 : selectedIds.size > 0)
+  const stacksLoadError = stacksError
+    ? new Error(`Failed to load stacks: ${stacksError.message}`)
+    : null
 
   const activateTab = useCallback((tab: MaintenanceTab) => {
     setActiveTab(tab)
@@ -214,32 +223,51 @@ export function MaintenancePage() {
         <h2 className="text-lg font-medium text-[var(--text)]">Update stacks</h2>
         <p className="mt-2 text-xs text-[var(--muted)]">Pull images, build, and restart selected stacks.</p>
 
-        {/* Target mode */}
-        <div className="mt-5 space-y-2">
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--text)]">
-            <input type="radio" checked={targetMode === 'all'} onChange={() => setTargetMode('all')} disabled={running} className="accent-[var(--accent)]" />
-            All stacks ({stacks.length})
-          </label>
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--text)]">
-            <input type="radio" checked={targetMode === 'selected'} onChange={() => setTargetMode('selected')} disabled={running} className="accent-[var(--accent)]" />
-            Selected stacks
-          </label>
-        </div>
+        <div className="mt-5">
+          <AsyncState
+            loading={stacksLoading}
+            error={stacksLoadError}
+            hasData={stacksData !== null}
+            isEmpty={stacksData !== null && stacks.length === 0}
+            loadingLabel="Loading stack update scope."
+            emptyMessage="No stacks available to update."
+            onRetry={refetchStacks}
+            retryLabel="Retry stack list"
+            loadingFallback={(
+              <div className="space-y-2" data-testid="maintenance-stacks-loading">
+                <div className="h-5 animate-pulse rounded bg-[rgba(255,255,255,0.05)]" />
+                <div className="h-5 w-2/3 animate-pulse rounded bg-[rgba(255,255,255,0.04)]" />
+              </div>
+            )}
+          >
+            {/* Target mode */}
+            <div className="space-y-2">
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--text)]">
+                <input type="radio" checked={targetMode === 'all'} onChange={() => setTargetMode('all')} disabled={running} className="accent-[var(--accent)]" />
+                All stacks ({stacks.length})
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--text)]">
+                <input type="radio" checked={targetMode === 'selected'} onChange={() => setTargetMode('selected')} disabled={running} className="accent-[var(--accent)]" />
+                Selected stacks
+              </label>
+            </div>
 
-        {/* Stack checklist */}
-        {targetMode === 'selected' && (
-          <div className="mt-3">
-            <div className="mb-2 flex gap-2">
-              <button onClick={selectAll} disabled={running} className="text-xs text-[var(--accent)] hover:underline disabled:opacity-40">Select all</button>
-              <button onClick={deselectAll} disabled={running} className="text-xs text-[var(--muted)] hover:underline disabled:opacity-40">Deselect all</button>
-            </div>
-            <div className="max-h-48 space-y-1 overflow-y-auto">
-              {stacks.map((stack) => (
-                <StackCheckbox key={stack.id} stack={stack} checked={selectedIds.has(stack.id)} onChange={() => toggleStack(stack.id)} disabled={running} />
-              ))}
-            </div>
-          </div>
-        )}
+            {/* Stack checklist */}
+            {targetMode === 'selected' && (
+              <div className="mt-3">
+                <div className="mb-2 flex gap-2">
+                  <button onClick={selectAll} disabled={running} className="text-xs text-[var(--accent)] hover:underline disabled:opacity-40">Select all</button>
+                  <button onClick={deselectAll} disabled={running} className="text-xs text-[var(--muted)] hover:underline disabled:opacity-40">Deselect all</button>
+                </div>
+                <div className="max-h-48 space-y-1 overflow-y-auto">
+                  {stacks.map((stack) => (
+                    <StackCheckbox key={stack.id} stack={stack} checked={selectedIds.has(stack.id)} onChange={() => toggleStack(stack.id)} disabled={running} />
+                  ))}
+                </div>
+              </div>
+            )}
+          </AsyncState>
+        </div>
 
         {/* Options */}
         <div className="mt-5 space-y-2 border-t border-[var(--panel-border)] pt-4">
@@ -313,7 +341,7 @@ export function MaintenancePage() {
       <div aria-busy={startPending || (jobId !== null && jobState === null)} className="flex min-w-0 flex-1 flex-col rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
         <h2 className="text-lg font-medium text-[var(--text)]">Progress</h2>
 
-        {!jobId && (
+        {!jobId && stacksData && (
           <div className="mt-4 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4">
             <h3 className="text-sm font-medium text-[var(--text)]">Ready to run</h3>
             <p className="mt-1 text-xs text-[var(--muted)]">
