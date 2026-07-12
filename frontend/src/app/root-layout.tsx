@@ -19,7 +19,12 @@ const links = [
   { to: '/settings', label: 'Settings', icon: Settings },
 ]
 
-function SidebarContent({ onNavigate, logout }: { onNavigate?: () => void; logout: () => void }) {
+function SidebarContent({ onNavigate, onLogout, loggingOut, logoutError }: {
+  onNavigate?: () => void
+  onLogout: () => void
+  loggingOut: boolean
+  logoutError: string | null
+}) {
   return (
     <>
       <div className="mb-8">
@@ -51,12 +56,18 @@ function SidebarContent({ onNavigate, logout }: { onNavigate?: () => void; logou
       <div className="mt-auto space-y-1">
         <GlobalActivity />
         <button
-          onClick={() => logout()}
-          className="flex w-full items-center gap-3 rounded-lg border border-transparent px-4 py-3 text-sm text-[var(--muted)] transition hover:border-[var(--panel-border)] hover:bg-[rgba(255,255,255,0.03)] hover:text-[var(--text)]"
+          onClick={onLogout}
+          disabled={loggingOut}
+          className="flex w-full items-center gap-3 rounded-lg border border-transparent px-4 py-3 text-sm text-[var(--muted)] transition hover:border-[var(--panel-border)] hover:bg-[rgba(255,255,255,0.03)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <LogOut className="size-4" />
-          <span>Log out</span>
+          <span>{loggingOut ? 'Logging out…' : 'Log out'}</span>
         </button>
+        {logoutError && (
+          <p className="rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-3 py-2 text-xs leading-5 text-[var(--danger)]" role="alert">
+            {logoutError}
+          </p>
+        )}
       </div>
     </>
   )
@@ -67,7 +78,10 @@ export function RootLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const scrollRef = useRef<HTMLDivElement>(null)
+  const logoutPendingRef = useRef(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
+  const [logoutError, setLogoutError] = useState<string | null>(null)
   const moreActive = morePaths.some((path) => location.pathname === path || location.pathname.startsWith(`${path}/`))
 
   // Nav hotkeys 1-7 (Z5); skipped while typing.
@@ -102,6 +116,22 @@ export function RootLayout() {
     scrollRef.current?.scrollTo(0, 0)
     window.scrollTo(0, 0)
   }, [location.pathname])
+
+  async function handleLogout() {
+    if (logoutPendingRef.current) return
+    logoutPendingRef.current = true
+    setLoggingOut(true)
+    setLogoutError(null)
+    try {
+      await logout()
+      setMobileNavOpen(false)
+    } catch {
+      setLogoutError('Logout could not be confirmed. Your session may still be active. Try again.')
+    } finally {
+      logoutPendingRef.current = false
+      setLoggingOut(false)
+    }
+  }
 
   return (
     <ActivityProvider>
@@ -149,7 +179,12 @@ export function RootLayout() {
             >
               <X className="size-5" />
             </button>
-            <SidebarContent onNavigate={() => setMobileNavOpen(false)} logout={logout} />
+            <SidebarContent
+              onNavigate={() => setMobileNavOpen(false)}
+              onLogout={() => { void handleLogout() }}
+              loggingOut={loggingOut}
+              logoutError={logoutError}
+            />
           </aside>
         </>
       )}
@@ -163,7 +198,11 @@ export function RootLayout() {
       >
         <div className="mx-auto flex max-w-[1600px] gap-4 px-4 py-4 md:px-6 lg:min-h-screen">
           <aside className="hidden w-56 shrink-0 rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-[var(--shadow)] lg:flex lg:flex-col">
-            <SidebarContent logout={logout} />
+            <SidebarContent
+              onLogout={() => { void handleLogout() }}
+              loggingOut={loggingOut}
+              logoutError={logoutError}
+            />
           </aside>
 
           <main className="flex min-w-0 flex-1 flex-col gap-4">

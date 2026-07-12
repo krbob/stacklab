@@ -1,10 +1,10 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiClientError, getSession } from '@/lib/api-client'
+import { ApiClientError, getSession, logout } from '@/lib/api-client'
 import type { SessionResponse } from '@/lib/api-types'
 import { useAuth } from '@/hooks/use-auth'
-import { AuthProvider } from './auth-context'
+import { AuthProvider, type AuthContextValue } from './auth-context'
 
 vi.mock('@/lib/api-client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api-client')>()
@@ -17,6 +17,8 @@ vi.mock('@/lib/api-client', async (importOriginal) => {
 })
 
 const mockGetSession = vi.mocked(getSession)
+const mockApiLogout = vi.mocked(logout)
+let latestAuth: AuthContextValue | null = null
 const authenticatedSession: SessionResponse = {
   authenticated: true,
   user: { id: 'local', display_name: 'Local Operator' },
@@ -35,8 +37,9 @@ function deferred<T>() {
 }
 
 function AuthProbe() {
-  const { status } = useAuth()
-  return <div>Auth child: {status}</div>
+  const auth = useAuth()
+  latestAuth = auth
+  return <div>Auth child: {auth.status}</div>
 }
 
 function LocationProbe() {
@@ -58,6 +61,8 @@ function renderProvider() {
 describe('AuthProvider session bootstrap', () => {
   beforeEach(() => {
     mockGetSession.mockReset()
+    mockApiLogout.mockReset()
+    latestAuth = null
   })
 
   it('keeps protected children unmounted when session verification fails', async () => {
@@ -103,6 +108,32 @@ describe('AuthProvider session bootstrap', () => {
 
     expect(await screen.findByText('Auth child: unauthenticated')).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByTestId('location')).toHaveTextContent('/stacks?view=compact')
+  })
+
+  it('treats a logout 401 as a completed logout', async () => {
+    mockGetSession.mockResolvedValue(authenticatedSession)
+    mockApiLogout.mockRejectedValue(new ApiClientError(401, 'unauthorized', 'Session already ended.'))
+    renderProvider()
+    await screen.findByText('Auth child: authenticated')
+
+    await act(async () => {
+      await latestAuth!.logout()
+    })
+
+    expect(screen.getByText('Auth child: unauthenticated')).toBeInTheDocument()
+    expect(screen.getByTestId('location')).toHaveTextContent('/login')
+  })
+
+  it('keeps the authenticated session and route when logout cannot be confirmed', async () => {
+    mockGetSession.mockResolvedValue(authenticatedSession)
+    mockApiLogout.mockRejectedValue(new TypeError('Failed to fetch'))
+    renderProvider()
+    await screen.findByText('Auth child: authenticated')
+
+    await expect(latestAuth!.logout()).rejects.toThrow('Failed to fetch')
+
+    expect(screen.getByText('Auth child: authenticated')).toBeInTheDocument()
     expect(screen.getByTestId('location')).toHaveTextContent('/stacks?view=compact')
   })
 })

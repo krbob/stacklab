@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { RootLayout } from './root-layout'
@@ -10,6 +10,7 @@ const mockGetStacks = vi.fn()
 const mockGetJob = vi.fn()
 const mockGetJobEvents = vi.fn()
 const mockCancelJob = vi.fn()
+const mockLogout = vi.fn()
 
 vi.mock('@/hooks/use-auth', () => ({
   useAuth: vi.fn(),
@@ -25,6 +26,17 @@ vi.mock('@/lib/api-client', () => ({
 }))
 
 const mockUseAuth = vi.mocked(useAuth)
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve
+    reject = promiseReject
+  })
+
+  return { promise, resolve, reject }
+}
 
 function LocationProbe({ modal = false }: { modal?: boolean }) {
   const location = useLocation()
@@ -68,9 +80,10 @@ describe('RootLayout keyboard navigation', () => {
       status: 'authenticated',
       session: null,
       login: vi.fn(),
-      logout: vi.fn(),
+      logout: mockLogout,
       requireReauthentication: vi.fn(),
     })
+    mockLogout.mockReset()
     mockGetActiveJobs.mockResolvedValue({
       items: [],
       summary: { active_count: 0, running_count: 0, queued_count: 0, cancel_requested_count: 0 },
@@ -117,5 +130,48 @@ describe('RootLayout keyboard navigation', () => {
 
     expect(more).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByRole('dialog', { name: 'Navigation' })).toBeInTheDocument()
+  })
+
+  it('disables logout while the request is pending and prevents duplicate calls', async () => {
+    const pendingLogout = deferred<void>()
+    mockLogout.mockReturnValue(pendingLogout.promise)
+    renderRoot()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Log out' }))
+
+    const pendingButton = screen.getByRole('button', { name: 'Logging out…' })
+    expect(pendingButton).toBeDisabled()
+    fireEvent.click(pendingButton)
+    expect(mockLogout).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      pendingLogout.resolve(undefined)
+      await pendingLogout.promise
+    })
+
+    expect(screen.getByRole('button', { name: 'Log out' })).toBeEnabled()
+  })
+
+  it('keeps mobile navigation open when logout fails and allows a retry', async () => {
+    mockLogout
+      .mockRejectedValueOnce(new Error('network unavailable'))
+      .mockResolvedValueOnce(undefined)
+    renderRoot()
+
+    fireEvent.click(screen.getByRole('button', { name: 'More navigation' }))
+    const navigation = screen.getByRole('dialog', { name: 'Navigation' })
+    fireEvent.click(within(navigation).getByRole('button', { name: 'Log out' }))
+
+    const alert = await within(navigation).findByRole('alert')
+    expect(alert).toHaveTextContent(
+      'Logout could not be confirmed. Your session may still be active. Try again.',
+    )
+    expect(screen.getByTestId('path')).toHaveTextContent('/stacks')
+    expect(within(navigation).getByRole('button', { name: 'Log out' })).toBeEnabled()
+
+    fireEvent.click(within(navigation).getByRole('button', { name: 'Log out' }))
+
+    await waitFor(() => expect(mockLogout).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Navigation' })).not.toBeInTheDocument())
   })
 })

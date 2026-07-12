@@ -69,7 +69,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [navigate, location.state])
 
   const logout = useCallback(async () => {
-    await api.logout()
+    try {
+      await api.logout()
+    } catch (error) {
+      if (!(error instanceof api.ApiClientError) || error.status !== 401) throw error
+    }
     setState({ status: 'unauthenticated', session: null })
     navigate('/login', { replace: true })
   }, [navigate])
