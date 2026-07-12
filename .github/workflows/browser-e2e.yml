@@ -61,6 +61,13 @@ jobs:
         working-directory: frontend
         run: npx playwright install --with-deps chromium
 
+      - name: Preflight Docker runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker info
+          docker compose version
+
       - name: Start E2E backend
         env:
           STACKLAB_E2E_ENABLE_WORKSPACE_REPAIR: "1"
@@ -70,17 +77,24 @@ jobs:
           scripts/e2e/run-backend.sh >"${RUNNER_TEMP}/stacklab-e2e.log" 2>&1 &
           echo $! > "${RUNNER_TEMP}/stacklab-e2e.pid"
 
-      - name: Wait for backend health
+      - name: Wait for backend readiness
         shell: bash
         run: |
           set -euo pipefail
+          pid="$(cat "${RUNNER_TEMP}/stacklab-e2e.pid")"
           for _ in {1..60}; do
-            if curl -fsS http://127.0.0.1:18081/api/health >/dev/null; then
+            if ! kill -0 "${pid}" 2>/dev/null; then
+              echo "Backend exited before becoming ready" >&2
+              tail -n 200 "${RUNNER_TEMP}/stacklab-e2e.log" >&2 || true
+              exit 1
+            fi
+            if curl -fsS http://127.0.0.1:18081/api/ready >/dev/null; then
               exit 0
             fi
             sleep 1
           done
-          echo "Backend did not become healthy in time" >&2
+          echo "Backend did not become ready in time" >&2
+          tail -n 200 "${RUNNER_TEMP}/stacklab-e2e.log" >&2 || true
           exit 1
 
       - name: Run browser E2E
@@ -90,6 +104,11 @@ jobs:
           STACKLAB_E2E_PASSWORD: stacklab-e2e
           STACKLAB_E2E_ENABLE_WORKSPACE_REPAIR: "1"
         run: npm run test:e2e
+
+      - name: Print backend log on failure
+        if: failure()
+        shell: bash
+        run: tail -n 200 "${RUNNER_TEMP}/stacklab-e2e.log" || true
 
       - name: Stop E2E backend
         if: always()
