@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Activity, Container, Ellipsis, FolderCog, FolderKanban, LogOut, Monitor, Settings, Wrench, X } from 'lucide-react'
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/use-auth'
 import { GlobalActivity } from '@/components/global-activity'
 import { JobDetailDrawer } from '@/components/job-detail-drawer'
@@ -17,7 +17,7 @@ const links = [
   { to: '/maintenance', label: 'Maintenance', icon: Wrench },
   { to: '/docker', label: 'Docker', icon: Container },
   { to: '/audit', label: 'Audit', icon: Activity },
-  { to: '/settings', label: 'Settings', icon: Settings },
+  { to: '/settings/security', label: 'Settings', icon: Settings },
 ]
 
 function SidebarContent({ onNavigate, onLogout, loggingOut, logoutError }: {
@@ -26,6 +26,8 @@ function SidebarContent({ onNavigate, onLogout, loggingOut, logoutError }: {
   loggingOut: boolean
   logoutError: string | null
 }) {
+  const location = useLocation()
+
   return (
     <>
       <div className="mb-8">
@@ -33,25 +35,30 @@ function SidebarContent({ onNavigate, onLogout, loggingOut, logoutError }: {
       </div>
 
       <nav className="space-y-1">
-        {links.map(({ to, label, icon: Icon }, index) => (
-          <NavLink
-            key={to}
-            to={to}
-            onClick={onNavigate}
-            className={({ isActive }) =>
-              [
+        {links.map(({ to, label, icon: Icon }, index) => {
+          const isActive = to === '/settings/security'
+            ? location.pathname === '/settings' || location.pathname.startsWith('/settings/')
+            : location.pathname === to || location.pathname.startsWith(`${to}/`)
+
+          return (
+            <Link
+              key={to}
+              to={to}
+              onClick={onNavigate}
+              aria-current={isActive ? 'page' : undefined}
+              className={[
                 'flex items-center gap-3 rounded-lg border px-4 py-3 text-sm transition',
                 isActive
                   ? 'border-[var(--panel-border)] bg-[rgba(245,165,36,0.10)] text-[var(--text)] shadow-[inset_2px_0_0_var(--accent)]'
                   : 'border-transparent bg-transparent text-[var(--muted)] hover:border-[var(--panel-border)] hover:bg-[rgba(255,255,255,0.03)] hover:text-[var(--text)]',
-              ].join(' ')
-            }
-          >
-            <Icon className="size-4" />
-            <span>{label}</span>
-            <kbd className="ml-auto rounded border border-[rgba(255,255,255,0.1)] px-1 font-mono text-xs text-[var(--dim)]">{index + 1}</kbd>
-          </NavLink>
-        ))}
+              ].join(' ')}
+            >
+              <Icon className="size-4" />
+              <span>{label}</span>
+              <kbd className="ml-auto rounded border border-[rgba(255,255,255,0.1)] px-1 font-mono text-xs text-[var(--dim)]">{index + 1}</kbd>
+            </Link>
+          )
+        })}
       </nav>
 
       <div className="mt-auto space-y-1">

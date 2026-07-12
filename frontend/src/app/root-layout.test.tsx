@@ -59,7 +59,7 @@ function renderRoot({ modal = false, initialEntry = '/stacks' } = {}) {
         <Route path="/" element={<RootLayout />}>
           <Route path="stacks" element={<LocationProbe modal={modal} />} />
           <Route path="host" element={<LocationProbe />} />
-          <Route path="settings" element={<LocationProbe />} />
+          <Route path="settings/*" element={<LocationProbe />} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -107,6 +107,20 @@ describe('RootLayout keyboard navigation', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('path')).toHaveTextContent('/host')
+    })
+  })
+
+  it('keeps Settings active on child routes and uses its canonical security entry', async () => {
+    renderRoot({ initialEntry: '/settings/notifications' })
+
+    const settingsLink = screen.getByRole('link', { name: /Settings/ })
+    expect(settingsLink).toHaveAttribute('aria-current', 'page')
+    expect(settingsLink).toHaveAttribute('href', '/settings/security')
+
+    fireEvent.keyDown(window, { key: '7' })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('path')).toHaveTextContent('/settings/security')
     })
   })
 
