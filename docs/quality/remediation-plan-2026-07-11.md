@@ -108,7 +108,7 @@ rozszerzania zakresu produktu poza model single-host i Compose-first.
 | ARCH-01 | done | Przenieść ownership usług do composition root | `main` tworzy pojedyncze instancje; handler nie uruchamia ukrytych background workers; lifecycle jest jawny | `refactor(runtime): centralize service ownership` |
 | ARCH-02 | done | Rozdzielić handler HTTP według domen | osobne kontrolery/routes dla auth, system, workspace, maintenance, stacks, operations i settings; wzorce tras, auth i fallbacki chronione testem kontraktowym; bez zmiany API | seria `refactor(http): split ... handlers` |
 | ARCH-03 | done | Rozdzielić duże moduły frontendu | Settings i Host są cienkimi komponentami kompozycyjnymi; sekcje, stan odpytywania i modele pomocnicze są rozdzielone; zachowanie zostało scharakteryzowane testami przed przenosinami | seria `refactor(ui): extract ...` |
-| API-01 | planned | Generować typy frontendu z OpenAPI | deterministyczny codegen, komenda `generate`, CI failuje przy drift; ręczne rozszerzenia są oddzielone | `build(api): generate frontend contract types` |
+| API-01 | done | Generować typy frontendu z OpenAPI | deterministyczny codegen, komenda `generate`, CI failuje przy drift; REST korzysta z wygenerowanych `components` i `operations`, a modele WebSocket są oddzielone | seria `build(api)` / `fix(api)` / `refactor(api)` |
 
 ### Jakość i DX
 

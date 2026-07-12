@@ -50,3 +50,29 @@ request.
 
 Docker-backed integration and browser E2E remain separate CI workflows because
 they require runtime services beyond the reproducible source-tree baseline.
+
+## OpenAPI Contract Generation
+
+The tracked frontend contract is generated from `docs/api/openapi.yaml`. After
+changing the REST API specification, regenerate it with the canonical Node
+toolchain:
+
+```bash
+cd frontend
+npm run generate:api
+```
+
+Commit `src/lib/api-contract.generated.ts` together with the OpenAPI change.
+Do not edit the generated file by hand. `frontend/src/lib/api-types.ts` is the
+stable application-facing facade over generated `components` and `operations`;
+WebSocket-only models remain in `frontend/src/lib/ws-types.ts`.
+
+To check generation without accepting drift, run from the repository root:
+
+```bash
+make frontend-api-contract
+```
+
+The target regenerates the contract and fails when the result differs from the
+committed file. It is also part of `make check-frontend`, `make check`, and the
+GitHub Actions frontend gate.
