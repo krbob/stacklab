@@ -264,16 +264,78 @@ describe('DockerAdminPage', () => {
     expect(screen.getAllByText(/Docker is using defaults|Docker is currently using built-in defaults\./).length).toBeGreaterThanOrEqual(1)
   })
 
-  it('shows overview error', () => {
+  it('recovers from an overview load failure without refetching other Docker data', () => {
     let callIndex = 0
+    let recovered = false
+    const overviewRefetch = vi.fn(() => { recovered = true })
+    const configRefetch = vi.fn()
+    const registryRefetch = vi.fn()
     mockUseApi.mockImplementation(() => {
-      const idx = callIndex++
-      if (idx === 0) return { data: null, error: new Error('Connection refused'), loading: false, refetch: vi.fn() }
-      return { data: null, error: null, loading: false, refetch: vi.fn() }
+      const idx = callIndex++ % 3
+      if (idx === 0) {
+        return {
+          data: recovered ? overview : null,
+          error: recovered ? null : new Error('Connection refused'),
+          loading: false,
+          refetch: overviewRefetch,
+        }
+      }
+      if (idx === 1) return { data: daemonConfig, error: null, loading: false, refetch: configRefetch }
+      return { data: registryStatus, error: null, loading: false, refetch: registryRefetch }
     })
-    render(<DockerAdminPage />)
+    const { rerender } = render(<DockerAdminPage />)
 
-    expect(screen.getByText(/Connection refused/)).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Failed to load Docker overview: Connection refused',
+    )
+    expect(screen.queryByText('29.3.1')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry Docker overview' }))
+
+    expect(overviewRefetch).toHaveBeenCalledTimes(1)
+    expect(configRefetch).not.toHaveBeenCalled()
+    expect(registryRefetch).not.toHaveBeenCalled()
+
+    rerender(<DockerAdminPage />)
+    expect(screen.queryByText(/Connection refused/)).not.toBeInTheDocument()
+    expect(screen.getByText('29.3.1')).toBeInTheDocument()
+  })
+
+  it('retries only the daemon configuration and preserves stale JSON until recovery', () => {
+    let callIndex = 0
+    let recovered = false
+    const overviewRefetch = vi.fn()
+    const configRefetch = vi.fn(() => { recovered = true })
+    const registryRefetch = vi.fn()
+    mockUseApi.mockImplementation(() => {
+      const idx = callIndex++ % 3
+      if (idx === 0) return { data: overview, error: null, loading: false, refetch: overviewRefetch }
+      if (idx === 1) {
+        return {
+          data: daemonConfig,
+          error: recovered ? null : new Error('Config endpoint unavailable'),
+          loading: false,
+          refetch: configRefetch,
+        }
+      }
+      return { data: registryStatus, error: null, loading: false, refetch: registryRefetch }
+    })
+    const { rerender } = render(<DockerAdminPage />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Could not refresh Docker daemon configuration: Config endpoint unavailable. Showing the last loaded configuration.',
+    )
+    expect(screen.getByText(/"dns"/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry daemon configuration' }))
+
+    expect(configRefetch).toHaveBeenCalledTimes(1)
+    expect(overviewRefetch).not.toHaveBeenCalled()
+    expect(registryRefetch).not.toHaveBeenCalled()
+
+    rerender(<DockerAdminPage />)
+    expect(screen.queryByText(/Config endpoint unavailable/)).not.toBeInTheDocument()
+    expect(screen.getByText(/"dns"/)).toBeInTheDocument()
   })
 
   it('validates managed settings and shows preview', async () => {

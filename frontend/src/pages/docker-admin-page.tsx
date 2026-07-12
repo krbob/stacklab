@@ -43,18 +43,26 @@ export function DockerAdminPage() {
         {overviewLoading && (
           <>
             <div className="sr-only" role="status">Loading Docker overview.</div>
-            <div aria-hidden="true" className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-36 animate-pulse rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)]" />
-              ))}
-            </div>
+            {!overview && (
+              <div aria-hidden="true" className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-36 animate-pulse rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)]" />
+                ))}
+              </div>
+            )}
           </>
         )}
 
         {overviewError && (
-          <div className="mt-4 rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">
-            Failed to load Docker overview: {overviewError.message}
-          </div>
+          <ContextualLoadError
+            className="mt-4"
+            message={overview
+              ? `Could not refresh Docker overview: ${overviewError.message}. Showing the last loaded overview.`
+              : `Failed to load Docker overview: ${overviewError.message}`}
+            retryLabel="Retry Docker overview"
+            retrying={overviewLoading}
+            onRetry={refetchOverview}
+          />
         )}
 
         {overview && <OverviewCards overview={overview} />}
@@ -70,10 +78,22 @@ export function DockerAdminPage() {
         {configLoading && (
           <>
             <div className="sr-only" role="status">Loading Docker daemon configuration.</div>
-            <div aria-hidden="true" className="mt-3 h-48 animate-pulse rounded-md bg-[rgba(255,255,255,0.02)]" />
+            {!daemonConfig && (
+              <div aria-hidden="true" className="mt-3 h-48 animate-pulse rounded-md bg-[rgba(255,255,255,0.02)]" />
+            )}
           </>
         )}
-        {configError && <p className="mt-3 text-sm text-[var(--danger)]">{configError.message}</p>}
+        {configError && (
+          <ContextualLoadError
+            className="mt-3"
+            message={daemonConfig
+              ? `Could not refresh Docker daemon configuration: ${configError.message}. Showing the last loaded configuration.`
+              : `Failed to load Docker daemon configuration: ${configError.message}`}
+            retryLabel="Retry daemon configuration"
+            retrying={configLoading}
+            onRetry={refetchConfig}
+          />
+        )}
         {daemonConfig && <DaemonConfigViewer config={daemonConfig} />}
       </section>
 
@@ -96,6 +116,34 @@ export function DockerAdminPage() {
           refetch={refetchRegistry}
         />
       </section>
+    </div>
+  )
+}
+
+function ContextualLoadError({ className, message, retryLabel, retrying, onRetry }: {
+  className?: string
+  message: string
+  retryLabel: string
+  retrying: boolean
+  onRetry: () => void
+}) {
+  return (
+    <div
+      role="alert"
+      className={cn(
+        'flex flex-wrap items-center gap-3 rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]',
+        className,
+      )}
+    >
+      <p className="min-w-0 flex-1">{message}</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        disabled={retrying}
+        className="shrink-0 rounded-md border border-[var(--danger)]/30 px-3 py-1.5 text-xs font-medium hover:bg-[var(--danger)]/10 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {retrying ? 'Retrying…' : retryLabel}
+      </button>
     </div>
   )
 }
