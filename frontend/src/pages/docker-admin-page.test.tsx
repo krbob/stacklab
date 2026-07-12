@@ -587,6 +587,12 @@ describe('DockerAdminPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Apply & Restart' }))
     const applyDialog = screen.getByRole('dialog', { name: 'Apply Docker daemon settings?' })
+    const review = within(applyDialog).getByRole('region', { name: 'Review operation' })
+    expect(review).toHaveTextContent('/etc/docker/daemon.json')
+    expect(review).toHaveTextContent('Write managed keys: dns.')
+    expect(review).toHaveTextContent('Running containers may be interrupted')
+    expect(review).toHaveTextContent('creates a unique backup')
+    expect(review).toHaveTextContent('restores the previous configuration and retries the restart')
     expect(mockApplyDockerDaemonConfig).not.toHaveBeenCalled()
     fireEvent.click(within(applyDialog).getByRole('button', { name: 'Apply & Restart' }))
 

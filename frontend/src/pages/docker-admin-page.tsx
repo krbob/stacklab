@@ -487,12 +487,23 @@ function ManagedSettingsForm({ currentSummary, writeCapability, onApplyDone }: {
       {confirmApply && validateResult && (
         <ConfirmDialog
           title="Apply Docker daemon settings?"
-          message="This writes daemon.json and restarts Docker. Running containers may be interrupted."
-          items={[
-            'action: restart Docker',
-            validateResult.changed_keys.length > 0 ? `changed keys: ${validateResult.changed_keys.join(', ')}` : 'changed keys: none',
-            ...validateResult.warnings,
-          ]}
+          message="Review the validated configuration and recovery path before restarting Docker."
+          review={{
+            target: validateResult.preview.path,
+            scope: [
+              validateResult.changed_keys.length > 0
+                ? `Write managed keys: ${validateResult.changed_keys.join(', ')}.`
+                : 'No managed keys differ from the current configuration.',
+              'Preserve unmanaged daemon.json keys from the validated preview.',
+            ],
+            impact: [
+              'Restart the Docker service; Docker operations will be temporarily unavailable.',
+              'Running containers may be interrupted while Docker restarts.',
+              ...validateResult.warnings,
+            ],
+            snapshot: 'Before writing, the helper creates a unique backup of the existing daemon.json when one exists.',
+            recovery: 'If restart fails, the helper restores the previous configuration and retries the restart; failed rollback still requires operator recovery.',
+          }}
           confirmLabel="Apply & Restart"
           confirmingLabel="Applying..."
           confirming={applying}
