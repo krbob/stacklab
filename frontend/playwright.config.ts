@@ -6,6 +6,10 @@ export default defineConfig({
   retries: 0,
   workers: 1,
   fullyParallel: false,
+  reporter: [
+    ['list'],
+    ['html', { open: 'never', outputFolder: 'playwright-report' }],
+  ],
   use: {
     baseURL: process.env.STACKLAB_E2E_URL ?? 'http://127.0.0.1:18081',
     headless: true,
