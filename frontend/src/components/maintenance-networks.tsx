@@ -186,12 +186,22 @@ export function MaintenanceNetworks() {
       {pendingDelete && (
         <ConfirmDialog
           title={`Remove network "${pendingDelete.name}"?`}
-          message="This deletes the Docker network. Containers using this network will not be reconnected automatically."
-          items={[
-            `network: ${pendingDelete.name}`,
-            `driver: ${pendingDelete.driver}`,
-            pendingDelete.id ? `id: ${pendingDelete.id.slice(0, 12)}` : 'id: unavailable',
-          ]}
+          message="Review the network configuration and manual recovery path before removing it."
+          review={{
+            target: pendingDelete.id
+              ? `${pendingDelete.name} (${pendingDelete.id.slice(0, 12)})`
+              : pendingDelete.name,
+            scope: [
+              `Remove one unused external Docker network using the ${pendingDelete.driver} driver.`,
+              `Network scope: ${pendingDelete.scope}; internal: ${pendingDelete.internal ? 'yes' : 'no'}.`,
+            ],
+            impact: [
+              'Docker removes the network object and its network-specific configuration.',
+              'Future deployments that reference this external network can fail until it is recreated.',
+            ],
+            snapshot: 'No automatic export of the network driver, IPAM, or options is created.',
+            recovery: 'Recreate the network manually with its original settings, then redeploy or reconnect affected consumers.',
+          }}
           confirmLabel="Remove network"
           confirming={deletingName === pendingDelete.name}
           onCancel={() => setPendingDelete(null)}

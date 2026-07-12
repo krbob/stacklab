@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MaintenanceNetworks } from './maintenance-networks'
@@ -177,7 +177,13 @@ describe('MaintenanceNetworks', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Remove external_shared' }))
 
-    expect(screen.getByRole('dialog', { name: 'Remove network "external_shared"?' })).toBeInTheDocument()
+    const dialog = screen.getByRole('dialog', { name: 'Remove network "external_shared"?' })
+    const review = within(dialog).getByRole('region', { name: 'Review operation' })
+    expect(review).toHaveTextContent('external_shared (network-ext-)')
+    expect(review).toHaveTextContent('Network scope: local; internal: yes.')
+    expect(review).toHaveTextContent('Future deployments that reference this external network can fail')
+    expect(review).toHaveTextContent('No automatic export')
+    expect(review).toHaveTextContent('Recreate the network manually')
     expect(deleteMaintenanceNetwork).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: 'Remove network' }))
