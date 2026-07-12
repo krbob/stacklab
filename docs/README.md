@@ -1,62 +1,78 @@
-# Documentation Map
+# Stacklab Documentation
 
-This directory contains project documentation for Stacklab.
+This directory contains the current product, engineering, and operations
+documentation for Stacklab. Start with the audience map below; use the
+narrowest current contract when documents overlap.
 
-## Source of truth and lifecycle
+## Current sources of truth
 
-Use the narrowest current contract for implementation decisions:
+1. Executable code and tests describe implemented behavior.
+2. [OpenAPI](api/openapi.yaml) is the canonical REST contract, and the
+   [WebSocket protocol](api/websocket-protocol.md) is the canonical streaming
+   contract.
+3. Database migrations are authoritative for the SQLite schema; the
+   [data index](data/README.md) identifies their locations and companion
+   references.
+4. Current product, domain, architecture, UI, operations, and quality
+   references explain intent, constraints, and supported workflows.
 
-1. executable code, tests, and `api/openapi.yaml`;
-2. current API, domain, data, architecture, and operations references;
-3. the active remediation plan and roadmap;
-4. dated reviews, test runs, handoffs, and proposals as historical context.
+Treat a disagreement between implementation and a published contract as drift
+to fix in the same change. Do not resolve it by copying another route list,
+schema, or state model into a new document.
 
-Documents described as a snapshot, proposal, handoff, review, test run, or
-historical plan are retained for rationale. They are not authoritative when
-they conflict with current code or contracts. A document whose title contains
-`plan` can still be current when its own status says it defines an active or
-steady-state policy.
+## For operators
 
-## Sections
+- [Install from APT](ops/install-from-apt.md) — primary Debian and Ubuntu path.
+- [First run](ops/first-run.md) — access, password bootstrap, readiness, and
+  initial verification.
+- [Install from a tarball](ops/install-from-tarball.md) — supported secondary
+  path for other Linux distributions.
+- [Systemd and reverse proxying](ops/systemd.md) — service and HTTPS deployment.
+- [Upgrade validation](ops/upgrade-validation-checklist.md) — release and
+  rollback checks.
 
-- `adr/` architectural decision records
-- `product/` scope, MVP, roadmap inputs, and feature strategy
-- `architecture/` system-level design
-- `domain/` domain models and operational rules
-- `api/` REST and WebSocket contracts
-- `data/` persistence model and migrations
-- `ui/` screen contracts for the UI developer
-- `ops/` local development and deployment
-- `quality/` active remediation, testing policy, acceptance criteria, and dated evidence
+The complete operator map is in [Operations](ops/README.md).
 
-## Status
+## For contributors
 
-Documentation started contract-first and is now being reconciled against implementation and Linux staging validation.
+- [Contributing](../CONTRIBUTING.md) and
+  [local development](ops/local-dev.md) — setup and change workflow.
+- [Developer checks](quality/developer-checks.md) — canonical local quality
+  baseline.
+- [System architecture](architecture/README.md) — components, security, and
+  filesystem boundaries.
+- [API contracts](api/README.md) — REST, WebSocket, and generated frontend
+  types.
+- [Data model](data/README.md) — schema and retention ownership.
+- [Domain model](domain/README.md) — stack identity, state, jobs, and locking.
 
-The most current operator-facing entry points are:
+## For product and UI work
 
-- `../README.md`
-- `ops/install-from-apt.md`
-- `ops/install-from-tarball.md`
-- `ops/release-plan.md`
-- `ops/upgrade-validation-checklist.md`
+- [Product documentation](product/README.md) — scope, non-goals, and the
+  implemented baseline.
+- [Product roadmap](roadmap.md) — current direction and prioritized follow-up.
+- [Information architecture](ui/information-architecture.md) — navigation,
+  routes, and responsive policy.
+- [Screen states](ui/states-and-empty-cases.md) and
+  [dynamic accessibility](ui/accessibility-dynamic-status.md) — current UI
+  behavior contracts.
 
-Repository policies:
+## Reference sections
 
-- `../CONTRIBUTING.md`
-- `../SECURITY.md`
-- `../LICENSE`, `../NOTICE`, and `../THIRD_PARTY_NOTICES.md`
+- [Architectural decisions](adr/README.md)
+- [Architecture](architecture/README.md)
+- [API](api/README.md)
+- [Data](data/README.md)
+- [Domain](domain/README.md)
+- [Operations](ops/README.md)
+- [Product](product/README.md)
+- [Quality](quality/README.md)
+- [UI](ui/README.md)
 
-Recommended product entry points:
+## Historical material
 
-- `roadmap.md`
-- `product/scope.md`
-- `product/feature-strategy.md`
-
-Historical entry points retained for context:
-
-- `product/development-plan.md` — milestone-era planning record
-- `quality/github-actions-workflow-plan.md` — partly implemented workflow plan
-- `quality/test-rollout-plan.md` — superseded rollout baseline
-- `quality/review-2026-07-09.md` and `quality/test-run-*.md` — dated evidence
-- `ui/visual-revamp-proposal*.md` and `ui/ui-review-2026-07-and-final-design.md` — design exploration and review snapshots
+Dated reviews, execution reports, design handoffs, proposals, and completed
+plans are historical evidence, not current contracts. Their own status notes
+must identify that role. When historical material conflicts with the sources
+above, follow the current source of truth. Retired documents remain available
+through Git history rather than being kept in the primary navigation.

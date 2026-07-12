@@ -1,227 +1,136 @@
 # Stacklab
 
-Stacklab is a host-native, Compose-first control panel for Docker Compose stacks on a single Linux host.
+Stacklab is a host-native control panel for running Docker Compose stacks on a
+single Linux server. Compose files stay on disk and remain usable from the CLI;
+Stacklab adds a focused web UI for daily operation, troubleshooting, and safe
+maintenance without taking ownership of the stack model.
 
-It is built for a homelab-style environment:
+![Stacklab stacks overview](docs/images/readme/stacks-overview.png)
 
-- one managed host
-- Linux `amd64` as the primary target platform
-- Linux `arm64` also supported
-- LAN-only usage
-- Docker Compose as the source of truth
-- filesystem-first management instead of a database-owned stack model
+## What it covers
 
-## Status
+- **Compose lifecycle** — discover, create, edit, validate, start, stop, pull,
+  rebuild, and remove stacks while keeping `compose.yaml` and `.env` as the
+  source of truth.
+- **Diagnostics** — inspect services and containers, follow logs, view live
+  stats, open a container terminal, and review retained job progress.
+- **Files and Git** — edit stack and config workspace files, diagnose
+  permissions, review diffs, and make selective commits and pushes.
+- **Maintenance** — review images, networks, and volumes; preview cleanup;
+  update stacks in bulk; and schedule selected maintenance workflows.
+- **Host operations** — inspect host health and Stacklab service logs, manage a
+  constrained set of Docker daemon settings and registry credentials, and
+  update APT-managed installations.
+- **Operational guardrails** — authentication, session revocation, per-stack
+  locking, audit history, explicit destructive-action review, and webhook or
+  Telegram notifications.
 
-Stacklab is an active pre-stable release candidate for the single-host v1 scope.
+## Is Stacklab for you?
 
-Implemented today:
+Stacklab fits a homelab or similarly trusted environment with:
 
-- authentication and session handling
-- stack discovery from the filesystem and Docker runtime
-- stack list, stack detail views, and stack-local auxiliary file editing
-- Compose definition editor with resolved-config preview
-- stack lifecycle actions and job progress
-- live logs, stats, and container terminal
-- stack create/delete flows
-- host overview and Stacklab service log viewer
-- config workspace browsing and editing
-- Git status, diff, per-file commit, and push for managed workspace files
-- workspace permission diagnostics and helper-backed repair
-- maintenance inventory, cleanup, and bulk update workflows
-- Docker daemon config validation and apply workflow
-- notifications, maintenance schedules, and APT-backed self-update
-- audit history, retained job detail, and global activity indicator
-- backend and frontend automated tests
-- manual-on-demand Linux `amd64` and `arm64` release artifact build
-- `.deb` build and published APT channels
-- staging deployment trials on Linux `arm64`, Ubuntu `amd64`, and Debian `amd64`
+- one Linux host running Docker Engine and Compose;
+- one logical local operator;
+- stack definitions that should remain plain files on the host;
+- access over a trusted LAN, an SSH tunnel, or an HTTPS reverse proxy.
 
-Current focus:
+Linux `amd64` is the primary target and Linux `arm64` is supported. Stacklab is
+not a multi-host control plane, a multi-user/RBAC system, a GitOps reconciler,
+or a general-purpose replacement for every Docker tool. See the full
+[product scope](docs/product/scope.md) and [non-goals](docs/product/non-goals.md).
 
-- release hardening and stable sign-off
-- template library and starter catalog
-- background UX polish for long-running operations
+### Security boundary
 
-## Architecture
+Access to Docker and container terminals is highly privileged: control of the
+Docker socket is effectively control of the host. Do not expose Stacklab
+directly to the public internet. Prefer HTTPS even on a LAN, keep privileged
+helpers opt-in and narrowly allowlisted, and follow the
+[security model](docs/architecture/security-model.md) before deployment.
 
-Recommended production shape:
+## Install
 
-- backend: Go
-- frontend: React + Vite + TypeScript
-- runtime: host-native service, not a Docker management container
-- state: filesystem + SQLite operational metadata
+### Debian or Ubuntu: APT (recommended)
 
-Supported install modes:
-
-- Primary: Debian-family hosts via `.deb` and the published APT repository
-- Secondary: generic Linux hosts via manual release tarball install
-- Unsupported: migration between tarball and package-managed installs
-
-Canonical host layout for package-managed installs:
-
-- `/usr/lib/stacklab`
-- `/etc/stacklab/stacklab.env`
-- `/srv/stacklab`
-- `/var/lib/stacklab`
-
-Canonical host layout for tarball installs:
-
-- `/opt/stacklab/app`
-- `/opt/stacklab/stacks`
-- `/opt/stacklab/config`
-- `/opt/stacklab/data`
-- `/var/lib/stacklab`
-
-## Quick Start
-
-### Prerequisites
-
-- Go `1.26.5`
-- Node.js `24.18.0` with its bundled npm
-- GNU Make
-- ShellCheck `0.11.0` for the full local quality gate
-- Docker Engine
-- Compose v2 available as either `docker compose` or standalone `docker-compose`
-
-### Local development
-
-Backend:
-
-```bash
-STACKLAB_BOOTSTRAP_PASSWORD=replace-with-a-long-random-password go run ./cmd/stacklab
-```
-
-Frontend dev server:
-
-```bash
-cd frontend
-npm ci
-npm run dev
-```
-
-Default local paths are under `.local/stacklab` and `.local/var/lib/stacklab`.
-
-### Built frontend mode
-
-If you want the Go backend to serve the production frontend bundle:
-
-```bash
-cd frontend
-npm ci
-npm run build
-
-cd ..
-STACKLAB_BOOTSTRAP_PASSWORD=replace-with-a-long-random-password go run ./cmd/stacklab
-```
-
-Then open:
-
-- `http://127.0.0.1:8080`
-
-### Install from APT
-
-Debian-family hosts should install Stacklab from the published APT repository.
-
-Install the repository key:
+Install the repository key and stable channel:
 
 ```bash
 sudo mkdir -p /usr/share/keyrings
 curl -fsSL https://krbob.github.io/stacklab/apt/stacklab-archive-keyring.gpg \
   | sudo tee /usr/share/keyrings/stacklab-archive-keyring.gpg >/dev/null
-```
 
-Add the stable channel:
-
-```bash
 arch="$(dpkg --print-architecture)"
 echo "deb [arch=${arch} signed-by=/usr/share/keyrings/stacklab-archive-keyring.gpg] https://krbob.github.io/stacklab/apt stable main" \
   | sudo tee /etc/apt/sources.list.d/stacklab.list
-```
 
-Install:
-
-```bash
 sudo apt-get update
 sudo apt-get install stacklab
 ```
 
-For the nightly channel and additional notes, see:
+Continue with [First Run After an APT Install](docs/ops/first-run.md) to choose
+the access path, initialize the operator password, and verify readiness. The
+[APT guide](docs/ops/install-from-apt.md) covers channels, upgrades, and
+optional privileged helpers.
 
-- [`docs/ops/install-from-apt.md`](docs/ops/install-from-apt.md)
+### Other Linux distributions: release tarball
 
-### Install from tarball
+Release artifacts and SHA-256 checksums for supported architectures are
+available from [GitHub Releases](https://github.com/krbob/stacklab/releases).
+Follow the
+[tarball install and upgrade guide](docs/ops/install-from-tarball.md); moving
+an existing installation between the tarball and package-managed layouts is
+not supported.
 
-For other Linux distributions, Stacklab also ships release tarballs with a
-manual host-native install and upgrade flow.
+## Product tour
 
-See:
+| Compose editing | Maintenance review |
+| --- | --- |
+| ![Compose editor with resolved configuration](docs/images/readme/stack-editor.png) | ![Maintenance update workflow](docs/images/readme/maintenance-update.png) |
 
-- [`docs/ops/install-from-tarball.md`](docs/ops/install-from-tarball.md)
+## Develop and test
 
-## Tests
+The canonical Go, Node.js, and tool versions live in the repository manifests.
+Start the backend:
 
-Run the reproducible backend, frontend, and repository hygiene baseline from
-the repository root:
+```bash
+STACKLAB_BOOTSTRAP_PASSWORD=replace-with-a-long-random-password go run ./cmd/stacklab
+```
+
+Then start the frontend in another terminal:
+
+```bash
+npm --prefix frontend ci
+npm --prefix frontend run dev:host
+```
+
+Run the reproducible repository baseline from the project root:
 
 ```bash
 make check
 ```
 
-Focused targets are available as `make check-backend`, `make check-frontend`,
-and `make check-hygiene`. See
-[`docs/quality/developer-checks.md`](docs/quality/developer-checks.md) for the
-toolchain contract and exact command scope.
-
-Contributions are described in [`CONTRIBUTING.md`](CONTRIBUTING.md). Report
-suspected vulnerabilities privately according to [`SECURITY.md`](SECURITY.md).
-
-## Screenshots
-
-| Stacks | Stack Editor |
-| - | - |
-| ![Stacks overview](docs/images/readme/stacks-overview.png) | ![Stack editor](docs/images/readme/stack-editor.png) |
-| Host | Config Workspace |
-| ![Host overview](docs/images/readme/host-overview.png) | ![Config workspace](docs/images/readme/config-workspace.png) |
-| Maintenance | Docker Admin |
-| ![Maintenance update workflow](docs/images/readme/maintenance-update.png) | ![Docker admin](docs/images/readme/docker-admin.png) |
-
-Refresh the README screenshots against a running Stacklab instance:
-
-```bash
-cd frontend
-STACKLAB_URL=http://127.0.0.1:18080 \
-STACKLAB_PASSWORD=change-me \
-npm run screenshots:readme
-```
+See [local development](docs/ops/local-dev.md),
+[developer checks](docs/quality/developer-checks.md), and
+[CONTRIBUTING.md](CONTRIBUTING.md) for focused workflows and change
+expectations.
 
 ## Documentation
 
-Project documentation lives in [`docs/`](docs/README.md).
+Choose an entry point by what you are trying to do:
 
-Good entry points:
+- **Operators:** [installation and operations](docs/ops/README.md),
+  [first run](docs/ops/first-run.md), and
+  [upgrade validation](docs/ops/upgrade-validation-checklist.md).
+- **Contributors:** [documentation map](docs/README.md),
+  [architecture](docs/architecture/README.md),
+  [API contracts](docs/api/README.md), and
+  [quality checks](docs/quality/README.md).
+- **Product and UI:** [product direction](docs/product/README.md),
+  [roadmap](docs/roadmap.md), and
+  [information architecture](docs/ui/information-architecture.md).
 
-- [`docs/roadmap.md`](docs/roadmap.md)
-- [`docs/product/scope.md`](docs/product/scope.md)
-- [`docs/product/mvp.md`](docs/product/mvp.md)
-- [`docs/product/feature-strategy.md`](docs/product/feature-strategy.md)
-- [`docs/architecture/system-overview.md`](docs/architecture/system-overview.md)
-- [`docs/ops/systemd.md`](docs/ops/systemd.md)
-- [`docs/ops/release-plan.md`](docs/ops/release-plan.md)
-- [`docs/ops/debian-package-plan.md`](docs/ops/debian-package-plan.md)
-- [`docs/ops/install-from-apt.md`](docs/ops/install-from-apt.md)
-- [`docs/ops/install-from-tarball.md`](docs/ops/install-from-tarball.md)
+## Releases, security, and license
 
-## License
-
-Stacklab is licensed under the [Apache License 2.0](LICENSE). Attribution and
-license texts for distributed dependencies are recorded in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); bundled fonts also retain
-their respective license notices in the built frontend.
-
-## Current Constraints
-
-- primary production target is Linux `amd64`, with Linux `arm64` also supported
-- Stacklab currently assumes a single local operator model
-- host shell is intentionally deferred beyond the current MVP
-- helper-backed Docker admin, workspace repair, and self-update remain opt-in Linux flows
+- Installable artifacts and release notes: [GitHub Releases](https://github.com/krbob/stacklab/releases)
+- Private vulnerability reporting: [Security Policy](SECURITY.md)
+- Project license: [Apache License 2.0](LICENSE)
+- Distributed dependency notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
