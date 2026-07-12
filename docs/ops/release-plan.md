@@ -3,175 +3,172 @@
 ## Purpose
 
 This document records the supported Stacklab release artifacts, install modes,
-upgrade boundaries, and validation policy.
-
-## Current Decision
-
-Stacklab now ships in two supported host-native forms:
-
-- Primary: Debian-family hosts via `.deb` packages and the published APT repository
-- Secondary: generic Linux hosts via manual release tarballs
-
-Important boundaries:
-
-- `.deb` and APT are the primary operator path and the main stable release gate
-- tarballs remain supported for other Linux distributions and explicit manual installs
-- migration between tarball and package-managed installs is not supported
-- Stacklab self-update is supported only for APT-managed installs
+upgrade boundaries, automated release gates, and the manual validation expected
+for changes whose risk cannot be reproduced completely in GitHub-hosted runners.
 
 ## Supported Install Modes
 
 ### Debian-family package-managed installs
 
-Use this mode when the host is Debian-family and `systemd`-based.
+APT or a local `.deb` is the primary operator path on Debian-family,
+`systemd`-based hosts.
 
 Layout:
 
-- `/usr/lib/stacklab`
-- `/etc/stacklab/stacklab.env`
-- `/srv/stacklab`
-- `/var/lib/stacklab`
+- `/usr/lib/stacklab` — immutable application payload;
+- `/etc/stacklab/stacklab.env` — operator environment configuration;
+- `/srv/stacklab` — managed stacks and configuration;
+- `/var/lib/stacklab` — application state.
 
-This is the preferred production shape for Debian and Ubuntu hosts.
+Fresh installs, package-managed upgrades, package downgrades, and APT-backed
+Stacklab self-update are supported within this install mode.
 
 ### Manual tarball installs
 
-Use this mode on other Linux distributions or when the operator explicitly wants
-release directories and a host-side upgrade script.
+Tarballs are the secondary path for other Linux distributions or operators who
+explicitly choose release directories and the host-side upgrade script.
 
 Layout:
 
-- `/opt/stacklab/app`
-- `/opt/stacklab/stacks`
-- `/opt/stacklab/config`
-- `/opt/stacklab/data`
-- `/var/lib/stacklab`
+- `/opt/stacklab/app`;
+- `/opt/stacklab/stacks`;
+- `/opt/stacklab/config`;
+- `/opt/stacklab/data`;
+- `/var/lib/stacklab`.
 
-This remains supported, but it is not the primary release path on Debian-family
-hosts.
+Fresh installs, verified upgrades through `host-tools/upgrade.sh`, and rollback
+to a previous release directory are supported. Upgrades must not modify managed
+workspace content under `/opt/stacklab/{stacks,config,data}`.
 
-## Unsupported Transitions
+### Unsupported transitions
 
-These transitions are intentionally out of scope:
+Migration between tarball and package-managed layouts is not automated:
 
-- tarball to `.deb`
-- `.deb` to tarball
-- in-place migration between `/opt/stacklab` and `/srv/stacklab`
+- tarball to `.deb` or APT;
+- `.deb` or APT to tarball;
+- in-place conversion between `/opt/stacklab` and `/srv/stacklab`.
 
-If an operator wants to change install mode, treat it as a manual migration.
+Changing install mode is a deliberate manual migration with an independent
+backup and rollback plan.
 
 ## Release Artifacts
 
-Each release should publish:
+Every stable, nightly, and hotfix build produces:
 
-- `stacklab-<version>-linux-amd64.tar.gz`
-- `stacklab-<version>-linux-arm64.tar.gz`
-- `stacklab_<version>_amd64.deb`
-- `stacklab_<version>_arm64.deb`
-- checksums
+- `stacklab-<version>-linux-amd64.tar.gz`;
+- `stacklab-<version>-linux-arm64.tar.gz`;
+- `stacklab_<version>_amd64.deb`;
+- `stacklab_<version>_arm64.deb`;
+- a SHA-256 checksum beside each artifact.
 
-Every tarball carries the project `LICENSE` and `NOTICE` plus the generated
-`THIRD_PARTY_NOTICES.md`. Debian packages expose the project license and all
-distributed third-party license texts through
-`/usr/share/doc/stacklab/copyright`, with the project `NOTICE` installed next
-to it. Packaging smoke tests verify these files and representative required
-attributions.
+Tarballs include `LICENSE`, `NOTICE`, and generated
+`THIRD_PARTY_NOTICES.md`. Debian packages expose project and distributed
+third-party license text through `/usr/share/doc/stacklab/copyright`, with
+`NOTICE` alongside it. Packaging smoke verifies representative required files
+and attributions.
 
-Rationale:
+## Automated Release Gates
 
-- `.deb` serves the primary Debian-family path
-- tarball keeps Stacklab usable on non-Debian Linux hosts
+The nightly, stable, and hotfix workflows use the same exact-revision gate from
+`.github/workflows/release-quality-gate.yml`.
 
-## Upgrade and Rollback Policy
+### Before artifacts can be published
 
-### `.deb` and APT
+Automation requires:
 
-Supported:
+1. frontend API generation/drift check, unit tests, typecheck, and production
+   build;
+2. backend tests, coverage thresholds, formatting, vet, and repository hygiene;
+3. Docker-backed integration smoke;
+4. browser E2E smoke;
+5. Debian package installation under the systemd smoke harness;
+6. successful tarball and `.deb` builds for `amd64` and `arm64`;
+7. install/upgrade smoke of the produced `amd64` `.deb` and install/upgrade,
+   checksum-rejection, and rollback smoke of the produced `amd64` tarball.
 
-- fresh install from the published APT repository
-- `.deb` install from a local artifact
-- package-managed upgrade to a newer Stacklab version
+A failed required job blocks the publish job. The workflows do not accept a
+manual approval as a substitute for a failed check.
 
-Rollback:
+### After publication
 
-- via normal package downgrade mechanics
-- never by switching to the tarball layout
+Automation waits for the target APT channel to expose the exact package version
+and installs it from the public repository on `amd64`. This detects signing,
+metadata, Pages propagation, repository layout, and package-download failures
+that pre-publication artifact smoke cannot cover.
 
-### Tarball
+This is a post-publication verification, not a pre-publication gate: the GitHub
+release and APT commit already exist when it runs. A failure makes the release
+workflow fail and must be treated as a release incident. Diagnose the channel,
+repair or republish it when safe, and use a new hotfix version for an application
+defect; never silently replace an existing release tag.
 
-Supported:
+## Recommended Manual Validation
 
-- fresh install from a release tarball
-- upgrade via the packaged `host-tools/upgrade.sh`
-- rollback by switching the current release symlink back to a previous release
+Manual validation is risk-based and complements automation. It is not an
+undocumented gate that every scheduled stable run waits for.
 
-Tarball upgrades must not modify operator-managed workspace content under:
+Perform it before merging the risky change, or against a nightly while there is
+still soak time before the next stable. Use a disposable Linux host or VM that
+matches the affected production profile.
 
-- `/opt/stacklab/stacks`
-- `/opt/stacklab/config`
-- `/opt/stacklab/data`
+### Changes that require a real-host pass
 
-## Validation Policy
+- package maintainer scripts, ownership, permissions, systemd units, or install
+  layout changes;
+- SQLite migrations, retention changes, or recovery behavior involving existing
+  operator data;
+- privileged helper protocols, workspace permission repair, or Docker daemon
+  apply/restart behavior;
+- APT self-update, repository signing/publication, downgrade, or rollback;
+- tarball upgrade scripts, symlink switching, checksum handling, or rollback;
+- Docker Engine or Compose compatibility changes that depend on the target host;
+- shutdown, cancellation, interruption, disk-full, or Docker-restart recovery;
+- `arm64`-specific packaging/runtime changes, because release install smoke is
+  currently executed on `amd64`.
 
-Stable releases should validate both install modes, but not with equal weight.
+### Minimum evidence
 
-### Primary stable release gate
+Record:
 
-These checks are expected to stay green before publishing stable:
+- source revision and tested artifact/package version;
+- OS, architecture, Docker Engine, Compose, and systemd versions;
+- fresh install or upgrade origin and resulting layout/ownership;
+- the risky operation exercised and its observable result;
+- service logs plus rollback or recovery outcome when relevant.
 
-- normal CI on `main`
-- Docker-backed integration checks
-- browser E2E
-- `.deb` package smoke on Debian
-- published APT smoke for the release channel
-- manual Debian-family fresh install or upgrade validation on a real Linux host
-- helper-backed Linux validation for:
-  - workspace permission repair
-  - Docker daemon apply
-  - APT-backed self-update
+Use the maintained procedures rather than duplicating commands here:
 
-### Secondary release validation
+- [install-from-apt.md](install-from-apt.md);
+- [install-from-tarball.md](install-from-tarball.md);
+- [upgrade-validation-checklist.md](upgrade-validation-checklist.md).
 
-Tarball remains supported, so it should also be exercised for releases:
+## Validation Ownership By Release Type
 
-- release workflows must keep building tarball artifacts for `amd64` and `arm64`
-- at least one manual tarball install or upgrade smoke should run before stable release sign-off
+### Nightly
 
-## Current Automated Coverage
+Nightly runs daily for a changed `main` revision. Use it for unattended
+regression detection, package installation checks, and soak. A failed nightly
+does not automatically alter the stable channel, but it must be understood
+before the next monthly release.
 
-Implemented today:
+### Monthly stable
 
-- `release-build.yml` builds tarball and `.deb` artifacts for `amd64` and `arm64`
-- `deb-package-smoke.yml` validates fresh package install behavior on Debian
-- `tarball-install-smoke.yml` validates tarball install, verified local and URL
-  upgrades, checksum rejection, and rollback mechanics through
-  `host-tools/upgrade.sh`
-- release workflows run `.deb` and tarball smoke before publishing
-- release workflows run post-publish APT smoke for their channel
+Stable runs automatically on the first day of the month when `main` changed
+since the previous stable. Its automated gate is complete and self-contained.
+Any manual validation required by risky changes should already be attached to
+those changes or completed against a nightly; release day is not the first time
+to exercise them.
 
-## Manual Stable Sign-Off
+### Hotfix
 
-Before cutting stable, run at least:
+Hotfix publication is a manual decision, but its technical checks are not
+optional. The same automated quality gate and install-mode smokes run before
+publication. Scope manual validation to the regression and affected install
+mode while confirming that the correction does not break upgrade or rollback.
 
-1. one Debian-family `.deb` or APT fresh install or upgrade validation
-2. one tarball install or upgrade validation
-3. one Linux helper-backed validation pass if privileged helpers are part of the target install profile
+## Local Development Boundary
 
-Use:
-
-- [install-from-apt.md](install-from-apt.md)
-- [install-from-tarball.md](install-from-tarball.md)
-- [upgrade-validation-checklist.md](upgrade-validation-checklist.md)
-
-## Local Development and Pre-Release Reality
-
-Day-to-day development can still happen on macOS or another non-Linux machine.
-That remains valid for most product work.
-
-Before stable publication, Linux validation still matters for:
-
-- `systemd`
-- helper-backed privileged flows
-- package install and upgrade behavior
-- tarball install and rollback behavior
-- real Docker runtime integration on the target host
+Day-to-day work may happen on macOS or another non-Linux system. That is valid
+for most frontend, API, and domain work. It does not substitute for Linux
+validation of systemd, helper-backed privileged flows, package behavior,
+tarball switching, real Docker integration, or filesystem semantics.
