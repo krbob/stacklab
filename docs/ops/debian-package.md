@@ -1,262 +1,164 @@
 # Debian Package and APT Model
 
-## Purpose
+## Status And Support Boundary
 
-This document records the current Debian packaging strategy for Stacklab.
+The `.deb` and signed APT repository are implemented and are the primary
+production install path for Debian-family hosts running `systemd`. Packages are
+built for `amd64` and `arm64`.
 
-Current status:
+The package supports one host-native Stacklab service with Docker Engine,
+Compose v2, and Git available on the host. Debian systems without `systemd` are
+outside this package profile. Manual tarballs remain the secondary install
+mode; switching between `/srv/stacklab` and `/opt/stacklab` layouts is a manual
+migration, not a package upgrade.
 
-- `.deb` artifacts are implemented
-- the published APT repository is implemented
-- Debian-family package-managed installs are the primary supported production path
+See [Release and Validation](release-and-validation.md) for release gates and
+install-mode transitions.
 
-Support policy for the package:
+## Build Contract
 
-- the `.deb` targets Debian-family hosts running `systemd`
-- Debian systems booted with another init system are out of scope for the first package version
-
-## Why This Makes Sense
-
-Stacklab has a very opinionated production target:
-
-- single host
-- Debian-family Linux
-- host-native runtime
-- `systemd`
-- Docker Engine plus Compose v2
-
-That makes Debian packaging a good fit.
-
-Benefits:
-
-- explicit package dependencies
-- standard install and upgrade path
-- easier first-time setup on Debian
-- easier long-term maintenance on a homelab host
-- cleaner documentation for operators
-
-## Support Boundaries
-
-Primary install mode:
-
-- Debian-family hosts via `.deb` and the published APT repository
-
-Secondary install mode:
-
-- generic Linux hosts via manual tarball install
-
-Unsupported transitions:
-
-- tarball to `.deb`
-- `.deb` to tarball
-- in-place migration between `/opt/stacklab` and `/srv/stacklab`
-
-## Package Scope
-
-The Debian package should install the application runtime, not user-managed stacks.
-
-Package-managed content:
-
-- backend binary
-- frontend bundle
-- `systemd` unit
-- default environment file template
-- documentation snippets or examples as needed
-
-Operator-managed content that must remain outside package ownership:
-
-- `/srv/stacklab/stacks`
-- `/srv/stacklab/config`
-- `/srv/stacklab/data`
-- most of `/var/lib/stacklab` runtime state
-
-This rule is critical:
-
-- package install and upgrade must never take ownership away from the filesystem-first Compose model
-
-## Package Layout
-
-The `.deb` uses a Debian-native split between:
-
-- package-managed immutable application files
-- operator-managed workspace files
-- runtime state owned by Stacklab itself
-
-Recommended package layout:
+`scripts/release/build-deb.sh` consumes the staged release directory produced
+by `scripts/release/build-artifact.sh`. It accepts only `amd64` or `arm64`,
+requires the binary/frontend artifact plus `LICENSE`, `NOTICE`, and generated
+third-party notices, and produces:
 
 ```text
-/usr/lib/stacklab/
-  bin/stacklab
-  frontend/dist/
-/usr/share/doc/stacklab/
-  copyright
-  NOTICE
-/etc/stacklab/
-  stacklab.env
-/srv/stacklab/
-  stacks/
-  config/
-  data/
-/var/lib/stacklab/
+dist/release/stacklab_<version>_<arch>.deb
+dist/release/stacklab_<version>_<arch>.deb.sha256
 ```
 
-Meaning:
+The generated control metadata declares:
 
-- `/usr/lib/stacklab` holds versioned application payload installed by `dpkg`
-- `/etc/stacklab/stacklab.env` holds service configuration
-- `/srv/stacklab` is the operator-managed workspace and Git root
-- `/var/lib/stacklab` holds SQLite, service home, Docker config, and other runtime state
+- `adduser` and `systemd`;
+- Docker Engine from `docker.io`, Docker CE, or Moby packages;
+- a compatible Docker CLI package;
+- Compose through `docker-compose` or `docker-compose-plugin`;
+- `git`;
+- `ca-certificates` as a recommendation.
 
-Why not keep `/opt/stacklab` for the package:
+The package is built with `dpkg-deb --root-owner-group`. Its architecture and
+Debian version come from the release build inputs rather than being patched
+after the package is assembled.
 
-- `/opt` is reasonable for tarball/manual installs of third-party software
-- for a native Debian package, `/usr/lib` + `/etc` + `/var/lib` is more conventional
-- operator-managed stack/config/data content fits better under `/srv` than under `/var/lib`
-- this keeps package-owned files and operator-owned files clearly separate
+## Installed Files
 
-Practical recommendation:
+| Path | Ownership and purpose |
+| --- | --- |
+| `/usr/lib/stacklab/bin/stacklab` | Package-owned backend binary |
+| `/usr/lib/stacklab/bin/stacklab-*-helper` | Package-owned Docker admin, workspace repair, and self-update helpers |
+| `/usr/lib/stacklab/frontend/dist` | Package-owned frontend served by the backend |
+| `/usr/lib/stacklab/metadata` | Package-owned release metadata |
+| `/lib/systemd/system/stacklab.service` | Package-owned service unit |
+| `/etc/stacklab/stacklab.env` | Root-owned mode `0600` conffile preserved across upgrades |
+| `/usr/share/doc/stacklab` | Project notice, generated third-party licenses, and opt-in sudoers examples |
+| `/srv/stacklab` | Operator-owned managed workspace, never application payload |
+| `/var/lib/stacklab` | Private runtime state, service home, Docker config, and SQLite |
 
-- use `/usr/lib/stacklab` + `/srv/stacklab` + `/var/lib/stacklab` for Debian-family installs
-- keep `/opt/stacklab` only for the separate tarball install mode
+The package does not own stack definitions, config payloads, or data under
+`/srv/stacklab`. Application upgrades replace `/usr/lib/stacklab` while leaving
+the filesystem-first workspace and `/var/lib/stacklab` in place. The complete
+boundary is documented in
+[Filesystem Layout](../architecture/filesystem-layout.md).
 
-## Package Dependencies
+## Service Unit And Environment
 
-The package should declare runtime dependencies clearly.
+The maintained unit is `packaging/debian/stacklab.service`. It runs as the
+dedicated `stacklab:stacklab` identity with:
 
-Expected Debian dependency shape:
+- working directory and managed root `/srv/stacklab`;
+- executable `/usr/lib/stacklab/bin/stacklab`;
+- optional environment file `/etc/stacklab/stacklab.env`;
+- private state created through `StateDirectory=stacklab`;
+- Docker socket access through the `docker` supplementary group;
+- `Restart=on-failure`, a 30-second stop timeout, `PrivateTmp=true`,
+  `ProtectSystem=full`, and `ProtectHome=true`;
+- explicit write access to `/srv/stacklab`, `/var/lib/stacklab`, and
+  `/etc/docker` for the opt-in Docker admin helper.
 
-- `systemd`
-- `docker.io | docker-ce | moby-engine`
-- `docker-compose | docker-compose-plugin`
-- `git`
+The packaged environment fixes the production paths, serves the frontend from
+`/usr/lib/stacklab/frontend/dist`, uses writable `HOME` and `DOCKER_CONFIG`
+directories below `/var/lib/stacklab`, binds to loopback by default, and enables
+secure cookies for the expected HTTPS reverse-proxy deployment.
 
-Reasoning:
+Privileged helpers are installed but disabled by default. Enabling one requires
+an explicit environment setting and a narrow sudoers rule based on the example
+under `/usr/share/doc/stacklab/examples`; the package never installs a broad
+privilege grant automatically.
 
-- `systemd` is an intentional product dependency for the package, not an accidental implementation detail
-- Docker may come from Debian packages or vendor packages
-- Compose may exist as the standalone `docker-compose` binary or the plugin-backed `docker compose`
-- Git is now part of the supported operator workflow, not an optional extra
+See [systemd Deployment](systemd.md) for the runtime and reverse-proxy model.
 
-Recommended `Recommends`:
+## Maintainer Script Lifecycle
 
-- `ca-certificates`
+The implemented `postinst` is idempotent. On configuration it:
 
-Notes:
+1. creates the system group and non-login service account when absent;
+2. creates `/srv/stacklab/{stacks,config,data}` only when missing;
+3. creates private runtime, home, and Docker config directories;
+4. enforces mode `0600` on the environment file, SQLite/WAL/SHM files, and
+   stack-root `.env` files it encounters;
+5. adds the service account to existing `docker` and `systemd-journal` groups;
+6. reloads and enables the service, starts it on first install, or performs a
+   best-effort restart after upgrade;
+7. prints a bootstrap-password hint when authentication is not yet configured.
 
-- stock Debian may provide Compose via standalone `docker-compose`
-- some hosts may use Docker CE packages instead of distro Docker
-- Stacklab already supports both `docker compose` and standalone `docker-compose`
-- tarball installs may still rely on host tooling such as `curl`, `wget`, and `tar`, but those do not need to become hard runtime dependencies of the package itself
+The implemented `prerm` stops `stacklab.service` for package removal or
+deconfiguration. There is no destructive `postrm`: remove/purge does not delete
+the service account, `/srv/stacklab`, or `/var/lib/stacklab`. Standard `dpkg`
+conffile rules govern `/etc/stacklab/stacklab.env`.
 
-## Package Responsibilities
+Package scripts do not configure a reverse proxy, reset authentication, or
+rewrite operator Compose definitions.
 
-The package should:
+## Automated Validation
 
-- install Stacklab binaries and frontend assets
-- install project and third-party license notices under `/usr/share/doc/stacklab`
-- install a `systemd` unit
-- create or install `/etc/stacklab/stacklab.env`
-- create a dedicated service account such as `stacklab`
-- ensure ownership and permissions are sane
-- enable the service only if that behavior is explicitly chosen in packaging policy
+`.github/workflows/deb-package-smoke.yml` runs for relevant package/release
+changes, on `main`, by manual dispatch, and as a reusable release gate. It:
 
-The package should not:
+1. verifies the exact source revision;
+2. builds the production release artifact and `amd64` package;
+3. installs it in a disposable Debian environment with real `systemd`;
+4. performs an A-to-B package upgrade;
+5. verifies service identity, health, frontend serving, legal files,
+   environment preservation, SQLite preservation and modes, workspace/runtime
+   fixtures, session continuity, and service restart.
 
-- overwrite operator stack definitions
-- destroy `config/` or `data/`
-- silently reset the password store
-- assume reverse proxy configuration
+Nightly, stable, and hotfix workflows additionally build tarballs and packages
+for both architectures, smoke the produced `amd64` package and tarball, and
+block publication when the shared quality gate or install-mode smoke fails.
+After publication they wait for the target APT channel and install the exact
+published `amd64` package from that repository.
 
-## Maintainer Script Responsibilities
+## APT Repository
 
-Likely maintainer scripts:
+`scripts/release/publish-apt-repo.sh` maintains a static repository under the
+GitHub Pages publication branch. It:
 
-- `postinst`
-- `prerm`
-- possibly `postrm`
+- accepts only `stable` or `nightly`;
+- publishes `amd64` and `arm64` package indexes under `main`;
+- generates `Packages`, compressed indexes, and `Release` metadata with Debian
+  tooling;
+- signs `Release` as both `InRelease` and `Release.gpg` with the configured GPG
+  key;
+- publishes binary and armored archive keyrings;
+- retains the newest 6 stable versions and 7 nightly versions by default using
+  Debian version ordering.
 
-Expected `postinst` responsibilities:
+Stable, nightly, and hotfix release workflows publish their channel directly.
+`.github/workflows/apt-publish.yml` is the manual repair/republish path for
+packages already attached to a GitHub release. Publication jobs are serialized
+through the shared `apt-pages-publication` concurrency group.
 
-- create service account if missing
-- create required directories if missing
-- install default env file if absent
-- ensure the service account is in:
-  - the Docker socket-owning group when present, typically `docker`
-  - `systemd-journal` when present, so `/host` Stacklab logs can be read
-- reload `systemd`
-- optionally enable or restart the service
+Operator installation and keyring commands live in
+[Install from APT](install-from-apt.md), not in this implementation reference.
 
-Expected `prerm` responsibilities:
+## Known Validation Boundaries
 
-- stop or restart service in a predictable way during upgrade/remove
-- avoid deleting operator-managed state
-
-Important rule:
-
-- maintainer scripts must be idempotent
-- maintainer scripts must handle upgrade and reinstall paths cleanly
-
-## APT Repository Model
-
-The published APT repository should be:
-
-- signed
-- static and reproducible
-- generated by CI from already-built `.deb` artifacts
-
-Reasonable hosting options:
-
-- GitHub Pages
-- another static HTTP host
-
-Reasonable generation options:
-
-- `aptly`
-- `reprepro`
-- a smaller static repository generator if it stays understandable
-
-Recommended channel model:
-
-- `stable`
-- `nightly`
-
-Meaning:
-
-- `stable` contains monthly releases and hotfixes
-- `nightly` contains prerelease builds from the default branch
-
-## Release Validation Expectations
-
-The release flow for the package-managed path should look like this:
-
-1. build and test backend/frontend
-2. build Linux `amd64` package artifact
-3. test package install on clean Debian VM
-4. test package upgrade from previous version
-5. test service start under `systemd`
-6. test login, dashboard, actions, logs, stats, terminal
-7. publish `.deb` to GitHub Releases and APT
-
-## Validation Requirements
-
-Before trusting Debian packaging, the following should pass on Debian `amd64`:
-
-- fresh install
-- upgrade install
-- reinstall
-- service restart
-- package removal without destructive data loss
-- package purge policy clearly defined
-
-Specific checks:
-
-- `docker-compose-plugin` hosts work
-- standalone `docker-compose` hosts work
-- service account has Docker access
-- `ProtectHome=true` plus `HOME` and `DOCKER_CONFIG` paths still work
-
-## Remaining Gaps Worth Closing
-
-- keep upgrade validation current as new product surfaces are added
-- keep helper-backed privileged flows tested on real Debian hosts
-- keep tarball smoke green so the secondary install mode does not drift behind the Debian package path
+- Automated systemd install/upgrade smoke currently runs on `amd64`; `arm64`
+  artifacts are built, but architecture-specific runtime changes still require
+  a real-host pass.
+- Automated package smoke covers fresh install and A-to-B upgrade. It does not
+  yet exercise remove and purge end to end, so changes to maintainer-script or
+  retention behavior require the manual
+  [Upgrade Validation Checklist](upgrade-validation-checklist.md).
+- Downgrading across a forward-only SQLite migration requires the matching
+  verified database backup; installing an older `.deb` alone is insufficient.

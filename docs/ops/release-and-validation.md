@@ -20,8 +20,13 @@ Layout:
 - `/srv/stacklab` — managed stacks and configuration;
 - `/var/lib/stacklab` — application state.
 
-Fresh installs, package-managed upgrades, package downgrades, and APT-backed
-Stacklab self-update are supported within this install mode.
+Fresh installs, package-managed upgrades, and APT-backed Stacklab self-update
+are supported within this install mode. Installing an earlier package version
+is supported only while that binary accepts the database schema currently on
+disk. Because migrations are forward-only, a rollback across a schema change
+also requires restoring the verified pre-upgrade database backup that belongs
+to the earlier application version; see
+[SQLite Schema](../data/sqlite-schema.md).
 
 ### Manual tarball installs
 

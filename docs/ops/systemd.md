@@ -191,7 +191,8 @@ Startup behavior recommendation:
 - start after Docker when available
 - tolerate Docker being temporarily unavailable or restarted
 - expose degraded Docker state clearly in logs and UI instead of binding Stacklab lifecycle to `docker.service`
-- allow restart policy to recover automatically when Docker becomes available
+- recover Docker-backed views and actions when Docker becomes available without
+  restarting the Stacklab process
 
 ## Frontend Asset Serving
 
@@ -345,7 +346,8 @@ Expected behavior:
 
 Expected behavior:
 
-- service should fail to start or enter degraded mode with explicit logs
+- if the database cannot be opened or migrated, Stacklab fails fast during
+  startup and systemd records the explicit startup error
 
 ### Reverse proxy unavailable
 
