@@ -1,117 +1,106 @@
 # Global Activity API
 
-This contract defines the first backend slice for cross-application background job visibility.
+Status: implemented. The primary delivery path is WebSocket push with a REST
+snapshot for initial recovery, reconnect, and compatibility fallback.
 
-The goal is not a full notification center. The goal is a stable read model that lets the UI show:
+Global activity gives shared application chrome one read model for currently
+active background work. It is not a notification inbox and does not replace
+durable job detail or audit history.
 
-- whether anything is still running in the background
-- what the current job is doing
-- which stack, if any, is being targeted right now
-- how long the job has been running
+Contract ownership:
 
-Version 1 is intentionally REST-first.
+- [openapi.yaml](openapi.yaml) defines `GET /api/jobs/active` and the exact
+  `ActiveJobsResponse` schemas;
+- [websocket-protocol.md](websocket-protocol.md) defines socket commands,
+  acknowledgements, frames, limits, and reconnect behavior;
+- this document defines active-job semantics and how consumers reconcile the
+  two transports.
 
-Reason:
+## Active-job snapshot
 
-- the backend already exposes durable per-job history and per-job WebSocket replay
-- the missing piece for global chrome is a shared list of currently active jobs
-- polling this list is enough for the first persistent activity affordance
+`GET /api/jobs/active` returns all currently active jobs plus aggregate counts.
+The active states are:
 
-Live push for global activity can come later as a second slice.
+- `queued`;
+- `running`;
+- `cancel_requested`.
 
-## `GET /api/jobs/active`
+Terminal jobs are excluded. They remain available through job detail and audit
+history according to retention policy.
 
-Purpose:
+Snapshot behavior:
 
-- list all currently active jobs across the application
-- power a global activity badge, bar, tray, or drawer
+- jobs are ordered by most recent activity first;
+- `stack_id` may be `null` for workspace- or host-scoped work;
+- `workflow`, `current_step`, and `latest_event` may be absent when the job has
+  not produced that information;
+- for bulk work, `current_step.target_stack_id` is a more precise current
+  target than the root `stack_id`;
+- elapsed time is derived from `started_at` when present and otherwise from
+  `requested_at`;
+- `summary.active_count` is the authoritative small-badge count.
 
-Definition of "active":
+The exact fields and required/optional distinctions are intentionally not
+repeated here; use the generated `ActiveJobsResponse` frontend type.
 
-- `queued`
-- `running`
-- `cancel_requested`
+## Live WebSocket stream
 
-Terminal states are excluded:
-
-- `succeeded`
-- `failed`
-- `cancelled`
-- `timed_out`
-
-Response:
+The frontend normally maintains one shared logical subscription on the
+multiplexed `/api/ws` connection:
 
 ```json
 {
-  "items": [
-    {
-      "id": "job_01hr...",
-      "stack_id": null,
-      "action": "update_stacks",
-      "state": "running",
-      "requested_at": "2026-04-09T10:15:00Z",
-      "started_at": "2026-04-09T10:15:01Z",
-      "workflow": {
-        "steps": [
-          { "action": "pull", "state": "running", "target_stack_id": "demo" },
-          { "action": "up", "state": "queued", "target_stack_id": "demo" }
-        ]
-      },
-      "current_step": {
-        "index": 1,
-        "total": 2,
-        "action": "pull",
-        "target_stack_id": "demo"
-      },
-      "latest_event": {
-        "event": "job_step_started",
-        "message": "Starting pull for demo.",
-        "timestamp": "2026-04-09T10:15:02Z",
-        "step": {
-          "index": 1,
-          "total": 2,
-          "action": "pull",
-          "target_stack_id": "demo"
-        }
-      }
-    }
-  ],
-  "summary": {
-    "active_count": 1,
-    "running_count": 1,
-    "queued_count": 0,
-    "cancel_requested_count": 0
-  }
+  "type": "activity.subscribe",
+  "request_id": "req_activity_sub",
+  "stream_id": "activity_global",
+  "payload": {}
 }
 ```
 
-Behavior:
+The server then:
 
-- jobs are ordered by most recently active first
-- `stack_id = null` is valid for workspace-level jobs such as:
-  - bulk maintenance
-  - cleanup
-  - future Docker admin apply workflows
-- `workflow` is optional
-- `current_step` is optional
-- `latest_event` is optional when a job exists but no event has been recorded yet
+1. returns an `ack` with `status: subscribed`;
+2. sends `activity.snapshot` with a full `ActiveJobsResponse`;
+3. sends coalesced `activity.update` frames after job events.
 
-UI guidance:
+Every snapshot and update carries the full active-jobs response. Updates are
+not deltas and do not contain only the changed job. The server emits at most
+one activity update every 500 ms and reads the latest durable state before
+sending it. Intermediate signals may be coalesced without losing the final
+state.
 
-- use `summary.active_count` for the smallest chrome affordance
-- use `started_at` if present, otherwise `requested_at`, to derive elapsed time in the client
-- prefer `current_step.target_stack_id` when present over root `stack_id` for bulk workflows
+When a job becomes terminal, the next full update omits it from `items` and
+refreshes the summary counts. Consumers must replace their activity snapshot
+rather than merge items by ID.
 
-## Why REST First
+Use `activity.unsubscribe` with the same `stream_id` when the shared consumer
+is disposed. Multiple widgets must consume one application-level subscription;
+they should not independently subscribe and unsubscribe the same logical
+stream.
 
-The initial milestone optimizes for clarity and recoverability:
+## Recovery and fallback
 
-- page reloads can reconcile immediately through REST
-- global chrome does not need to subscribe to every job individually
-- the UI can poll at a low rate without overcomplicating the transport model
+REST remains necessary even with push:
 
-Later enhancements can add:
+- a page can reconcile immediately before or after socket setup;
+- reconnect creates a new socket and the subscription must be sent again;
+- older or degraded backends may reject `activity.subscribe`;
+- a socket error must not erase the last known state.
 
-- global WebSocket activity updates
-- richer progress telemetry for pull/build-heavy flows
-- sticky completion states and dismissible notifications
+The current frontend falls back to `GET /api/jobs/active` every 3 seconds when
+the socket is disconnected or activity push is unsupported. A successful
+snapshot is marked fresh. If a later request fails, the UI keeps the last
+snapshot as stale; without any snapshot, activity is unavailable.
+
+## Relationship to job detail
+
+Global activity is intentionally bounded to active work and a latest-event
+summary. Opening a job uses:
+
+- `GET /api/jobs/{jobId}` for the durable job snapshot;
+- `GET /api/jobs/{jobId}/events` for retained replay;
+- `jobs.subscribe` for live per-job events.
+
+See [job-detail.md](job-detail.md) for retention-aware detail behavior. Sticky
+completion notifications, historical browsing, and dismissible messages do
+not belong in the global activity read model.

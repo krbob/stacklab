@@ -1,11 +1,13 @@
 # Dashboard Read Model, Structured Progress, and Activity Push
 
-Architecture spec for the API slices required by the final design
-"Amber Console v2" (`docs/ui/ui-review-2026-07-and-final-design.md`) and by the
-roadmap item "richer operation progress for stack actions, pull/build-heavy
-flows, and background work visibility".
+This is the delivery and architecture record for the API slices introduced for
+the "Amber Console v2" design and richer operation progress. Most slices are
+now implemented; the status section records the remaining follow-ups.
 
-All changes are additive. No existing field changes shape or meaning.
+This document explains intent and implementation decisions. Exact REST shapes
+belong to [openapi.yaml](openapi.yaml), and exact socket frames belong to
+[websocket-protocol.md](websocket-protocol.md). The changes described here were
+designed to be additive: existing fields did not change shape or meaning.
 
 ## Slice A — `GET /api/stacks` dashboard extensions
 
@@ -127,13 +129,15 @@ Upgrades polled `GET /api/jobs/active` (kept as reconnect fallback) with a
 logical stream on the existing multiplexed socket, consistent with
 logs/stats/jobs streams:
 
-- `activity.subscribe` → server replies `activity.snapshot`
-  (full payload, same shape as the REST response) followed by
-  `activity.update` messages on:
+- `activity.subscribe` → server acknowledges the subscription and replies with
+  `activity.snapshot` (the full payload, with the same shape as the REST
+  response), followed by `activity.update` messages on:
   - job lifecycle transitions (queued/running/step change/terminal),
-  - throttled progress (max 1/s per job, latest wins).
-- `activity.update` carries the full `ActiveJobItem` for the changed job plus
-  refreshed summary counts; removal signaled by terminal `state`.
+  - coalesced progress and job events (at most one full update every 500 ms,
+    latest state wins).
+- Every `activity.update` carries a full `ActiveJobsResponse`, not a delta or a
+  single `ActiveJobItem`. A terminal job disappears from `items`, and the
+  refreshed summary reflects its removal.
 - Server-side: the jobs service already centralizes state transitions; the
   publisher hooks there. No new persistence.
 - UI consumers: host-strip live chip ("1 job · pull traefik 30/40"),
@@ -141,11 +145,12 @@ logs/stats/jobs streams:
 
 ## Slice E — editor support
 
-- `POST /api/stacks/{id}/compose/validate` response gains
-  `warnings: [{ code, message, service, line }]` — first lint rules from the
-  backlog: missing healthcheck, missing restart policy, `0.0.0.0` port binds.
-  Warnings never block save/deploy.
-- `GET .../resolved-config?source=last_valid` resolves the persisted deploy
+- `POST /api/stacks/{stackId}/resolved-config` resolves a draft definition
+  without saving it and returns
+  `warnings: [{ code, message, service, line }]`. The initial lint rules cover
+  a missing healthcheck, a missing restart policy, and `0.0.0.0` port binds.
+  Warnings never block save or deploy.
+- `GET /api/stacks/{stackId}/resolved-config?source=last_valid` resolves the persisted deploy
   baseline — powers the "diff vs last known good" editor view and completes
   drift detection surfacing.
 
@@ -154,14 +159,16 @@ logs/stats/jobs streams:
 Near-term roadmap goal 1, needed for the redesigned create-stack screen:
 
 - `GET /api/templates` → local curated templates from
-  `/srv/stacklab/templates/<id>/` (`compose.yaml` + `template.yaml` with
+  `<root>/templates/<id>/` (`compose.yaml` + `template.yaml` with
   name/description/icon/variables).
 - `POST /api/stacks` accepts optional `template_id` + `variables` for
   server-side substitution, plain `${VAR}` only, no remote catalogs.
 
-## Implementation status (2026-07-06)
+## Current implementation status
 
-- Slices A1/A2/C/D: implemented and deployed.
+- Slices A1/A2/C/D: implemented in the repository. Global activity uses one
+  shared WebSocket subscription in the frontend and a 3-second REST polling
+  fallback when push is unavailable or unsupported.
 - Slice B: implemented — `POST /api/maintenance/image-updates/check` runs the
   `check_image_updates` job (anonymous registry digest checks; images needing
   credentials report `unknown`), `GET /api/maintenance/image-updates` lists
@@ -177,13 +184,9 @@ Near-term roadmap goal 1, needed for the redesigned create-stack screen:
   starters as fallback; create-stack supports template variables and server-side
   rendering via `template_id` + `variables`.
 
-## Sequencing
-
-1. **A1 + A2** — unblocks the tile grid (Etap 3 of the UI plan). Small, no schema.
-2. **C** — structured progress; unblocks progress bars (Etap 4). Runner + WS additive.
-3. **D** — activity push; pairs with C in Etap 4.
-4. **B + A3** — update checks (Etap 5); largest new surface (registry client).
-5. **E, F** — editor lint + templates (Etap 5/6).
-
-OpenAPI: each slice updates `docs/api/openapi.yaml`; frontend types stay
-hand-written until the backlog item "generate types from openapi.yaml" lands.
+Each REST slice is represented in [openapi.yaml](openapi.yaml). Frontend REST
+types are generated into `frontend/src/lib/api-contract.generated.ts`; the
+application imports its stable aliases from `frontend/src/lib/api-types.ts`.
+Run `npm --prefix frontend run generate:api` after a REST contract change.
+WebSocket frame types remain hand-maintained against
+[websocket-protocol.md](websocket-protocol.md).
