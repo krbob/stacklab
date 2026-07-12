@@ -29,10 +29,10 @@ export function StacklabLogs() {
 
       if (append) {
         if (result.items.length > 0) {
-          setEntries((prev) => trimLogEntries([...prev, ...result.items]))
+          setEntries((prev) => mergeLogEntries(prev, result.items))
         }
       } else {
-        setEntries(trimLogEntries(result.items))
+        setEntries(mergeLogEntries([], result.items))
       }
 
       if (result.next_cursor) {
@@ -204,4 +204,10 @@ export function StacklabLogs() {
 function trimLogEntries(entries: StacklabLogEntry[]): StacklabLogEntry[] {
   if (entries.length <= MAX_STACKLAB_LOG_ENTRIES) return entries
   return entries.slice(entries.length - MAX_STACKLAB_LOG_ENTRIES)
+}
+
+function mergeLogEntries(current: StacklabLogEntry[], incoming: StacklabLogEntry[]): StacklabLogEntry[] {
+  const entriesByCursor = new Map(current.map((entry) => [entry.cursor, entry]))
+  for (const entry of incoming) entriesByCursor.set(entry.cursor, entry)
+  return trimLogEntries(Array.from(entriesByCursor.values()))
 }

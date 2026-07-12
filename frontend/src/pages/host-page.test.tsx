@@ -743,6 +743,35 @@ describe('HostPage', () => {
     })
   })
 
+  it('deduplicates followed Stacklab logs by journal cursor', async () => {
+    mockGetStacklabLogs
+      .mockResolvedValueOnce(logsResponse)
+      .mockResolvedValue({
+        items: [
+          logsResponse.items[1],
+          {
+            timestamp: '2026-04-04T12:00:02Z',
+            level: 'warn',
+            message: 'New followed entry',
+            cursor: 'cursor-3',
+          },
+        ],
+        next_cursor: 'cursor-3',
+        has_more: false,
+      })
+    vi.useFakeTimers()
+
+    render(<HostPage />)
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+      await vi.advanceTimersByTimeAsync(3_000)
+    })
+
+    expect(screen.getAllByText('Failed to bind port')).toHaveLength(1)
+    expect(screen.getByText('New followed entry')).toBeInTheDocument()
+  })
+
   it('filters logs locally and resets the cursor on manual refresh', async () => {
     render(<HostPage />)
 
