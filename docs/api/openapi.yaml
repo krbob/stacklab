@@ -3330,6 +3330,19 @@ components:
         stack:
           $ref: '#/components/schemas/StackDetail'
       required: [stack]
+    AvailableStackAction:
+      type: string
+      enum:
+        - validate
+        - up
+        - down
+        - stop
+        - restart
+        - pull
+        - build
+        - recreate
+        - save_definition
+        - remove_stack_definition
     StackDetail:
       allOf:
         - $ref: '#/components/schemas/StackHeader'
@@ -3350,7 +3363,7 @@ components:
             available_actions:
               type: array
               items:
-                type: string
+                $ref: '#/components/schemas/AvailableStackAction'
             services:
               type: array
               items:

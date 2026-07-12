@@ -321,6 +321,8 @@ export interface components {
       items: components["schemas"]["AuditEntry"][];
       next_cursor: string | null;
     };
+    /** @enum {string} */
+    AvailableStackAction: "validate" | "up" | "down" | "stop" | "restart" | "pull" | "build" | "recreate" | "save_definition" | "remove_stack_definition";
     ComposeWarning: {
       code: string;
       message: string;
@@ -1354,7 +1356,7 @@ export interface components {
       stack_id: string;
     };
     StackDetail: components["schemas"]["StackHeader"] & ({
-      available_actions: string[];
+      available_actions: components["schemas"]["AvailableStackAction"][];
       capabilities: components["schemas"]["StackCapabilities"];
       compose_file_path: string;
       config_path: string;
