@@ -10,7 +10,7 @@
     "dev": "vite",
     "dev:host": "vite --host 127.0.0.1 --port 5173",
     "generate": "npm run generate:api",
-    "generate:api": "openapi-typescript ../docs/api/openapi.yaml --output src/lib/api-contract.generated.ts --alphabetize",
+    "generate:api": "openapi-typescript ../docs/api/openapi.yaml --output src/lib/api-contract.generated.ts --alphabetize --support-array-length",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
     "lint": "eslint . --max-warnings=0",

@@ -654,7 +654,7 @@ export interface components {
     };
     HostCPU: {
       core_count: number;
-      load_average: number[];
+      load_average: [number, number, number];
       /** Format: double */
       usage_percent: number;
     };
@@ -803,7 +803,7 @@ export interface components {
     HostTemperatures: {
       /** Format: double */
       cpu_celsius: number | null;
-      cpu_sensor?: components["schemas"]["HostTemperatureSensor"] | null;
+      cpu_sensor?: components["schemas"]["HostTemperatureSensor"];
       sensors: components["schemas"]["HostTemperatureSensor"][];
     };
     HostTemperatureSensor: {
@@ -1260,7 +1260,7 @@ export interface components {
     SessionResponse: {
       authenticated: boolean;
       features: components["schemas"]["FeatureFlags"];
-      user?: components["schemas"]["SessionUser"];
+      user: components["schemas"]["SessionUser"];
     };
     SessionUser: {
       display_name: string;
@@ -1334,7 +1334,7 @@ export interface components {
     StacklabLogsResponse: {
       has_more: boolean;
       items: components["schemas"]["StacklabLogEntry"][];
-      next_cursor?: string | null;
+      next_cursor?: string;
     };
     StacklabMeta: {
       commit: string;
