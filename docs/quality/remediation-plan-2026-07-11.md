@@ -144,7 +144,7 @@ otrzyma domyślnej licencji bez jawnego wyboru.
 | UX-11 | done | Usprawnić Maintenance | montowanie zakładek na żądanie, debounce search, widoczny status stacka, wartościowy idle state i ostatnie wykonania | seria `perf(ui): optimize maintenance ...` |
 | UX-12 | done | Uporządkować Audit i Logs | filtry serwerowe z URL state, zakres dat, poprawne empty states, zachowane `Load more`, eksport/copy/wrap | seria `feat(ui): improve diagnostics ...` |
 | UX-13 | done | Uporządkować dokument title i nagłówki | jeden `h1` per ekran, tytuł karty zawiera ekran/stack; poprawiona meta description PWA | `fix(a11y): add page titles and heading hierarchy` |
-| PROD-01 | planned | Wprowadzić wspólny `Review operation` | cel, zakres, wpływ, snapshot i recovery są prezentowane jednolicie dla delete/prune/update/apply | seria `feat(ui): add operation review ...` |
+| PROD-01 | done | Wprowadzić wspólny `Review operation` | cel, zakres, wpływ, snapshot i recovery są prezentowane jednolicie dla delete/prune/update/apply | seria `feat(ui): review ... impact` |
 | PROD-02 | planned | Dodać System Health Center | widoczny stan Backend/Docker/WS, last success, Retry i linki do diagnostyki | `feat(ui): add system health center` |
 | PROD-03 | planned | Podzielić Settings według zadań | Security, Notifications, Automation, Updates i About jako odnajdywalne sekcje/subroutes, także mobile | `refactor(ui): split settings navigation` |
 
@@ -167,6 +167,16 @@ focus trap, Escape tylko dla najwyższego overlayu, przywracanie fokusu i
 referencyjny scroll lock; test regresji obejmuje zagnieżdżony Dialog nad
 BottomSheet. Pełny gate frontendu zakończył się wynikiem 64/64 plików i 447/447
 testów, lintem bez ostrzeżeń oraz poprawnym buildem produkcyjnym.
+
+Weryfikacja końcowa PROD-01 z 2026-07-12 objęła wspólny model `Review operation`
+z polami target, scope, impact, snapshot i recovery. Model jest używany przed
+usunięciem stosu, wolumenu i sieci, ręcznym oraz zaplanowanym czyszczeniem,
+zbiorczą aktualizacją stosów, zastosowaniem konfiguracji demona Dockera i
+samoaktualizacją Stacklab. Komunikaty rozróżniają automatyczny rollback
+`daemon.json` od ręcznego rollbacku pakietu oraz nie sugerują snapshotów tam,
+gdzie system ich nie tworzy. Pełny gate frontendu na Node 24.18.0 zakończył się
+wynikiem 65/65 plików i 451/451 testów, lintem bez ostrzeżeń oraz poprawnym
+buildem produkcyjnym.
 
 ## Kolejność wykonania
 
