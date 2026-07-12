@@ -37,4 +37,51 @@ describe('ConfirmDialog', () => {
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(onCancel).toHaveBeenCalledTimes(1)
   })
+
+  it('focuses required confirmation text and enables confirm only on an exact match', () => {
+    const onConfirm = vi.fn()
+
+    render(
+      <ConfirmDialog
+        title="Delete data?"
+        message="This action is permanent."
+        confirmLabel="Delete"
+        requireText="demo"
+        onCancel={vi.fn()}
+        onConfirm={onConfirm}
+      />,
+    )
+
+    const input = screen.getByRole('textbox')
+    const confirm = screen.getByRole('button', { name: 'Delete' })
+    expect(input).toHaveFocus()
+    expect(confirm).toBeDisabled()
+
+    fireEvent.change(input, { target: { value: 'Demo' } })
+    expect(confirm).toBeDisabled()
+    fireEvent.change(input, { target: { value: 'demo' } })
+    expect(confirm).toBeEnabled()
+    fireEvent.click(confirm)
+    expect(onConfirm).toHaveBeenCalledTimes(1)
+  })
+
+  it('blocks Escape and backdrop dismissal while confirming', () => {
+    const onCancel = vi.fn()
+    render(
+      <ConfirmDialog
+        title="Apply settings?"
+        message="Docker may restart."
+        confirmLabel="Apply"
+        confirming
+        onCancel={onCancel}
+        onConfirm={vi.fn()}
+      />,
+    )
+
+    const dialog = screen.getByRole('dialog', { name: 'Apply settings?' })
+    expect(dialog).toHaveAttribute('aria-busy', 'true')
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.click(dialog.parentElement!)
+    expect(onCancel).not.toHaveBeenCalled()
+  })
 })
