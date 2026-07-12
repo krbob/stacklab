@@ -489,8 +489,13 @@ describe("SettingsPage", () => {
     fireEvent.click(screen.getByText("Save schedules"));
 
     const dialog = screen.getByRole("dialog", { name: "Enable scheduled volume deletion?" });
-    expect(within(dialog).getByText("Scheduled cleanup: weekly on Sun at 04:30")).toBeInTheDocument();
-    expect(within(dialog).getByText("Scope: unused Docker volumes and their data")).toBeInTheDocument();
+    const review = within(dialog).getByRole("region", { name: "Review operation" });
+    expect(review).toHaveTextContent("Unused external Docker volumes on this host");
+    expect(review).toHaveTextContent("Scheduled cleanup: weekly on Sun at 04:30");
+    expect(review).toHaveTextContent("stack-managed volumes are excluded");
+    expect(review).toHaveTextContent("runs automatically without another confirmation");
+    expect(review).toHaveTextContent("does not create automatic volume snapshots or backups");
+    expect(review).toHaveTextContent("Disabling the schedule prevents future runs but cannot undo completed cleanup");
     expect(mockUpdateMaintenanceSchedules).not.toHaveBeenCalled();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Save volume cleanup" }));

@@ -121,7 +121,7 @@ export function MaintenanceSchedulesSection() {
     if (pruneEnabled && pruneVolumes) {
       summary.push(`Scheduled cleanup: ${describeSchedule(pruneFreq, pruneTime, pruneWeekdays)}`)
     }
-    if (summary.length > 0) summary.push('Scope: unused Docker volumes and their data')
+    if (summary.length > 0) summary.push('Scope: unused external Docker volumes and their data; stack-managed volumes are excluded')
     return summary
   }, [pruneEnabled, pruneFreq, pruneTime, pruneVolumes, pruneWeekdays, updateEnabled, updateFreq, updatePrune, updatePruneVol, updateTargetMode, updateTargetStacks.length, updateTime, updateWeekdays])
   const scheduleValidationError = useMemo(() => {
@@ -450,8 +450,17 @@ export function MaintenanceSchedulesSection() {
       {confirmVolumeCleanup && (
         <ConfirmDialog
           title="Enable scheduled volume deletion?"
-          message="Unused Docker volumes can contain persistent application data. This cleanup will run automatically without another confirmation."
-          items={volumeCleanupSummary}
+          message="Review the recurring deletion and recovery requirement before saving this schedule."
+          review={{
+            target: 'Unused external Docker volumes on this host',
+            scope: volumeCleanupSummary,
+            impact: [
+              'Each enabled schedule runs automatically without another confirmation.',
+              'Data in every matching unused external volume is deleted permanently.',
+            ],
+            snapshot: 'Scheduled cleanup does not create automatic volume snapshots or backups.',
+            recovery: 'Restore deleted data from external backups. Disabling the schedule prevents future runs but cannot undo completed cleanup.',
+          }}
           confirmLabel="Save volume cleanup"
           onConfirm={() => {
             setConfirmVolumeCleanup(false)
