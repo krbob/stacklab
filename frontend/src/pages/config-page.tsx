@@ -227,6 +227,7 @@ export function ConfigPage() {
     }
     return groups
   }, [gitItems])
+  const showGitActions = !gitClean || (gitHasUpstream && gitAhead > 0)
 
   const toggleGitPath = useCallback((path: string) => {
     setSelectedGitPaths((prev) => {
@@ -439,7 +440,7 @@ export function ConfigPage() {
                 </button>
 
                 {/* Commit bar */}
-                {!gitClean && (
+                {showGitActions && (
                   <GitCommitBar
                     selectedPaths={selectedGitPaths}
                     hasUpstream={gitHasUpstream}
@@ -611,7 +612,7 @@ export function ConfigPage() {
                 </button>
 
                 {/* Commit bar */}
-                {!gitClean && (
+                {showGitActions && (
                   <GitCommitBar
                     selectedPaths={selectedGitPaths}
                     hasUpstream={gitHasUpstream}

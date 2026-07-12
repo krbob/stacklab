@@ -660,13 +660,20 @@ describe('ConfigPage', () => {
 
     expect(await screen.findByText('No local changes detected.')).toBeInTheDocument()
     expect(screen.queryByText('modified')).not.toBeInTheDocument()
+    expect(await screen.findByTestId('git-push')).toHaveTextContent('Push (2 ahead)')
   })
 
-  it('pushes ahead commits and refreshes Git status', async () => {
+  it('pushes from a clean ahead branch and hides Git actions after refresh', async () => {
+    const cleanAheadStatus = {
+      ...gitStatus,
+      ahead_count: 1,
+      items: [],
+      clean: true,
+    }
     mockGetGitWorkspaceStatus
-      .mockResolvedValueOnce(gitStatus)
+      .mockResolvedValueOnce(cleanAheadStatus)
       .mockResolvedValueOnce({
-        ...gitStatus,
+        ...cleanAheadStatus,
         ahead_count: 0,
       })
 
@@ -678,8 +685,10 @@ describe('ConfigPage', () => {
     await waitFor(() => {
       expect(mockPushGitWorkspace).toHaveBeenCalled()
     })
-    expect(await screen.findByText('main')).toBeInTheDocument()
-    expect(screen.queryByTestId('git-push')).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.queryByTestId('git-push')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Commit' })).not.toBeInTheDocument()
+    })
   })
 
   it('shows blocked file card in Files mode', async () => {
