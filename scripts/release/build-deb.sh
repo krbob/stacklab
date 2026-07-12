@@ -112,9 +112,9 @@ Maintainer: Krzysztof Bobiński <krzysztof@bobinski.net>
 Homepage: https://github.com/krbob/stacklab
 Depends: adduser, systemd, docker.io | docker-ce | moby-engine, docker-cli | docker-ce-cli | moby-cli | docker.io (<< 26.0), docker-compose | docker-compose-plugin, git
 Recommends: ca-certificates
-Description: Compose-first control panel for Docker Compose homelabs
- Stacklab is a host-native, filesystem-first control panel for Docker Compose
- homelabs running on a single Linux host.
+Description: Host-native web control panel for Docker Compose stacks
+ Stacklab is a host-native web control panel for managing Docker Compose stacks
+ on a single Linux server.
 EOF
 
 cat > "${pkg_root}/DEBIAN/conffiles" <<'EOF'

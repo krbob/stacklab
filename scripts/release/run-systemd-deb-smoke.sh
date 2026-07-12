@@ -170,6 +170,8 @@ create_persistent_fixtures() {
 }
 
 assert_persistent_fixtures() {
+  dpkg-query -W -f='${Description}\n' stacklab \
+    | grep -Fq 'Host-native web control panel for Docker Compose stacks'
   grep -q '^# stacklab-systemd-smoke-preserve$' /etc/stacklab/stacklab.env \
     || die "package upgrade replaced the operator environment config"
   test "$(stat -c %a /etc/stacklab/stacklab.env)" = 600
