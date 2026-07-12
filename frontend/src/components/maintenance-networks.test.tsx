@@ -3,7 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MaintenanceNetworks } from './maintenance-networks'
 import type { MaintenanceNetworksResponse } from '@/lib/api-types'
-import { deleteMaintenanceNetwork } from '@/lib/api-client'
+import { createMaintenanceNetwork, deleteMaintenanceNetwork } from '@/lib/api-client'
 
 const mockUseApi = vi.fn()
 
@@ -51,7 +51,9 @@ const networksData: MaintenanceNetworksResponse = {
 describe('MaintenanceNetworks', () => {
   beforeEach(() => {
     mockUseApi.mockReset()
+    vi.mocked(createMaintenanceNetwork).mockReset()
     vi.mocked(deleteMaintenanceNetwork).mockReset()
+    vi.mocked(createMaintenanceNetwork).mockResolvedValue({ created: true, name: 'new_network' })
     vi.mocked(deleteMaintenanceNetwork).mockResolvedValue({ deleted: true, name: 'external_shared' })
     mockUseApi.mockReturnValue({
       data: networksData,
@@ -95,6 +97,67 @@ describe('MaintenanceNetworks', () => {
 
     expect(screen.getByRole('button', { name: 'Remove demo_default' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Remove external_shared' })).toBeEnabled()
+  })
+
+  it('opens an accessible create dialog and restores trigger focus after Escape', () => {
+    render(
+      <MemoryRouter>
+        <MaintenanceNetworks />
+      </MemoryRouter>,
+    )
+
+    const trigger = screen.getByRole('button', { name: 'Create network' })
+    trigger.focus()
+    fireEvent.click(trigger)
+
+    expect(screen.getByRole('dialog', { name: 'Create network' })).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Network name')).toHaveFocus()
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    expect(screen.queryByRole('dialog', { name: 'Create network' })).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+  })
+
+  it('keeps the create dialog open while creation is pending', async () => {
+    vi.mocked(createMaintenanceNetwork).mockReturnValue(new Promise(() => {}))
+
+    render(
+      <MemoryRouter>
+        <MaintenanceNetworks />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create network' }))
+    const input = screen.getByPlaceholderText('Network name')
+    fireEvent.change(input, { target: { value: 'new_network' } })
+    fireEvent.submit(input.closest('form')!)
+
+    await waitFor(() => expect(createMaintenanceNetwork).toHaveBeenCalledWith({ name: 'new_network' }))
+    const dialog = screen.getByRole('dialog', { name: 'Create network' })
+    expect(dialog).toHaveAttribute('aria-busy', 'true')
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.getByRole('dialog', { name: 'Create network' })).toBeInTheDocument()
+  })
+
+  it('keeps a create failure visible in the dialog', async () => {
+    vi.mocked(createMaintenanceNetwork).mockRejectedValueOnce(new Error('Network create unavailable'))
+
+    render(
+      <MemoryRouter>
+        <MaintenanceNetworks />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create network' }))
+    const input = screen.getByPlaceholderText('Network name')
+    fireEvent.change(input, { target: { value: 'new_network' } })
+    fireEvent.submit(input.closest('form')!)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Network create unavailable')
+    expect(screen.getByRole('dialog', { name: 'Create network' })).toBeInTheDocument()
   })
 
   it('requires confirmation before removing an external network', async () => {

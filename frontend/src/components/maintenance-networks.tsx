@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getMaintenanceNetworks, createMaintenanceNetwork, deleteMaintenanceNetwork } from '@/lib/api-client'
 import { useApi } from '@/hooks/use-api'
@@ -7,6 +7,7 @@ import type { MaintenanceNetworkItem } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { AsyncState } from '@/components/async-state'
+import { Dialog } from '@/components/dialog'
 
 type Usage = 'all' | 'used' | 'unused'
 type Origin = 'all' | 'stack_managed' | 'external'
@@ -36,6 +37,7 @@ export function MaintenanceNetworks() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [pendingDelete, setPendingDelete] = useState<MaintenanceNetworkItem | null>(null)
   const [deletingName, setDeletingName] = useState<string | null>(null)
+  const createNameRef = useRef<HTMLInputElement>(null)
 
   const { data, error, loading, refetch } = useApi(
     () => getMaintenanceNetworks({ usage: usage !== 'all' ? usage : undefined, origin: origin !== 'all' ? origin : undefined, q: debouncedSearch || undefined }),
@@ -99,17 +101,28 @@ export function MaintenanceNetworks() {
 
       {/* Create modal */}
       {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowCreate(false)}>
-          <div className="w-full max-w-sm rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-medium text-[var(--text)]">Create network</h3>
-            <input type="text" value={createName} onChange={(e) => setCreateName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleCreate() }} placeholder="Network name" autoFocus disabled={creating} className="mt-3 w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
-            {createError && <p className="mt-2 text-xs text-[var(--danger)]">{createError}</p>}
+        <Dialog
+          title="Create network"
+          onClose={() => setShowCreate(false)}
+          initialFocusRef={createNameRef}
+          busy={creating}
+          preventClose={creating}
+          panelClassName="max-w-sm"
+        >
+          <form
+            onSubmit={(event) => {
+              event.preventDefault()
+              void handleCreate()
+            }}
+          >
+            <input ref={createNameRef} type="text" value={createName} onChange={(e) => setCreateName(e.target.value)} placeholder="Network name" disabled={creating} className="mt-3 w-full rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-3 py-2 font-mono text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)]" />
+            {createError && <p role="alert" className="mt-2 text-xs text-[var(--danger)]">{createError}</p>}
             <div className="mt-4 flex justify-end gap-2">
-              <button onClick={() => setShowCreate(false)} className="rounded-md border border-[var(--panel-border)] px-3 py-1.5 text-xs text-[var(--muted)]">Cancel</button>
-              <button onClick={handleCreate} disabled={creating || !createName.trim()} className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1.5 text-xs text-[var(--text)] disabled:opacity-40">Create</button>
+              <button type="button" onClick={() => setShowCreate(false)} disabled={creating} className="rounded-md border border-[var(--panel-border)] px-3 py-1.5 text-xs text-[var(--muted)] disabled:opacity-40">Cancel</button>
+              <button type="submit" disabled={creating || !createName.trim()} className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1.5 text-xs text-[var(--text)] disabled:opacity-40">Create</button>
             </div>
-          </div>
-        </div>
+          </form>
+        </Dialog>
       )}
 
       {actionError && <div className="mt-3 rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">{actionError}</div>}

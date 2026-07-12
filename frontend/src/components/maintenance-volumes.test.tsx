@@ -3,7 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MaintenanceVolumes } from './maintenance-volumes'
 import type { MaintenanceVolumesResponse } from '@/lib/api-types'
-import { deleteMaintenanceVolume } from '@/lib/api-client'
+import { createMaintenanceVolume, deleteMaintenanceVolume } from '@/lib/api-client'
 
 const mockUseApi = vi.fn()
 
@@ -49,7 +49,9 @@ const volumesData: MaintenanceVolumesResponse = {
 describe('MaintenanceVolumes', () => {
   beforeEach(() => {
     mockUseApi.mockReset()
+    vi.mocked(createMaintenanceVolume).mockReset()
     vi.mocked(deleteMaintenanceVolume).mockReset()
+    vi.mocked(createMaintenanceVolume).mockResolvedValue({ created: true, name: 'new_volume' })
     vi.mocked(deleteMaintenanceVolume).mockResolvedValue({ deleted: true, name: 'external_media' })
     mockUseApi.mockReturnValue({
       data: volumesData,
@@ -92,6 +94,67 @@ describe('MaintenanceVolumes', () => {
 
     expect(screen.getByRole('button', { name: 'Remove demo_data' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Remove external_media' })).toBeEnabled()
+  })
+
+  it('opens an accessible create dialog and restores trigger focus after Escape', () => {
+    render(
+      <MemoryRouter>
+        <MaintenanceVolumes />
+      </MemoryRouter>,
+    )
+
+    const trigger = screen.getByRole('button', { name: 'Create volume' })
+    trigger.focus()
+    fireEvent.click(trigger)
+
+    expect(screen.getByRole('dialog', { name: 'Create volume' })).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Volume name')).toHaveFocus()
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    expect(screen.queryByRole('dialog', { name: 'Create volume' })).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+  })
+
+  it('keeps the create dialog open while creation is pending', async () => {
+    vi.mocked(createMaintenanceVolume).mockReturnValue(new Promise(() => {}))
+
+    render(
+      <MemoryRouter>
+        <MaintenanceVolumes />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create volume' }))
+    const input = screen.getByPlaceholderText('Volume name')
+    fireEvent.change(input, { target: { value: 'new_volume' } })
+    fireEvent.submit(input.closest('form')!)
+
+    await waitFor(() => expect(createMaintenanceVolume).toHaveBeenCalledWith({ name: 'new_volume' }))
+    const dialog = screen.getByRole('dialog', { name: 'Create volume' })
+    expect(dialog).toHaveAttribute('aria-busy', 'true')
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.getByRole('dialog', { name: 'Create volume' })).toBeInTheDocument()
+  })
+
+  it('keeps a create failure visible in the dialog', async () => {
+    vi.mocked(createMaintenanceVolume).mockRejectedValueOnce(new Error('Volume create unavailable'))
+
+    render(
+      <MemoryRouter>
+        <MaintenanceVolumes />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create volume' }))
+    const input = screen.getByPlaceholderText('Volume name')
+    fireEvent.change(input, { target: { value: 'new_volume' } })
+    fireEvent.submit(input.closest('form')!)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Volume create unavailable')
+    expect(screen.getByRole('dialog', { name: 'Create volume' })).toBeInTheDocument()
   })
 
   it('requires typed confirmation before removing an external volume', async () => {
