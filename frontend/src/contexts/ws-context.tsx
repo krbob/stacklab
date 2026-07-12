@@ -76,7 +76,7 @@ export function WsProvider({ children, authenticated = false }: { children: Reac
       if (event.code === 1008 || event.code === 4401 || event.code === 1006) {
         fetch('/api/session', { credentials: 'same-origin' })
           .then((res) => {
-            if (res.status === 401 || !res.ok) {
+            if (res.status === 401) {
               authFailedRef.current = true
               if (window.location.pathname !== '/login') {
                 window.location.href = '/login'
