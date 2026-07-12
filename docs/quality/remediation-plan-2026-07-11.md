@@ -146,7 +146,7 @@ otrzyma domyślnej licencji bez jawnego wyboru.
 | UX-13 | done | Uporządkować dokument title i nagłówki | jeden `h1` per ekran, tytuł karty zawiera ekran/stack; poprawiona meta description PWA | `fix(a11y): add page titles and heading hierarchy` |
 | PROD-01 | done | Wprowadzić wspólny `Review operation` | cel, zakres, wpływ, snapshot i recovery są prezentowane jednolicie dla delete/prune/update/apply | seria `feat(ui): review ... impact` |
 | PROD-02 | done | Dodać System Health Center | widoczny stan Backend/Docker/WS, last success, Retry i linki do diagnostyki | `feat(ui): add system health center` |
-| PROD-03 | planned | Podzielić Settings według zadań | Security, Notifications, Automation, Updates i About jako odnajdywalne sekcje/subroutes, także mobile | `refactor(ui): split settings navigation` |
+| PROD-03 | done | Podzielić Settings według zadań | Security, Notifications, Automation, Updates i About jako odnajdywalne sekcje/subroutes, także mobile | `refactor(ui): split settings navigation` |
 
 Weryfikacja końcowa UX-06 z 2026-07-12 objęła rozdzielenie niezależnych odczytów,
 zachowanie ostatnich poprawnych danych przy błędzie odświeżania, jawne Retry oraz
@@ -187,6 +187,23 @@ dostępnego Docker Engine, a ręczny reconnect WebSocket nie dubluje oczekujące
 backoffu. Nieudane odświeżenie zachowuje ostatni poprawny stan i jego timestamp.
 Pełny gate frontendu na Node 24.18.0 zakończył się wynikiem 66/66 plików i
 458/458 testów, lintem bez ostrzeżeń oraz poprawnym buildem produkcyjnym.
+
+Weryfikacja końcowa PROD-03 z 2026-07-12 objęła przekierowanie `/settings` do
+kanonicznego `/settings/security` oraz osobne trasy Security, Notifications,
+Automation, Updates i About. Responsywna nawigacja udostępnia wszystkie zadania
+przy szerokości 320 px, utrzymuje cele dotykowe 44 px i jednoznaczny
+`aria-current`; command palette, globalna nawigacja i metadane dokumentu prowadzą
+bezpośrednio do właściwych tras. Montowana jest tylko aktywna sekcja, więc wejście
+nie odpytuje API pozostałych zadań. Jeden wspólny guard chroni drafty hasła,
+powiadomień, ustawień hosta i harmonogramów także podczas przejść między
+podtrasami, a formularze mają jawne etykiety i stany `aria-pressed`. Fallback SPA
+chroni bezpośrednie odświeżenie deep linku. Pełny gate frontendu na Node 24.18.0
+zakończył się wynikiem 67/67 plików i 479/479 testów, typecheckiem, lintem bez
+ostrzeżeń, aktualnym kontraktem OpenAPI i poprawnym buildem produkcyjnym. Pełne
+testy backendu, `gofmt`, `go vet`, actionlint, ShellCheck, oba skany Gitleaks i
+npm production audit przeszły. Lokalny Playwright na prawdziwym Dockerze zakończył
+się wynikiem 25 testów zaliczonych i jednego planowo pominiętego testu helpera
+naprawy uprawnień.
 
 ## Kolejność wykonania
 
