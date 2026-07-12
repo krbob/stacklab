@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HostPage } from './host-page'
 import { formatUptime } from './host-page-utils'
 import type { HostMetricsResponse, HostOverviewResponse, StacklabLogsResponse } from '@/lib/api-types'
@@ -278,6 +278,14 @@ describe('HostPage', () => {
     mockGetStacklabLogs.mockResolvedValue(logsResponse)
   })
 
+  afterEach(() => {
+    if (vi.isFakeTimers()) {
+      vi.clearAllTimers()
+    }
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
   it('renders host overview cards and initial Stacklab logs', async () => {
     render(<HostPage />)
 
@@ -507,6 +515,120 @@ describe('HostPage', () => {
     clearIntervalSpy.mockRestore()
   })
 
+  it('does not overlap host overview polling while a request is in flight', async () => {
+    const pendingOverview = deferred<HostOverviewResponse>()
+    mockGetHostOverview
+      .mockResolvedValueOnce(overview)
+      .mockReturnValueOnce(pendingOverview.promise)
+      .mockResolvedValue({
+        ...overview,
+        host: { ...overview.host, hostname: 'homelab-refreshed' },
+      })
+    let overviewPoll: (() => void) | null = null
+    vi.spyOn(globalThis, 'setInterval').mockImplementation((handler: TimerHandler, timeout?: number) => {
+      if (timeout === 5_000 && overviewPoll === null) {
+        overviewPoll = () => {
+          if (typeof handler === 'function') {
+            handler()
+          }
+        }
+      }
+      return 1 as unknown as ReturnType<typeof setInterval>
+    })
+    vi.spyOn(globalThis, 'clearInterval').mockImplementation(() => {})
+
+    render(<HostPage />)
+
+    expect(await screen.findByText('homelab')).toBeInTheDocument()
+    expect(mockGetHostOverview).toHaveBeenCalledTimes(1)
+    expect(overviewPoll).not.toBeNull()
+
+    await act(async () => {
+      overviewPoll?.()
+      await Promise.resolve()
+    })
+    expect(mockGetHostOverview).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      overviewPoll?.()
+      await Promise.resolve()
+    })
+    expect(mockGetHostOverview).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      pendingOverview.resolve(overview)
+      await pendingOverview.promise
+    })
+
+    await act(async () => {
+      overviewPoll?.()
+      await Promise.resolve()
+    })
+    expect(mockGetHostOverview).toHaveBeenCalledTimes(3)
+  })
+
+  it('pauses host polling while hidden and refreshes on visibility and focus', async () => {
+    const hiddenSpy = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+    vi.useFakeTimers()
+
+    const view = render(<HostPage />)
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(mockGetHostOverview).toHaveBeenCalledTimes(1)
+    expect(mockGetHostMetrics).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000)
+    })
+    expect(mockGetHostOverview).toHaveBeenCalledTimes(2)
+    expect(mockGetHostMetrics.mock.calls.length).toBeGreaterThan(1)
+
+    hiddenSpy.mockReturnValue(true)
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'))
+      await Promise.resolve()
+    })
+    const hiddenOverviewCalls = mockGetHostOverview.mock.calls.length
+    const hiddenMetricsCalls = mockGetHostMetrics.mock.calls.length
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000)
+    })
+    expect(mockGetHostOverview).toHaveBeenCalledTimes(hiddenOverviewCalls)
+    expect(mockGetHostMetrics).toHaveBeenCalledTimes(hiddenMetricsCalls)
+
+    hiddenSpy.mockReturnValue(false)
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'))
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(mockGetHostOverview).toHaveBeenCalledTimes(hiddenOverviewCalls + 1)
+    expect(mockGetHostMetrics).toHaveBeenCalledTimes(hiddenMetricsCalls + 1)
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'))
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(mockGetHostOverview).toHaveBeenCalledTimes(hiddenOverviewCalls + 2)
+    expect(mockGetHostMetrics).toHaveBeenCalledTimes(hiddenMetricsCalls + 2)
+
+    view.unmount()
+    const unmountedOverviewCalls = mockGetHostOverview.mock.calls.length
+    const unmountedMetricsCalls = mockGetHostMetrics.mock.calls.length
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000)
+      window.dispatchEvent(new Event('focus'))
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    expect(mockGetHostOverview).toHaveBeenCalledTimes(unmountedOverviewCalls)
+    expect(mockGetHostMetrics).toHaveBeenCalledTimes(unmountedMetricsCalls)
+  })
+
   it('keeps followed Stacklab logs bounded to the newest entries', async () => {
     const initialLogs = Array.from({ length: 995 }, (_, index) => makeLogEntry(index))
     const appendedLogs = Array.from({ length: 10 }, (_, index) => makeLogEntry(995 + index))
@@ -553,6 +675,100 @@ describe('HostPage', () => {
 
     setIntervalSpy.mockRestore()
     clearIntervalSpy.mockRestore()
+  })
+
+  it('pauses and resumes log following from the latest cursor', async () => {
+    mockGetStacklabLogs
+      .mockResolvedValueOnce(logsResponse)
+      .mockResolvedValueOnce({
+        items: [{
+          timestamp: '2026-04-04T12:00:02Z',
+          level: 'warn',
+          message: 'First followed entry',
+          cursor: 'cursor-3',
+        }],
+        next_cursor: 'cursor-3',
+        has_more: false,
+      })
+      .mockResolvedValueOnce({
+        items: [{
+          timestamp: '2026-04-04T12:00:03Z',
+          level: 'info',
+          message: 'Following resumed',
+          cursor: 'cursor-4',
+        }],
+        next_cursor: 'cursor-4',
+        has_more: false,
+      })
+    vi.useFakeTimers()
+
+    render(<HostPage />)
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(mockGetStacklabLogs).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: 'Following' })).toHaveAttribute('aria-pressed', 'true')
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000)
+    })
+    expect(mockGetStacklabLogs).toHaveBeenLastCalledWith({
+      limit: 50,
+      cursor: 'cursor-2',
+      level: undefined,
+      includeHttpAccess: false,
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Following' }))
+    expect(screen.getByRole('button', { name: 'Paused' })).toHaveAttribute('aria-pressed', 'false')
+    const pausedCallCount = mockGetStacklabLogs.mock.calls.length
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000)
+    })
+    expect(mockGetStacklabLogs).toHaveBeenCalledTimes(pausedCallCount)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Paused' }))
+    expect(screen.getByRole('button', { name: 'Following' })).toHaveAttribute('aria-pressed', 'true')
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000)
+    })
+    expect(mockGetStacklabLogs).toHaveBeenLastCalledWith({
+      limit: 50,
+      cursor: 'cursor-3',
+      level: undefined,
+      includeHttpAccess: false,
+    })
+  })
+
+  it('filters logs locally and resets the cursor on manual refresh', async () => {
+    render(<HostPage />)
+
+    expect(await screen.findByText('Started HTTP server')).toBeInTheDocument()
+    expect(mockGetStacklabLogs).toHaveBeenCalledTimes(1)
+
+    fireEvent.change(screen.getByPlaceholderText('Filter...'), {
+      target: { value: 'failed to bind' },
+    })
+    expect(screen.queryByText('Started HTTP server')).not.toBeInTheDocument()
+    expect(screen.getByText('Failed to bind port')).toBeInTheDocument()
+    expect(mockGetStacklabLogs).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+
+    await waitFor(() => {
+      expect(mockGetStacklabLogs).toHaveBeenCalledTimes(2)
+    })
+    expect(mockGetStacklabLogs).toHaveBeenLastCalledWith({
+      limit: 200,
+      cursor: undefined,
+      level: undefined,
+      includeHttpAccess: false,
+    })
+    expect(screen.queryByText('Started HTTP server')).not.toBeInTheDocument()
+    expect(await screen.findByText('Failed to bind port')).toBeInTheDocument()
   })
 
   it('uses fixed 0-100 scale for percentage sparklines', async () => {

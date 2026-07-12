@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsPage } from "./settings-page";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -50,11 +50,14 @@ vi.mock("@/hooks/use-job-drawer", () => ({
 
 describe("SettingsPage", () => {
   beforeEach(() => {
+    vi.useRealTimers();
     mockGetMeta.mockReset();
     mockChangePassword.mockReset();
     mockGetNotificationSettings.mockReset();
     mockUpdateNotificationSettings.mockReset();
     mockSendNotificationTest.mockReset();
+    mockGetMaintenanceSchedules.mockReset();
+    mockGetStacks.mockReset();
     mockGetHostSettings.mockReset();
     mockUpdateHostSettings.mockReset();
     mockGetStacklabUpdateOverview.mockReset();
@@ -156,6 +159,14 @@ describe("SettingsPage", () => {
     });
   });
 
+  afterEach(() => {
+    if (vi.isFakeTimers()) {
+      vi.clearAllTimers();
+    }
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
   it("requires a fresh login after changing the password", async () => {
     mockChangePassword.mockResolvedValue({ updated: true, reauthentication_required: true });
     render(<SettingsPage />);
@@ -201,6 +212,34 @@ describe("SettingsPage", () => {
     expect(screen.queryByLabelText("Enable notifications")).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText("https://hooks.example.com/stacklab")).not.toBeInTheDocument();
     expect(mockUpdateNotificationSettings).not.toHaveBeenCalled();
+  });
+
+  it("retries only the settings endpoint that failed", async () => {
+    mockGetNotificationSettings.mockRejectedValueOnce(new Error("notification load failed"));
+
+    render(<SettingsPage />);
+
+    expect(await screen.findByText("notification load failed")).toBeInTheDocument();
+    expect(await screen.findByText("Maintenance schedules")).toBeInTheDocument();
+    expect(await screen.findByText("Host observability")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockGetMeta).toHaveBeenCalledTimes(1);
+      expect(mockGetNotificationSettings).toHaveBeenCalledTimes(1);
+      expect(mockGetMaintenanceSchedules).toHaveBeenCalledTimes(1);
+      expect(mockGetStacks).toHaveBeenCalledTimes(1);
+      expect(mockGetHostSettings).toHaveBeenCalledTimes(1);
+      expect(mockGetStacklabUpdateOverview).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(await screen.findByLabelText("Enable notifications")).toBeInTheDocument();
+    expect(mockGetNotificationSettings).toHaveBeenCalledTimes(2);
+    expect(mockGetMeta).toHaveBeenCalledTimes(1);
+    expect(mockGetMaintenanceSchedules).toHaveBeenCalledTimes(1);
+    expect(mockGetStacks).toHaveBeenCalledTimes(1);
+    expect(mockGetHostSettings).toHaveBeenCalledTimes(1);
+    expect(mockGetStacklabUpdateOverview).toHaveBeenCalledTimes(1);
   });
 
   it("saves notification settings", async () => {
@@ -295,6 +334,63 @@ describe("SettingsPage", () => {
             stacklab_service_error: true,
             runtime_health_degraded: true,
             runtime_log_error_burst: true,
+          }),
+        }),
+      );
+    });
+  });
+
+  it("keeps a configured Telegram token when its input stays empty", async () => {
+    mockGetNotificationSettings.mockResolvedValue({
+      enabled: true,
+      configured: true,
+      webhook_url: "",
+      channels: {
+        webhook: { enabled: false, configured: false, url: "" },
+        telegram: {
+          enabled: true,
+          configured: true,
+          bot_token_configured: true,
+          chat_id: "-1001234567890",
+        },
+      },
+      events: {
+        job_failed: true,
+        job_succeeded_with_warnings: true,
+        maintenance_succeeded: false,
+        post_update_recovery_failed: false,
+        stacklab_service_error: false,
+        runtime_health_degraded: false,
+        runtime_log_error_burst: false,
+      },
+    });
+    mockUpdateNotificationSettings.mockResolvedValue({
+      enabled: true,
+      configured: true,
+      webhook_url: "",
+      events: {
+        job_failed: true,
+        job_succeeded_with_warnings: true,
+        maintenance_succeeded: true,
+      },
+    });
+
+    render(<SettingsPage />);
+
+    expect(await screen.findByText("(configured)")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("(leave empty to keep current)")).toHaveValue("");
+    fireEvent.click(screen.getByText("Maintenance succeeded"));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(mockUpdateNotificationSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channels: expect.objectContaining({
+            telegram: {
+              enabled: true,
+              bot_token: "",
+              chat_id: "-1001234567890",
+            },
           }),
         }),
       );
@@ -456,6 +552,134 @@ describe("SettingsPage", () => {
     expect(await screen.findByText("app")).toBeInTheDocument();
   });
 
+  it("hydrates persisted service exclusions and normalizes them on save", async () => {
+    mockGetMaintenanceSchedules.mockResolvedValue({
+      timezone: "host_local",
+      update: {
+        enabled: true,
+        frequency: "weekly",
+        time: "03:30",
+        weekdays: ["sat"],
+        target: {
+          mode: "selected",
+          stack_ids: ["demo"],
+          excluded_services: {
+            demo: ["worker", "app", "worker", ""],
+            removed: ["legacy"],
+          },
+        },
+        options: {
+          pull_images: true,
+          build_images: true,
+          remove_orphans: false,
+          prune_after: false,
+          include_volumes: false,
+        },
+        status: {},
+      },
+      prune: {
+        enabled: false,
+        frequency: "weekly",
+        time: "04:30",
+        weekdays: ["sun"],
+        scope: {
+          images: true,
+          build_cache: true,
+          stopped_containers: true,
+          volumes: false,
+        },
+        status: {},
+      },
+    });
+    mockGetStack.mockResolvedValue({
+      stack: {
+        id: "demo",
+        name: "demo",
+        display_state: "running",
+        runtime_state: "running",
+        config_state: "in_sync",
+        activity_state: "idle",
+        health_summary: {
+          healthy_container_count: 2,
+          unhealthy_container_count: 0,
+          unknown_health_container_count: 0,
+        },
+        capabilities: {
+          can_edit_definition: true,
+          can_view_logs: true,
+          can_view_stats: true,
+          can_open_terminal: true,
+        },
+        available_actions: ["up"],
+        services: [
+          { name: "worker", mode: "image", healthcheck_present: true },
+          { name: "app", mode: "image", healthcheck_present: true },
+        ],
+        containers: [],
+      },
+    });
+    mockUpdateMaintenanceSchedules.mockResolvedValue({
+      timezone: "host_local",
+      update: {
+        enabled: true,
+        frequency: "weekly",
+        time: "03:30",
+        weekdays: ["sat"],
+        target: {
+          mode: "selected",
+          stack_ids: ["demo"],
+          excluded_services: { demo: ["app", "worker"] },
+        },
+        options: {
+          pull_images: true,
+          build_images: true,
+          remove_orphans: false,
+          prune_after: false,
+          include_volumes: false,
+        },
+        status: {},
+      },
+      prune: {
+        enabled: false,
+        frequency: "weekly",
+        time: "04:30",
+        weekdays: ["sun"],
+        scope: {
+          images: true,
+          build_cache: true,
+          stopped_containers: true,
+          volumes: false,
+        },
+        status: {},
+      },
+    });
+
+    render(<SettingsPage />);
+
+    await waitFor(() => {
+      expect(mockGetStack).toHaveBeenCalledTimes(1);
+      expect(mockGetStack).toHaveBeenCalledWith("demo");
+    });
+    expect(await screen.findByLabelText("app")).toBeChecked();
+    expect(screen.getByLabelText("worker")).toBeChecked();
+
+    fireEvent.click(screen.getByText("Save schedules"));
+
+    await waitFor(() => {
+      expect(mockUpdateMaintenanceSchedules).toHaveBeenCalledWith(
+        expect.objectContaining({
+          update: expect.objectContaining({
+            target: {
+              mode: "selected",
+              stack_ids: ["demo"],
+              excluded_services: { demo: ["app", "worker"] },
+            },
+          }),
+        }),
+      );
+    });
+  });
+
   it("shows validation error when selected stacks is empty", async () => {
     render(<SettingsPage />);
     await screen.findByText("Maintenance schedules");
@@ -516,6 +740,73 @@ describe("SettingsPage", () => {
       });
       expect(mockOpenJob).toHaveBeenCalledWith("job_update");
     });
+  });
+
+  it("refreshes self-update overview exactly once two seconds after a successful start", async () => {
+    mockGetStacklabUpdateOverview.mockResolvedValue({
+      current_version: "2026.04.0",
+      install_mode: "apt",
+      package: {
+        supported: true,
+        name: "stacklab",
+        installed_version: "2026.04.0",
+        candidate_version: "2026.04.1",
+        configured_channel: "stable",
+        update_available: true,
+      },
+      write_capability: { supported: true },
+    });
+    mockApplyStacklabUpdate.mockResolvedValue({
+      started: true,
+      job: {
+        id: "job_update",
+        stack_id: null,
+        action: "self_update_stacklab",
+        state: "running",
+      },
+      package: {
+        supported: true,
+        name: "stacklab",
+        installed_version: "2026.04.0",
+        candidate_version: "2026.04.1",
+        configured_channel: "stable",
+        update_available: true,
+      },
+    });
+
+    const { unmount } = render(<SettingsPage />);
+    expect(await screen.findByText("Update available: 2026.04.1")).toBeInTheDocument();
+    expect(mockGetStacklabUpdateOverview).toHaveBeenCalledTimes(1);
+
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByText("Update Stacklab"));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Update Stacklab?" })).getByRole("button", {
+        name: "Update Stacklab",
+      }),
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockApplyStacklabUpdate).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_999);
+    });
+    expect(mockGetStacklabUpdateOverview).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(mockGetStacklabUpdateOverview).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(mockGetStacklabUpdateOverview).toHaveBeenCalledTimes(2);
+
+    unmount();
   });
 
   it("allows long nightly self-update versions to wrap on mobile", async () => {
