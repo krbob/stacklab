@@ -41,8 +41,8 @@ jobs:
           short_sha="$(git rev-parse --short=7 HEAD)"
           today="$(date -u +%Y%m%d)"
           next_base="$(python3 - <<'PY'
-          from datetime import datetime
-          today = datetime.utcnow()
+          from datetime import datetime, timezone
+          today = datetime.now(timezone.utc)
           year = today.year
           month = today.month + 1
           if month == 13:
