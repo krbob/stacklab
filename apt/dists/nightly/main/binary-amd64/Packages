@@ -1,21 +1,4 @@
 Package: stacklab
-Version: 2026.08.0~nightly20260707+gcab9828
-Architecture: amd64
-Maintainer: Stacklab Maintainers <maintainers@stacklab.invalid>
-Depends: adduser, systemd, docker.io | docker-ce | moby-engine, docker-cli | docker-ce-cli | moby-cli | docker.io (<< 26.0), docker-compose | docker-compose-plugin, git
-Recommends: ca-certificates
-Filename: pool/nightly/main/s/stacklab/stacklab_2026.08.0~nightly20260707+gcab9828_amd64.deb
-Size: 9398530
-MD5sum: e757ba3f81294ce92719813623714399
-SHA1: cf6fae36571ffe8f192936ef96e310838e88f71e
-SHA256: fc11b2f8130ef3c314917dc4f7487b06f38ac9229e8aa90bbb270baadf624508
-Section: admin
-Priority: optional
-Description: Compose-first control panel for Docker Compose homelabs
- Stacklab is a host-native, filesystem-first control panel for Docker Compose
- homelabs running on a single Linux host.
-
-Package: stacklab
 Version: 2026.08.0~nightly20260707+r100.gdefd19c
 Architecture: amd64
 Maintainer: Stacklab Maintainers <maintainers@stacklab.invalid>
@@ -117,4 +100,22 @@ Homepage: https://github.com/krbob/stacklab
 Description: Compose-first control panel for Docker Compose homelabs
  Stacklab is a host-native, filesystem-first control panel for Docker Compose
  homelabs running on a single Linux host.
+
+Package: stacklab
+Version: 2026.08.0~nightly20260712+r107.gc67d29e
+Architecture: amd64
+Maintainer: Krzysztof Bobiński <krzysztof@bobinski.net>
+Depends: adduser, systemd, docker.io | docker-ce | moby-engine, docker-cli | docker-ce-cli | moby-cli | docker.io (<< 26.0), docker-compose | docker-compose-plugin, git
+Recommends: ca-certificates
+Filename: pool/nightly/main/s/stacklab/stacklab_2026.08.0~nightly20260712+r107.gc67d29e_amd64.deb
+Size: 9966426
+MD5sum: c57fbad7b6ddd0f85b13496d227283d9
+SHA1: ce46dade41e97b68cabb52b092526ee8db57f964
+SHA256: 0b65a3e7411f2801d6b33b43c6dbf3d13247e2c9a9365d0788e2cb63ceafc84e
+Section: admin
+Priority: optional
+Homepage: https://github.com/krbob/stacklab
+Description: Host-native web control panel for Docker Compose stacks
+ Stacklab is a host-native web control panel for managing Docker Compose stacks
+ on a single Linux server.
 
