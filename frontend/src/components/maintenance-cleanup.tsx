@@ -93,12 +93,20 @@ export function MaintenanceCleanup() {
     : ['No unused external volumes in preview.']
   const requestPrune = useCallback(() => {
     if (!previewReady) return
-    if (pruneVolumes) {
-      setConfirmCleanup(true)
-      return
-    }
-    handlePrune()
-  }, [handlePrune, previewReady, pruneVolumes])
+    setConfirmCleanup(true)
+  }, [previewReady])
+  const reviewScope = [
+    pruneImages && `Unused images: ${p?.images.count ?? 0} · ${formatBytes(p?.images.reclaimable_bytes ?? 0)}`,
+    pruneBuildCache && `Build cache: ${p?.build_cache.count ?? 0} · ${formatBytes(p?.build_cache.reclaimable_bytes ?? 0)}`,
+    pruneStopped && `Stopped containers: ${p?.stopped_containers.count ?? 0}`,
+    pruneVolumes && `Unused volumes: ${p?.volumes.count ?? 0} · ${formatBytes(p?.volumes.reclaimable_bytes ?? 0)}`,
+  ].filter((item): item is string => Boolean(item))
+  const reviewImpact = [
+    pruneImages && 'Removed images may need to be pulled again before a later deploy.',
+    pruneBuildCache && 'Later image builds may take longer until the cache is rebuilt.',
+    pruneStopped && 'Selected stopped containers will be removed from Docker.',
+    pruneVolumes && 'Selected unused volume data will be removed permanently.',
+  ].filter((item): item is string => Boolean(item))
 
   return (
     <div aria-busy={previewLoading || startPending || (jobId !== null && jobState === null)} className="flex flex-col gap-4 lg:flex-row" style={{ minHeight: '400px' }}>
@@ -187,9 +195,20 @@ export function MaintenanceCleanup() {
 
       {confirmCleanup && previewReady && (
         <ConfirmDialog
-          title="Run cleanup with volume removal?"
-          message="This cleanup includes Docker volumes. Listed unused external volumes will be removed permanently."
-          items={volumeConfirmItems}
+          title={pruneVolumes ? 'Run cleanup with volume removal?' : 'Review Docker cleanup'}
+          message="Review the selected scope and recovery path before starting cleanup."
+          review={{
+            target: 'Docker resources on this host',
+            scope: reviewScope,
+            impact: reviewImpact,
+            snapshot: previewUpdatedAt !== null
+              ? `Preview loaded ${new Date(previewUpdatedAt).toLocaleString()}; no automatic snapshot will be created.`
+              : 'The preview timestamp is unavailable; no automatic snapshot will be created.',
+            recovery: pruneVolumes
+              ? 'Restore removed volume data from an external backup; other resources can be recreated by pull, build, or deploy.'
+              : 'Images, build cache, and containers can be recreated by a later pull, build, or deploy.',
+          }}
+          items={pruneVolumes ? volumeConfirmItems : []}
           confirmLabel="Confirm cleanup"
           confirming={running}
           onCancel={() => setConfirmCleanup(false)}

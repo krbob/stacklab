@@ -68,6 +68,8 @@ describe('MaintenanceCleanup', () => {
     render(<MaintenanceCleanup />)
 
     fireEvent.click(screen.getByTestId('maintenance-prune'))
+    expect(mockRunMaintenancePrune).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm cleanup' }))
 
     await waitFor(() => {
       expect(mockRunMaintenancePrune).toHaveBeenCalledWith({
@@ -92,6 +94,21 @@ describe('MaintenanceCleanup', () => {
     expect(screen.getByText('Build cache')).toBeInTheDocument()
     expect(screen.getByText('Stopped containers')).toBeInTheDocument()
     expect(screen.getByText('Unused volumes')).toBeInTheDocument()
+  })
+
+  it('reviews scope, impact, snapshot, and recovery for non-volume cleanup', () => {
+    render(<MaintenanceCleanup />)
+
+    fireEvent.click(screen.getByTestId('maintenance-prune'))
+
+    expect(screen.getByRole('dialog', { name: 'Review Docker cleanup' })).toBeInTheDocument()
+    const review = screen.getByRole('region', { name: 'Review operation' })
+    expect(review).toHaveTextContent('Docker resources on this host')
+    expect(review).toHaveTextContent('Unused images: 2')
+    expect(review).toHaveTextContent('Build cache: 1')
+    expect(review).toHaveTextContent('no automatic snapshot will be created')
+    expect(review).toHaveTextContent('can be recreated by a later pull, build, or deploy')
+    expect(mockRunMaintenancePrune).not.toHaveBeenCalled()
   })
 
   it('shows volume names when volume cleanup is selected', () => {
@@ -119,6 +136,7 @@ describe('MaintenanceCleanup', () => {
 
     render(<MaintenanceCleanup />)
     fireEvent.click(screen.getByTestId('maintenance-prune'))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm cleanup' }))
 
     expect(await screen.findByText('Prune failed')).toBeInTheDocument()
   })
