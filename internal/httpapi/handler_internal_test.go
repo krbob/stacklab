@@ -1619,6 +1619,13 @@ func TestHandlerGitWorkspaceStatusAndDiff(t *testing.T) {
 	if statusResponse.Code != http.StatusOK {
 		t.Fatalf("GET /api/git/workspace/status status = %d, want %d; body=%s", statusResponse.Code, http.StatusOK, statusResponse.Body.String())
 	}
+	var statusFields map[string]json.RawMessage
+	if err := json.Unmarshal(statusResponse.Body.Bytes(), &statusFields); err != nil {
+		t.Fatalf("decode Git workspace status fields: %v", err)
+	}
+	if clean, ok := statusFields["clean"]; !ok || string(clean) != "false" {
+		t.Fatalf("Git workspace status clean field = %s, present = %v; want explicit false", clean, ok)
+	}
 	var statusPayload gitworkspace.StatusResponse
 	decodeInternalResponse(t, statusResponse, &statusPayload)
 	if !statusPayload.Available || statusPayload.Branch != "main" || statusPayload.Clean {

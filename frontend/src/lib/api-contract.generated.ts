@@ -633,7 +633,7 @@ export interface components {
       available: boolean;
       behind_count?: number;
       branch?: string;
-      clean?: boolean;
+      clean: boolean;
       has_upstream?: boolean;
       head_commit?: string;
       items?: components["schemas"]["GitStatusItem"][];

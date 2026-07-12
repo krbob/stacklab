@@ -30,7 +30,7 @@ type StatusResponse struct {
 	UpstreamName string       `json:"upstream_name,omitempty"`
 	AheadCount   int          `json:"ahead_count,omitempty"`
 	BehindCount  int          `json:"behind_count,omitempty"`
-	Clean        bool         `json:"clean,omitempty"`
+	Clean        bool         `json:"clean"`
 	Reason       string       `json:"reason,omitempty"`
 	Items        []StatusItem `json:"items,omitempty"`
 }

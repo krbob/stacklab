@@ -3043,7 +3043,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/GitStatusItem'
-      required: [available, repo_root, managed_roots]
+      required: [available, repo_root, managed_roots, clean]
     GitStatusItem:
       type: object
       properties:

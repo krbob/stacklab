@@ -183,7 +183,7 @@ export function ConfigPage() {
       setGitBranch(result.branch ?? null)
       setGitAhead(result.ahead_count ?? 0)
       setGitHasUpstream(result.has_upstream ?? false)
-      setGitClean(result.clean ?? true)
+      setGitClean(result.clean)
       setGitReason(result.reason ?? null)
       setSelectedGitPaths(new Set())
       if (selectedChangePathRef.current && !(result.items ?? []).some((item) => item.path === selectedChangePathRef.current)) {
