@@ -14,6 +14,9 @@ vi.mock('@/lib/api-client', () => ({
 function makeStack(partial: Partial<StackListItem> & Pick<StackListItem, 'id'>): StackListItem {
   return {
     name: partial.id,
+    created_at: '2026-07-09T08:00:00Z',
+    updated_at: '2026-07-09T08:00:00Z',
+    metadata: null,
     display_state: 'running',
     runtime_state: 'running',
     config_state: 'in_sync',
@@ -21,6 +24,8 @@ function makeStack(partial: Partial<StackListItem> & Pick<StackListItem, 'id'>):
     health_summary: { healthy_container_count: 1, unhealthy_container_count: 0, unknown_health_container_count: 0 },
     service_count: { defined: 1, running: 1 },
     last_action: null,
+    stats: null,
+    updates: null,
     ...partial,
   }
 }
@@ -38,9 +43,11 @@ const response: StackListResponse = {
   ],
   summary: {
     stack_count: 3,
+    defined_count: 0,
     running_count: 2,
     stopped_count: 0,
     error_count: 1,
+    orphaned_count: 0,
     container_count: { running: 3, total: 3 },
   },
 }

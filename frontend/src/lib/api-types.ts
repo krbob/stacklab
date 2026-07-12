@@ -6,15 +6,13 @@ type APISchemas = components['schemas']
 
 // --- Enums ---
 
-export type RuntimeState = 'defined' | 'running' | 'partial' | 'stopped' | 'error' | 'orphaned'
-export type ConfigState = 'unknown' | 'in_sync' | 'drifted' | 'invalid'
-export type ActivityState = 'idle' | 'locked'
-export type DisplayState = RuntimeState
-
-export type ServiceMode = 'image' | 'build' | 'hybrid'
-
-export type ContainerStatus = 'created' | 'running' | 'restarting' | 'paused' | 'exited' | 'dead'
-export type HealthStatus = 'healthy' | 'unhealthy' | 'starting' | null
+export type RuntimeState = APISchemas['RuntimeState']
+export type ConfigState = APISchemas['ConfigState']
+export type ActivityState = APISchemas['ActivityState']
+export type DisplayState = APISchemas['DisplayState']
+export type ServiceMode = APISchemas['ServiceMode']
+export type ContainerStatus = APISchemas['ContainerStatus']
+export type HealthStatus = APISchemas['Container']['health_status']
 
 export type JobState = APISchemas['JobState']
 export type JobEventType =
@@ -27,18 +25,8 @@ export type JobEventType =
   | 'job_error'
   | 'job_finished'
 
-export type StackAction =
-  | 'validate'
-  | 'up'
-  | 'down'
-  | 'stop'
-  | 'restart'
-  | 'pull'
-  | 'build'
-  | 'recreate'
-  | 'save_definition'
-  | 'create_stack'
-  | 'remove_stack_definition'
+export type AvailableStackAction = APISchemas['AvailableStackAction']
+export type StackAction = AvailableStackAction
 
 export type TerminalExitReason = 'process_exit' | 'idle_timeout' | 'server_cleanup' | 'connection_replaced' | 'client_close'
 
@@ -172,207 +160,28 @@ export interface MaintenanceSchedulesUpdateRequest {
   prune: MaintenancePruneScheduleConfig
 }
 
-export interface PortMapping {
-  published: number
-  target: number
-  protocol: string
-}
-
-export interface VolumeMount {
-  source: string
-  target: string
-}
-
-export interface HealthSummary {
-  healthy_container_count: number
-  unhealthy_container_count: number
-  unknown_health_container_count: number
-}
-
-export interface ServiceCount {
-  defined: number
-  running: number
-}
-
-export interface LastAction {
-  action: string
-  result: string
-  finished_at: string
-}
-
-export interface StackCapabilities {
-  can_edit_definition: boolean
-  can_view_logs: boolean
-  can_view_stats: boolean
-  can_open_terminal: boolean
-}
-
-export interface Service {
-  name: string
-  mode: ServiceMode
-  image_ref: string | null
-  build_context: string | null
-  dockerfile_path: string | null
-  ports: PortMapping[]
-  volumes: VolumeMount[]
-  depends_on: string[]
-  healthcheck_present: boolean
-}
-
-export interface Container {
-  id: string
-  name: string
-  service_name: string
-  status: ContainerStatus
-  health_status: HealthStatus
-  started_at: string | null
-  image_id: string
-  image_ref: string
-  ports: PortMapping[]
-  networks: string[]
-}
-
-export interface StackMetadata {
-  icon?: string
-  links?: StackMetaLink[]
-}
-
-export interface StackMetaLink {
-  label: string
-  url: string
-}
-
-export interface StackStats {
-  cpu_percent: number
-  memory_bytes: number
-  sampled_at: string
-}
-
-export interface StackTemplate {
-  id: string
-  name: string
-  description?: string
-  icon?: string
-  compose_yaml: string
-  built_in: boolean
-  variables?: StackTemplateVariable[]
-}
-
-export interface StackTemplateVariable {
-  name: string
-  label?: string
-  description?: string
-  default?: string
-  required: boolean
-}
-
-export interface StackUpdates {
-  state: 'available' | 'up_to_date' | 'unknown'
-  services_with_updates: number
-  checked_at: string
-}
-
-export interface ImageUpdateStatus {
-  image_ref: string
-  local_digest?: string
-  remote_digest?: string
-  state: 'available' | 'up_to_date' | 'unknown'
-  checked_at: string
-}
-
-export interface StackListItem {
-  id: string
-  name: string
-  display_state: DisplayState
-  runtime_state: RuntimeState
-  config_state: ConfigState
-  activity_state: ActivityState
-  health_summary: HealthSummary
-  service_count: ServiceCount
-  last_action: LastAction | null
-  metadata?: StackMetadata | null
-  stats?: StackStats | null
-  updates?: StackUpdates | null
-}
-
-export interface StackListSummary {
-  stack_count: number
-  running_count: number
-  stopped_count: number
-  error_count: number
-  container_count: {
-    running: number
-    total: number
-  }
-}
-
-export interface StackListResponse {
-  items: StackListItem[]
-  summary: StackListSummary
-}
-
-export interface StackDetailResponse {
-  stack: {
-    id: string
-    name: string
-    root_path: string
-    compose_file_path: string
-    env_file_path: string | null
-    config_path: string
-    data_path: string
-    display_state: DisplayState
-    runtime_state: RuntimeState
-    config_state: ConfigState
-    activity_state: ActivityState
-    health_summary: HealthSummary
-    capabilities: StackCapabilities
-    available_actions: StackAction[]
-    services: Service[]
-    containers: Container[]
-    last_deployed_at: string | null
-    last_action: LastAction | null
-    updates?: StackUpdates | null
-  }
-}
-
-export interface DefinitionResponse {
-  stack_id: string
-  files: {
-    compose_yaml: {
-      path: string
-      content: string
-      modified_at: string
-    }
-    env: {
-      path: string
-      content: string
-      exists: boolean
-      modified_at: string | null
-    }
-  }
-  config_state: ConfigState
-}
-
-export interface ResolvedConfigResponse {
-  stack_id: string
-  valid: boolean
-  content?: string
-  error?: {
-    code: string
-    message: string
-    details?: {
-      line?: number
-      column?: number
-    }
-  }
-  warnings?: ComposeWarning[]
-}
-
-export interface ComposeWarning {
-  code: string
-  service?: string
-  message: string
-}
+export type PortMapping = APISchemas['PortMapping']
+export type VolumeMount = APISchemas['VolumeMount']
+export type HealthSummary = APISchemas['HealthSummary']
+export type ServiceCount = APISchemas['StackListItem']['service_count']
+export type LastAction = NonNullable<APISchemas['LastAction']>
+export type StackCapabilities = APISchemas['StackCapabilities']
+export type Service = APISchemas['Service']
+export type Container = APISchemas['Container']
+export type StackMetadata = NonNullable<APISchemas['StackMetadata']>
+export type StackMetaLink = NonNullable<StackMetadata['links']>[number]
+export type StackStats = NonNullable<APISchemas['StackStats']>
+export type StackTemplate = APISchemas['StackTemplate']
+export type StackTemplateVariable = APISchemas['TemplateVariable']
+export type StackUpdates = NonNullable<APISchemas['StackUpdates']>
+export type ImageUpdateStatus = APISchemas['ImageUpdateStatus']
+export type StackListItem = APISchemas['StackListItem']
+export type StackListSummary = APISchemas['StackListSummary']
+export type StackListResponse = APISchemas['StackListResponse']
+export type StackDetailResponse = APISchemas['StackDetailResponse']
+export type DefinitionResponse = APISchemas['StackDefinitionResponse']
+export type ResolvedConfigResponse = APISchemas['ResolvedConfigResponse']
+export type ComposeWarning = APISchemas['ComposeWarning']
 
 export type JobRef = APISchemas['Job']
 export type JobDetail = APISchemas['Job']

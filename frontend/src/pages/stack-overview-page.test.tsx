@@ -13,6 +13,9 @@ let outletStack: StackDetailResponse['stack']
 const baseStack: StackDetailResponse['stack'] = {
   id: 'demo',
   name: 'demo',
+  created_at: '2026-07-09T08:00:00Z',
+  updated_at: '2026-07-09T08:00:00Z',
+  metadata: null,
   root_path: '/srv/stacklab/stacks/demo',
   compose_file_path: '/srv/stacklab/stacks/demo/compose.yaml',
   env_file_path: '/srv/stacklab/stacks/demo/.env',

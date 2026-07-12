@@ -103,9 +103,12 @@ function stackResponse(id: string, name: string): StackDetailResponse {
     stack: {
       id,
       name,
+      created_at: '2026-07-09T08:00:00Z',
+      updated_at: '2026-07-09T08:00:00Z',
+      metadata: null,
       root_path: `/srv/stacklab/stacks/${id}`,
       compose_file_path: `/srv/stacklab/stacks/${id}/compose.yaml`,
-      env_file_path: null,
+      env_file_path: `/srv/stacklab/stacks/${id}/.env`,
       config_path: `/srv/stacklab/config/${id}`,
       data_path: `/srv/stacklab/data/${id}`,
       display_state: 'running',
