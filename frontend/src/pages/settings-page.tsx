@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { getMeta, changePassword, getNotificationSettings, updateNotificationSettings, sendNotificationTest, getMaintenanceSchedules, updateMaintenanceSchedules, getHostSettings, updateHostSettings, getStacks, getStack, getStacklabUpdateOverview, applyStacklabUpdate } from '@/lib/api-client'
 import { useJobDrawer } from '@/hooks/use-job-drawer'
 import type { MetaResponse, MaintenanceSchedulesResponse, ScheduleFrequency, ScheduleWeekday, StackListItem, StacklabUpdateOverviewResponse } from '@/lib/api-types'
@@ -7,6 +7,7 @@ import { PageHeader } from '@/components/page-header'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useAuth } from '@/hooks/use-auth'
 import { StatusMessage } from '@/components/status-message'
+import { SettingsCard, SettingsLoadError } from '@/pages/settings/settings-card'
 
 const PASSWORD_MINIMUM_LENGTH = 12
 const PASSWORD_MAXIMUM_LENGTH = 256
@@ -104,30 +105,6 @@ export function SettingsPage() {
           </SettingsCard>
         )}
       </div>
-    </div>
-  )
-}
-
-function SettingsCard({ children }: { children: ReactNode }) {
-  // Wrapper padding instead of margin: bottom margins bleed across CSS
-  // multi-column breaks and misalign column tops.
-  return (
-    <div className="break-inside-avoid pb-4">
-      <section className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
-        {children}
-      </section>
-    </div>
-  )
-}
-
-function SettingsLoadError({ title, message, onRetry }: { title: string; message: string; onRetry: () => void }) {
-  return (
-    <div>
-      <h2 className="text-sm font-medium text-[var(--text)]">{title}</h2>
-      <p className="mt-2 text-xs text-[var(--danger)]">{message}</p>
-      <button type="button" onClick={onRetry} className="mt-3 rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]">
-        Retry
-      </button>
     </div>
   )
 }
