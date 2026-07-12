@@ -132,7 +132,7 @@ HTML dla awarii, a workflow wykonuje preflight Dockera i readiness backendu.
 | ID | Status | Krok | Kryterium odbioru | Planowany commit |
 | --- | --- | --- | --- | --- |
 | UX-06 | done | Ujednolicić async error/loading/empty | wspólny `AsyncState`, Retry, route Error Boundary i Suspense fallback; brak pustych `catch` dla działań operatora | seria `refactor(ui): standardize async states` |
-| UX-07 | in_progress | Zbudować dostępne prymitywy overlay | Dialog/Drawer/BottomSheet z focus trap, Escape, restore focus i ARIA; migracja wszystkich modalów | seria `refactor(ui): adopt accessible ...` |
+| UX-07 | done | Zbudować dostępne prymitywy overlay | Dialog/Drawer/BottomSheet z focus trap, Escape, restore focus i ARIA; migracja wszystkich modalów | seria `refactor(ui): adopt accessible ...` |
 | UX-08 | done | Dodać semantykę dynamicznych statusów | `aria-live`, `role=status`, `aria-busy`, progressbar, `aria-pressed`/tabs i dostępna command palette | `fix(a11y): announce dynamic interface state` |
 | UX-09 | done | Poprawić czytelność wizualną | kontrast AA, mniej tekstu 9–11 px, reduced motion, lokalne WOFF2, ograniczona tekstura noise | seria `fix(ui): improve ...` |
 | UX-10 | done | Poprawić nawigację mobile | poziomy tab bar stacka, aktywne `More`, poprawne `/`→`/stacks`, sticky i uporządkowane akcje | `fix(ui): refine mobile navigation` |
@@ -153,6 +153,15 @@ workera, izolacji uszkodzonej ramki WebSocket i krótkotrwałego wzbogacenia
 aktywności są udokumentowane w kodzie jako świadome best effort. Pełny gate
 frontendu na Node 24.18.0 zakończył się wynikiem 64/64 plików i 445/445 testów,
 lintem bez ostrzeżeń oraz poprawnym buildem produkcyjnym.
+
+Weryfikacja końcowa UX-07 z 2026-07-12 objęła pełny inventory overlayów oraz
+migrację potwierdzeń, formularzy tworzenia zasobów, szczegółów joba i mobilnej
+nawigacji do `Dialog`, `Drawer` lub `BottomSheet`. Specjalizowana Command Palette
+korzysta z tego samego zachowania modalnego. Wspólna warstwa zapewnia dynamiczny
+focus trap, Escape tylko dla najwyższego overlayu, przywracanie fokusu i
+referencyjny scroll lock; test regresji obejmuje zagnieżdżony Dialog nad
+BottomSheet. Pełny gate frontendu zakończył się wynikiem 64/64 plików i 447/447
+testów, lintem bez ostrzeżeń oraz poprawnym buildem produkcyjnym.
 
 ## Kolejność wykonania
 
