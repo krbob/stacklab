@@ -699,6 +699,9 @@ func TestDeployBaselineDrivesConfigState(t *testing.T) {
 	if invalid.Stack.ConfigState != ConfigStateInvalid {
 		t.Fatalf("ConfigState after invalid edit = %q, want %q", invalid.Stack.ConfigState, ConfigStateInvalid)
 	}
+	if invalid.Stack.Services == nil {
+		t.Fatal("Services after invalid edit = nil, want an empty JSON array")
+	}
 	if invalid.Stack.LastDeployedAt == nil || !invalid.Stack.LastDeployedAt.Equal(deployedAt) {
 		t.Fatalf("LastDeployedAt after invalid edit = %#v, want %v", invalid.Stack.LastDeployedAt, deployedAt)
 	}

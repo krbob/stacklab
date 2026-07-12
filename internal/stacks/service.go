@@ -1045,7 +1045,7 @@ func (s *ServiceReader) readStacks(ctx context.Context) ([]discoveredStack, erro
 
 		if definition, ok := definedStacks[id]; ok {
 			stack.DefinitionExists = true
-			stack.Services = definition.Services
+			stack.Services = append([]Service{}, definition.Services...)
 			stack.Metadata = definition.Metadata
 			stack.ConfigState = definition.ConfigState
 			if baseline, ok := baselines[id]; ok {
