@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useNavigate, useOutletContext } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { StackDetailResponse } from '@/lib/api-types'
 import { PageMetadataProvider } from './page-metadata'
@@ -24,6 +24,7 @@ describe('StackLayout page metadata', () => {
 
     expect(screen.getByRole('heading', { level: 1, name: 'Stack demo' })).toBeInTheDocument()
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+    expect(screen.getByRole('heading', { level: 1, name: 'Stack demo' }).closest('section')).toHaveAttribute('aria-busy', 'true')
     expect(document.title).toBe('Logs — demo | Stacklab')
   })
 
@@ -39,15 +40,40 @@ describe('StackLayout page metadata', () => {
     })
   })
 
-  it('keeps the requested route title when loading the stack fails', async () => {
-    mockGetStack.mockRejectedValue(new Error('backend unavailable'))
+  it('keeps the requested route title and recovers when the initial load is retried', async () => {
+    mockGetStack
+      .mockRejectedValueOnce(new Error('backend unavailable'))
+      .mockResolvedValueOnce(stackResponse('demo', 'Home media'))
 
     renderStackRoute('/stacks/demo/stats')
 
-    expect(await screen.findByText('Failed to load stack: backend unavailable')).toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to load stack: backend unavailable')
     expect(screen.getByRole('heading', { level: 1, name: 'Stack demo' })).toBeInTheDocument()
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
     expect(document.title).toBe('Stats — demo | Stacklab')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Home media' })).toBeInTheDocument()
+    expect(mockGetStack).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the last stack, navigation, outlet, and title when a refresh fails', async () => {
+    mockGetStack
+      .mockResolvedValueOnce(stackResponse('demo', 'Demo stack'))
+      .mockRejectedValueOnce(new Error('refresh unavailable'))
+
+    renderStackRoute('/stacks/demo')
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Demo stack' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh stack' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to load stack: refresh unavailable')
+    expect(screen.getByText('Showing the last successfully loaded data.')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Demo stack' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByText('Stack child content')).toBeInTheDocument()
+    expect(document.title).toBe('Overview — Demo stack (demo) | Stacklab')
   })
 
   it('uses a horizontally scrollable mobile tab bar with the current view marked', async () => {
@@ -79,7 +105,14 @@ describe('StackLayout page metadata', () => {
 
 function NavigationProbe() {
   const navigate = useNavigate()
-  return <button onClick={() => navigate('/stacks/beta')}>Open beta</button>
+  const { refetch } = useOutletContext<{ refetch: () => void }>()
+  return (
+    <>
+      <button onClick={() => navigate('/stacks/beta')}>Open beta</button>
+      <button onClick={refetch}>Refresh stack</button>
+      <p>Stack child content</p>
+    </>
+  )
 }
 
 function renderStackRoute(initialEntry: string) {
