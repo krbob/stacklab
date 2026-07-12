@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { StatusMessage } from '@/components/status-message'
 import { useJobDrawer } from '@/hooks/use-job-drawer'
@@ -17,14 +17,19 @@ function nonEmpty<T>(items: T[]): [T, ...T[]] | undefined {
   return first === undefined ? undefined : [first, ...rest]
 }
 
+type ServiceLoadState =
+  | { status: 'loading' }
+  | { status: 'ready'; services: string[] }
+  | { status: 'error'; message: string }
+
 export function MaintenanceSchedulesSection() {
   const { openJob } = useJobDrawer()
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [data, setData] = useState<MaintenanceSchedulesResponse | null>(null)
   const [stackOptions, setStackOptions] = useState<StackListItem[]>([])
-  const [serviceOptions, setServiceOptions] = useState<Record<string, string[]>>({})
-  const [serviceLoading, setServiceLoading] = useState<Record<string, boolean>>({})
+  const [serviceStates, setServiceStates] = useState<Record<string, ServiceLoadState>>({})
+  const serviceStatesRef = useRef<Record<string, ServiceLoadState>>({})
   const [expandedServiceStacks, setExpandedServiceStacks] = useState<Set<string>>(new Set())
   const [savingSchedules, setSavingSchedules] = useState(false)
   const [saveResult, setSaveResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -126,27 +131,29 @@ export function MaintenanceSchedulesSection() {
     return null
   }, [pruneFreq, pruneWeekdays.length, updateFreq, updateTargetMode, updateTargetStacks.length, updateWeekdays.length])
 
-  const ensureServicesLoaded = useCallback((stackId: string) => {
-    if (serviceOptions[stackId] || serviceLoading[stackId]) return
-    setServiceLoading((current) => ({ ...current, [stackId]: true }))
+  const storeServiceState = useCallback((stackId: string, state: ServiceLoadState) => {
+    const next = { ...serviceStatesRef.current, [stackId]: state }
+    serviceStatesRef.current = next
+    setServiceStates(next)
+  }, [])
+
+  const ensureServicesLoaded = useCallback((stackId: string, force = false) => {
+    if (!force && serviceStatesRef.current[stackId]) return
+    storeServiceState(stackId, { status: 'loading' })
     getStack(stackId)
       .then((detail) => {
-        setServiceOptions((current) => ({
-          ...current,
-          [detail.stack.id]: detail.stack.services.map((service) => service.name).sort(),
-        }))
-      })
-      .catch(() => {
-        setServiceOptions((current) => ({ ...current, [stackId]: [] }))
-      })
-      .finally(() => {
-        setServiceLoading((current) => {
-          const next = { ...current }
-          delete next[stackId]
-          return next
+        storeServiceState(stackId, {
+          status: 'ready',
+          services: detail.stack.services.map((service) => service.name).sort(),
         })
       })
-  }, [serviceLoading, serviceOptions])
+      .catch((error) => {
+        storeServiceState(stackId, {
+          status: 'error',
+          message: error instanceof Error ? error.message : 'Failed to load services',
+        })
+      })
+  }, [storeServiceState])
 
   useEffect(() => {
     const visible = new Set(visibleUpdateStackIds)
@@ -345,7 +352,7 @@ export function MaintenanceSchedulesSection() {
               <div className="space-y-2">
                 {visibleUpdateStackIds.map((stackId) => {
                   const expanded = expandedServiceStacks.has(stackId)
-                  const services = serviceOptions[stackId] ?? []
+                  const serviceState = serviceStates[stackId]
                   return (
                     <div key={stackId} className="space-y-1">
                       <button
@@ -359,10 +366,21 @@ export function MaintenanceSchedulesSection() {
                       </button>
                       {expanded && (
                         <div className="flex flex-wrap gap-2 pt-1">
-                          {serviceLoading[stackId] ? (
-                            <span className="text-xs text-[var(--muted)]">Loading...</span>
-                          ) : services.length > 0 ? (
-                            services.map((serviceName) => (
+                          {!serviceState || serviceState.status === 'loading' ? (
+                            <span className="text-xs text-[var(--muted)]" role="status">Loading services…</span>
+                          ) : serviceState.status === 'error' ? (
+                            <div className="flex w-full flex-wrap items-center justify-between gap-2 rounded border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-2 py-1.5 text-xs" role="alert">
+                              <span className="text-[var(--danger)]">Failed to load services: {serviceState.message}</span>
+                              <button
+                                type="button"
+                                onClick={() => ensureServicesLoaded(stackId, true)}
+                                className="rounded border border-[var(--danger)]/30 px-2 py-1 text-[var(--danger)] hover:bg-[var(--danger)]/10"
+                              >
+                                Retry services for {stackId}
+                              </button>
+                            </div>
+                          ) : serviceState.services.length > 0 ? (
+                            serviceState.services.map((serviceName) => (
                               <label key={serviceName} className="flex items-center gap-1.5 rounded border border-[var(--panel-border)] px-2 py-1 text-xs text-[var(--text)]">
                                 <input
                                   type="checkbox"

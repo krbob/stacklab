@@ -571,6 +571,42 @@ describe("SettingsPage", () => {
       expect(mockGetStack).toHaveBeenCalledWith("demo");
     });
     expect(await screen.findByText("app")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("Hide services for demo"));
+    fireEvent.click(screen.getByLabelText("Show services for demo"));
+
+    expect(screen.getByText("app")).toBeInTheDocument();
+    expect(mockGetStack).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a failed stack service load without showing a false empty state", async () => {
+    mockGetStack.mockRejectedValueOnce(new Error("stack detail unavailable"));
+
+    render(<SettingsPage />);
+    await screen.findByText("Maintenance schedules");
+    fireEvent.click(screen.getByLabelText("Show services for demo"));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Failed to load services: stack detail unavailable");
+    expect(screen.queryByText("No services.")).not.toBeInTheDocument();
+
+    fireEvent.click(within(alert).getByRole("button", { name: "Retry services for demo" }));
+
+    expect(await screen.findByLabelText("app")).toBeInTheDocument();
+    expect(mockGetStack).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows No services only after a successful empty stack detail response", async () => {
+    mockGetStack.mockResolvedValueOnce({
+      stack: { id: "demo", services: [] },
+    });
+
+    render(<SettingsPage />);
+    await screen.findByText("Maintenance schedules");
+    fireEvent.click(screen.getByLabelText("Show services for demo"));
+
+    expect(await screen.findByText("No services.")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("hydrates persisted service exclusions and normalizes them on save", async () => {
@@ -699,6 +735,75 @@ describe("SettingsPage", () => {
         }),
       );
     });
+  });
+
+  it("does not loop failed persisted service loads or drop their exclusions on save", async () => {
+    const schedulesWithExclusion = {
+      timezone: "host_local",
+      update: {
+        enabled: true,
+        frequency: "weekly",
+        time: "03:30",
+        weekdays: ["sat"],
+        target: {
+          mode: "selected",
+          stack_ids: ["demo"],
+          excluded_services: { demo: ["app"] },
+        },
+        options: {
+          pull_images: true,
+          build_images: true,
+          remove_orphans: false,
+          prune_after: false,
+          include_volumes: false,
+        },
+        status: {},
+      },
+      prune: {
+        enabled: false,
+        frequency: "weekly",
+        time: "04:30",
+        weekdays: ["sun"],
+        scope: {
+          images: true,
+          build_cache: true,
+          stopped_containers: true,
+          volumes: false,
+        },
+        status: {},
+      },
+    };
+    mockGetMaintenanceSchedules.mockResolvedValue(schedulesWithExclusion);
+    mockGetStack.mockRejectedValue(new Error("service lookup failed"));
+    mockUpdateMaintenanceSchedules.mockResolvedValue(schedulesWithExclusion);
+
+    render(<SettingsPage />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("service lookup failed");
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockGetStack).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("No services.")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Save schedules"));
+
+    await waitFor(() => {
+      expect(mockUpdateMaintenanceSchedules).toHaveBeenCalledWith(
+        expect.objectContaining({
+          update: expect.objectContaining({
+            target: {
+              mode: "selected",
+              stack_ids: ["demo"],
+              excluded_services: { demo: ["app"] },
+            },
+          }),
+        }),
+      );
+    });
+    expect(mockGetStack).toHaveBeenCalledTimes(1);
   });
 
   it("shows validation error when selected stacks is empty", async () => {
