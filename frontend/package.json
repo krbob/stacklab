@@ -9,6 +9,8 @@
   "scripts": {
     "dev": "vite",
     "dev:host": "vite --host 127.0.0.1 --port 5173",
+    "generate": "npm run generate:api",
+    "generate:api": "openapi-typescript ../docs/api/openapi.yaml --output src/lib/api-contract.generated.ts --alphabetize",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
     "lint": "eslint . --max-warnings=0",
@@ -52,6 +54,7 @@
     "eslint-plugin-react-refresh": "^0.5.3",
     "globals": "^17.7.0",
     "jsdom": "^29.1.1",
+    "openapi-typescript": "6.7.6",
     "tailwindcss": "^4.3.2",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.62.1",
