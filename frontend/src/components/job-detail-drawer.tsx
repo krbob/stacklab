@@ -1,9 +1,10 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { CircleStop, X } from 'lucide-react'
 import { cancelJob, getJob, getJobEvents } from '@/lib/api-client'
 import { useApi } from '@/hooks/use-api'
 import { useJobDrawer } from '@/hooks/use-job-drawer'
 import { AsyncState } from '@/components/async-state'
+import { Drawer } from '@/components/drawer'
 import { StepCards } from '@/components/step-cards'
 import type { JobHistoryEvent } from '@/lib/api-types'
 import type { JobEvent } from '@/lib/ws-types'
@@ -46,6 +47,7 @@ export function JobDetailDrawer() {
 function JobDetailDrawerContent({ jobId }: { jobId: string }) {
   const { closeJob } = useJobDrawer()
   const titleId = useId()
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
   const [canceling, setCanceling] = useState(false)
   const [cancelError, setCancelError] = useState<string | null>(null)
 
@@ -58,16 +60,6 @@ function JobDetailDrawerContent({ jobId }: { jobId: string }) {
     () => getJobEvents(jobId),
     [jobId],
   )
-
-  // Close on Escape
-  useEffect(() => {
-    if (!jobId) return
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') closeJob()
-    }
-    document.addEventListener('keydown', handleKey)
-    return () => document.removeEventListener('keydown', handleKey)
-  }, [jobId, closeJob])
 
   const job = jobData?.job ?? null
   const events = eventsData?.items ?? []
@@ -103,22 +95,19 @@ function JobDetailDrawerContent({ jobId }: { jobId: string }) {
   }
 
   return (
-    <>
-      {/* Backdrop */}
-      <div className="fixed inset-0 z-40 bg-black/40" onClick={closeJob} aria-hidden="true" />
-
-      {/* Drawer — safe-area insets keep the close button clear of the iOS
-          status bar and home indicator. */}
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        className="fixed inset-y-0 right-0 z-50 flex w-full max-w-lg flex-col border-l border-[var(--panel-border)] bg-[var(--panel)] shadow-lg"
-        style={{
-          paddingTop: 'env(safe-area-inset-top)',
-          paddingBottom: 'env(safe-area-inset-bottom)',
-        }}
-      >
+    /* Safe-area insets keep the close button clear of the iOS status bar and
+       the content clear of the home indicator. */
+    <Drawer
+      onClose={closeJob}
+      labelledBy={titleId}
+      initialFocusRef={closeButtonRef}
+      preventClose={canceling}
+      busy={canceling}
+      style={{
+        paddingTop: 'env(safe-area-inset-top)',
+        paddingBottom: 'env(safe-area-inset-bottom)',
+      }}
+    >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[var(--panel-border)] px-5 py-4">
           <div>
@@ -151,9 +140,11 @@ function JobDetailDrawerContent({ jobId }: { jobId: string }) {
               </button>
             )}
             <button
+              ref={closeButtonRef}
               onClick={closeJob}
+              disabled={canceling}
               aria-label="Close job detail"
-              className="flex size-9 items-center justify-center rounded-md text-[var(--muted)] transition hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)]"
+              className="flex size-9 items-center justify-center rounded-md text-[var(--muted)] transition hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               <X className="size-5" />
             </button>
@@ -265,7 +256,6 @@ function JobDetailDrawerContent({ jobId }: { jobId: string }) {
             </AsyncState>
           </div>
         </div>
-      </div>
-    </>
+    </Drawer>
   )
 }

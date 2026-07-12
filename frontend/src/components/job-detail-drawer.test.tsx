@@ -49,6 +49,40 @@ describe('JobDetailDrawer', () => {
     mockCancelJob.mockReset()
   })
 
+  it('focuses the safe close action, closes on Escape, restores focus, and unlocks scrolling', () => {
+    mockGetJob.mockResolvedValue({
+      job: {
+        id: 'job_accessible',
+        stack_id: 'demo',
+        action: 'pull',
+        state: 'succeeded',
+        requested_at: '2026-04-09T08:00:00Z',
+      },
+    })
+    mockGetJobEvents.mockResolvedValue({
+      job_id: 'job_accessible',
+      retained: true,
+      items: [],
+    })
+    document.body.style.overflow = 'auto'
+
+    renderDrawer('job_accessible')
+    const opener = screen.getByRole('button', { name: 'Open' })
+    opener.focus()
+    fireEvent.click(opener)
+
+    expect(screen.getByRole('dialog', { name: 'Job detail' })).toHaveAttribute('aria-modal', 'true')
+    expect(screen.getByRole('button', { name: 'Close job detail' })).toHaveFocus()
+    expect(document.body).toHaveStyle({ overflow: 'hidden' })
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    expect(screen.queryByRole('dialog', { name: 'Job detail' })).not.toBeInTheDocument()
+    expect(opener).toHaveFocus()
+    expect(document.body).toHaveStyle({ overflow: 'auto' })
+    document.body.style.overflow = ''
+  })
+
   it('renders retained job detail with events', async () => {
     mockGetJob.mockResolvedValue({
       job: {
@@ -188,6 +222,54 @@ describe('JobDetailDrawer', () => {
 
     await waitFor(() => expect(mockCancelJob).toHaveBeenCalledWith('job_3'))
     await waitFor(() => expect(mockGetJob).toHaveBeenCalledTimes(2))
+  })
+
+  it('prevents every drawer dismissal while cancellation is in flight', async () => {
+    const cancellation = deferred<{ job: { id: string; state: string } }>()
+    mockGetJob.mockResolvedValue({
+      job: {
+        id: 'job_cancel_pending',
+        stack_id: 'demo',
+        action: 'pull',
+        state: 'running',
+        requested_at: '2026-04-09T08:00:00Z',
+        started_at: '2026-04-09T08:00:01Z',
+        finished_at: null,
+        workflow: null,
+      },
+    })
+    mockGetJobEvents.mockResolvedValue({
+      job_id: 'job_cancel_pending',
+      retained: true,
+      items: [],
+    })
+    mockCancelJob.mockReturnValue(cancellation.promise)
+
+    renderDrawer('job_cancel_pending')
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel job' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Job detail' })
+    const close = screen.getByRole('button', { name: 'Close job detail' })
+    const backdrop = dialog.previousElementSibling as HTMLElement
+    await waitFor(() => expect(dialog).toHaveAttribute('aria-busy', 'true'))
+    expect(close).toBeDisabled()
+
+    fireEvent.click(close)
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.click(backdrop)
+
+    expect(screen.getByRole('dialog', { name: 'Job detail' })).toBeInTheDocument()
+
+    await act(async () => {
+      cancellation.resolve({ job: { id: 'job_cancel_pending', state: 'cancel_requested' } })
+      await cancellation.promise
+    })
+
+    await waitFor(() => expect(dialog).toHaveAttribute('aria-busy', 'false'))
+    expect(close).toBeEnabled()
+    fireEvent.click(close)
+    expect(screen.queryByRole('dialog', { name: 'Job detail' })).not.toBeInTheDocument()
   })
 
   it('retries job details without reloading successful events', async () => {
