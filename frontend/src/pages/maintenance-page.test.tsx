@@ -133,6 +133,10 @@ const maintenanceAuditData = {
   next_cursor: null,
 }
 
+function confirmStackUpdate() {
+  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Start update' }))
+}
+
 describe('MaintenancePage', () => {
   beforeEach(() => {
     mockUseApi.mockReset()
@@ -310,6 +314,7 @@ describe('MaintenancePage', () => {
     fireEvent.click(screen.getByLabelText('Selected stacks'))
     fireEvent.click(screen.getByLabelText(/demo/))
     fireEvent.click(screen.getByTestId('maintenance-start'))
+    confirmStackUpdate()
 
     await waitFor(() => {
       expect(mockUpdateStacksMaintenance).toHaveBeenCalledWith({
@@ -457,6 +462,7 @@ describe('MaintenancePage', () => {
     fireEvent.click(screen.getByText('Include volumes in prune'))
     fireEvent.click(screen.getByText('Run prune after update'))
     fireEvent.click(screen.getByTestId('maintenance-start'))
+    confirmStackUpdate()
 
     await waitFor(() => {
       expect(mockUpdateStacksMaintenance).toHaveBeenCalledWith(expect.objectContaining({
@@ -479,12 +485,27 @@ describe('MaintenancePage', () => {
 
     // "All stacks" is default
     fireEvent.click(screen.getByTestId('maintenance-start'))
+    confirmStackUpdate()
 
     await waitFor(() => {
       expect(mockUpdateStacksMaintenance).toHaveBeenCalledWith(expect.objectContaining({
         target: { mode: 'all', stack_ids: undefined },
       }))
     })
+  })
+
+  it('reviews the all-stack target, restart impact, snapshot, and recovery', () => {
+    render(<MaintenancePage />)
+
+    fireEvent.click(screen.getByTestId('maintenance-start'))
+
+    expect(screen.getByRole('dialog', { name: 'Review stack update' })).toBeInTheDocument()
+    const review = screen.getByRole('region', { name: 'Review operation' })
+    expect(review).toHaveTextContent('All 2 stacks')
+    expect(review).toHaveTextContent('Selected stacks will be deployed again and services may restart.')
+    expect(review).toHaveTextContent('no automatic runtime snapshot is created')
+    expect(review).toHaveTextContent('image rollback is not automatic')
+    expect(mockUpdateStacksMaintenance).not.toHaveBeenCalled()
   })
 
   it('requires confirmation before update prunes Docker volumes', async () => {
@@ -500,7 +521,9 @@ describe('MaintenancePage', () => {
 
     expect(mockUpdateStacksMaintenance).not.toHaveBeenCalled()
     const dialog = screen.getByRole('dialog', { name: 'Start update and prune volumes?' })
-    expect(within(dialog).getByText('after update: prune unused volumes')).toBeInTheDocument()
+    expect(within(dialog).getByRole('region', { name: 'Review operation' })).toHaveTextContent(
+      'Prune unused Docker resources after update, including volumes.',
+    )
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Start update' }))
 
@@ -522,6 +545,7 @@ describe('MaintenancePage', () => {
     render(<MaintenancePage />)
 
     fireEvent.click(screen.getByTestId('maintenance-start'))
+    confirmStackUpdate()
 
     expect(await screen.findByText('Docker unavailable')).toBeInTheDocument()
   })
@@ -533,6 +557,7 @@ describe('MaintenancePage', () => {
 
     render(<MaintenancePage />)
     fireEvent.click(screen.getByTestId('maintenance-start'))
+    confirmStackUpdate()
 
     await waitFor(() => {
       expect(mockUpdateStacksMaintenance).toHaveBeenCalled()
@@ -551,6 +576,7 @@ describe('MaintenancePage', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: 'Cleanup' }))
     fireEvent.click(screen.getByTestId('maintenance-prune'))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm cleanup' }))
 
     await waitFor(() => {
       expect(mockRunMaintenancePrune).toHaveBeenCalledWith({

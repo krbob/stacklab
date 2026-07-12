@@ -143,12 +143,21 @@ export function MaintenancePage() {
   }, [targetMode, selectedIds, pullImages, buildImages, removeOrphans, pruneAfter, pruneVolumes])
 
   const requestStart = useCallback(() => {
-    if (pruneAfter && pruneVolumes) {
-      setConfirmDangerousUpdate(true)
-      return
-    }
-    void handleStart()
-  }, [handleStart, pruneAfter, pruneVolumes])
+    setConfirmDangerousUpdate(true)
+  }, [])
+
+  const updateScope = [
+    pullImages && 'Pull configured service images.',
+    buildImages && 'Build services with local build definitions.',
+    removeOrphans && 'Remove orphan containers after deployment.',
+    pruneAfter && `Prune unused Docker resources after update${pruneVolumes ? ', including volumes' : ''}.`,
+  ].filter((item): item is string => Boolean(item))
+  const updateImpact = [
+    'Selected stacks will be deployed again and services may restart.',
+    buildImages && 'Image builds will consume host CPU, storage, and network resources.',
+    removeOrphans && 'Containers no longer present in Compose definitions will be removed.',
+    pruneAfter && pruneVolumes && 'Unused Docker volume data selected by prune will be deleted permanently.',
+  ].filter((item): item is string => Boolean(item))
 
   useEffect(() => {
     if (jobId && isTerminal) refetchAudit()
@@ -320,13 +329,21 @@ export function MaintenancePage() {
 
       {confirmDangerousUpdate && (
         <ConfirmDialog
-          title="Start update and prune volumes?"
-          message="This will update the selected stack scope and then remove unused Docker volumes. Volume removal is irreversible."
-          items={[
-            targetMode === 'all' ? 'target: all stacks' : `target: ${selectedIds.size} selected stack(s)`,
-            'after update: prune unused volumes',
-            removeOrphans ? 'remove orphans: enabled' : 'remove orphans: disabled',
-          ]}
+          title={pruneAfter && pruneVolumes ? 'Start update and prune volumes?' : 'Review stack update'}
+          message="Review the target, update options, and recovery path before starting."
+          review={{
+            target: targetMode === 'all'
+              ? `All ${stacks.length} stacks`
+              : Array.from(selectedIds).sort().join(', '),
+            scope: updateScope.length > 0 ? updateScope : ['Redeploy without pull, build, orphan removal, or prune.'],
+            impact: updateImpact,
+            snapshot: pruneAfter && pruneVolumes
+              ? 'Stack definitions remain unchanged, but no automatic volume snapshot is created.'
+              : 'Stack definitions remain unchanged; no automatic runtime snapshot is created.',
+            recovery: pruneAfter && pruneVolumes
+              ? 'Restore deleted volume data from an external backup, then redeploy the affected stacks.'
+              : 'Redeploy prior image references and configuration; image rollback is not automatic.',
+          }}
           confirmLabel="Start update"
           confirmingLabel="Starting..."
           confirming={startPending}
