@@ -1181,7 +1181,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/JobEnvelopeResponse'
+                $ref: '#/components/schemas/UpdateDefinitionResponse'
         '401':
           $ref: '#/components/responses/ErrorUnauthorized'
         '404':
@@ -3165,13 +3165,11 @@ components:
               required: [defined, running]
             last_action:
               $ref: '#/components/schemas/LastAction'
-            metadata:
-              $ref: '#/components/schemas/StackMetadata'
             stats:
               $ref: '#/components/schemas/StackStats'
             updates:
               $ref: '#/components/schemas/StackUpdates'
-          required: [service_count]
+          required: [service_count, last_action, stats, updates]
     StackListSummary:
       type: object
       properties:
@@ -3348,15 +3346,21 @@ components:
               format: date-time
             last_action:
               $ref: '#/components/schemas/LastAction'
+            updates:
+              $ref: '#/components/schemas/StackUpdates'
           required:
             - root_path
             - compose_file_path
+            - env_file_path
             - config_path
             - data_path
             - capabilities
             - available_actions
             - services
             - containers
+            - last_deployed_at
+            - last_action
+            - updates
     StackHeader:
       type: object
       properties:
@@ -3380,6 +3384,8 @@ components:
           $ref: '#/components/schemas/ActivityState'
         health_summary:
           $ref: '#/components/schemas/HealthSummary'
+        metadata:
+          $ref: '#/components/schemas/StackMetadata'
       required:
         - id
         - name
@@ -3390,6 +3396,7 @@ components:
         - config_state
         - activity_state
         - health_summary
+        - metadata
     HealthSummary:
       type: object
       properties:
@@ -3449,6 +3456,9 @@ components:
       required:
         - name
         - mode
+        - image_ref
+        - build_context
+        - dockerfile_path
         - ports
         - volumes
         - depends_on
@@ -3486,6 +3496,8 @@ components:
         - name
         - service_name
         - status
+        - health_status
+        - started_at
         - image_id
         - image_ref
         - ports
@@ -3534,7 +3546,10 @@ components:
                   type: string
                 content:
                   type: string
-              required: [path, content]
+                modified_at:
+                  type: string
+                  format: date-time
+              required: [path, content, modified_at]
             env:
               type: object
               properties:
@@ -3544,11 +3559,32 @@ components:
                   type: string
                 exists:
                   type: boolean
-              required: [path, content, exists]
+                modified_at:
+                  type: [string, 'null']
+                  format: date-time
+              required: [path, content, exists, modified_at]
           required: [compose_yaml, env]
         config_state:
           $ref: '#/components/schemas/ConfigState'
       required: [stack_id, files, config_state]
+    UpdateDefinitionResponse:
+      type: object
+      properties:
+        job:
+          $ref: '#/components/schemas/Job'
+        definition:
+          $ref: '#/components/schemas/StackDefinitionResponse'
+      required: [job, definition]
+    ComposeWarning:
+      type: object
+      properties:
+        code:
+          type: string
+        service:
+          type: string
+        message:
+          type: string
+      required: [code, message]
     ResolvedConfigPreviewRequest:
       type: object
       properties:
@@ -3568,6 +3604,10 @@ components:
               const: true
             content:
               type: string
+            warnings:
+              type: array
+              items:
+                $ref: '#/components/schemas/ComposeWarning'
           required: [stack_id, valid, content]
         - type: object
           properties:
@@ -3578,6 +3618,10 @@ components:
               const: false
             error:
               $ref: '#/components/schemas/ErrorDetail'
+            warnings:
+              type: array
+              items:
+                $ref: '#/components/schemas/ComposeWarning'
           required: [stack_id, valid, error]
     AuditListResponse:
       type: object
@@ -3676,7 +3720,19 @@ components:
           type: string
         validate_after_save:
           type: boolean
+        expected_revision:
+          $ref: '#/components/schemas/DefinitionRevision'
       required: [compose_yaml, env, validate_after_save]
+    DefinitionRevision:
+      type: object
+      properties:
+        compose_modified_at:
+          type: string
+          format: date-time
+        env_modified_at:
+          type: [string, 'null']
+          format: date-time
+      required: [compose_modified_at, env_modified_at]
     DeleteStackRequest:
       type: object
       properties:

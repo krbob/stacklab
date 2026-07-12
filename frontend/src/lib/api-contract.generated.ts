@@ -323,6 +323,11 @@ export interface components {
       items: components["schemas"]["AuditEntry"][];
       next_cursor?: string | null;
     };
+    ComposeWarning: {
+      code: string;
+      message: string;
+      service?: string;
+    };
     /** @enum {string} */
     ConfigEntryType: "directory" | "text_file" | "binary_file" | "unknown_file";
     ConfigFileResponse: {
@@ -392,7 +397,7 @@ export interface components {
       workspace_root: string;
     };
     Container: {
-      health_status?: string | null;
+      health_status: string | null;
       id: string;
       image_id: string;
       image_ref: string;
@@ -401,7 +406,7 @@ export interface components {
       ports: components["schemas"]["PortMapping"][];
       service_name: string;
       /** Format: date-time */
-      started_at?: string | null;
+      started_at: string | null;
       status: components["schemas"]["ContainerStatus"];
     };
     /** @enum {string} */
@@ -417,6 +422,12 @@ export interface components {
       variables?: {
         [key: string]: string;
       };
+    };
+    DefinitionRevision: {
+      /** Format: date-time */
+      compose_modified_at: string;
+      /** Format: date-time */
+      env_modified_at: string | null;
     };
     DeleteStackRequest: {
       remove_config: boolean;
@@ -1174,20 +1185,22 @@ export interface components {
       stack_id: string;
       /** @constant */
       valid: true;
+      warnings?: components["schemas"]["ComposeWarning"][];
     }, {
       error: components["schemas"]["ErrorDetail"];
       stack_id: string;
       /** @constant */
       valid: false;
+      warnings?: components["schemas"]["ComposeWarning"][];
     }]>;
     /** @enum {string} */
     RuntimeState: "defined" | "running" | "partial" | "stopped" | "error" | "orphaned";
     Service: {
-      build_context?: string | null;
+      build_context: string | null;
       depends_on: string[];
-      dockerfile_path?: string | null;
+      dockerfile_path: string | null;
       healthcheck_present: boolean;
-      image_ref?: string | null;
+      image_ref: string | null;
       mode: components["schemas"]["ServiceMode"];
       name: string;
       ports: components["schemas"]["PortMapping"][];
@@ -1266,11 +1279,15 @@ export interface components {
       files: {
         compose_yaml: {
           content: string;
+          /** Format: date-time */
+          modified_at: string;
           path: string;
         };
         env: {
           content: string;
           exists: boolean;
+          /** Format: date-time */
+          modified_at: string | null;
           path: string;
         };
       };
@@ -1283,12 +1300,13 @@ export interface components {
       config_path: string;
       containers: components["schemas"]["Container"][];
       data_path: string;
-      env_file_path?: string;
-      last_action?: components["schemas"]["LastAction"];
+      env_file_path: string;
+      last_action: components["schemas"]["LastAction"];
       /** Format: date-time */
-      last_deployed_at?: string | null;
+      last_deployed_at: string | null;
       root_path: string;
       services: components["schemas"]["Service"][];
+      updates: components["schemas"]["StackUpdates"];
     });
     StackDetailResponse: {
       stack: components["schemas"]["StackDetail"];
@@ -1301,6 +1319,7 @@ export interface components {
       display_state: components["schemas"]["DisplayState"];
       health_summary: components["schemas"]["HealthSummary"];
       id: string;
+      metadata: components["schemas"]["StackMetadata"];
       name: string;
       runtime_state: components["schemas"]["RuntimeState"];
       /** Format: date-time */
@@ -1368,14 +1387,13 @@ export interface components {
       supported: boolean;
     };
     StackListItem: components["schemas"]["StackHeader"] & {
-      last_action?: components["schemas"]["LastAction"];
-      metadata?: components["schemas"]["StackMetadata"];
+      last_action: components["schemas"]["LastAction"];
       service_count: {
         defined: number;
         running: number;
       };
-      stats?: components["schemas"]["StackStats"];
-      updates?: components["schemas"]["StackUpdates"];
+      stats: components["schemas"]["StackStats"];
+      updates: components["schemas"]["StackUpdates"];
     };
     StackListResponse: {
       items: components["schemas"]["StackListItem"][];
@@ -1499,7 +1517,12 @@ export interface components {
     UpdateDefinitionRequest: {
       compose_yaml: string;
       env: string;
+      expected_revision?: components["schemas"]["DefinitionRevision"];
       validate_after_save: boolean;
+    };
+    UpdateDefinitionResponse: {
+      definition: components["schemas"]["StackDefinitionResponse"];
+      job: components["schemas"]["Job"];
     };
     UpdatePasswordRequest: {
       current_password: string;
@@ -2829,7 +2852,7 @@ export interface operations {
       /** @description Definition save job accepted. */
       200: {
         content: {
-          "application/json": components["schemas"]["JobEnvelopeResponse"];
+          "application/json": components["schemas"]["UpdateDefinitionResponse"];
         };
       };
       401: components["responses"]["ErrorUnauthorized"];
