@@ -56,6 +56,7 @@ import type {
   ResolvedConfigResponse,
   SessionResponse,
   StackDetailResponse,
+  StackAction,
   StackWorkspaceFileResponse,
   StackWorkspaceFileSaveResponse,
   StackRepairPermissionsRequest,
@@ -478,7 +479,7 @@ export function resolveConfigDraft(stackId: string, payload: {
   })
 }
 
-export function invokeAction(stackId: string, action: string): Promise<{ job: JobRef }> {
+export function invokeAction(stackId: string, action: StackAction): Promise<{ job: JobRef }> {
   return request(`/api/stacks/${encodeURIComponent(stackId)}/actions/${encodeURIComponent(action)}`, {
     method: 'POST',
     body: JSON.stringify({}),

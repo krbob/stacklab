@@ -108,8 +108,10 @@ export interface TerminalOutputPayload {
   data: string
 }
 
+export type TerminalExitReason = 'process_exit' | 'idle_timeout' | 'client_close' | 'server_cleanup' | 'connection_replaced'
+
 export interface TerminalExitedPayload {
   session_id: string
   exit_code: number
-  reason: string
+  reason: TerminalExitReason
 }

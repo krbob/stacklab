@@ -1,6 +1,7 @@
-import type { components } from './api-contract.generated'
+import type { components, operations } from './api-contract.generated'
 
 type APISchemas = components['schemas']
+type MaintenanceImagesQuery = NonNullable<operations['getMaintenanceImages']['parameters']['query']>
 
 // Stable application-facing aliases for the generated OpenAPI contract.
 
@@ -15,20 +16,9 @@ export type ContainerStatus = APISchemas['ContainerStatus']
 export type HealthStatus = APISchemas['Container']['health_status']
 
 export type JobState = APISchemas['JobState']
-export type JobEventType =
-  | 'job_started'
-  | 'job_step_started'
-  | 'job_step_finished'
-  | 'job_progress'
-  | 'job_log'
-  | 'job_warning'
-  | 'job_error'
-  | 'job_finished'
 
 export type AvailableStackAction = APISchemas['AvailableStackAction']
-export type StackAction = AvailableStackAction
-
-export type TerminalExitReason = 'process_exit' | 'idle_timeout' | 'server_cleanup' | 'connection_replaced' | 'client_close'
+export type StackAction = components['parameters']['StackAction']
 
 // --- REST response shapes ---
 
@@ -172,8 +162,8 @@ export type GitPushResponse = APISchemas['GitPushResponse']
 
 export type MaintenanceUpdateStacksRequest = APISchemas['MaintenanceUpdateStacksRequest']
 
-export type MaintenanceImageUsage = 'all' | 'used' | 'unused'
-export type MaintenanceImageOrigin = 'all' | 'stack_managed' | 'external'
+export type MaintenanceImageUsage = NonNullable<MaintenanceImagesQuery['usage']>
+export type MaintenanceImageOrigin = NonNullable<MaintenanceImagesQuery['origin']>
 export type MaintenanceImageSource = APISchemas['MaintenanceImageItem']['source']
 export type MaintenanceImageStackUsage = APISchemas['MaintenanceImageStackUsage']
 export type MaintenanceImageItem = APISchemas['MaintenanceImageItem']
@@ -194,11 +184,3 @@ export type MaintenancePrunePreviewItem = APISchemas['MaintenancePrunePreviewIte
 export type MaintenancePrunePreviewCategory = APISchemas['MaintenancePrunePreviewCategory']
 export type MaintenancePrunePreviewResponse = APISchemas['MaintenancePrunePreviewResponse']
 export type MaintenancePruneRequest = APISchemas['MaintenancePruneRequest']
-
-export interface ApiError {
-  error: {
-    code: string
-    message: string
-    details?: Record<string, unknown>
-  }
-}

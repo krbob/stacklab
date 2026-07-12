@@ -3,7 +3,7 @@ import { Link, useOutletContext } from 'react-router-dom'
 import { FileText, Terminal } from 'lucide-react'
 import { invokeAction, updateStacksMaintenance } from '@/lib/api-client'
 import { useJobStream } from '@/hooks/use-job-stream'
-import type { StackDetailResponse } from '@/lib/api-types'
+import type { StackAction, StackDetailResponse } from '@/lib/api-types'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { DeleteStackDialog } from '@/components/delete-stack-dialog'
 import { ProgressPanel } from '@/components/progress-panel'
@@ -24,7 +24,7 @@ const healthIcon: Record<string, string> = {
   starting: '~',
 }
 
-type DisruptiveAction = 'stop' | 'down'
+type DisruptiveAction = Extract<StackAction, 'stop' | 'down'>
 
 export function StackOverviewPage() {
   const { stack, refetch } = useOutletContext<{
@@ -171,7 +171,7 @@ function ActionBar({
   const locked = stack.activity_state === 'locked' || runningAction
   const actions = stack.available_actions
 
-  const handleAction = useCallback(async (action: string) => {
+  const handleAction = useCallback(async (action: StackAction) => {
     try {
       setActionError(null)
       const result = await invokeAction(stack.id, action)
@@ -214,7 +214,7 @@ function ActionBar({
     onAction()
   }, [onAction])
 
-  const buttons: { label: string; action: string; group: 'deployment' | 'images' | 'disruptive'; variant?: 'danger'; confirmation?: DisruptiveAction }[] = [
+  const buttons: { label: string; action: StackAction; group: 'deployment' | 'images' | 'disruptive'; variant?: 'danger'; confirmation?: DisruptiveAction }[] = [
     { label: 'Deploy', action: 'up', group: 'deployment' },
     { label: 'Restart', action: 'restart', group: 'deployment' },
     { label: 'Pull', action: 'pull', group: 'images' },
@@ -222,7 +222,7 @@ function ActionBar({
     { label: 'Stop', action: 'stop', group: 'disruptive', confirmation: 'stop' },
     { label: 'Down', action: 'down', group: 'disruptive', variant: 'danger', confirmation: 'down' },
   ]
-  const visibleButtons = buttons.filter((button) => actions.includes(button.action as typeof actions[number]))
+  const visibleButtons = buttons.filter((button) => actions.includes(button.action))
 
   const renderActionButton = (button: typeof buttons[number]) => (
     <button

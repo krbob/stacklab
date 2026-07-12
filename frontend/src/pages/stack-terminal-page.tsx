@@ -5,8 +5,9 @@ import { useTerminal } from '@/hooks/use-terminal'
 import { useWs } from '@/hooks/use-ws'
 import { TerminalView } from '@/components/terminal-view'
 import { cn } from '@/lib/cn'
+import type { TerminalExitReason } from '@/lib/ws-types'
 
-const EXIT_REASONS: Record<string, string> = {
+const EXIT_REASONS: Record<TerminalExitReason, string> = {
   process_exit: 'Shell exited',
   idle_timeout: 'Session timed out due to inactivity',
   client_close: 'Session closed',
