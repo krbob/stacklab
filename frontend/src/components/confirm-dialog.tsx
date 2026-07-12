@@ -1,10 +1,12 @@
 import { useRef, useState } from 'react'
 import { Dialog } from '@/components/dialog'
+import { OperationReview, type OperationReviewModel } from '@/components/operation-review'
 
 interface ConfirmDialogProps {
   title: string
   message: string
   items?: string[]
+  review?: OperationReviewModel
   confirmLabel: string
   cancelLabel?: string
   requireText?: string
@@ -19,6 +21,7 @@ export function ConfirmDialog({
   title,
   message,
   items = [],
+  review,
   confirmLabel,
   cancelLabel = 'Cancel',
   requireText,
@@ -42,6 +45,7 @@ export function ConfirmDialog({
       initialFocusRef={requireText ? textRef : cancelRef}
     >
       <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{message}</p>
+      {review && <OperationReview review={review} />}
       {items.length > 0 && (
         <ul className="mt-3 space-y-1 rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-3 py-2 text-xs text-[var(--text)]">
           {items.map((item) => (
