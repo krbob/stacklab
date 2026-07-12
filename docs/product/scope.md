@@ -20,14 +20,19 @@ The system is intentionally `Compose-first`:
 
 ## Primary User
 
-Single operator or a very small trusted household team managing one homelab machine.
+One logical local operator managing one homelab machine. A person or a very
+small trusted household may share the installation, but v1 still exposes one
+password-protected application identity, `local`, displayed as
+`Local Operator`. Concurrent sessions do not become separate users, and there
+is no per-person attribution, account management, or role-based authorization.
+The `stacklab` Unix service account is only the host process identity.
 
 ## Core Jobs To Be Done
 
 - inspect all Compose stacks in one place
 - understand stack and container runtime state quickly
 - edit stack definitions safely
-- edit supporting configuration under `/opt/stacklab/config` without leaving the product
+- edit supporting configuration under `<STACKLAB_ROOT>/config` without leaving the product
 - run operational actions without dropping to a separate terminal for routine tasks
 - run safe bulk update workflows that replace ad-hoc host scripts for stack maintenance
 - inspect logs, stats, and container shell sessions when diagnosing problems
@@ -55,23 +60,33 @@ Single operator or a very small trusted household team managing one homelab mach
 
 Primary source of truth:
 
-- `/opt/stacklab/stacks/<stack>/compose.yaml`
-- `/opt/stacklab/stacks/<stack>/.env`
-- `/opt/stacklab/config/<stack>/`
-- `/opt/stacklab/data/<stack>/`
+- `<STACKLAB_ROOT>/stacks/<stack>/compose.yaml`
+- `<STACKLAB_ROOT>/stacks/<stack>/.env`
+- `<STACKLAB_ROOT>/config/<stack>/`
+- `<STACKLAB_ROOT>/data/<stack>/`
 
-Application home:
+Supported production roots:
 
-- `/opt/stacklab/app/`
+- Debian/APT package: `<STACKLAB_ROOT>` is `/srv/stacklab`
+- manual tarball: `<STACKLAB_ROOT>` is `/opt/stacklab`
+
+Application files are deployment artifacts, not source-of-truth workspace
+content. The Debian package installs them under `/usr/lib/stacklab`; the
+tarball profile uses `/opt/stacklab/app`. Both profiles keep private runtime
+state under `/var/lib/stacklab` by default. See
+[Filesystem Layout](../architecture/filesystem-layout.md).
 
 Secondary application state:
 
-- local SQLite database for settings, schedules, audit entries, and cached metadata
+- local SQLite database under `STACKLAB_DATA_DIR` for settings, schedules,
+  audit entries, and cached metadata
 
 ## Design Constraints
 
 - Docker Compose only
 - Linux only
+- one application-level operator identity; multi-user accounts and RBAC are out
+  of scope
 - `amd64` is the primary supported architecture
 - `arm64` is also supported
 - host-native deployment preferred over running Stacklab as a privileged management container
@@ -84,7 +99,9 @@ Secondary application state:
 ## Success Criteria
 
 - operator can create, inspect, edit, deploy, and troubleshoot stacks without losing manual CLI compatibility
-- operator can inspect and edit relevant config files under `/opt/stacklab/config` without needing a separate host editor for common workflows
+- operator can inspect and edit relevant config files under
+  `<STACKLAB_ROOT>/config` without needing a separate host editor for common
+  workflows
 - operator can understand what changed locally before committing or pushing Git changes
 - operator can stage a commit from selected files only, including a one-stack workflow when desired
 - stack state in UI matches actual Docker runtime state

@@ -42,10 +42,15 @@ refactors must keep those contracts stable.
 
 Responsibilities:
 
-- authenticate the operator
+- authenticate the single local operator identity
 - expose REST resources and mutating actions
 - validate requests and enforce authorization
 - coordinate jobs and per-stack locks
+
+All authenticated browser sessions represent the same application identity,
+`local`, displayed as `Local Operator`. Stacklab does not model separate human
+accounts or roles. The `stacklab` Unix service account is only the host process
+identity, and `scheduler` identifies automation rather than another user.
 
 ### Orchestrator
 
@@ -78,7 +83,16 @@ Stores:
 
 ### Filesystem Layer
 
-Primary source of truth for stack definitions and related directories under `/opt/stacklab`.
+Primary source of truth for stack definitions and related directories under
+the configured `<STACKLAB_ROOT>`.
+
+The root is deployment-aware: `/srv/stacklab` for Debian/APT packages and
+`/opt/stacklab` for the manual tarball profile. Application artifacts and
+private runtime state are separate concerns. The package installs application
+files in `/usr/lib/stacklab`; the tarball profile uses
+`/opt/stacklab/app`; both default to `/var/lib/stacklab` for SQLite and other
+private runtime state. The complete contract is defined in
+[Filesystem Layout](filesystem-layout.md).
 
 ## Runtime Composition and Ownership
 
@@ -167,9 +181,13 @@ change the REST or WebSocket contract.
 ## Architectural Rules
 
 - filesystem definitions outrank cached database state
+- filesystem contracts use `<STACKLAB_ROOT>` rather than assuming one
+  deployment prefix
 - Docker runtime augments stack state but does not redefine stack identity
 - every mutating stack action is represented as a job
 - every mutating stack job acquires a per-stack lock
+- authenticated sessions share one logical operator identity; audit initiators
+  distinguish `local` from automation, not multiple user accounts
 - terminal features are isolated and treated as privileged subsystems
 - process services are composed once outside the HTTP transport
 - background workers have an explicit start and shutdown owner

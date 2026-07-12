@@ -15,6 +15,22 @@ Jobs provide:
 - auditability
 - recoverable failure reporting
 
+## Actor Identity
+
+Stacklab v1 has one authenticated application identity:
+
+- `local` represents every action requested through an authenticated operator
+  session;
+- `Local Operator` is its display label;
+- multiple sessions do not create distinct users or separate audit identities;
+- `scheduler` identifies an automated schedule trigger, not another account.
+
+The `stacklab` Unix service account is the execution identity of the host
+process and must not be written to `requested_by` as though it were a product
+user. Session IDs, request IDs, job IDs, and timestamps provide operational
+correlation; v1 does not claim per-person attribution when trusted people share
+the local operator password.
+
 ## Operation Categories
 
 ### Read Operations
@@ -80,6 +96,10 @@ Each job has:
 - `requested_at`
 - `started_at`
 - `finished_at`
+
+For authenticated manual operations, `requested_by` is `local`. Scheduled
+operations use `scheduler`. The field records the initiator category rather
+than a username or Unix account.
 
 ### Job State
 
@@ -249,10 +269,10 @@ Purpose:
 
 Default files:
 
-- `/opt/stacklab/stacks/<stack>/compose.yaml`
+- `<STACKLAB_ROOT>/stacks/<stack>/compose.yaml`
 - optional `.env`
-- optional `/opt/stacklab/config/<stack>/`
-- optional `/opt/stacklab/data/<stack>/`
+- optional `<STACKLAB_ROOT>/config/<stack>/`
+- optional `<STACKLAB_ROOT>/data/<stack>/`
 
 ### Remove Stack Definition
 
@@ -309,6 +329,9 @@ Session fields:
 - `created_by`
 - `created_at`
 - `last_activity_at`
+
+`created_by` is `local` in v1 and does not distinguish between concurrent
+operator sessions.
 
 Container shell is in MVP.
 
