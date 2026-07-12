@@ -100,7 +100,7 @@ describe('SystemHealthCenter', () => {
     expect(within(backend).getByRole('time')).toHaveAttribute('datetime', '2026-07-12T08:30:00.000Z')
     expect(within(docker).getByRole('time')).toHaveAttribute('datetime', '2026-07-12T08:30:00.000Z')
     expect(within(websocket).getByRole('time')).toHaveAttribute('datetime', '2026-07-12T08:29:00.000Z')
-    expect(within(backend).getByRole('link', { name: 'View Stacklab logs' })).toHaveAttribute('href', '/host#stacklab-logs')
+    expect(within(backend).getByRole('link', { name: 'View Stacklab logs' })).toHaveAttribute('href', '#stacklab-logs')
     expect(within(docker).getByRole('link', { name: 'Open Docker diagnostics' })).toHaveAttribute('href', '/docker')
     expect(within(websocket).getByRole('link', { name: 'Open audit log' })).toHaveAttribute('href', '/audit')
   })

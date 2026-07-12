@@ -92,7 +92,7 @@ export function SystemHealthCenter() {
           lastSuccessLabel="Last ready check"
           retryLabel="Retry backend readiness"
           onRetry={backend.refetch}
-          diagnostics={<Link to="/host#stacklab-logs" className="text-[var(--accent)] hover:underline">View Stacklab logs</Link>}
+          diagnostics={<a href="#stacklab-logs" className="text-[var(--accent)] hover:underline">View Stacklab logs</a>}
         >
           {backend.data ? (
             <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1">
