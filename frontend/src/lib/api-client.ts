@@ -1,14 +1,15 @@
 import type {
-  ImageUpdateStatus,
-  StackTemplate,
   ActiveJobsResponse,
   AuditResponse,
   ConfigFileResponse,
+  ConfigFileSaveRequest,
   ConfigFileSaveResponse,
   ConfigRepairPermissionsRequest,
   ConfigRepairPermissionsResponse,
   ConfigTreeResponse,
+  CreateStackRequest,
   DefinitionResponse,
+  DeleteStackRequest,
   DockerAdminOverviewResponse,
   DockerDaemonConfigResponse,
   DockerDaemonApplyRequest,
@@ -31,9 +32,13 @@ import type {
   HostOverviewResponse,
   HostSettingsResponse,
   HostSettingsUpdateRequest,
-  JobDetail,
+  JobDetailResponse,
+  JobEnvelopeResponse,
   JobEventsResponse,
-  JobRef,
+  ImageUpdatesResponse,
+  LoginRequest,
+  LoginResponse,
+  LogoutResponse,
   MaintenanceCreateNetworkRequest,
   MaintenanceCreateNetworkResponse,
   MaintenanceSchedulesResponse,
@@ -53,17 +58,24 @@ import type {
   NotificationSettingsUpdateRequest,
   NotificationTestRequest,
   NotificationTestResponse,
+  ResolvedConfigPreviewRequest,
   ResolvedConfigResponse,
   SessionResponse,
   StackDetailResponse,
   StackAction,
   StackWorkspaceFileResponse,
+  StackWorkspaceFileSaveRequest,
   StackWorkspaceFileSaveResponse,
   StackRepairPermissionsRequest,
   StackRepairPermissionsResponse,
   StackWorkspaceTreeResponse,
   StackListResponse,
   StacklabLogsResponse,
+  TemplatesResponse,
+  UpdateDefinitionRequest,
+  UpdateDefinitionResponse,
+  UpdatePasswordRequest,
+  UpdatePasswordResponse,
 } from '@/lib/api-types'
 
 class ApiClientError extends Error {
@@ -222,7 +234,7 @@ export function validateDockerDaemonConfig(requestBody: DockerDaemonValidateRequ
   })
 }
 
-export function applyDockerDaemonConfig(requestBody: DockerDaemonApplyRequest): Promise<{ job: JobRef }> {
+export function applyDockerDaemonConfig(requestBody: DockerDaemonApplyRequest): Promise<JobEnvelopeResponse> {
   return request('/api/docker/admin/daemon-config/apply', {
     method: 'POST',
     body: JSON.stringify(requestBody),
@@ -233,14 +245,14 @@ export function getDockerRegistryStatus(): Promise<DockerRegistryStatusResponse>
   return request('/api/docker/registries')
 }
 
-export function loginDockerRegistry(requestBody: DockerRegistryLoginRequest): Promise<{ job: JobRef }> {
+export function loginDockerRegistry(requestBody: DockerRegistryLoginRequest): Promise<JobEnvelopeResponse> {
   return request('/api/docker/registries/login', {
     method: 'POST',
     body: JSON.stringify(requestBody),
   })
 }
 
-export function logoutDockerRegistry(requestBody: DockerRegistryLogoutRequest): Promise<{ job: JobRef }> {
+export function logoutDockerRegistry(requestBody: DockerRegistryLogoutRequest): Promise<JobEnvelopeResponse> {
   return request('/api/docker/registries/logout', {
     method: 'POST',
     body: JSON.stringify(requestBody),
@@ -295,9 +307,15 @@ export function getConfigFile(path: string): Promise<ConfigFileResponse> {
 }
 
 export function saveConfigFile(path: string, content: string, createParentDirectories = false, expectedModifiedAt?: string): Promise<ConfigFileSaveResponse> {
+  const requestBody: ConfigFileSaveRequest = {
+    path,
+    content,
+    create_parent_directories: createParentDirectories,
+    expected_modified_at: expectedModifiedAt,
+  }
   return request('/api/config/workspace/file', {
     method: 'PUT',
-    body: JSON.stringify({ path, content, create_parent_directories: createParentDirectories, expected_modified_at: expectedModifiedAt }),
+    body: JSON.stringify(requestBody),
   })
 }
 
@@ -318,15 +336,15 @@ export function getStacks(params?: { q?: string; sort?: string }): Promise<Stack
   return request(`/api/stacks${qs ? `?${qs}` : ''}`)
 }
 
-export function getTemplates(): Promise<{ items: StackTemplate[] }> {
+export function getTemplates(): Promise<TemplatesResponse> {
   return request('/api/templates')
 }
 
-export function getImageUpdates(): Promise<{ items: ImageUpdateStatus[] }> {
+export function getImageUpdates(): Promise<ImageUpdatesResponse> {
   return request('/api/maintenance/image-updates')
 }
 
-export function checkImageUpdates(): Promise<{ job: { id: string } }> {
+export function checkImageUpdates(): Promise<JobEnvelopeResponse> {
   return request('/api/maintenance/image-updates/check', { method: 'POST', body: JSON.stringify({}) })
 }
 
@@ -356,9 +374,15 @@ export function saveStackWorkspaceFile(
   createParentDirectories = false,
   expectedModifiedAt?: string,
 ): Promise<StackWorkspaceFileSaveResponse> {
+  const requestBody: StackWorkspaceFileSaveRequest = {
+    path,
+    content,
+    create_parent_directories: createParentDirectories,
+    expected_modified_at: expectedModifiedAt,
+  }
   return request(`/api/stacks/${encodeURIComponent(stackId)}/workspace/file`, {
     method: 'PUT',
-    body: JSON.stringify({ path, content, create_parent_directories: createParentDirectories, expected_modified_at: expectedModifiedAt }),
+    body: JSON.stringify(requestBody),
   })
 }
 
@@ -413,7 +437,7 @@ export function getGlobalAudit(params?: AuditQueryParams & { stack_id?: string }
   return request(`/api/audit${qs ? `?${qs}` : ''}`, { signal })
 }
 
-export function getJob(jobId: string): Promise<{ job: JobDetail }> {
+export function getJob(jobId: string): Promise<JobDetailResponse> {
   return request(`/api/jobs/${encodeURIComponent(jobId)}`)
 }
 
@@ -427,78 +451,54 @@ export function getActiveJobs(): Promise<ActiveJobsResponse> {
 
 // --- Mutating endpoints ---
 
-export function login(password: string): Promise<{ authenticated: boolean }> {
+export function login(password: string): Promise<LoginResponse> {
+  const requestBody: LoginRequest = { password }
   return request('/api/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ password }),
+    body: JSON.stringify(requestBody),
   })
 }
 
-export function logout(): Promise<{ authenticated: boolean }> {
+export function logout(): Promise<LogoutResponse> {
   return request('/api/auth/logout', { method: 'POST' })
 }
 
-export function createStack(payload: {
-  stack_id: string
-  compose_yaml: string
-  env: string
-  create_config_dir: boolean
-  create_data_dir: boolean
-  deploy_after_create: boolean
-  template_id?: string
-  variables?: Record<string, string>
-}): Promise<{ job: JobRef }> {
+export function createStack(payload: CreateStackRequest): Promise<JobEnvelopeResponse> {
   return request('/api/stacks', {
     method: 'POST',
     body: JSON.stringify(payload),
   })
 }
 
-export function saveDefinition(stackId: string, payload: {
-  compose_yaml: string
-  env: string
-  validate_after_save: boolean
-  expected_revision?: {
-    compose_modified_at: string
-    env_modified_at: string | null
-  }
-}): Promise<{ job: JobRef; definition?: DefinitionResponse }> {
+export function saveDefinition(stackId: string, payload: UpdateDefinitionRequest): Promise<UpdateDefinitionResponse> {
   return request(`/api/stacks/${encodeURIComponent(stackId)}/definition`, {
     method: 'PUT',
     body: JSON.stringify(payload),
   })
 }
 
-export function resolveConfigDraft(stackId: string, payload: {
-  compose_yaml: string
-  env: string
-}): Promise<ResolvedConfigResponse> {
+export function resolveConfigDraft(stackId: string, payload: ResolvedConfigPreviewRequest): Promise<ResolvedConfigResponse> {
   return request(`/api/stacks/${encodeURIComponent(stackId)}/resolved-config`, {
     method: 'POST',
     body: JSON.stringify(payload),
   })
 }
 
-export function invokeAction(stackId: string, action: StackAction): Promise<{ job: JobRef }> {
+export function invokeAction(stackId: string, action: StackAction): Promise<JobEnvelopeResponse> {
   return request(`/api/stacks/${encodeURIComponent(stackId)}/actions/${encodeURIComponent(action)}`, {
     method: 'POST',
     body: JSON.stringify({}),
   })
 }
 
-export function deleteStack(stackId: string, flags: {
-  remove_runtime: boolean
-  remove_definition: boolean
-  remove_config: boolean
-  remove_data: boolean
-}): Promise<{ job: JobRef }> {
+export function deleteStack(stackId: string, flags: DeleteStackRequest): Promise<JobEnvelopeResponse> {
   return request(`/api/stacks/${encodeURIComponent(stackId)}`, {
     method: 'DELETE',
     body: JSON.stringify(flags),
   })
 }
 
-export function updateStacksMaintenance(payload: MaintenanceUpdateStacksRequest): Promise<{ job: JobRef }> {
+export function updateStacksMaintenance(payload: MaintenanceUpdateStacksRequest): Promise<JobEnvelopeResponse> {
   return request('/api/maintenance/update-stacks', {
     method: 'POST',
     body: JSON.stringify(payload),
@@ -568,21 +568,22 @@ export function getMaintenancePrunePreview(params?: { images?: boolean; build_ca
   return request(`/api/maintenance/prune-preview${qs ? `?${qs}` : ''}`)
 }
 
-export function runMaintenancePrune(payload: MaintenancePruneRequest): Promise<{ job: JobRef }> {
+export function runMaintenancePrune(payload: MaintenancePruneRequest): Promise<JobEnvelopeResponse> {
   return request('/api/maintenance/prune', {
     method: 'POST',
     body: JSON.stringify(payload),
   })
 }
 
-export function changePassword(currentPassword: string, newPassword: string): Promise<{ updated: boolean; reauthentication_required: boolean }> {
+export function changePassword(currentPassword: string, newPassword: string): Promise<UpdatePasswordResponse> {
+  const requestBody: UpdatePasswordRequest = { current_password: currentPassword, new_password: newPassword }
   return request('/api/settings/password', {
     method: 'POST',
-    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    body: JSON.stringify(requestBody),
   })
 }
 
-export function cancelJob(jobId: string): Promise<{ job: { id: string; state: string } }> {
+export function cancelJob(jobId: string): Promise<JobEnvelopeResponse> {
   return request(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' })
 }
 

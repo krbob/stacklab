@@ -3,6 +3,7 @@ import { createMemoryRouter, RouterProvider, useOutletContext } from 'react-rout
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { getDefinition, getResolvedConfig, invokeAction, resolveConfigDraft, saveDefinition } from '@/lib/api-client'
 import { StackEditorPage } from './stack-editor-page'
+import type { DefinitionResponse } from '@/lib/api-types'
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
@@ -64,6 +65,24 @@ const stack = {
   last_action: null,
 }
 
+const definition: DefinitionResponse = {
+  stack_id: 'demo',
+  files: {
+    compose_yaml: {
+      path: '/srv/stacklab/stacks/demo/compose.yaml',
+      content: 'services:\n  app:\n    image: nginx:alpine\n',
+      modified_at: '2026-07-09T08:00:00Z',
+    },
+    env: {
+      path: '/srv/stacklab/stacks/demo/.env',
+      content: '',
+      exists: false,
+      modified_at: null,
+    },
+  },
+  config_state: 'in_sync',
+}
+
 describe('StackEditorPage', () => {
   beforeEach(() => {
     mockUseOutletContext.mockReset()
@@ -74,23 +93,7 @@ describe('StackEditorPage', () => {
     mockInvokeAction.mockReset()
 
     mockUseOutletContext.mockReturnValue({ stack, refetch: vi.fn() })
-    mockGetDefinition.mockResolvedValue({
-      stack_id: 'demo',
-      files: {
-        compose_yaml: {
-          path: '/srv/stacklab/stacks/demo/compose.yaml',
-          content: 'services:\n  app:\n    image: nginx:alpine\n',
-          modified_at: '2026-07-09T08:00:00Z',
-        },
-        env: {
-          path: '/srv/stacklab/stacks/demo/.env',
-          content: '',
-          exists: false,
-          modified_at: null,
-        },
-      },
-      config_state: 'in_sync',
-    })
+    mockGetDefinition.mockResolvedValue(definition)
     mockGetResolvedConfig.mockImplementation((_stackId, source) => Promise.resolve({
       stack_id: 'demo',
       valid: true,
@@ -155,6 +158,7 @@ describe('StackEditorPage', () => {
     })
     mockSaveDefinition.mockResolvedValue({
       job: { id: 'job-save-deploy', stack_id: 'demo', action: 'save_definition', state: 'running', requested_at: '2026-07-09T08:00:00Z' },
+      definition,
     })
 
     renderPage()
@@ -206,6 +210,7 @@ describe('StackEditorPage', () => {
   it('saves with the loaded definition revision', async () => {
     mockSaveDefinition.mockResolvedValue({
       job: { id: 'job-save', stack_id: 'demo', action: 'save_definition', state: 'succeeded', requested_at: '2026-07-09T08:00:00Z' },
+      definition,
     })
 
     renderPage()
