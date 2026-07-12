@@ -4,8 +4,9 @@ import { login } from './helpers'
 test.describe('Settings schedules', () => {
   test('saves a selected-stack update schedule and reloads it', async ({ page }) => {
     await login(page)
-    await page.goto('/settings')
+    await page.goto('/settings/automation')
 
+    await expect(page).toHaveURL(/\/settings\/automation$/)
     await expect(page.getByRole('heading', { level: 1, name: 'Settings' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Maintenance schedules' })).toBeVisible()
 

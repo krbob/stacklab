@@ -21,7 +21,17 @@ vi.mock('@/pages/config-page', () => ({ ConfigPage: () => <h1>Config</h1> }))
 vi.mock('@/pages/maintenance-page', () => ({ MaintenancePage: () => <h1>Maintenance</h1> }))
 vi.mock('@/pages/docker-admin-page', () => ({ DockerAdminPage: () => <h1>Docker</h1> }))
 vi.mock('@/pages/global-audit-page', () => ({ GlobalAuditPage: () => <h1>Audit log</h1> }))
-vi.mock('@/pages/settings-page', () => ({ SettingsPage: () => <h1>Settings</h1> }))
+vi.mock('@/pages/settings-page', async () => {
+  const { Outlet } = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
+  return {
+    SettingsPage: () => <><h1>Settings</h1><Outlet /></>,
+    SettingsSecurityPage: () => <h2>Security</h2>,
+    SettingsNotificationsPage: () => <h2>Notifications</h2>,
+    SettingsAutomationPage: () => <h2>Automation</h2>,
+    SettingsUpdatesPage: () => <h2>Updates</h2>,
+    SettingsAboutPage: () => <h2>About</h2>,
+  }
+})
 
 describe('AppRoutes page metadata', () => {
   it.each([
@@ -33,9 +43,9 @@ describe('AppRoutes page metadata', () => {
     ['/maintenance', 'Maintenance'],
     ['/docker', 'Docker'],
     ['/audit', 'Audit log'],
-    ['/settings', 'Settings'],
     ['/login', 'Log in'],
     ['/missing', 'Page not found'],
+    ['/settings/unknown', 'Page not found'],
   ])('wires %s to one h1 and the matching document title', async (path, screenName) => {
     render(
       <MemoryRouter initialEntries={[path]}>
@@ -57,6 +67,19 @@ describe('AppRoutes page metadata', () => {
     )
 
     expect(await screen.findByTestId('route-path')).toHaveTextContent('/stacks')
+  })
+
+  it('canonicalizes the settings URL to /settings/security', async () => {
+    render(
+      <MemoryRouter initialEntries={['/settings']}>
+        <LocationProbe />
+        <AppRoutes />
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByTestId('route-path')).toHaveTextContent('/settings/security')
+    expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 2, name: 'Security' })).toBeInTheDocument()
   })
 })
 

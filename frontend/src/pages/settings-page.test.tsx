@@ -1,7 +1,14 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { createMemoryRouter, RouterProvider } from "react-router-dom";
+import { createMemoryRouter, Navigate, RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SettingsPage } from "./settings-page";
+import {
+  SettingsAboutPage,
+  SettingsAutomationPage,
+  SettingsNotificationsPage,
+  SettingsPage,
+  SettingsSecurityPage,
+  SettingsUpdatesPage,
+} from "./settings-page";
 import { useAuth } from "@/hooks/use-auth";
 import type { NotificationSettingsResponse } from "@/lib/api-types";
 
@@ -50,11 +57,29 @@ vi.mock("@/hooks/use-job-drawer", () => ({
   useJobDrawer: () => ({ openJob: mockOpenJob, closeJob: vi.fn(), jobId: null }),
 }));
 
-function renderSettings() {
+type SettingsSection = "security" | "notifications" | "automation" | "updates" | "about";
+
+function renderSettings(section: SettingsSection | null = "security") {
+  return renderSettingsPath(section ? `/settings/${section}` : "/settings");
+}
+
+function renderSettingsPath(path: string) {
   const router = createMemoryRouter([
-    { path: "/settings", element: <SettingsPage /> },
+    {
+      path: "/settings",
+      element: <SettingsPage />,
+      children: [
+        { index: true, element: <Navigate to="security" replace /> },
+        { path: "security", element: <SettingsSecurityPage /> },
+        { path: "notifications", element: <SettingsNotificationsPage /> },
+        { path: "automation", element: <SettingsAutomationPage /> },
+        { path: "updates", element: <SettingsUpdatesPage /> },
+        { path: "about", element: <SettingsAboutPage /> },
+      ],
+    },
     { path: "/outside", element: <h1>Outside settings</h1> },
-  ], { initialEntries: ["/settings"] });
+    { path: "*", element: <h1>Page not found</h1> },
+  ], { initialEntries: [path] });
   return { router, ...render(<RouterProvider router={router} />) };
 }
 
@@ -181,6 +206,70 @@ describe("SettingsPage", () => {
     vi.restoreAllMocks();
   });
 
+  it("redirects the settings index to the security section", async () => {
+    const { router } = renderSettings(null);
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/settings/security"));
+    expect(screen.getByRole("link", { name: "Security" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByText("Change password")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["security", "Security"],
+    ["notifications", "Notifications"],
+    ["automation", "Automation"],
+    ["updates", "Updates"],
+    ["about", "About"],
+  ] as const)("renders only the %s section and marks its navigation link active", async (section, activeLabel) => {
+    renderSettings(section);
+
+    const navigation = screen.getByRole("navigation", { name: "Settings sections" });
+    const links = within(navigation).getAllByRole("link");
+    const activeLink = within(navigation).getByRole("link", { name: activeLabel });
+    expect(links).toHaveLength(5);
+    expect(activeLink).toHaveAttribute("aria-current", "page");
+    for (const link of links.filter((candidate) => candidate !== activeLink)) {
+      expect(link).not.toHaveAttribute("aria-current");
+    }
+
+    if (section === "security") {
+      expect(screen.getByText("Change password")).toBeInTheDocument();
+      expect(await screen.findByLabelText("Enable public IP lookup")).toBeInTheDocument();
+    } else if (section === "notifications") {
+      expect(await screen.findByLabelText("Enable notifications")).toBeInTheDocument();
+    } else if (section === "automation") {
+      expect(await screen.findByLabelText("Scheduled stack update")).toBeInTheDocument();
+    } else if (section === "updates") {
+      expect(await screen.findByText("Stacklab is already up to date.")).toBeInTheDocument();
+    } else {
+      expect(await screen.findByText("Stacklab 0.1.0-dev")).toBeInTheDocument();
+    }
+
+    const expectedCalls = {
+      meta: section === "about" ? 1 : 0,
+      notifications: section === "notifications" ? 1 : 0,
+      schedules: section === "automation" ? 1 : 0,
+      stacks: section === "automation" ? 1 : 0,
+      host: section === "security" ? 1 : 0,
+      updates: section === "updates" ? 1 : 0,
+    };
+    expect(mockGetMeta).toHaveBeenCalledTimes(expectedCalls.meta);
+    expect(mockGetNotificationSettings).toHaveBeenCalledTimes(expectedCalls.notifications);
+    expect(mockGetMaintenanceSchedules).toHaveBeenCalledTimes(expectedCalls.schedules);
+    expect(mockGetStacks).toHaveBeenCalledTimes(expectedCalls.stacks);
+    expect(mockGetHostSettings).toHaveBeenCalledTimes(expectedCalls.host);
+    expect(mockGetStacklabUpdateOverview).toHaveBeenCalledTimes(expectedCalls.updates);
+    expect(mockGetStack).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the not-found route for an unknown settings child", async () => {
+    const { router } = renderSettingsPath("/settings/unknown");
+
+    expect(await screen.findByRole("heading", { name: "Page not found" })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/settings/unknown");
+    expect(screen.queryByRole("navigation", { name: "Settings sections" })).not.toBeInTheDocument();
+  });
+
   it("requires a fresh login after changing the password", async () => {
     mockChangePassword.mockResolvedValue({ updated: true, reauthentication_required: true });
     renderSettings();
@@ -209,43 +298,43 @@ describe("SettingsPage", () => {
   });
 
   it("renders notifications section with loaded settings", async () => {
-    renderSettings();
+    renderSettings("notifications");
 
-    expect(await screen.findByText("Notifications")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 2, name: "Notifications" })).toBeInTheDocument();
     expect(screen.getByLabelText("Enable notifications")).not.toBeChecked();
     expect(screen.getByText("Failed jobs")).toBeInTheDocument();
     expect(screen.getByText("Succeeded with warnings")).toBeInTheDocument();
   });
 
   it("protects a notification draft from accidental navigation", async () => {
-    const { router } = renderSettings();
+    const { router } = renderSettings("notifications");
 
-    await screen.findByText("Notifications");
+    await screen.findByRole("heading", { level: 2, name: "Notifications" });
     fireEvent.click(screen.getByLabelText("Enable notifications"));
 
-    await act(async () => {
-      await router.navigate("/outside");
-    });
+    fireEvent.click(screen.getByRole("link", { name: "Notifications" }));
+    expect(router.state.location.pathname).toBe("/settings/notifications");
+    expect(screen.queryByRole("dialog", { name: "Discard unsaved settings?" })).not.toBeInTheDocument();
 
-    expect(router.state.location.pathname).toBe("/settings");
+    fireEvent.click(screen.getByRole("link", { name: "Automation" }));
+
+    expect(router.state.location.pathname).toBe("/settings/notifications");
     expect(screen.getByRole("dialog", { name: "Discard unsaved settings?" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(router.state.location.pathname).toBe("/settings");
+    expect(router.state.location.pathname).toBe("/settings/notifications");
 
-    await act(async () => {
-      await router.navigate("/outside");
-    });
+    fireEvent.click(screen.getByRole("link", { name: "Automation" }));
     fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
 
-    await waitFor(() => expect(router.state.location.pathname).toBe("/outside"));
-    expect(screen.getByRole("heading", { name: "Outside settings" })).toBeInTheDocument();
+    await waitFor(() => expect(router.state.location.pathname).toBe("/settings/automation"));
+    expect(screen.getByText("Maintenance schedules")).toBeInTheDocument();
   });
 
   it("blocks notification edits when loading settings fails", async () => {
     mockGetNotificationSettings.mockRejectedValue(new Error("notification load failed"));
 
-    renderSettings();
+    renderSettings("notifications");
 
     expect(await screen.findByText("notification load failed")).toBeInTheDocument();
     expect(screen.queryByLabelText("Enable notifications")).not.toBeInTheDocument();
@@ -253,32 +342,28 @@ describe("SettingsPage", () => {
     expect(mockUpdateNotificationSettings).not.toHaveBeenCalled();
   });
 
-  it("retries only the settings endpoint that failed", async () => {
+  it("retries only the active notification settings endpoint", async () => {
     mockGetNotificationSettings.mockRejectedValueOnce(new Error("notification load failed"));
 
-    renderSettings();
+    renderSettings("notifications");
 
     expect(await screen.findByText("notification load failed")).toBeInTheDocument();
-    expect(await screen.findByText("Maintenance schedules")).toBeInTheDocument();
-    expect(await screen.findByText("Host observability")).toBeInTheDocument();
-    await waitFor(() => {
-      expect(mockGetMeta).toHaveBeenCalledTimes(1);
-      expect(mockGetNotificationSettings).toHaveBeenCalledTimes(1);
-      expect(mockGetMaintenanceSchedules).toHaveBeenCalledTimes(1);
-      expect(mockGetStacks).toHaveBeenCalledTimes(1);
-      expect(mockGetHostSettings).toHaveBeenCalledTimes(1);
-      expect(mockGetStacklabUpdateOverview).toHaveBeenCalledTimes(1);
-    });
+    expect(mockGetNotificationSettings).toHaveBeenCalledTimes(1);
+    expect(mockGetMeta).not.toHaveBeenCalled();
+    expect(mockGetMaintenanceSchedules).not.toHaveBeenCalled();
+    expect(mockGetStacks).not.toHaveBeenCalled();
+    expect(mockGetHostSettings).not.toHaveBeenCalled();
+    expect(mockGetStacklabUpdateOverview).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
 
     expect(await screen.findByLabelText("Enable notifications")).toBeInTheDocument();
     expect(mockGetNotificationSettings).toHaveBeenCalledTimes(2);
-    expect(mockGetMeta).toHaveBeenCalledTimes(1);
-    expect(mockGetMaintenanceSchedules).toHaveBeenCalledTimes(1);
-    expect(mockGetStacks).toHaveBeenCalledTimes(1);
-    expect(mockGetHostSettings).toHaveBeenCalledTimes(1);
-    expect(mockGetStacklabUpdateOverview).toHaveBeenCalledTimes(1);
+    expect(mockGetMeta).not.toHaveBeenCalled();
+    expect(mockGetMaintenanceSchedules).not.toHaveBeenCalled();
+    expect(mockGetStacks).not.toHaveBeenCalled();
+    expect(mockGetHostSettings).not.toHaveBeenCalled();
+    expect(mockGetStacklabUpdateOverview).not.toHaveBeenCalled();
   });
 
   it("saves notification settings", async () => {
@@ -301,8 +386,8 @@ describe("SettingsPage", () => {
       },
     } satisfies NotificationSettingsResponse);
 
-    renderSettings();
-    await screen.findByText("Notifications");
+    renderSettings("notifications");
+    await screen.findByRole("heading", { level: 2, name: "Notifications" });
 
     fireEvent.click(screen.getByLabelText("Enable notifications"));
     fireEvent.change(
@@ -358,8 +443,8 @@ describe("SettingsPage", () => {
     } satisfies NotificationSettingsResponse);
     mockSendNotificationTest.mockResolvedValue({ sent: true, channel: 'webhook' });
 
-    renderSettings();
-    await screen.findByText("Notifications");
+    renderSettings("notifications");
+    await screen.findByRole("heading", { level: 2, name: "Notifications" });
 
     fireEvent.click(screen.getByLabelText("Enable notifications"));
     fireEvent.change(
@@ -430,7 +515,7 @@ describe("SettingsPage", () => {
       },
     } satisfies NotificationSettingsResponse);
 
-    renderSettings();
+    renderSettings("notifications");
 
     expect(await screen.findByText("(configured)")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("(leave empty to keep current)")).toHaveValue("");
@@ -474,7 +559,7 @@ describe("SettingsPage", () => {
       },
     });
 
-    const { router } = renderSettings();
+    const { router } = renderSettings("automation");
     await screen.findByText("Maintenance schedules");
 
     fireEvent.click(screen.getByLabelText("Scheduled stack update"));
@@ -484,7 +569,7 @@ describe("SettingsPage", () => {
     await act(async () => {
       await router.navigate("/outside");
     });
-    expect(router.state.location.pathname).toBe("/settings");
+    expect(router.state.location.pathname).toBe("/settings/automation");
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
     fireEvent.click(screen.getByText("Save schedules"));
@@ -529,7 +614,7 @@ describe("SettingsPage", () => {
       },
     });
 
-    renderSettings();
+    renderSettings("automation");
     await screen.findByText("Maintenance schedules");
 
     fireEvent.click(screen.getByLabelText("Scheduled cleanup"));
@@ -560,7 +645,7 @@ describe("SettingsPage", () => {
   });
 
   it("does not save scheduled volume deletion when the review is cancelled", async () => {
-    renderSettings();
+    renderSettings("automation");
     await screen.findByText("Maintenance schedules");
 
     fireEvent.click(screen.getByLabelText("Scheduled cleanup"));
@@ -575,7 +660,7 @@ describe("SettingsPage", () => {
   it("blocks maintenance schedule edits when loading schedules fails", async () => {
     mockGetMaintenanceSchedules.mockRejectedValue(new Error("schedule load failed"));
 
-    renderSettings();
+    renderSettings("automation");
 
     expect(await screen.findByText("schedule load failed")).toBeInTheDocument();
     expect(screen.queryByLabelText("Scheduled stack update")).not.toBeInTheDocument();
@@ -584,7 +669,7 @@ describe("SettingsPage", () => {
   });
 
   it("saves host observability settings", async () => {
-    renderSettings();
+    renderSettings("security");
 
     expect(await screen.findByText("Host observability")).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("Enable public IP lookup"));
@@ -601,7 +686,7 @@ describe("SettingsPage", () => {
   it("blocks host observability edits when loading settings fails", async () => {
     mockGetHostSettings.mockRejectedValue(new Error("host load failed"));
 
-    renderSettings();
+    renderSettings("security");
 
     expect(await screen.findByText("host load failed")).toBeInTheDocument();
     expect(screen.queryByLabelText("Enable public IP lookup")).not.toBeInTheDocument();
@@ -610,7 +695,7 @@ describe("SettingsPage", () => {
   });
 
   it("lazy-loads stack services only after expanding skip services", async () => {
-    renderSettings();
+    renderSettings("automation");
     await screen.findByText("Maintenance schedules");
 
     await waitFor(() => {
@@ -635,7 +720,7 @@ describe("SettingsPage", () => {
   it("retries a failed stack service load without showing a false empty state", async () => {
     mockGetStack.mockRejectedValueOnce(new Error("stack detail unavailable"));
 
-    renderSettings();
+    renderSettings("automation");
     await screen.findByText("Maintenance schedules");
     fireEvent.click(screen.getByLabelText("Show services for demo"));
 
@@ -654,7 +739,7 @@ describe("SettingsPage", () => {
       stack: { id: "demo", services: [] },
     });
 
-    renderSettings();
+    renderSettings("automation");
     await screen.findByText("Maintenance schedules");
     fireEvent.click(screen.getByLabelText("Show services for demo"));
 
@@ -764,7 +849,7 @@ describe("SettingsPage", () => {
       },
     });
 
-    renderSettings();
+    renderSettings("automation");
 
     await waitFor(() => {
       expect(mockGetStack).toHaveBeenCalledTimes(1);
@@ -830,7 +915,7 @@ describe("SettingsPage", () => {
     mockGetStack.mockRejectedValue(new Error("service lookup failed"));
     mockUpdateMaintenanceSchedules.mockResolvedValue(schedulesWithExclusion);
 
-    renderSettings();
+    renderSettings("automation");
 
     expect(await screen.findByRole("alert")).toHaveTextContent("service lookup failed");
     await act(async () => {
@@ -860,7 +945,7 @@ describe("SettingsPage", () => {
   });
 
   it("shows validation error when selected stacks is empty", async () => {
-    renderSettings();
+    renderSettings("automation");
     await screen.findByText("Maintenance schedules");
 
     fireEvent.click(screen.getByLabelText("Selected stacks"));
@@ -871,7 +956,7 @@ describe("SettingsPage", () => {
   });
 
   it("shows validation error when a weekly schedule has no weekday", async () => {
-    renderSettings();
+    renderSettings("automation");
     await screen.findByText("Maintenance schedules");
 
     fireEvent.click(screen.getAllByRole("button", { name: "Sat" })[0]);
@@ -898,23 +983,23 @@ describe("SettingsPage", () => {
         write_capability: { supported: true },
       });
 
-    renderSettings();
+    renderSettings("updates");
 
     const updateCard = (await screen.findByText("Stacklab update")).closest("section") ?? document.body;
     expect(await within(updateCard).findByRole("alert")).toHaveTextContent("update overview unavailable");
     expect(within(updateCard).queryByRole("button", { name: "Update Stacklab" })).not.toBeInTheDocument();
 
     await waitFor(() => {
-      expect(mockGetMeta).toHaveBeenCalledTimes(1);
-      expect(mockGetNotificationSettings).toHaveBeenCalledTimes(1);
       expect(mockGetStacklabUpdateOverview).toHaveBeenCalledTimes(1);
     });
+    expect(mockGetMeta).not.toHaveBeenCalled();
+    expect(mockGetNotificationSettings).not.toHaveBeenCalled();
     fireEvent.click(within(updateCard).getByRole("button", { name: "Retry update status" }));
 
     expect(await within(updateCard).findByText("Stacklab is already up to date.")).toBeInTheDocument();
     expect(mockGetStacklabUpdateOverview).toHaveBeenCalledTimes(2);
-    expect(mockGetMeta).toHaveBeenCalledTimes(1);
-    expect(mockGetNotificationSettings).toHaveBeenCalledTimes(1);
+    expect(mockGetMeta).not.toHaveBeenCalled();
+    expect(mockGetNotificationSettings).not.toHaveBeenCalled();
   });
 
   it("preserves and disables the Stacklab update overview when its delayed refresh fails", async () => {
@@ -964,7 +1049,7 @@ describe("SettingsPage", () => {
       },
     });
 
-    renderSettings();
+    renderSettings("updates");
     expect(await screen.findByText("Update available: 2026.04.1")).toBeInTheDocument();
     const updateCard = screen.getByText("Stacklab update").closest("section") ?? document.body;
 
@@ -1039,7 +1124,7 @@ describe("SettingsPage", () => {
       },
     });
 
-    renderSettings();
+    renderSettings("updates");
 
     expect(await screen.findByText("Update available: 2026.04.1")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Update Stacklab"));
@@ -1094,7 +1179,7 @@ describe("SettingsPage", () => {
       },
     });
 
-    const { unmount } = renderSettings();
+    const { unmount } = renderSettings("updates");
     expect(await screen.findByText("Update available: 2026.04.1")).toBeInTheDocument();
     expect(mockGetStacklabUpdateOverview).toHaveBeenCalledTimes(1);
 
@@ -1163,7 +1248,7 @@ describe("SettingsPage", () => {
       },
     });
 
-    const { unmount } = renderSettings();
+    const { unmount } = renderSettings("updates");
     expect(await screen.findByText("Update available: 2026.04.1")).toBeInTheDocument();
 
     vi.useFakeTimers();
@@ -1204,7 +1289,7 @@ describe("SettingsPage", () => {
       },
     });
 
-    renderSettings();
+    renderSettings("updates");
 
     const currentVersionNodes = await screen.findAllByText(currentVersion);
     expect(currentVersionNodes.some((node) => node.className.includes("break-all"))).toBe(true);
@@ -1235,7 +1320,7 @@ describe("SettingsPage", () => {
       },
     });
 
-    renderSettings();
+    renderSettings("updates");
 
     expect(await screen.findByText("running")).toBeInTheDocument();
     expect(screen.getByText("Updating...")).toBeDisabled();

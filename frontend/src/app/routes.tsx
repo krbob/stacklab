@@ -14,7 +14,14 @@ const ConfigPage = lazy(() => import('@/pages/config-page').then((m) => ({ defau
 const MaintenancePage = lazy(() => import('@/pages/maintenance-page').then((m) => ({ default: m.MaintenancePage })))
 const DockerAdminPage = lazy(() => import('@/pages/docker-admin-page').then((m) => ({ default: m.DockerAdminPage })))
 import { GlobalAuditPage } from '@/pages/global-audit-page'
-import { SettingsPage } from '@/pages/settings-page'
+import {
+  SettingsAboutPage,
+  SettingsAutomationPage,
+  SettingsNotificationsPage,
+  SettingsPage,
+  SettingsSecurityPage,
+  SettingsUpdatesPage,
+} from '@/pages/settings-page'
 import { StackOverviewPage } from '@/pages/stack-overview-page'
 import { StackAuditPage } from '@/pages/stack-audit-page'
 
@@ -45,7 +52,14 @@ export function AppRoutes() {
           <Route path="maintenance" element={<Suspense fallback={<PageLoading title="Maintenance" />}><MaintenancePage /></Suspense>} />
           <Route path="docker" element={<Suspense fallback={<PageLoading title="Docker" />}><DockerAdminPage /></Suspense>} />
           <Route path="audit" element={<GlobalAuditPage />} />
-          <Route path="settings" element={<SettingsPage />} />
+          <Route path="settings" element={<SettingsPage />}>
+            <Route index element={<Navigate to="security" replace />} />
+            <Route path="security" element={<SettingsSecurityPage />} />
+            <Route path="notifications" element={<SettingsNotificationsPage />} />
+            <Route path="automation" element={<SettingsAutomationPage />} />
+            <Route path="updates" element={<SettingsUpdatesPage />} />
+            <Route path="about" element={<SettingsAboutPage />} />
+          </Route>
           <Route path="stacks/:stackId" element={<StackLayout />}>
             <Route index element={<StackOverviewPage />} />
             <Route path="editor" element={<Suspense fallback={<StackViewLoading title="Editor" />}><StackEditorPage /></Suspense>} />
