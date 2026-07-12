@@ -5,6 +5,7 @@ This section defines local development, deployment, and operational procedures.
 ## Documents
 
 - [local-dev.md](local-dev.md) — local development workflow for backend and frontend
+- [first-run.md](first-run.md) — secure password initialization, access setup, readiness, and first login after an APT install
 - [systemd.md](systemd.md) — recommended host-native deployment model for Linux, with `amd64` primary and `arm64` supported
 - [release-plan.md](release-plan.md) — supported install modes, release artifacts, validation matrix, and rollback policy
 - [release-automation-plan.md](release-automation-plan.md) — target nightly/stable/hotfix automation model, tags, and APT channel strategy

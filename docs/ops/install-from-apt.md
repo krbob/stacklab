@@ -61,6 +61,17 @@ sudo apt-get update
 sudo apt-get install stacklab
 ```
 
+## First Run
+
+The package intentionally does not ship a default password. Before exposing the
+service, initialize the local operator password, choose HTTPS or a local-only
+plain-HTTP access path, verify readiness, and remove the temporary bootstrap
+secret from the service environment:
+
+- [First Run After an APT Install](first-run.md)
+
+Until that initialization succeeds, login returns `503 auth_not_configured`.
+
 ## Upgrades
 
 For normal repository-backed upgrades:
@@ -125,10 +136,10 @@ flow instead:
   - install the system `acl` package when using the ACL strategy, so
     `setfacl` is available to the helper
   - install a narrow `sudoers` rule for the helper
-	  - keep `/etc/stacklab/stacklab.env` root-owned; the helper reads
-	    `STACKLAB_ROOT` from that file, falls back to the root-owned
-	    `stacklab.service` environment for older installs, and deliberately
-	    ignores sudo environment overrides
+  - keep `/etc/stacklab/stacklab.env` root-owned; the helper reads
+    `STACKLAB_ROOT` from that file, falls back to the root-owned
+    `stacklab.service` environment for older installs, and deliberately
+    ignores sudo environment overrides
   - keep `NoNewPrivileges=false` in `stacklab.service`
 - Stacklab self-update also remains opt-in:
   - set `STACKLAB_SELF_UPDATE_HELPER_PATH`
