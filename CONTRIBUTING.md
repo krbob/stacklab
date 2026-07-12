@@ -59,3 +59,11 @@ recordings are useful for visible UI changes.
 Do not hand-edit generated API types once generation is enabled. Release
 artifacts, package repository metadata, and screenshots are produced by their
 documented workflows. A normal feature pull request must not publish them.
+
+## Licensing contributions
+
+Stacklab is licensed under the [Apache License 2.0](LICENSE). Unless explicitly
+stated otherwise, every contribution intentionally submitted for inclusion in
+Stacklab is provided under that license without additional terms or conditions.
+Contributors must identify third-party code or assets and preserve their
+copyright, license, and attribution notices.

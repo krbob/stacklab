@@ -1,4 +1,6 @@
 # Review ownership for high-risk areas.
+/LICENSE @krbob
+/NOTICE @krbob
 /.github/ @krbob
 /packaging/ @krbob
 /scripts/release/ @krbob

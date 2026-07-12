@@ -212,6 +212,11 @@ Good entry points:
 - [`docs/ops/install-from-apt.md`](docs/ops/install-from-apt.md)
 - [`docs/ops/install-from-tarball.md`](docs/ops/install-from-tarball.md)
 
+## License
+
+Stacklab is licensed under the [Apache License 2.0](LICENSE). Third-party
+components and bundled fonts remain under their respective licenses.
+
 ## Current Constraints
 
 - primary production target is Linux `amd64`, with Linux `arm64` also supported
