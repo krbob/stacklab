@@ -1,8 +1,18 @@
-import { renderHook, act } from '@testing-library/react'
-import { describe, expect, it, beforeEach } from 'vitest'
+import { renderHook, act, waitFor } from '@testing-library/react'
+import { describe, expect, it, beforeEach, vi } from 'vitest'
 import { createMockWsProvider, type MockWsControls } from '@/test/mock-ws-provider'
 import { useJobStream } from './use-job-stream'
 import type { WsServerFrame } from '@/lib/ws-types'
+
+const { mockGetJob, mockGetJobEvents } = vi.hoisted(() => ({
+  mockGetJob: vi.fn(),
+  mockGetJobEvents: vi.fn(),
+}))
+
+vi.mock('@/lib/api-client', () => ({
+  getJob: (...args: unknown[]) => mockGetJob(...args),
+  getJobEvents: (...args: unknown[]) => mockGetJobEvents(...args),
+}))
 
 let controls: MockWsControls
 let Provider: ReturnType<typeof createMockWsProvider>['Provider']
@@ -11,6 +21,8 @@ beforeEach(() => {
   const mock = createMockWsProvider()
   controls = mock.controls
   Provider = mock.Provider
+  mockGetJob.mockReset().mockReturnValue(new Promise(() => {}))
+  mockGetJobEvents.mockReset().mockReturnValue(new Promise(() => {}))
 })
 
 function jobEvent(jobId: string, event: string, state: string, message: string, ts = '2026-01-01T00:00:00Z'): WsServerFrame {
@@ -50,6 +62,99 @@ describe('useJobStream', () => {
     })
 
     expect(controls.getSentFrames()).toHaveLength(0)
+  })
+
+  it('falls back to REST and reaches the terminal state while websocket is disconnected', async () => {
+    mockGetJob.mockResolvedValue({
+      job: {
+        id: 'job_rest',
+        stack_id: 'test',
+        action: 'pull',
+        state: 'succeeded',
+        requested_at: '2026-01-01T00:00:00Z',
+      },
+    })
+    mockGetJobEvents.mockResolvedValue({
+      job_id: 'job_rest',
+      retained: true,
+      items: [{
+        job_id: 'job_rest',
+        state: 'succeeded',
+        event: 'job_finished',
+        message: 'Done',
+        data: null,
+        step: null,
+        progress: null,
+        timestamp: '2026-01-01T00:00:01Z',
+      }],
+    })
+
+    const { result } = renderHook(
+      () => useJobStream({ jobId: 'job_rest' }),
+      {
+        wrapper: ({ children }) => <Provider initialConnected={false}>{children}</Provider>,
+      },
+    )
+
+    await waitFor(() => expect(result.current.state).toBe('succeeded'))
+    expect(result.current.events).toHaveLength(1)
+    expect(result.current.events[0]).toMatchObject({
+      action: 'pull',
+      event: 'job_finished',
+      message: 'Done',
+    })
+    expect(mockGetJob).toHaveBeenCalledWith('job_rest')
+    expect(mockGetJobEvents).toHaveBeenCalledWith('job_rest')
+    expect(controls.getSentFrames()).toHaveLength(0)
+  })
+
+  it('deduplicates REST history when websocket reconnects and replays it', async () => {
+    mockGetJob.mockResolvedValue({
+      job: {
+        id: 'job_rest_replay',
+        stack_id: 'test',
+        action: 'pull',
+        state: 'running',
+        requested_at: '2026-01-01T00:00:00Z',
+      },
+    })
+    mockGetJobEvents.mockResolvedValue({
+      job_id: 'job_rest_replay',
+      retained: true,
+      items: [{
+        job_id: 'job_rest_replay',
+        state: 'running',
+        event: 'job_started',
+        message: 'Started',
+        data: null,
+        step: null,
+        progress: null,
+        timestamp: '2026-01-01T00:00:01Z',
+      }],
+    })
+
+    const { result } = renderHook(
+      () => useJobStream({ jobId: 'job_rest_replay' }),
+      {
+        wrapper: ({ children }) => <Provider initialConnected={false}>{children}</Provider>,
+      },
+    )
+    await waitFor(() => expect(result.current.events).toHaveLength(1))
+
+    act(() => { controls.setConnected(true) })
+    act(() => {
+      controls.emit(
+        'job_job_rest_replay_progress',
+        jobEvent('job_rest_replay', 'job_started', 'running', 'Started', '2026-01-01T00:00:01Z'),
+      )
+      controls.emit(
+        'job_job_rest_replay_progress',
+        jobEvent('job_rest_replay', 'job_finished', 'succeeded', 'Done', '2026-01-01T00:00:02Z'),
+      )
+    })
+
+    expect(result.current.events.map((event) => event.message)).toEqual(['Started', 'Done'])
+    expect(result.current.state).toBe('succeeded')
   })
 
   it('receives and accumulates events', () => {
