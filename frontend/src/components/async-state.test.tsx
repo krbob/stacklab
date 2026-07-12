@@ -74,4 +74,17 @@ describe('AsyncState', () => {
     expect(screen.getByRole('link', { name: 'Create inventory' })).toHaveAttribute('href', '/inventory/new')
     expect(screen.queryByText('Inventory row')).not.toBeInTheDocument()
   })
+
+  it('supports a contextual Retry label', () => {
+    const onRetry = vi.fn()
+    renderState({
+      error: new Error('Events unavailable'),
+      hasData: false,
+      onRetry,
+      retryLabel: 'Retry events',
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry events' }))
+    expect(onRetry).toHaveBeenCalledTimes(1)
+  })
 })

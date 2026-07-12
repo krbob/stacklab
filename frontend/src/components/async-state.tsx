@@ -9,6 +9,7 @@ interface AsyncStateProps {
   emptyMessage: string
   emptyFallback?: ReactNode
   onRetry: () => void
+  retryLabel?: string
   loadingFallback: ReactNode
   children: ReactNode
 }
@@ -22,12 +23,13 @@ export function AsyncState({
   emptyMessage,
   emptyFallback,
   onRetry,
+  retryLabel = 'Retry',
   loadingFallback,
   children,
 }: AsyncStateProps) {
   if (!hasData) {
     if (error) {
-      return <LoadError error={error} onRetry={onRetry} stale={false} />
+      return <LoadError error={error} onRetry={onRetry} retryLabel={retryLabel} stale={false} />
     }
 
     return (
@@ -43,7 +45,7 @@ export function AsyncState({
       {loading && (
         <p className="text-xs text-[var(--muted)]" role="status" aria-live="polite">Refreshing…</p>
       )}
-      {error && <LoadError error={error} onRetry={onRetry} stale />}
+      {error && <LoadError error={error} onRetry={onRetry} retryLabel={retryLabel} stale />}
       {isEmpty
         ? emptyFallback ?? <p className="py-6 text-center text-sm text-[var(--muted)]">{emptyMessage}</p>
         : children}
@@ -51,9 +53,10 @@ export function AsyncState({
   )
 }
 
-function LoadError({ error, onRetry, stale }: {
+function LoadError({ error, onRetry, retryLabel, stale }: {
   error: Error
   onRetry: () => void
+  retryLabel: string
   stale: boolean
 }) {
   return (
@@ -72,7 +75,7 @@ function LoadError({ error, onRetry, stale }: {
         onClick={onRetry}
         className="rounded-md border border-[var(--danger)]/30 px-3 py-1.5 text-xs text-[var(--danger)] hover:bg-[var(--danger)]/10"
       >
-        Retry
+        {retryLabel}
       </button>
     </div>
   )
