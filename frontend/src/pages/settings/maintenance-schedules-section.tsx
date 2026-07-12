@@ -11,6 +11,7 @@ import {
 } from '@/pages/settings/maintenance-schedule-utils'
 import { FrequencyToggle, ScheduleStatusFooter, WeekdayPicker } from '@/pages/settings/maintenance-schedule-controls'
 import { SettingsLoadError } from '@/pages/settings/settings-card'
+import { useSettingsDraft } from '@/pages/settings/settings-draft-context'
 
 function nonEmpty<T>(items: T[]): [T, ...T[]] | undefined {
   const [first, ...rest] = items
@@ -34,6 +35,7 @@ export function MaintenanceSchedulesSection() {
   const [savingSchedules, setSavingSchedules] = useState(false)
   const [saveResult, setSaveResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [confirmVolumeCleanup, setConfirmVolumeCleanup] = useState(false)
+  const [savedDraft, setSavedDraft] = useState<string | null>(null)
 
   // Update policy
   const [updateEnabled, setUpdateEnabled] = useState(false)
@@ -63,6 +65,7 @@ export function MaintenanceSchedulesSection() {
     setLoading(true)
     setLoadError(null)
     setSaveResult(null)
+    setSavedDraft(null)
     Promise.allSettled([getMaintenanceSchedules(), getStacks()])
       .then(([schedulesResult, stacksResult]) => {
         if (schedulesResult.status === 'fulfilled') {
@@ -130,6 +133,47 @@ export function MaintenanceSchedulesSection() {
     if (pruneFreq === 'weekly' && pruneWeekdays.length === 0) return 'Select at least one weekday for scheduled cleanup'
     return null
   }, [pruneFreq, pruneWeekdays.length, updateFreq, updateTargetMode, updateTargetStacks.length, updateWeekdays.length])
+  const schedulesDraft = useMemo(() => ({
+    update: {
+      enabled: updateEnabled,
+      frequency: updateFreq,
+      time: updateTime,
+      weekdays: updateFreq === 'weekly' ? nonEmpty(updateWeekdays) : undefined,
+      target: {
+        mode: updateTargetMode,
+        stack_ids: updateTargetMode === 'selected' ? nonEmpty(updateTargetStacks) : undefined,
+        excluded_services: filteredExcludedServices(updateExcludedServices, visibleUpdateStackIds),
+      },
+      options: {
+        pull_images: updatePull,
+        build_images: updateBuild,
+        remove_orphans: updateOrphans,
+        prune_after: updatePrune,
+        include_volumes: updatePrune ? updatePruneVol : false,
+      },
+    },
+    prune: {
+      enabled: pruneEnabled,
+      frequency: pruneFreq,
+      time: pruneTime,
+      weekdays: pruneFreq === 'weekly' ? nonEmpty(pruneWeekdays) : undefined,
+      scope: {
+        images: pruneImages,
+        build_cache: pruneBuildCache,
+        stopped_containers: pruneStopped,
+        volumes: pruneVolumes,
+      },
+    },
+  }), [pruneBuildCache, pruneEnabled, pruneFreq, pruneImages, pruneStopped, pruneTime, pruneVolumes, pruneWeekdays, updateBuild, updateEnabled, updateExcludedServices, updateFreq, updateOrphans, updatePrune, updatePruneVol, updatePull, updateTargetMode, updateTargetStacks, updateTime, updateWeekdays, visibleUpdateStackIds])
+  const serializedDraft = useMemo(() => JSON.stringify(schedulesDraft), [schedulesDraft])
+  const draftReady = !loading && loadError === null && data !== null && savedDraft !== null
+  useSettingsDraft('maintenance-schedules', draftReady && serializedDraft !== savedDraft)
+
+  useEffect(() => {
+    if (!loading && loadError === null && data !== null && savedDraft === null) {
+      setSavedDraft(serializedDraft)
+    }
+  }, [data, loadError, loading, savedDraft, serializedDraft])
 
   const storeServiceState = useCallback((stackId: string, state: ServiceLoadState) => {
     const next = { ...serviceStatesRef.current, [stackId]: state }
@@ -205,57 +249,19 @@ export function MaintenanceSchedulesSection() {
       setSaveResult({ type: 'error', text: scheduleValidationError })
       return
     }
-    const updateScheduleWeekdays = updateFreq === 'weekly' ? nonEmpty(updateWeekdays) : undefined
-    const updateScheduleStackIds = updateTargetMode === 'selected' ? nonEmpty(updateTargetStacks) : undefined
-    const pruneScheduleWeekdays = pruneFreq === 'weekly' ? nonEmpty(pruneWeekdays) : undefined
-    if (
-      (updateFreq === 'weekly' && !updateScheduleWeekdays)
-      || (updateTargetMode === 'selected' && !updateScheduleStackIds)
-      || (pruneFreq === 'weekly' && !pruneScheduleWeekdays)
-    ) return
     setSavingSchedules(true)
     setSaveResult(null)
     try {
-      const result = await updateMaintenanceSchedules({
-        update: {
-          enabled: updateEnabled,
-          frequency: updateFreq,
-          time: updateTime,
-          weekdays: updateScheduleWeekdays,
-          target: {
-            mode: updateTargetMode,
-            stack_ids: updateScheduleStackIds,
-            excluded_services: filteredExcludedServices(updateExcludedServices, visibleUpdateStackIds),
-          },
-          options: {
-            pull_images: updatePull,
-            build_images: updateBuild,
-            remove_orphans: updateOrphans,
-            prune_after: updatePrune,
-            include_volumes: updatePrune ? updatePruneVol : false,
-          },
-        },
-        prune: {
-          enabled: pruneEnabled,
-          frequency: pruneFreq,
-          time: pruneTime,
-          weekdays: pruneScheduleWeekdays,
-          scope: {
-            images: pruneImages,
-            build_cache: pruneBuildCache,
-            stopped_containers: pruneStopped,
-            volumes: pruneVolumes,
-          },
-        },
-      })
+      const result = await updateMaintenanceSchedules(schedulesDraft)
       setData(result)
+      setSavedDraft(serializedDraft)
       setSaveResult({ type: 'success', text: 'Saved' })
     } catch (err) {
       setSaveResult({ type: 'error', text: err instanceof Error ? err.message : 'Save failed' })
     } finally {
       setSavingSchedules(false)
     }
-  }, [scheduleValidationError, updateEnabled, updateFreq, updateTime, updateWeekdays, updateTargetMode, updateTargetStacks, visibleUpdateStackIds, updateExcludedServices, updatePull, updateBuild, updateOrphans, updatePrune, updatePruneVol, pruneEnabled, pruneFreq, pruneTime, pruneWeekdays, pruneImages, pruneBuildCache, pruneStopped, pruneVolumes])
+  }, [scheduleValidationError, schedulesDraft, serializedDraft])
 
   const handleSave = useCallback(() => {
     if (loadError) return

@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsPage } from "./settings-page";
 import { useAuth } from "@/hooks/use-auth";
@@ -48,6 +49,14 @@ vi.mock("@/lib/api-client", () => ({
 vi.mock("@/hooks/use-job-drawer", () => ({
   useJobDrawer: () => ({ openJob: mockOpenJob, closeJob: vi.fn(), jobId: null }),
 }));
+
+function renderSettings() {
+  const router = createMemoryRouter([
+    { path: "/settings", element: <SettingsPage /> },
+    { path: "/outside", element: <h1>Outside settings</h1> },
+  ], { initialEntries: ["/settings"] });
+  return { router, ...render(<RouterProvider router={router} />) };
+}
 
 describe("SettingsPage", () => {
   beforeEach(() => {
@@ -174,7 +183,7 @@ describe("SettingsPage", () => {
 
   it("requires a fresh login after changing the password", async () => {
     mockChangePassword.mockResolvedValue({ updated: true, reauthentication_required: true });
-    render(<SettingsPage />);
+    renderSettings();
 
     const passwordCard = screen.getByText("Change password").closest("section") ?? document.body;
     fireEvent.change(within(passwordCard).getByPlaceholderText("Current password"), { target: { value: "secret" } });
@@ -186,7 +195,7 @@ describe("SettingsPage", () => {
   });
 
   it("rejects a new password outside the supported length", () => {
-    render(<SettingsPage />);
+    renderSettings();
 
     const passwordCard = screen.getByText("Change password").closest("section") ?? document.body;
     fireEvent.change(within(passwordCard).getByPlaceholderText("Current password"), { target: { value: "test-password" } });
@@ -200,7 +209,7 @@ describe("SettingsPage", () => {
   });
 
   it("renders notifications section with loaded settings", async () => {
-    render(<SettingsPage />);
+    renderSettings();
 
     expect(await screen.findByText("Notifications")).toBeInTheDocument();
     expect(screen.getByLabelText("Enable notifications")).not.toBeChecked();
@@ -208,10 +217,35 @@ describe("SettingsPage", () => {
     expect(screen.getByText("Succeeded with warnings")).toBeInTheDocument();
   });
 
+  it("protects a notification draft from accidental navigation", async () => {
+    const { router } = renderSettings();
+
+    await screen.findByText("Notifications");
+    fireEvent.click(screen.getByLabelText("Enable notifications"));
+
+    await act(async () => {
+      await router.navigate("/outside");
+    });
+
+    expect(router.state.location.pathname).toBe("/settings");
+    expect(screen.getByRole("dialog", { name: "Discard unsaved settings?" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(router.state.location.pathname).toBe("/settings");
+
+    await act(async () => {
+      await router.navigate("/outside");
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/outside"));
+    expect(screen.getByRole("heading", { name: "Outside settings" })).toBeInTheDocument();
+  });
+
   it("blocks notification edits when loading settings fails", async () => {
     mockGetNotificationSettings.mockRejectedValue(new Error("notification load failed"));
 
-    render(<SettingsPage />);
+    renderSettings();
 
     expect(await screen.findByText("notification load failed")).toBeInTheDocument();
     expect(screen.queryByLabelText("Enable notifications")).not.toBeInTheDocument();
@@ -222,7 +256,7 @@ describe("SettingsPage", () => {
   it("retries only the settings endpoint that failed", async () => {
     mockGetNotificationSettings.mockRejectedValueOnce(new Error("notification load failed"));
 
-    render(<SettingsPage />);
+    renderSettings();
 
     expect(await screen.findByText("notification load failed")).toBeInTheDocument();
     expect(await screen.findByText("Maintenance schedules")).toBeInTheDocument();
@@ -267,7 +301,7 @@ describe("SettingsPage", () => {
       },
     } satisfies NotificationSettingsResponse);
 
-    render(<SettingsPage />);
+    renderSettings();
     await screen.findByText("Notifications");
 
     fireEvent.click(screen.getByLabelText("Enable notifications"));
@@ -324,7 +358,7 @@ describe("SettingsPage", () => {
     } satisfies NotificationSettingsResponse);
     mockSendNotificationTest.mockResolvedValue({ sent: true, channel: 'webhook' });
 
-    render(<SettingsPage />);
+    renderSettings();
     await screen.findByText("Notifications");
 
     fireEvent.click(screen.getByLabelText("Enable notifications"));
@@ -396,7 +430,7 @@ describe("SettingsPage", () => {
       },
     } satisfies NotificationSettingsResponse);
 
-    render(<SettingsPage />);
+    renderSettings();
 
     expect(await screen.findByText("(configured)")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("(leave empty to keep current)")).toHaveValue("");
@@ -418,7 +452,7 @@ describe("SettingsPage", () => {
     });
   });
 
-  it("saves maintenance schedule with selected stacks", async () => {
+  it("protects and saves a maintenance schedule with selected stacks", async () => {
     mockUpdateMaintenanceSchedules.mockResolvedValue({
       timezone: 'host_local',
       update: {
@@ -440,12 +474,19 @@ describe("SettingsPage", () => {
       },
     });
 
-    render(<SettingsPage />);
+    const { router } = renderSettings();
     await screen.findByText("Maintenance schedules");
 
     fireEvent.click(screen.getByLabelText("Scheduled stack update"));
     fireEvent.click(screen.getByLabelText("Selected stacks"));
     fireEvent.click(screen.getByLabelText("demo"));
+
+    await act(async () => {
+      await router.navigate("/outside");
+    });
+    expect(router.state.location.pathname).toBe("/settings");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
     fireEvent.click(screen.getByText("Save schedules"));
 
     await waitFor(() => {
@@ -457,6 +498,13 @@ describe("SettingsPage", () => {
         }),
       );
     });
+    expect(await screen.findByText("Saved")).toBeInTheDocument();
+
+    await act(async () => {
+      await router.navigate("/outside");
+    });
+    await waitFor(() => expect(router.state.location.pathname).toBe("/outside"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("requires a review before scheduling unused volume deletion", async () => {
@@ -481,7 +529,7 @@ describe("SettingsPage", () => {
       },
     });
 
-    render(<SettingsPage />);
+    renderSettings();
     await screen.findByText("Maintenance schedules");
 
     fireEvent.click(screen.getByLabelText("Scheduled cleanup"));
@@ -512,7 +560,7 @@ describe("SettingsPage", () => {
   });
 
   it("does not save scheduled volume deletion when the review is cancelled", async () => {
-    render(<SettingsPage />);
+    renderSettings();
     await screen.findByText("Maintenance schedules");
 
     fireEvent.click(screen.getByLabelText("Scheduled cleanup"));
@@ -527,7 +575,7 @@ describe("SettingsPage", () => {
   it("blocks maintenance schedule edits when loading schedules fails", async () => {
     mockGetMaintenanceSchedules.mockRejectedValue(new Error("schedule load failed"));
 
-    render(<SettingsPage />);
+    renderSettings();
 
     expect(await screen.findByText("schedule load failed")).toBeInTheDocument();
     expect(screen.queryByLabelText("Scheduled stack update")).not.toBeInTheDocument();
@@ -536,7 +584,7 @@ describe("SettingsPage", () => {
   });
 
   it("saves host observability settings", async () => {
-    render(<SettingsPage />);
+    renderSettings();
 
     expect(await screen.findByText("Host observability")).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("Enable public IP lookup"));
@@ -553,7 +601,7 @@ describe("SettingsPage", () => {
   it("blocks host observability edits when loading settings fails", async () => {
     mockGetHostSettings.mockRejectedValue(new Error("host load failed"));
 
-    render(<SettingsPage />);
+    renderSettings();
 
     expect(await screen.findByText("host load failed")).toBeInTheDocument();
     expect(screen.queryByLabelText("Enable public IP lookup")).not.toBeInTheDocument();
@@ -562,7 +610,7 @@ describe("SettingsPage", () => {
   });
 
   it("lazy-loads stack services only after expanding skip services", async () => {
-    render(<SettingsPage />);
+    renderSettings();
     await screen.findByText("Maintenance schedules");
 
     await waitFor(() => {
@@ -587,7 +635,7 @@ describe("SettingsPage", () => {
   it("retries a failed stack service load without showing a false empty state", async () => {
     mockGetStack.mockRejectedValueOnce(new Error("stack detail unavailable"));
 
-    render(<SettingsPage />);
+    renderSettings();
     await screen.findByText("Maintenance schedules");
     fireEvent.click(screen.getByLabelText("Show services for demo"));
 
@@ -606,7 +654,7 @@ describe("SettingsPage", () => {
       stack: { id: "demo", services: [] },
     });
 
-    render(<SettingsPage />);
+    renderSettings();
     await screen.findByText("Maintenance schedules");
     fireEvent.click(screen.getByLabelText("Show services for demo"));
 
@@ -716,7 +764,7 @@ describe("SettingsPage", () => {
       },
     });
 
-    render(<SettingsPage />);
+    renderSettings();
 
     await waitFor(() => {
       expect(mockGetStack).toHaveBeenCalledTimes(1);
@@ -782,7 +830,7 @@ describe("SettingsPage", () => {
     mockGetStack.mockRejectedValue(new Error("service lookup failed"));
     mockUpdateMaintenanceSchedules.mockResolvedValue(schedulesWithExclusion);
 
-    render(<SettingsPage />);
+    renderSettings();
 
     expect(await screen.findByRole("alert")).toHaveTextContent("service lookup failed");
     await act(async () => {
@@ -812,7 +860,7 @@ describe("SettingsPage", () => {
   });
 
   it("shows validation error when selected stacks is empty", async () => {
-    render(<SettingsPage />);
+    renderSettings();
     await screen.findByText("Maintenance schedules");
 
     fireEvent.click(screen.getByLabelText("Selected stacks"));
@@ -823,7 +871,7 @@ describe("SettingsPage", () => {
   });
 
   it("shows validation error when a weekly schedule has no weekday", async () => {
-    render(<SettingsPage />);
+    renderSettings();
     await screen.findByText("Maintenance schedules");
 
     fireEvent.click(screen.getAllByRole("button", { name: "Sat" })[0]);
@@ -850,7 +898,7 @@ describe("SettingsPage", () => {
         write_capability: { supported: true },
       });
 
-    render(<SettingsPage />);
+    renderSettings();
 
     const updateCard = (await screen.findByText("Stacklab update")).closest("section") ?? document.body;
     expect(await within(updateCard).findByRole("alert")).toHaveTextContent("update overview unavailable");
@@ -916,7 +964,7 @@ describe("SettingsPage", () => {
       },
     });
 
-    render(<SettingsPage />);
+    renderSettings();
     expect(await screen.findByText("Update available: 2026.04.1")).toBeInTheDocument();
     const updateCard = screen.getByText("Stacklab update").closest("section") ?? document.body;
 
@@ -991,7 +1039,7 @@ describe("SettingsPage", () => {
       },
     });
 
-    render(<SettingsPage />);
+    renderSettings();
 
     expect(await screen.findByText("Update available: 2026.04.1")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Update Stacklab"));
@@ -1046,7 +1094,7 @@ describe("SettingsPage", () => {
       },
     });
 
-    const { unmount } = render(<SettingsPage />);
+    const { unmount } = renderSettings();
     expect(await screen.findByText("Update available: 2026.04.1")).toBeInTheDocument();
     expect(mockGetStacklabUpdateOverview).toHaveBeenCalledTimes(1);
 
@@ -1115,7 +1163,7 @@ describe("SettingsPage", () => {
       },
     });
 
-    const { unmount } = render(<SettingsPage />);
+    const { unmount } = renderSettings();
     expect(await screen.findByText("Update available: 2026.04.1")).toBeInTheDocument();
 
     vi.useFakeTimers();
@@ -1156,7 +1204,7 @@ describe("SettingsPage", () => {
       },
     });
 
-    render(<SettingsPage />);
+    renderSettings();
 
     const currentVersionNodes = await screen.findAllByText(currentVersion);
     expect(currentVersionNodes.some((node) => node.className.includes("break-all"))).toBe(true);
@@ -1187,7 +1235,7 @@ describe("SettingsPage", () => {
       },
     });
 
-    render(<SettingsPage />);
+    renderSettings();
 
     expect(await screen.findByText("running")).toBeInTheDocument();
     expect(screen.getByText("Updating...")).toBeDisabled();

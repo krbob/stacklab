@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { StatusMessage } from '@/components/status-message'
 import { getNotificationSettings, sendNotificationTest, updateNotificationSettings } from '@/lib/api-client'
 import { SettingsLoadError } from '@/pages/settings/settings-card'
+import { useSettingsDraft } from '@/pages/settings/settings-draft-context'
 
 export function NotificationsSection() {
   const [loading, setLoading] = useState(true)
@@ -39,6 +40,7 @@ export function NotificationsSection() {
 
   const currentState = JSON.stringify({ enabled, webhookEnabled, webhookUrl, telegramEnabled, telegramBotToken, telegramChatId, jobFailed, jobWarnings, maintenanceSucceeded, recoveryFailed, serviceError, runtimeHealthDegraded, runtimeLogErrorBurst })
   const isDirty = currentState !== savedState
+  useSettingsDraft('notifications', !loading && !loadError && Boolean(savedState) && isDirty)
 
   const loadSettings = useCallback(() => {
     setLoading(true)

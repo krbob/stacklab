@@ -1,7 +1,9 @@
 import { useCallback, useState, type FormEvent } from 'react'
+import { flushSync } from 'react-dom'
 import { StatusMessage } from '@/components/status-message'
 import { useAuth } from '@/hooks/use-auth'
 import { changePassword } from '@/lib/api-client'
+import { useSettingsDraft } from '@/pages/settings/settings-draft-context'
 
 const PASSWORD_MINIMUM_LENGTH = 12
 const PASSWORD_MAXIMUM_LENGTH = 256
@@ -13,6 +15,7 @@ export function PasswordSettingsSection() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [passwordError, setPasswordError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const clearDraft = useSettingsDraft('password', Boolean(currentPassword || newPassword || confirmPassword))
 
   const handlePasswordChange = useCallback(async (event: FormEvent) => {
     event.preventDefault()
@@ -30,13 +33,20 @@ export function PasswordSettingsSection() {
     setPasswordError(null)
     try {
       await changePassword(currentPassword, newPassword)
+      flushSync(() => {
+        setCurrentPassword('')
+        setNewPassword('')
+        setConfirmPassword('')
+        setPasswordError(null)
+        clearDraft()
+      })
       requireReauthentication('password_changed')
     } catch (err) {
       setPasswordError(err instanceof Error ? err.message : 'Failed to change password')
     } finally {
       setSaving(false)
     }
-  }, [currentPassword, newPassword, confirmPassword, requireReauthentication])
+  }, [clearDraft, currentPassword, newPassword, confirmPassword, requireReauthentication])
 
   return (
     <>

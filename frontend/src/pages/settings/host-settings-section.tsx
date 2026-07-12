@@ -1,6 +1,7 @@
 import { StatusMessage } from '@/components/status-message'
 import { cn } from '@/lib/cn'
 import { SettingsLoadError } from '@/pages/settings/settings-card'
+import { useSettingsDraft } from '@/pages/settings/settings-draft-context'
 import { useHostSettings } from '@/pages/settings/use-host-settings'
 
 export function HostSettingsSection() {
@@ -15,6 +16,7 @@ export function HostSettingsSection() {
     loadSettings,
     handleSave,
   } = useHostSettings()
+  useSettingsDraft('host', !loading && !loadError && isDirty)
 
   if (loadError) {
     return <SettingsLoadError title="Host observability" message={loadError} onRetry={loadSettings} />
