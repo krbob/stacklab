@@ -77,6 +77,22 @@ import type {
   UpdatePasswordRequest,
   UpdatePasswordResponse,
 } from '@/lib/api-types'
+import type { operations } from './api-contract.generated'
+
+type HostMetricsQueryParams = NonNullable<operations['getHostMetrics']['parameters']['query']>
+type StacklabLogsQueryParams = NonNullable<operations['getStacklabLogs']['parameters']['query']>
+type ConfigWorkspaceTreeQueryParams = NonNullable<operations['getConfigWorkspaceTree']['parameters']['query']>
+type ConfigWorkspaceFileQueryParams = NonNullable<operations['getConfigWorkspaceFile']['parameters']['query']>
+type GitWorkspaceDiffQueryParams = NonNullable<operations['getGitWorkspaceDiff']['parameters']['query']>
+type StackListQueryParams = NonNullable<operations['listStacks']['parameters']['query']>
+type StackWorkspaceTreeQueryParams = NonNullable<operations['getStackWorkspaceTree']['parameters']['query']>
+type ResolvedConfigQueryParams = NonNullable<operations['getResolvedConfig']['parameters']['query']>
+export type AuditQueryParams = NonNullable<operations['listStackAudit']['parameters']['query']>
+type GlobalAuditQueryParams = NonNullable<operations['listAudit']['parameters']['query']>
+type MaintenanceImagesQueryParams = NonNullable<operations['getMaintenanceImages']['parameters']['query']>
+type MaintenanceNetworksQueryParams = NonNullable<operations['getMaintenanceNetworks']['parameters']['query']>
+type MaintenanceVolumesQueryParams = NonNullable<operations['getMaintenanceVolumes']['parameters']['query']>
+type MaintenancePrunePreviewQueryParams = NonNullable<operations['getMaintenancePrunePreview']['parameters']['query']>
 
 class ApiClientError extends Error {
   status: number
@@ -201,20 +217,20 @@ export function getHostOverview(): Promise<HostOverviewResponse> {
   return request('/api/host/overview')
 }
 
-export function getHostMetrics(params?: { since?: string }): Promise<HostMetricsResponse> {
+export function getHostMetrics(params?: HostMetricsQueryParams): Promise<HostMetricsResponse> {
   const search = new URLSearchParams()
   if (params?.since) search.set('since', params.since)
   const qs = search.toString()
   return request(`/api/host/metrics${qs ? `?${qs}` : ''}`)
 }
 
-export function getStacklabLogs(params?: { limit?: number; cursor?: string; level?: string; q?: string; includeHttpAccess?: boolean }): Promise<StacklabLogsResponse> {
+export function getStacklabLogs(params?: StacklabLogsQueryParams): Promise<StacklabLogsResponse> {
   const search = new URLSearchParams()
   if (params?.limit) search.set('limit', String(params.limit))
   if (params?.cursor) search.set('cursor', params.cursor)
   if (params?.level) search.set('level', params.level)
   if (params?.q) search.set('q', params.q)
-  if (params?.includeHttpAccess) search.set('include_http', 'true')
+  if (params?.include_http) search.set('include_http', 'true')
   const qs = search.toString()
   return request(`/api/host/stacklab-logs${qs ? `?${qs}` : ''}`)
 }
@@ -276,7 +292,7 @@ export function getGitWorkspaceStatus(): Promise<GitWorkspaceStatusResponse> {
   return request('/api/git/workspace/status')
 }
 
-export function getGitWorkspaceDiff(path: string): Promise<GitDiffResponse> {
+export function getGitWorkspaceDiff(path: GitWorkspaceDiffQueryParams['path']): Promise<GitDiffResponse> {
   return request(`/api/git/workspace/diff?path=${encodeURIComponent(path)}`)
 }
 
@@ -295,14 +311,14 @@ export function pushGitWorkspace(): Promise<GitPushResponse> {
 
 // --- Config workspace ---
 
-export function getConfigTree(path?: string): Promise<ConfigTreeResponse> {
+export function getConfigTree(path?: ConfigWorkspaceTreeQueryParams['path']): Promise<ConfigTreeResponse> {
   const search = new URLSearchParams()
   if (path) search.set('path', path)
   const qs = search.toString()
   return request(`/api/config/workspace/tree${qs ? `?${qs}` : ''}`)
 }
 
-export function getConfigFile(path: string): Promise<ConfigFileResponse> {
+export function getConfigFile(path: ConfigWorkspaceFileQueryParams['path']): Promise<ConfigFileResponse> {
   return request(`/api/config/workspace/file?path=${encodeURIComponent(path)}`)
 }
 
@@ -328,7 +344,7 @@ export function repairConfigWorkspacePermissions(requestBody: ConfigRepairPermis
 
 // --- Stack management ---
 
-export function getStacks(params?: { q?: string; sort?: string }): Promise<StackListResponse> {
+export function getStacks(params?: StackListQueryParams): Promise<StackListResponse> {
   const search = new URLSearchParams()
   if (params?.q) search.set('q', params.q)
   if (params?.sort) search.set('sort', params.sort)
@@ -356,7 +372,7 @@ export function getDefinition(stackId: string): Promise<DefinitionResponse> {
   return request(`/api/stacks/${encodeURIComponent(stackId)}/definition`)
 }
 
-export function getStackWorkspaceTree(stackId: string, path?: string): Promise<StackWorkspaceTreeResponse> {
+export function getStackWorkspaceTree(stackId: string, path?: StackWorkspaceTreeQueryParams['path']): Promise<StackWorkspaceTreeResponse> {
   const search = new URLSearchParams()
   if (path) search.set('path', path)
   const qs = search.toString()
@@ -396,20 +412,11 @@ export function repairStackWorkspacePermissions(
   })
 }
 
-export function getResolvedConfig(stackId: string, source?: 'current' | 'last_valid'): Promise<ResolvedConfigResponse> {
+export function getResolvedConfig(stackId: string, source?: ResolvedConfigQueryParams['source']): Promise<ResolvedConfigResponse> {
   const search = new URLSearchParams()
   if (source) search.set('source', source)
   const qs = search.toString()
   return request(`/api/stacks/${encodeURIComponent(stackId)}/resolved-config${qs ? `?${qs}` : ''}`)
-}
-
-export interface AuditQueryParams {
-  cursor?: string
-  limit?: number
-  q?: string
-  result?: 'all' | 'succeeded' | 'failed' | 'cancelled' | 'timed_out'
-  from?: string
-  to?: string
 }
 
 export function getStackAudit(stackId: string, params?: AuditQueryParams, signal?: AbortSignal): Promise<AuditResponse> {
@@ -424,7 +431,7 @@ export function getStackAudit(stackId: string, params?: AuditQueryParams, signal
   return request(`/api/stacks/${encodeURIComponent(stackId)}/audit${qs ? `?${qs}` : ''}`, { signal })
 }
 
-export function getGlobalAudit(params?: AuditQueryParams & { stack_id?: string }, signal?: AbortSignal): Promise<AuditResponse> {
+export function getGlobalAudit(params?: GlobalAuditQueryParams, signal?: AbortSignal): Promise<AuditResponse> {
   const search = new URLSearchParams()
   if (params?.stack_id) search.set('stack_id', params.stack_id)
   if (params?.cursor) search.set('cursor', params.cursor)
@@ -505,7 +512,7 @@ export function updateStacksMaintenance(payload: MaintenanceUpdateStacksRequest)
   })
 }
 
-export function getMaintenanceImages(params?: { q?: string; usage?: 'all' | 'used' | 'unused'; origin?: 'all' | 'stack_managed' | 'external' }): Promise<MaintenanceImagesResponse> {
+export function getMaintenanceImages(params?: MaintenanceImagesQueryParams): Promise<MaintenanceImagesResponse> {
   const search = new URLSearchParams()
   if (params?.q) search.set('q', params.q)
   if (params?.usage) search.set('usage', params.usage)
@@ -514,7 +521,7 @@ export function getMaintenanceImages(params?: { q?: string; usage?: 'all' | 'use
   return request(`/api/maintenance/images${qs ? `?${qs}` : ''}`)
 }
 
-export function getMaintenanceNetworks(params?: { q?: string; usage?: 'all' | 'used' | 'unused'; origin?: 'all' | 'stack_managed' | 'external' }): Promise<MaintenanceNetworksResponse> {
+export function getMaintenanceNetworks(params?: MaintenanceNetworksQueryParams): Promise<MaintenanceNetworksResponse> {
   const search = new URLSearchParams()
   if (params?.q) search.set('q', params.q)
   if (params?.usage) search.set('usage', params.usage)
@@ -536,7 +543,7 @@ export function deleteMaintenanceNetwork(name: string): Promise<MaintenanceDelet
   })
 }
 
-export function getMaintenanceVolumes(params?: { q?: string; usage?: 'all' | 'used' | 'unused'; origin?: 'all' | 'stack_managed' | 'external' }): Promise<MaintenanceVolumesResponse> {
+export function getMaintenanceVolumes(params?: MaintenanceVolumesQueryParams): Promise<MaintenanceVolumesResponse> {
   const search = new URLSearchParams()
   if (params?.q) search.set('q', params.q)
   if (params?.usage) search.set('usage', params.usage)
@@ -558,7 +565,7 @@ export function deleteMaintenanceVolume(name: string): Promise<MaintenanceDelete
   })
 }
 
-export function getMaintenancePrunePreview(params?: { images?: boolean; build_cache?: boolean; stopped_containers?: boolean; volumes?: boolean }): Promise<MaintenancePrunePreviewResponse> {
+export function getMaintenancePrunePreview(params?: MaintenancePrunePreviewQueryParams): Promise<MaintenancePrunePreviewResponse> {
   const search = new URLSearchParams()
   if (params?.images !== undefined) search.set('images', String(params.images))
   if (params?.build_cache !== undefined) search.set('build_cache', String(params.build_cache))

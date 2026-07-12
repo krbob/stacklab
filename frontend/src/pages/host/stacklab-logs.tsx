@@ -10,7 +10,7 @@ export function StacklabLogs() {
   const [entries, setEntries] = useState<StacklabLogEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [level, setLevel] = useState<string>('')
+  const [level, setLevel] = useState<'' | (typeof LOG_LEVELS)[number]>('')
   const [filter, setFilter] = useState('')
   const [includeHttpAccess, setIncludeHttpAccess] = useState(false)
   const [following, setFollowing] = useState(true)
@@ -24,7 +24,7 @@ export function StacklabLogs() {
         limit: append ? 50 : 200,
         cursor: append ? (cursorRef.current ?? undefined) : undefined,
         level: level || undefined,
-        includeHttpAccess,
+        include_http: includeHttpAccess,
       })
 
       if (append) {

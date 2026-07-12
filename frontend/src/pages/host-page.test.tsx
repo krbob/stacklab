@@ -325,7 +325,7 @@ describe('HostPage', () => {
 	    expect(mockGetHostOverview).toHaveBeenCalledTimes(1)
 	    expect(mockGetHostMetrics).toHaveBeenCalled()
 	    expect(mockGetHostMetrics).toHaveBeenNthCalledWith(1, undefined)
-	    expect(mockGetStacklabLogs).toHaveBeenCalledWith({ limit: 200, cursor: undefined, level: undefined, includeHttpAccess: false })
+	    expect(mockGetStacklabLogs).toHaveBeenCalledWith({ limit: 200, cursor: undefined, level: undefined, include_http: false })
 	  })
 
   it('reloads logs when level filter changes', async () => {
@@ -343,7 +343,7 @@ describe('HostPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'error' }))
 
     await waitFor(() => {
-      expect(mockGetStacklabLogs).toHaveBeenLastCalledWith({ limit: 200, cursor: undefined, level: 'error', includeHttpAccess: false })
+      expect(mockGetStacklabLogs).toHaveBeenLastCalledWith({ limit: 200, cursor: undefined, level: 'error', include_http: false })
     })
     expect(await screen.findByText('Failed to bind port')).toBeInTheDocument()
   })
@@ -371,7 +371,7 @@ describe('HostPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'HTTP' }))
 
     await waitFor(() => {
-      expect(mockGetStacklabLogs).toHaveBeenLastCalledWith({ limit: 200, cursor: undefined, level: undefined, includeHttpAccess: true })
+      expect(mockGetStacklabLogs).toHaveBeenLastCalledWith({ limit: 200, cursor: undefined, level: undefined, include_http: true })
     })
     expect(await screen.findByText(/path=\/api\/host\/metrics/)).toBeInTheDocument()
   })
@@ -718,7 +718,7 @@ describe('HostPage', () => {
       limit: 50,
       cursor: 'cursor-2',
       level: undefined,
-      includeHttpAccess: false,
+      include_http: false,
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'Following' }))
@@ -739,7 +739,7 @@ describe('HostPage', () => {
       limit: 50,
       cursor: 'cursor-3',
       level: undefined,
-      includeHttpAccess: false,
+      include_http: false,
     })
   })
 
@@ -765,7 +765,7 @@ describe('HostPage', () => {
       limit: 200,
       cursor: undefined,
       level: undefined,
-      includeHttpAccess: false,
+      include_http: false,
     })
     expect(screen.queryByText('Started HTTP server')).not.toBeInTheDocument()
     expect(await screen.findByText('Failed to bind port')).toBeInTheDocument()
