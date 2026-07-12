@@ -113,7 +113,9 @@ jobs:
         continue-on-error: true
         uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7.0.11
         with:
-          add-paths: docs/images/readme/*.png
+          # Stage the directory so retired screenshots are removed as well as
+          # current captures being updated.
+          add-paths: docs/images/readme
           branch: chore/readme-screenshots
           delete-branch: true
           title: "chore(docs): refresh README screenshots"

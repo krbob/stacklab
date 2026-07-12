@@ -18,11 +18,10 @@ const VIEWPORT = { width: 1440, height: 960 }
 const capturePlan = [
   { name: 'stacks-overview', path: '/stacks', waitFor: waitForStacksPage },
   { name: 'stack-editor', path: `/stacks/${DEMO_STACK_ID}/editor`, waitFor: waitForStackEditorPage },
-  { name: 'host-overview', path: '/host', waitFor: waitForHostPage },
-  { name: 'config-workspace', path: '/config', waitFor: waitForConfigPage, prepare: openConfigFile },
   { name: 'maintenance-update', path: '/maintenance', waitFor: waitForMaintenancePage },
-  { name: 'docker-admin', path: '/docker', waitFor: waitForDockerPage },
 ]
+
+const retiredCaptures = ['host-overview', 'config-workspace', 'docker-admin']
 
 const staticCaptureCss = `
   *, *::before, *::after {
@@ -35,12 +34,14 @@ const staticCaptureCss = `
 
 async function run() {
   await fs.mkdir(OUTPUT_DIR, { recursive: true })
+  await removeRetiredCaptures()
 
   const browser = await chromium.launch({ headless: true })
   const context = await browser.newContext({
     viewport: VIEWPORT,
-    // Capture at 2x so text stays crisp when the PNGs are scaled in the README.
-    deviceScaleFactor: 2,
+    // README renders these at or below 1440 px; 1x avoids redundant pixels
+    // while preserving the native UI viewport.
+    deviceScaleFactor: 1,
     colorScheme: 'dark',
     reducedMotion: 'reduce',
   })
@@ -73,19 +74,17 @@ async function run() {
   }
 }
 
+async function removeRetiredCaptures() {
+  for (const name of retiredCaptures) {
+    await fs.rm(path.join(OUTPUT_DIR, `${name}.png`), { force: true })
+  }
+}
+
 async function login(page) {
   await page.goto(`${BASE_URL}/login`)
   await page.getByTestId('login-password').fill(PASSWORD)
   await page.getByTestId('login-submit').click()
   await page.waitForURL('**/stacks')
-}
-
-async function openConfigFile(page) {
-  const folderButton = page.getByRole('button', { name: new RegExp(`${DEMO_CONFIG_DIR}$`) })
-  await folderButton.click()
-  const fileButton = page.getByRole('button', { name: /app\.conf$/ })
-  await fileButton.click()
-  await page.getByText(`${DEMO_CONFIG_DIR}/app.conf`, { exact: true }).waitFor({ state: 'visible', timeout: 10_000 })
 }
 
 async function waitForStacksPage(page) {
@@ -96,20 +95,8 @@ async function waitForStackEditorPage(page) {
   await page.getByText('Resolved config', { exact: true }).waitFor({ state: 'visible', timeout: 15_000 })
 }
 
-async function waitForHostPage(page) {
-  await page.getByRole('heading', { name: 'Host' }).waitFor({ state: 'visible', timeout: 15_000 })
-}
-
-async function waitForConfigPage(page) {
-  await page.getByText('Config workspace', { exact: true }).waitFor({ state: 'visible', timeout: 15_000 })
-}
-
 async function waitForMaintenancePage(page) {
   await page.getByRole('heading', { name: 'Maintenance' }).waitFor({ state: 'visible', timeout: 15_000 })
-}
-
-async function waitForDockerPage(page) {
-  await page.getByRole('heading', { name: 'Docker' }).waitFor({ state: 'visible', timeout: 15_000 })
 }
 
 async function seedDemoData(context) {
