@@ -6,6 +6,9 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  build: {
+    assetsInlineLimit: (filePath) => isFontAsset(filePath) ? false : undefined,
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
@@ -23,3 +26,7 @@ export default defineConfig({
     },
   },
 })
+
+function isFontAsset(filePath: string): boolean {
+  return /\.(?:woff2?|ttf|otf)$/i.test(filePath)
+}

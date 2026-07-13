@@ -236,7 +236,7 @@ func TestHandlerSetsSecurityHeaders(t *testing.T) {
 	}
 
 	headers := response.Result().Header
-	if got := headers.Get("Content-Security-Policy"); got != "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" {
+	if got := headers.Get("Content-Security-Policy"); got != "default-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" {
 		t.Fatalf("Content-Security-Policy = %q", got)
 	}
 	if got := headers.Get("X-Content-Type-Options"); got != "nosniff" {

@@ -71,6 +71,7 @@ frontend-checks: frontend-api-contract
 	@npm --prefix frontend run typecheck
 	@echo "==> Frontend build"
 	@npm --prefix frontend run build
+	@node scripts/quality/check-frontend-build.mjs frontend/dist/assets
 
 check-docs: check-toolchain-node docs-checks
 

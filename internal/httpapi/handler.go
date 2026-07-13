@@ -314,7 +314,7 @@ func (h *Handler) withRequestID(next http.Handler) http.Handler {
 func (h *Handler) withSecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		headers := w.Header()
-		headers.Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+		headers.Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
 		headers.Set("X-Content-Type-Options", "nosniff")
 		headers.Set("Referrer-Policy", "same-origin")
 		headers.Set("X-Frame-Options", "DENY")
