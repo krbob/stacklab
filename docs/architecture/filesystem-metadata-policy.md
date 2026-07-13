@@ -16,10 +16,20 @@ For an existing regular file, an atomic replacement preserves:
 - Linux POSIX access ACLs, which are represented by
   `system.posix_acl_access`.
 
-Metadata preservation is strict. If Stacklab can replace the contents but
-cannot read or restore owner, group, or an advertised extended attribute, the
-write fails before `rename(2)` and the original file remains in place. Extended
-metadata is bounded to 1 MiB per file.
+Metadata preservation is strict by default. If Stacklab can replace the
+contents but cannot read or restore owner, group, or an advertised extended
+attribute, the write fails before `rename(2)` and the original file remains in
+place. Extended metadata is bounded to 1 MiB per file.
+
+The stack definition editor has one explicit owner/group exception. When an
+operator saves `compose.yaml` and `.env` through Stacklab, and the service can
+replace those files through directory permissions or ACLs but cannot assign
+their existing owner/group to a temporary file, the staged replacements keep
+the Stacklab service identity. The write remains atomic and still preserves
+permission bits, ACLs, and other supported extended attributes. This ownership
+adoption is necessary for `.env`, whose final mode is deliberately restricted
+to `0600`; preserving a different owner would leave the Stacklab service unable
+to read the environment it just saved.
 
 Modification/change timestamps and inode identity intentionally change with
 the replacement; atomic writes do not preserve hard-link identity.

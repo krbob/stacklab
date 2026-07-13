@@ -10,6 +10,6 @@ func snapshotPlatformMetadata(string, os.FileInfo) (platformMetadata, error) {
 	return platformMetadata{}, nil
 }
 
-func applyPlatformMetadata(*os.File, string, platformMetadata) error {
+func applyPlatformMetadata(*os.File, string, platformMetadata, ownerGroupPolicy) error {
 	return nil
 }

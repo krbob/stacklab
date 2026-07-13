@@ -106,6 +106,58 @@ func TestWriteStringPreservesSpecialModeBits(t *testing.T) {
 	}
 }
 
+func TestApplyPlatformMetadataAdoptsOwnershipOnlyForPermissionErrors(t *testing.T) {
+	t.Parallel()
+
+	attributeName := "user.stacklab.ownership-adoption-test"
+	attributeValue := []byte("preserve-me")
+	metadata := platformMetadata{
+		uid: os.Getuid() + 1,
+		gid: os.Getgid(),
+		attributes: []extendedAttribute{{
+			name:  attributeName,
+			value: attributeValue,
+		}},
+	}
+	permissionDenied := func(int, int) error {
+		return &os.PathError{Op: "chown", Path: "replacement", Err: syscall.EPERM}
+	}
+
+	strictFile, err := os.CreateTemp(t.TempDir(), "strict-*")
+	if err != nil {
+		t.Fatalf("CreateTemp(strict) error = %v", err)
+	}
+	t.Cleanup(func() { _ = strictFile.Close() })
+	if err := applyPlatformMetadataWithChown(strictFile, strictFile.Name(), metadata, requireOwnerGroupPreservation, permissionDenied); !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("strict metadata error = %v, want permission denied", err)
+	}
+
+	adoptedFile, err := os.CreateTemp(t.TempDir(), "adopted-*")
+	if err != nil {
+		t.Fatalf("CreateTemp(adopted) error = %v", err)
+	}
+	t.Cleanup(func() { _ = adoptedFile.Close() })
+	if err := applyPlatformMetadataWithChown(adoptedFile, adoptedFile.Name(), metadata, allowOwnerGroupAdoption, permissionDenied); err != nil {
+		if xattrUnavailable(err) {
+			t.Skipf("extended attributes unavailable: %v", err)
+		}
+		t.Fatalf("adopting metadata error = %v", err)
+	}
+	if value := getXattr(t, adoptedFile.Name(), attributeName); !bytes.Equal(value, attributeValue) {
+		t.Fatalf("adopted xattr = %q, want %q", value, attributeValue)
+	}
+
+	nonPermissionFile, err := os.CreateTemp(t.TempDir(), "non-permission-*")
+	if err != nil {
+		t.Fatalf("CreateTemp(non-permission) error = %v", err)
+	}
+	t.Cleanup(func() { _ = nonPermissionFile.Close() })
+	unexpectedFailure := func(int, int) error { return syscall.EIO }
+	if err := applyPlatformMetadataWithChown(nonPermissionFile, nonPermissionFile.Name(), metadata, allowOwnerGroupAdoption, unexpectedFailure); !errors.Is(err, syscall.EIO) {
+		t.Fatalf("non-permission metadata error = %v, want EIO", err)
+	}
+}
+
 func statOwnership(t *testing.T, path string) *syscall.Stat_t {
 	t.Helper()
 	info, err := os.Stat(path)

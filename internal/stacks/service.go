@@ -2085,7 +2085,7 @@ func snapshotDefinitionFile(path string) (definitionFileSnapshot, error) {
 }
 
 func stageDefinitionFile(path, content string, mode os.FileMode, pattern string) (string, error) {
-	return atomicfile.StageStringMode(path, content, pattern, mode)
+	return atomicfile.StageStringModeAdoptingOwnership(path, content, pattern, mode)
 }
 
 func restoreDefinitionFiles(snapshots ...definitionFileSnapshot) error {

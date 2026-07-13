@@ -38,7 +38,11 @@ func snapshotPlatformMetadata(path string, info os.FileInfo) (platformMetadata, 
 	return platformMetadata{uid: int(stat.Uid), gid: int(stat.Gid), attributes: attributes}, nil
 }
 
-func applyPlatformMetadata(file *os.File, path string, metadata platformMetadata) error {
+func applyPlatformMetadata(file *os.File, path string, metadata platformMetadata, ownerGroupPolicy ownerGroupPolicy) error {
+	return applyPlatformMetadataWithChown(file, path, metadata, ownerGroupPolicy, file.Chown)
+}
+
+func applyPlatformMetadataWithChown(file *os.File, path string, metadata platformMetadata, ownerGroupPolicy ownerGroupPolicy, chown func(int, int) error) error {
 	info, err := file.Stat()
 	if err != nil {
 		return fmt.Errorf("stat temporary file ownership: %w", err)
@@ -48,8 +52,10 @@ func applyPlatformMetadata(file *os.File, path string, metadata platformMetadata
 		return errors.New("temporary file ownership metadata is unavailable")
 	}
 	if int(stat.Uid) != metadata.uid || int(stat.Gid) != metadata.gid {
-		if err := file.Chown(metadata.uid, metadata.gid); err != nil {
-			return fmt.Errorf("preserve owner/group: %w", err)
+		if err := chown(metadata.uid, metadata.gid); err != nil {
+			if ownerGroupPolicy != allowOwnerGroupAdoption || !errors.Is(err, os.ErrPermission) {
+				return fmt.Errorf("preserve owner/group: %w", err)
+			}
 		}
 	}
 	if err := replaceExtendedAttributes(path, metadata.attributes); err != nil {

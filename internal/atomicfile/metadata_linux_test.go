@@ -49,6 +49,39 @@ func TestWriteStringPreservesPOSIXAccessACL(t *testing.T) {
 	}
 }
 
+func TestOwnershipAdoptionKeepsACLWhenNamedUserBecomesOwner(t *testing.T) {
+	t.Parallel()
+
+	file, err := os.CreateTemp(t.TempDir(), "adopted-acl-*")
+	if err != nil {
+		t.Fatalf("CreateTemp() error = %v", err)
+	}
+	t.Cleanup(func() { _ = file.Close() })
+
+	acl := linuxPOSIXACL(uint32(os.Getuid()))
+	metadata := platformMetadata{
+		uid: os.Getuid() + 1,
+		gid: os.Getgid(),
+		attributes: []extendedAttribute{{
+			name:  "system.posix_acl_access",
+			value: acl,
+		}},
+	}
+	permissionDenied := func(int, int) error { return unix.EPERM }
+	if err := applyPlatformMetadataWithChown(file, file.Name(), metadata, allowOwnerGroupAdoption, permissionDenied); err != nil {
+		if xattrUnavailable(err) || errors.Is(err, unix.EINVAL) {
+			t.Skipf("POSIX ACL unavailable: %v", err)
+		}
+		t.Fatalf("applyPlatformMetadataWithChown() error = %v", err)
+	}
+	if got := getXattr(t, file.Name(), "system.posix_acl_access"); !bytes.Equal(got, acl) {
+		t.Fatalf("adopted ACL = %x, want %x", got, acl)
+	}
+	if err := file.Chmod(0o600); err != nil {
+		t.Fatalf("Chmod(0600) after ACL adoption error = %v", err)
+	}
+}
+
 func linuxPOSIXACL(namedUserID uint32) []byte {
 	const (
 		version     = 2

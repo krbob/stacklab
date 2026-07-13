@@ -10,6 +10,13 @@ const defaultFileMode os.FileMode = 0o644
 
 const supportedModeBits = os.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky
 
+type ownerGroupPolicy uint8
+
+const (
+	requireOwnerGroupPreservation ownerGroupPolicy = iota
+	allowOwnerGroupAdoption
+)
+
 // WriteString atomically replaces path. Existing owner, group, permission
 // bits, and supported extended metadata are preserved. A new file receives
 // 0644 permission bits plus directory-inherited metadata.
@@ -43,22 +50,32 @@ func WriteBytesMode(path string, content []byte, pattern string, mode os.FileMod
 // StageString creates and fsyncs a metadata-preserving replacement in path's
 // directory. The caller owns the returned file and must rename or remove it.
 func StageString(path, content, pattern string) (string, error) {
-	return stage(path, []byte(content), pattern, nil)
+	return stage(path, []byte(content), pattern, nil, requireOwnerGroupPreservation)
 }
 
 // StageStringMode is StageString with an explicit final permission mode.
 func StageStringMode(path, content, pattern string, mode os.FileMode) (string, error) {
 	mode &= supportedModeBits
-	return stage(path, []byte(content), pattern, &mode)
+	return stage(path, []byte(content), pattern, &mode, requireOwnerGroupPreservation)
+}
+
+// StageStringModeAdoptingOwnership is StageStringMode with one explicit
+// fallback for unprivileged workspace editors: when assigning an existing
+// file's owner/group to the staged replacement is denied, the replacement
+// keeps the process owner/group. All other metadata preservation remains
+// strict.
+func StageStringModeAdoptingOwnership(path, content, pattern string, mode os.FileMode) (string, error) {
+	mode &= supportedModeBits
+	return stage(path, []byte(content), pattern, &mode, allowOwnerGroupAdoption)
 }
 
 // StageBytesMode is the byte-slice counterpart of StageStringMode.
 func StageBytesMode(path string, content []byte, pattern string, mode os.FileMode) (string, error) {
 	mode &= supportedModeBits
-	return stage(path, content, pattern, &mode)
+	return stage(path, content, pattern, &mode, requireOwnerGroupPreservation)
 }
 
-func stage(path string, content []byte, pattern string, explicitMode *os.FileMode) (string, error) {
+func stage(path string, content []byte, pattern string, explicitMode *os.FileMode, ownerGroupPolicy ownerGroupPolicy) (string, error) {
 	if pattern == "" {
 		pattern = ".stacklab-*"
 	}
@@ -86,7 +103,7 @@ func stage(path string, content []byte, pattern string, explicitMode *os.FileMod
 		return "", fmt.Errorf("write temporary file: %w", err)
 	}
 	if metadata.exists {
-		if err := applyPlatformMetadata(tempFile, tempPath, metadata.platform); err != nil {
+		if err := applyPlatformMetadata(tempFile, tempPath, metadata.platform, ownerGroupPolicy); err != nil {
 			cleanup()
 			return "", fmt.Errorf("preserve file metadata: %w", err)
 		}
