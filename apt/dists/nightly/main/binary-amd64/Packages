@@ -16,23 +16,6 @@ Description: Compose-first control panel for Docker Compose homelabs
  homelabs running on a single Linux host.
 
 Package: stacklab
-Version: 2026.08.0~nightly20260707+r99.g283fbb2
-Architecture: amd64
-Maintainer: Stacklab Maintainers <maintainers@stacklab.invalid>
-Depends: adduser, systemd, docker.io | docker-ce | moby-engine, docker-cli | docker-ce-cli | moby-cli | docker.io (<< 26.0), docker-compose | docker-compose-plugin, git
-Recommends: ca-certificates
-Filename: pool/nightly/main/s/stacklab/stacklab_2026.08.0~nightly20260707+r99.g283fbb2_amd64.deb
-Size: 9397206
-MD5sum: 22346a3d0fe033d98434cc5caeee641d
-SHA1: b9d6743dd09947f4c6b218e8a38dac14f2951da0
-SHA256: 3b31836e3be36518064cf08e30a4c5b1ec0d86f7579115296e1d81e0028ac2e6
-Section: admin
-Priority: optional
-Description: Compose-first control panel for Docker Compose homelabs
- Stacklab is a host-native, filesystem-first control panel for Docker Compose
- homelabs running on a single Linux host.
-
-Package: stacklab
 Version: 2026.08.0~nightly20260708+r101.g1444c7b
 Architecture: amd64
 Maintainer: Stacklab Maintainers <maintainers@stacklab.invalid>
@@ -112,6 +95,24 @@ Size: 9966426
 MD5sum: c57fbad7b6ddd0f85b13496d227283d9
 SHA1: ce46dade41e97b68cabb52b092526ee8db57f964
 SHA256: 0b65a3e7411f2801d6b33b43c6dbf3d13247e2c9a9365d0788e2cb63ceafc84e
+Section: admin
+Priority: optional
+Homepage: https://github.com/krbob/stacklab
+Description: Host-native web control panel for Docker Compose stacks
+ Stacklab is a host-native web control panel for managing Docker Compose stacks
+ on a single Linux server.
+
+Package: stacklab
+Version: 2026.08.0~nightly20260713+r108.g73b6fad
+Architecture: amd64
+Maintainer: Krzysztof Bobiński <krzysztof@bobinski.net>
+Depends: adduser, systemd, docker.io | docker-ce | moby-engine, docker-cli | docker-ce-cli | moby-cli | docker.io (<< 26.0), docker-compose | docker-compose-plugin, git
+Recommends: ca-certificates
+Filename: pool/nightly/main/s/stacklab/stacklab_2026.08.0~nightly20260713+r108.g73b6fad_amd64.deb
+Size: 9967086
+MD5sum: 90998c83671f239be2a16e20004ec706
+SHA1: 930bc048c5534efa3d696f09211131f73e497124
+SHA256: e77398eed72e472cbf3602fe83a5e414b1747bc841871fbd8d96465e46e51958
 Section: admin
 Priority: optional
 Homepage: https://github.com/krbob/stacklab
