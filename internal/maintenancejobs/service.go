@@ -228,7 +228,8 @@ func (s *Service) StartUpdate(ctx context.Context, request UpdateRequest, reques
 		return store.Job{}, UpdateRun{}, err
 	}
 
-	workflow, err := s.buildUpdateWorkflow(ctx, targetStackIDs, serviceTargets, request.Options)
+	preserveInactive := request.Target.Mode == "all" || request.Trigger == "scheduled"
+	workflow, err := s.buildUpdateWorkflow(ctx, targetStackIDs, serviceTargets, request.Options, preserveInactive)
 	if err != nil {
 		return store.Job{}, UpdateRun{}, err
 	}
@@ -500,13 +501,21 @@ func jobFinalizationContext() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), 10*time.Second)
 }
 
-func (s *Service) buildUpdateWorkflow(ctx context.Context, stackIDs []string, serviceTargets map[string][]string, options UpdateOptions) ([]store.JobWorkflowStep, error) {
+func (s *Service) buildUpdateWorkflow(ctx context.Context, stackIDs []string, serviceTargets map[string][]string, options UpdateOptions, preserveInactive bool) ([]store.JobWorkflowStep, error) {
 	steps := make([]store.JobWorkflowStep, 0, len(stackIDs)*3+1)
 	for _, stackID := range stackIDs {
 		serviceNames := serviceTargets[stackID]
 		if serviceNames != nil && len(serviceNames) == 0 {
 			steps = append(steps, store.JobWorkflowStep{Action: "skip", State: "queued", TargetStackID: stackID})
 			continue
+		}
+		keepInactive := false
+		if preserveInactive {
+			detail, err := s.stackReader.Get(ctx, stackID)
+			if err != nil {
+				return nil, err
+			}
+			keepInactive = detail.Stack.RuntimeState == stacks.RuntimeStateDefined || detail.Stack.RuntimeState == stacks.RuntimeStateStopped
 		}
 		if options.PullImages {
 			steps = append(steps, store.JobWorkflowStep{Action: "pull", State: "queued", TargetStackID: stackID, TargetServiceNames: serviceNames})
@@ -519,6 +528,10 @@ func (s *Service) buildUpdateWorkflow(ctx context.Context, stackIDs []string, se
 			if needsBuild {
 				steps = append(steps, store.JobWorkflowStep{Action: "build", State: "queued", TargetStackID: stackID, TargetServiceNames: serviceNames})
 			}
+		}
+		if keepInactive {
+			steps = append(steps, store.JobWorkflowStep{Action: "preserve_inactive", State: "queued", TargetStackID: stackID})
+			continue
 		}
 		steps = append(steps, store.JobWorkflowStep{Action: "up", State: "queued", TargetStackID: stackID, TargetServiceNames: serviceNames})
 	}
@@ -535,6 +548,9 @@ func (s *Service) runUpdateWorkflowStep(ctx context.Context, step store.JobWorkf
 	if step.Action == "skip" {
 		return "Skipped " + step.TargetStackID + " because all services are excluded.", nil
 	}
+	if step.Action == "preserve_inactive" {
+		return "Skipped deployment for " + step.TargetStackID + " because it was inactive before maintenance.", nil
+	}
 	return s.stackReader.RunMaintenanceStepStreaming(ctx, step.TargetStackID, step.Action, stacks.MaintenanceStepOptions{
 		RemoveOrphans: options.RemoveOrphans,
 		ServiceNames:  step.TargetServiceNames,
@@ -542,10 +558,11 @@ func (s *Service) runUpdateWorkflowStep(ctx context.Context, step store.JobWorkf
 }
 
 var progressUnits = map[string]string{
-	"pull":  "layers",
-	"build": "steps",
-	"up":    "services",
-	"skip":  "services",
+	"pull":              "layers",
+	"build":             "steps",
+	"up":                "services",
+	"skip":              "services",
+	"preserve_inactive": "services",
 }
 
 // progressPublisher translates streaming compose progress into throttled
@@ -628,6 +645,8 @@ func maintenanceActionLabel(action string) string {
 		return "Prune"
 	case "skip":
 		return "Skip"
+	case "preserve_inactive":
+		return "Preserve inactive state"
 	case "prune_images":
 		return "Prune images"
 	case "prune_build_cache":

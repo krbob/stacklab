@@ -153,7 +153,10 @@ export function MaintenancePage() {
     pruneAfter && `Prune unused Docker resources after update${pruneVolumes ? ', including volumes' : ''}.`,
   ].filter((item): item is string => Boolean(item))
   const updateImpact = [
-    'Selected stacks will be deployed again and services may restart.',
+    targetMode === 'all'
+      ? 'Stacks that are already active will be deployed again and services may restart.'
+      : 'Selected stacks will be deployed again and services may restart, including stacks that are currently stopped.',
+    targetMode === 'all' && 'Stopped and never-started stacks may pull or build images, but are not started.',
     buildImages && 'Image builds will consume host CPU, storage, and network resources.',
     removeOrphans && 'Containers no longer present in Compose definitions will be removed.',
     pruneAfter && pruneVolumes && 'Unused Docker volume data selected by prune will be deleted permanently.',
@@ -230,7 +233,7 @@ export function MaintenancePage() {
       {/* Left: workflow setup */}
       <div className="w-full shrink-0 rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)] lg:flex lg:w-80 lg:flex-col">
         <h2 className="text-lg font-medium text-[var(--text)]">Update stacks</h2>
-        <p className="mt-2 text-xs text-[var(--muted)]">Pull images, build, and restart selected stacks.</p>
+        <p className="mt-2 text-xs text-[var(--muted)]">All-stacks updates keep inactive stacks inactive. Explicitly selecting an inactive stack deploys it.</p>
 
         <div className="mt-5">
           <AsyncState

@@ -146,7 +146,7 @@ func TestBuildUpdateWorkflowUsesServiceTargets(t *testing.T) {
 	service := &Service{stackReader: fakeMaintenanceReader()}
 	workflow, err := service.buildUpdateWorkflow(context.Background(), []string{"demo"}, map[string][]string{
 		"demo": {"app"},
-	}, UpdateOptions{PullImages: true, BuildImages: true})
+	}, UpdateOptions{PullImages: true, BuildImages: true}, false)
 	if err != nil {
 		t.Fatalf("buildUpdateWorkflow() error = %v", err)
 	}
@@ -169,13 +169,113 @@ func TestBuildUpdateWorkflowSkipsFullyExcludedStack(t *testing.T) {
 	service := &Service{stackReader: fakeMaintenanceReader()}
 	workflow, err := service.buildUpdateWorkflow(context.Background(), []string{"demo"}, map[string][]string{
 		"demo": {},
-	}, UpdateOptions{PullImages: true, BuildImages: true})
+	}, UpdateOptions{PullImages: true, BuildImages: true}, false)
 	if err != nil {
 		t.Fatalf("buildUpdateWorkflow() error = %v", err)
 	}
 	want := []store.JobWorkflowStep{{Action: "skip", State: "queued", TargetStackID: "demo"}}
 	if !reflect.DeepEqual(workflow, want) {
 		t.Fatalf("buildUpdateWorkflow() = %#v, want %#v", workflow, want)
+	}
+}
+
+func TestBuildUpdateWorkflowPreservesInactiveStackState(t *testing.T) {
+	t.Parallel()
+
+	for _, runtimeState := range []stacks.RuntimeState{stacks.RuntimeStateDefined, stacks.RuntimeStateStopped} {
+		t.Run(string(runtimeState), func(t *testing.T) {
+			t.Parallel()
+
+			reader := fakeMaintenanceReader()
+			detail := reader.details["demo"]
+			detail.Stack.RuntimeState = runtimeState
+			reader.details["demo"] = detail
+			service := &Service{stackReader: reader}
+
+			workflow, err := service.buildUpdateWorkflow(context.Background(), []string{"demo"}, nil, UpdateOptions{
+				PullImages:  true,
+				BuildImages: true,
+			}, true)
+			if err != nil {
+				t.Fatalf("buildUpdateWorkflow() error = %v", err)
+			}
+			gotActions := make([]string, 0, len(workflow))
+			for _, step := range workflow {
+				gotActions = append(gotActions, step.Action)
+			}
+			wantActions := []string{"pull", "build", "preserve_inactive"}
+			if !reflect.DeepEqual(gotActions, wantActions) {
+				t.Fatalf("workflow actions = %#v, want %#v", gotActions, wantActions)
+			}
+		})
+	}
+}
+
+func TestRunUpdatePreservesInactiveStacksForBulkPolicies(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		target            UpdateTarget
+		trigger           string
+		wantAction        string
+		wantStepCalls     int
+		wantBaselineCalls int
+	}{
+		{
+			name:              "manual all",
+			target:            UpdateTarget{Mode: "all"},
+			trigger:           "manual",
+			wantAction:        "preserve_inactive",
+			wantStepCalls:     0,
+			wantBaselineCalls: 0,
+		},
+		{
+			name:              "scheduled selected",
+			target:            UpdateTarget{Mode: "selected", StackIDs: []string{"demo"}},
+			trigger:           "scheduled",
+			wantAction:        "preserve_inactive",
+			wantStepCalls:     0,
+			wantBaselineCalls: 0,
+		},
+		{
+			name:              "manual selected",
+			target:            UpdateTarget{Mode: "selected", StackIDs: []string{"demo"}},
+			trigger:           "manual",
+			wantAction:        "up",
+			wantStepCalls:     1,
+			wantBaselineCalls: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			reader := fakeMaintenanceReader()
+			detail := reader.details["demo"]
+			detail.Stack.RuntimeState = stacks.RuntimeStateStopped
+			reader.details["demo"] = detail
+			service := newMaintenanceTestService(t, reader)
+
+			job, err := service.RunUpdate(context.Background(), UpdateRequest{
+				Target:  tt.target,
+				Options: UpdateOptions{},
+				Trigger: tt.trigger,
+			}, "test")
+			if err != nil {
+				t.Fatalf("RunUpdate() error = %v", err)
+			}
+			if job.Workflow == nil || len(job.Workflow.Steps) != 1 || job.Workflow.Steps[0].Action != tt.wantAction {
+				t.Fatalf("RunUpdate() workflow = %#v, want one %q step", job.Workflow, tt.wantAction)
+			}
+			if len(reader.stepCalls) != tt.wantStepCalls {
+				t.Fatalf("step calls = %#v, want %d", reader.stepCalls, tt.wantStepCalls)
+			}
+			if reader.baselineCalls != tt.wantBaselineCalls {
+				t.Fatalf("baseline calls = %d, want %d", reader.baselineCalls, tt.wantBaselineCalls)
+			}
+		})
 	}
 }
 
@@ -430,7 +530,7 @@ func fakeMaintenanceReader() *fakeMaintenanceStackReader {
 		details: map[string]stacks.StackDetailResponse{
 			"demo": {
 				Stack: stacks.StackDetail{
-					StackHeader:      stacks.StackHeader{ID: "demo"},
+					StackHeader:      stacks.StackHeader{ID: "demo", RuntimeState: stacks.RuntimeStateRunning},
 					AvailableActions: []string{"up"},
 					Services: []stacks.Service{
 						{Name: "app", Mode: stacks.ServiceModeBuild, BuildContext: &buildContext},

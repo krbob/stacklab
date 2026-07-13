@@ -158,6 +158,8 @@ Behavior:
   - audit trail
   - notifications
   - global activity
+- scheduled updates may pull or build images for stopped and never-started
+  stacks, but do not deploy or start them
 - scheduled updates with service exclusions do not refresh the full-stack deploy
   baseline used by drift detection and `source=last_valid`
 

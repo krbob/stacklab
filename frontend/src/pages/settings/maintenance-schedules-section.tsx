@@ -322,6 +322,8 @@ export function MaintenanceSchedulesSection() {
             </label>
           </div>
 
+          <p className="text-xs text-[var(--muted)]">Stopped and never-started stacks may pull or build images, but are not started.</p>
+
           {updateTargetMode === 'selected' && (
             <div className="space-y-2 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-3">
               {stackOptions.length > 0 ? (

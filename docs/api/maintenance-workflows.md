@@ -15,7 +15,9 @@ It is intentionally narrower than a full generic Docker maintenance API.
 - keep the workflow explicit and predictable:
   - pull
   - build when needed
-  - `up -d --remove-orphans`
+  - `up -d --remove-orphans` for active stacks and explicitly selected stacks
+- preserve the inactive state of stopped and never-started stacks during
+  all-stacks updates
 - make optional prune an explicit operator choice
 - provide progress data that lets the UI show both:
   - overall workflow progress
@@ -149,7 +151,10 @@ Recommended execution order:
 3. for each target stack:
    - pull images
    - build when needed
-   - run `up -d --remove-orphans`
+   - run `up -d --remove-orphans` when the stack was already active
+   - for manual selected-stack updates, also deploy explicitly selected stopped stacks
+   - for all-stacks and scheduled updates, skip deployment when the stack was
+     inactive so operator intent is preserved
 4. optionally run prune after all selected stacks succeed
 
 Recommended target order:
