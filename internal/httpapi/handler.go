@@ -2,11 +2,14 @@ package httpapi
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"mime"
 	"net"
 	"net/http"
 	"stacklab/internal/audit"
@@ -331,6 +334,9 @@ const (
 )
 
 var errRequestBodyTooLarge = errors.New("request body too large")
+var errInvalidJSONContentType = errors.New("invalid JSON content type")
+var errDuplicateJSONField = errors.New("duplicate JSON field")
+var errTrailingJSONValue = errors.New("trailing JSON value")
 
 func (r *statusRecorder) WriteHeader(status int) {
 	r.status = status
@@ -365,17 +371,104 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, destination any) error {
 }
 
 func decodeJSONWithLimit(w http.ResponseWriter, r *http.Request, destination any, maxBytes int64) error {
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBytes))
-	decoder.DisallowUnknownFields()
-	err := decoder.Decode(destination)
-	if err == nil {
-		return nil
+	contentTypes := r.Header.Values("Content-Type")
+	if len(contentTypes) != 1 {
+		return errInvalidJSONContentType
 	}
+	mediaType, parameters, err := mime.ParseMediaType(contentTypes[0])
+	if err != nil || mediaType != "application/json" {
+		return errInvalidJSONContentType
+	}
+	if charset, ok := parameters["charset"]; ok && !strings.EqualFold(charset, "utf-8") {
+		return errInvalidJSONContentType
+	}
+
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBytes))
 	var maxBytesErr *http.MaxBytesError
 	if errors.As(err, &maxBytesErr) {
 		return errRequestBodyTooLarge
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	if err := validateSingleJSONValue(body); err != nil {
+		return err
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	return decoder.Decode(destination)
+}
+
+func validateSingleJSONValue(body []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	if err := validateJSONValue(decoder); err != nil {
+		return err
+	}
+	if _, err := decoder.Token(); errors.Is(err, io.EOF) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	return errTrailingJSONValue
+}
+
+func validateJSONValue(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delimiter, ok := token.(json.Delim)
+	if !ok {
+		return nil
+	}
+
+	switch delimiter {
+	case '{':
+		seen := make(map[string]struct{})
+		for decoder.More() {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			key, ok := keyToken.(string)
+			if !ok {
+				return errors.New("JSON object key is not a string")
+			}
+			if _, duplicate := seen[key]; duplicate {
+				return errDuplicateJSONField
+			}
+			seen[key] = struct{}{}
+			if err := validateJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		closing, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		if closing != json.Delim('}') {
+			return errors.New("JSON object is not closed")
+		}
+		return nil
+	case '[':
+		for decoder.More() {
+			if err := validateJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		closing, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		if closing != json.Delim(']') {
+			return errors.New("JSON array is not closed")
+		}
+		return nil
+	default:
+		return errors.New("unexpected JSON delimiter")
+	}
 }
 
 func writeDecodeJSONError(w http.ResponseWriter, err error) {

@@ -1368,6 +1368,7 @@ func TestHandlerConfigWorkspaceTreeFileAndSave(t *testing.T) {
 
 func TestDecodeJSONRejectsOversizedBody(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/test", strings.NewReader(`{"content":"`+strings.Repeat("x", int(maxJSONBodyBytes))+`"}`))
+	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 
 	var payload struct {
@@ -1390,6 +1391,175 @@ func TestDecodeJSONRejectsOversizedBody(t *testing.T) {
 	decodeInternalResponse(t, recorder, &errorPayload)
 	if errorPayload.Error.Code != "request_too_large" {
 		t.Fatalf("oversized error code = %q, want request_too_large", errorPayload.Error.Code)
+	}
+}
+
+func TestDecodeJSONRejectsAmbiguousEnvelopes(t *testing.T) {
+	t.Parallel()
+
+	type nestedPayload struct {
+		Value string `json:"value"`
+	}
+	type testPayload struct {
+		Name   string          `json:"name"`
+		Nested nestedPayload   `json:"nested"`
+		Items  []nestedPayload `json:"items"`
+	}
+
+	tests := []struct {
+		name         string
+		body         string
+		contentTypes []string
+		wantErr      error
+		wantAnyErr   bool
+	}{
+		{
+			name:         "valid JSON with UTF-8 charset",
+			body:         `{"name":"demo","nested":{"value":"one"},"items":[{"value":"one"},{"value":"two"}]}` + "\n",
+			contentTypes: []string{"application/json; charset=UTF-8"},
+		},
+		{
+			name:         "same field in separate objects",
+			body:         `{"name":"demo","nested":{"value":"one"},"items":[{"value":"one"},{"value":"two"}]}`,
+			contentTypes: []string{"application/json"},
+		},
+		{
+			name:    "missing content type",
+			body:    `{"name":"demo"}`,
+			wantErr: errInvalidJSONContentType,
+		},
+		{
+			name:         "wrong content type",
+			body:         `{"name":"demo"}`,
+			contentTypes: []string{"text/plain"},
+			wantErr:      errInvalidJSONContentType,
+		},
+		{
+			name:         "unsupported charset",
+			body:         `{"name":"demo"}`,
+			contentTypes: []string{"application/json; charset=iso-8859-1"},
+			wantErr:      errInvalidJSONContentType,
+		},
+		{
+			name:         "multiple content types",
+			body:         `{"name":"demo"}`,
+			contentTypes: []string{"application/json", "application/json"},
+			wantErr:      errInvalidJSONContentType,
+		},
+		{
+			name:         "trailing JSON value",
+			body:         `{"name":"demo"} null`,
+			contentTypes: []string{"application/json"},
+			wantErr:      errTrailingJSONValue,
+		},
+		{
+			name:         "duplicate root field",
+			body:         `{"name":"first","name":"second"}`,
+			contentTypes: []string{"application/json"},
+			wantErr:      errDuplicateJSONField,
+		},
+		{
+			name:         "escape-equivalent duplicate field",
+			body:         `{"name":"first","na\u006de":"second"}`,
+			contentTypes: []string{"application/json"},
+			wantErr:      errDuplicateJSONField,
+		},
+		{
+			name:         "duplicate nested field",
+			body:         `{"nested":{"value":"first","value":"second"}}`,
+			contentTypes: []string{"application/json"},
+			wantErr:      errDuplicateJSONField,
+		},
+		{
+			name:         "duplicate field inside array",
+			body:         `{"items":[{"value":"first","value":"second"}]}`,
+			contentTypes: []string{"application/json"},
+			wantErr:      errDuplicateJSONField,
+		},
+		{
+			name:         "unknown field remains rejected",
+			body:         `{"unknown":true}`,
+			contentTypes: []string{"application/json"},
+			wantAnyErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			request := httptest.NewRequest(http.MethodPost, "/api/test", strings.NewReader(tt.body))
+			for _, contentType := range tt.contentTypes {
+				request.Header.Add("Content-Type", contentType)
+			}
+			recorder := httptest.NewRecorder()
+			var payload testPayload
+			err := decodeJSON(recorder, request, &payload)
+			if tt.wantErr != nil && !errors.Is(err, tt.wantErr) {
+				t.Fatalf("decodeJSON() error = %v, want %v", err, tt.wantErr)
+			}
+			if tt.wantAnyErr && err == nil {
+				t.Fatal("decodeJSON() error = nil, want an error")
+			}
+			if tt.wantErr == nil && !tt.wantAnyErr && err != nil {
+				t.Fatalf("decodeJSON() error = %v, want nil", err)
+			}
+		})
+	}
+}
+
+func TestHandlerLoginRejectsAmbiguousJSONEnvelopes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		body        string
+		contentType string
+		wantStatus  int
+	}{
+		{
+			name:        "valid UTF-8 JSON",
+			body:        `{"password":"test-password"}`,
+			contentType: "application/json; charset=UTF-8",
+			wantStatus:  http.StatusOK,
+		},
+		{
+			name:        "wrong content type",
+			body:        `{"password":"test-password"}`,
+			contentType: "text/plain",
+			wantStatus:  http.StatusBadRequest,
+		},
+		{
+			name:        "trailing JSON",
+			body:        `{"password":"test-password"} {}`,
+			contentType: "application/json",
+			wantStatus:  http.StatusBadRequest,
+		},
+		{
+			name:        "duplicate password",
+			body:        `{"password":"wrong","password":"test-password"}`,
+			contentType: "application/json",
+			wantStatus:  http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, served, _ := newInternalTestHandler(t)
+			request := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(tt.body))
+			request.Header.Set("Content-Type", tt.contentType)
+			recorder := httptest.NewRecorder()
+			served.ServeHTTP(recorder, request)
+
+			if recorder.Code != tt.wantStatus {
+				t.Fatalf("POST /api/auth/login status = %d, want %d; body=%s", recorder.Code, tt.wantStatus, recorder.Body.String())
+			}
+			if tt.wantStatus != http.StatusOK && len(recorder.Result().Cookies()) != 0 {
+				t.Fatalf("rejected login set cookies: %#v", recorder.Result().Cookies())
+			}
+		})
 	}
 }
 
