@@ -43,7 +43,12 @@ export function HostProcessesPanel({
       {sortedProcesses.length === 0 ? (
         <div className="text-sm text-[var(--muted)]">No process metrics available.</div>
       ) : (
-        <div className="overflow-x-auto">
+        <div
+          role="region"
+          aria-label="Top processes"
+          tabIndex={0}
+          className="overflow-x-auto rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+        >
           <table className="w-full min-w-[820px] table-fixed text-left text-xs">
             <thead className="text-[var(--muted)]">
               <tr className="border-b border-[var(--panel-border)]">

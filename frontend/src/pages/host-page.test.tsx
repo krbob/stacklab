@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HostPage } from './host-page'
 import { formatUptime } from './host-page-utils'
@@ -319,6 +319,9 @@ describe('HostPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Show public IP' }))
     expect(screen.getByText('8.8.8.8')).toBeInTheDocument()
     expect(screen.getByText('Top processes')).toBeInTheDocument()
+    const processesRegion = screen.getByRole('region', { name: 'Top processes' })
+    expect(processesRegion).toHaveAttribute('tabindex', '0')
+    expect(within(processesRegion).getByRole('table')).toBeInTheDocument()
     expect(screen.getByText('3 visible')).toBeInTheDocument()
     expect(screen.getAllByText('postgres').length).toBeGreaterThan(0)
     expect(screen.getByText('minecraft / server')).toBeInTheDocument()
