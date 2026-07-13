@@ -47,7 +47,7 @@ const settingsScreenMetadata: Record<string, PageDescriptor> = {
 const stackScreenTitles: Record<string, string> = {
   '': 'Overview',
   editor: 'Editor',
-  files: 'Files',
+  files: 'Stack files',
   logs: 'Logs',
   stats: 'Stats',
   terminal: 'Terminal',

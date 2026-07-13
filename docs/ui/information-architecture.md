@@ -67,7 +67,7 @@ Entering a stack opens a detail view with tabbed sub-navigation:
 |---|---|---|
 | **Overview** | `/stacks/:id` | Services, containers, ports, state, health |
 | **Editor** | `/stacks/:id/editor` | Edit `compose.yaml` and `.env` with validation |
-| **Files** | `/stacks/:id/files` | Browse and edit stack-scoped workspace files |
+| **Stack files** | `/stacks/:id/files` | Browse stack-local files and open the stack's separate managed-config directory |
 | **Logs** | `/stacks/:id/logs` | Live log streaming, filterable by service |
 | **Stats** | `/stacks/:id/stats` | CPU, memory, network per container and aggregated |
 | **Terminal** | `/stacks/:id/terminal` | Container shell sessions (host shell post-MVP) |
@@ -139,7 +139,7 @@ panel for Docker Compose stacks, host health, updates, and maintenance.
 |---|---|---|
 | Stack Overview | Service list, container states, ports, mounts, image/build mode | Yes |
 | Compose Editor | CodeMirror editor for `compose.yaml` and `.env`, validation, resolved preview | Yes |
-| Stack Files | Stack-scoped file browser/editor for non-definition files | Yes |
+| Stack files | Stack-local file browser/editor with a deep link to managed config | Yes |
 | Log Viewer | Live log stream with service filter and search | Yes |
 | Stats Dashboard | Real-time CPU/mem/net charts per container and aggregated | Yes |
 | Terminal | Container exec shell sessions via XTerm.js | Yes |

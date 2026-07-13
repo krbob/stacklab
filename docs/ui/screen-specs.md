@@ -124,6 +124,7 @@ without making the editor horizontally overflow the application shell.
 Routes:
 
 - `/config`
+- `/config?path=:workspacePath`
 - `/stacks/:stackId/files`
 
 `/config` has Files and Changes modes. Files provides a managed-root tree and
@@ -131,7 +132,7 @@ text editor. Changes provides Git status grouped by stack where possible,
 unified diff, per-file selection, local commit, and push status. Git operations
 stay local-workspace-first; this is not a branch, merge, or reconciliation UI.
 
-Rules shared by Config and Stack Files:
+Rules shared by Config and Stack files:
 
 - non-text files show metadata and a read-only explanation;
 - unreadable files remain visible with owner, group, mode, effective access,
@@ -142,9 +143,14 @@ Rules shared by Config and Stack Files:
   by default;
 - unsupported repair capability remains visible with its reason.
 
-Stack Files applies the same model inside one stack root. Root `compose.yaml`
-and root `.env` direct the operator to the Compose Editor; supporting text files
-and nested `.env` files use the normal workspace editor.
+Stack files applies the same model inside one stack root. It displays the
+stack-local and managed-config roots explicitly. Root `compose.yaml` and root
+`.env` direct the operator to the Compose Editor; supporting text files and
+nested `.env` files use the normal workspace editor. Managed configuration
+remains a separate workspace, reached through an `Open managed config` deep
+link to `/config?path=<stack-id>`. Config directory navigation keeps the
+current path in the URL and displays its resolved filesystem location. A
+missing deep-linked directory offers a return to the config root.
 
 Changes mode never hides an unreadable changed file. It disables diff or commit
 selection only for that item, and group selection skips ineligible items. A

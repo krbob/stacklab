@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConfigPage } from './config-page'
@@ -284,8 +284,11 @@ const blockedGitDiff: GitDiffResponse = {
   truncated: false,
 }
 
-function renderPage() {
-  const router = createMemoryRouter([{ path: '*', element: <ConfigPage /> }])
+function renderPage(initialEntry = '/config') {
+  const router = createMemoryRouter(
+    [{ path: '*', element: <ConfigPage /> }],
+    { initialEntries: [initialEntry] },
+  )
   return { router, ...render(<RouterProvider router={router} />) }
 }
 
@@ -351,6 +354,66 @@ describe('ConfigPage', () => {
     })
     expect(await screen.findByRole('status')).toHaveTextContent('Saved')
     expect(mockGetConfigFile).toHaveBeenLastCalledWith('demo/app.conf')
+  })
+
+  it('opens a URL-addressed config subtree and keeps directory navigation in the URL', async () => {
+    mockGetConfigTree
+      .mockResolvedValueOnce(demoTree)
+      .mockResolvedValueOnce(rootTree)
+
+    const { router } = renderPage('/config?path=demo')
+
+    expect(await screen.findByRole('button', { name: 'app.conf' })).toBeInTheDocument()
+    expect(mockGetConfigTree).toHaveBeenNthCalledWith(1, 'demo')
+    expect(router.state.location.search).toBe('?path=demo')
+    expect(screen.getAllByText('/opt/stacklab/config/demo', { exact: true })[0]).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '.. (up)' }))
+
+    await waitFor(() => expect(mockGetConfigTree).toHaveBeenNthCalledWith(2, undefined))
+    expect(router.state.location.search).toBe('')
+  })
+
+  it('offers a safe return to the config root for a stale deep link', async () => {
+    mockGetConfigTree
+      .mockRejectedValueOnce(new Error('Config directory not found'))
+      .mockResolvedValueOnce(rootTree)
+
+    const { router } = renderPage('/config?path=missing')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Files unavailable: Config directory not found')
+    fireEvent.click(screen.getByRole('button', { name: 'Open config root' }))
+
+    await waitFor(() => expect(mockGetConfigTree).toHaveBeenNthCalledWith(2, undefined))
+    expect(router.state.location.search).toBe('')
+    expect(await screen.findByRole('button', { name: 'demo' })).toBeInTheDocument()
+  })
+
+  it('ignores a superseded directory response after URL navigation', async () => {
+    let resolveDemoTree!: (value: ConfigTreeResponse) => void
+    const pendingDemoTree = new Promise<ConfigTreeResponse>((resolve) => {
+      resolveDemoTree = resolve
+    })
+    mockGetConfigTree
+      .mockImplementationOnce(() => pendingDemoTree)
+      .mockResolvedValueOnce(rootTree)
+
+    const { router } = renderPage('/config?path=demo')
+    await waitFor(() => expect(mockGetConfigTree).toHaveBeenCalledWith('demo'))
+
+    await act(async () => {
+      await router.navigate('/config')
+    })
+
+    expect(await screen.findByRole('button', { name: 'demo' })).toBeInTheDocument()
+    await act(async () => {
+      resolveDemoTree(demoTree)
+      await pendingDemoTree
+    })
+
+    expect(router.state.location.search).toBe('')
+    expect(screen.queryByRole('button', { name: 'app.conf' })).not.toBeInTheDocument()
+    expect(screen.getAllByText('/opt/stacklab/config', { exact: true })[0]).toBeInTheDocument()
   })
 
   it('requires confirmation before discarding config file changes', async () => {
@@ -425,20 +488,29 @@ describe('ConfigPage', () => {
       .mockResolvedValueOnce(rootTree)
     mockGetConfigFile.mockResolvedValue(fileBefore)
 
-    renderPage()
+    const { router } = renderPage()
 
     fireEvent.click(await screen.findByRole('button', { name: 'demo' }))
     fireEvent.click(await screen.findByRole('button', { name: 'app.conf' }))
     fireEvent.change(await screen.findByLabelText('yaml-editor'), { target: { value: 'server_name draft.local;\n' } })
 
     fireEvent.click(screen.getByRole('button', { name: '.. (up)' }))
-    expect(screen.getByRole('dialog', { name: 'Discard changes to "app.conf"?' })).toBeInTheDocument()
+    const dialog = screen.getByRole('dialog', { name: 'Discard unsaved changes?' })
     expect(mockGetConfigTree).toHaveBeenCalledTimes(2)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Discard and continue' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(screen.getByLabelText('yaml-editor')).toHaveValue('server_name draft.local;\n')
+    expect(mockGetConfigTree).toHaveBeenCalledTimes(2)
+    expect(router.state.location.search).toBe('?path=demo')
+
+    fireEvent.click(screen.getByRole('button', { name: '.. (up)' }))
+    const confirmedDialog = screen.getByRole('dialog', { name: 'Discard unsaved changes?' })
+
+    fireEvent.click(within(confirmedDialog).getByRole('button', { name: 'Discard changes' }))
 
     await waitFor(() => expect(mockGetConfigTree).toHaveBeenCalledTimes(3))
     expect(screen.queryByLabelText('yaml-editor')).not.toBeInTheDocument()
+    expect(router.state.location.search).toBe('')
   })
 
   it('protects a config draft when switching from Files to Changes mode', async () => {

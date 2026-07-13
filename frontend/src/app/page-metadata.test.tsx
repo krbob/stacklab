@@ -63,7 +63,7 @@ describe('PageMetadataProvider', () => {
   it.each([
     ['/stacks/demo', 'Overview'],
     ['/stacks/demo/editor', 'Editor'],
-    ['/stacks/demo/files', 'Files'],
+    ['/stacks/demo/files', 'Stack files'],
     ['/stacks/demo/logs', 'Logs'],
     ['/stacks/demo/stats', 'Stats'],
     ['/stacks/demo/terminal', 'Terminal'],

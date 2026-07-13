@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { useOutletContext, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useOutletContext } from 'react-router-dom'
 import { File, FileQuestion, FileWarning, Folder, Hammer, Plus } from 'lucide-react'
 import { getStackWorkspaceTree, getStackWorkspaceFile, saveStackWorkspaceFile, repairStackWorkspacePermissions } from '@/lib/api-client'
 import type { StackDetailResponse, StackWorkspaceTreeEntry, StackWorkspaceFileResponse } from '@/lib/api-types'
@@ -143,9 +143,29 @@ export function StackFilesPage() {
     : null
 
   return (
-    <div aria-busy={treeLoading || fileLoading || saving} className="flex flex-col gap-4 lg:flex-row" style={{ minHeight: '400px' }}>
+    <>
       <UnsavedChangesGuard when={isDirty} />
 
+      <section aria-label="Stack file locations" className="grid gap-3 rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] p-4 md:grid-cols-2">
+        <div className="min-w-0">
+          <h2 className="font-brand text-xs uppercase tracking-wider text-[var(--accent)]">Stack files</h2>
+          <p className="mt-1 text-xs text-[var(--muted)]">Files stored beside the stack definition. Edit root compose.yaml and .env in the Editor tab.</p>
+          <div className="mt-2 break-all font-mono text-xs text-[var(--text)]">{stack.root_path}</div>
+        </div>
+        <div className="min-w-0 border-t border-[var(--panel-border)] pt-3 md:border-l md:border-t-0 md:pl-4 md:pt-0">
+          <h2 className="font-brand text-xs uppercase tracking-wider text-[var(--accent)]">Managed config</h2>
+          <p className="mt-1 text-xs text-[var(--muted)]">Separate files mounted or referenced by this stack.</p>
+          <div className="mt-2 break-all font-mono text-xs text-[var(--text)]">{stack.config_path}</div>
+          <Link
+            to={`/config?path=${encodeURIComponent(stack.id)}`}
+            className="mt-3 inline-flex rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.10)] px-3 py-1.5 text-xs text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.16)]"
+          >
+            Open managed config
+          </Link>
+        </div>
+      </section>
+
+      <div aria-busy={treeLoading || fileLoading || saving} className="flex flex-col gap-4 lg:flex-row" style={{ minHeight: '400px' }}>
       {/* Tree panel */}
       <div className="w-full shrink-0 overflow-y-auto lg:w-56">
         <AsyncState
@@ -282,7 +302,8 @@ export function StackFilesPage() {
           onConfirm={confirmPendingAction}
         />
       )}
-    </div>
+      </div>
+    </>
   )
 }
 

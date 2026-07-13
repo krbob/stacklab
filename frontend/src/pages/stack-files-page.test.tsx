@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { StackFilesPage } from './stack-files-page'
@@ -22,7 +22,11 @@ vi.mock('react-router-dom', async () => {
   return {
     ...actual,
     useOutletContext: () => ({
-      stack: { id: 'demo' },
+      stack: {
+        id: 'demo',
+        root_path: '/opt/stacklab/stacks/demo',
+        config_path: '/opt/stacklab/config/demo',
+      },
     }),
   }
 })
@@ -168,6 +172,18 @@ describe('StackFilesPage', () => {
     mockGetStackWorkspaceTree.mockReset()
     mockGetStackWorkspaceFile.mockReset()
     mockSaveStackWorkspaceFile.mockReset()
+  })
+
+  it('distinguishes stack-local files from managed config and links to its subtree', async () => {
+    mockGetStackWorkspaceTree.mockResolvedValue(rootTree)
+
+    renderPage()
+
+    const locations = screen.getByRole('region', { name: 'Stack file locations' })
+    expect(locations).toHaveTextContent('/opt/stacklab/stacks/demo')
+    expect(locations).toHaveTextContent('/opt/stacklab/config/demo')
+    expect(within(locations).getByRole('link', { name: 'Open managed config' })).toHaveAttribute('href', '/config?path=demo')
+    expect(await screen.findByRole('button', { name: /compose\.yaml/i })).toBeInTheDocument()
   })
 
   it('shows a file-tree failure with Retry and recovers without a false empty state', async () => {

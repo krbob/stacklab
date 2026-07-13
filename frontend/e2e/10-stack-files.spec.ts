@@ -33,7 +33,7 @@ async function openFixtureFile(page: Page) {
   await expect(page.locator('.cm-content')).toBeVisible()
 }
 
-test.describe('Stack Files', () => {
+test.describe('Stack files', () => {
   test.beforeEach(async ({ page }) => {
     await login(page)
     await saveFixtureFile(page, ORIGINAL_CONTENT)
@@ -47,7 +47,7 @@ test.describe('Stack Files', () => {
     await openFixtureFile(page)
 
     await expect(page.getByRole('heading', { level: 1, name: STACK_ID })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Files', exact: true })).toHaveAttribute('aria-current', 'page')
+    await expect(page.getByRole('link', { name: 'Stack files', exact: true })).toHaveAttribute('aria-current', 'page')
     await expect(page.getByRole('button', { name: '.. (up)', exact: true })).toBeVisible()
 
     const editor = page.locator('.cm-content')

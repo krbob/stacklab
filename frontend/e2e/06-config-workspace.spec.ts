@@ -42,6 +42,15 @@ test.describe('Config Workspace', () => {
     await expect(page.locator('.cm-content')).toContainText('listen 8080')
   })
 
+  test('opens the stack managed-config directory from Stack files', async ({ page }) => {
+    await page.goto(`/stacks/${STACK_ID}/files`)
+    await page.getByRole('link', { name: 'Open managed config' }).click()
+
+    await expect(page).toHaveURL(new RegExp(`/config\\?path=${STACK_ID}$`))
+    await expect(page.getByText(`/config/${STACK_ID}`, { exact: false }).first()).toBeVisible()
+    await expect(page.getByText('Empty directory', { exact: true }).first()).toBeVisible()
+  })
+
   test('saves a config file and sees audit entry', async ({ page }) => {
     const cookies = await page.context().cookies()
     const sessionCookie = cookies.find((c) => c.name.startsWith('stacklab'))

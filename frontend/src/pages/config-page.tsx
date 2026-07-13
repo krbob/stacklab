@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { File, FileQuestion, FileWarning, Folder, FolderKanban, GitBranch, Plus } from 'lucide-react'
 import { getConfigTree, getConfigFile, saveConfigFile, repairConfigWorkspacePermissions, getGitWorkspaceStatus, getGitWorkspaceDiff } from '@/lib/api-client'
 import type { ConfigTreeEntry, ConfigFileResponse, GitStatusItem, GitDiffResponse } from '@/lib/api-types'
@@ -34,6 +34,8 @@ const statusPrefixes: Record<string, { letter: string; color: string }> = {
 }
 
 export function ConfigPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestedTreePath = searchParams.get('path') ?? ''
   const [mode, setMode] = useState<Mode>('files')
   const [sheetOpen, setSheetOpen] = useState(false)
 
@@ -44,6 +46,7 @@ export function ConfigPage() {
   const [parentPath, setParentPath] = useState<string | null>(null)
   const [treeLoading, setTreeLoading] = useState(true)
   const [treeError, setTreeError] = useState<TreeLoadError | null>(null)
+  const treeRequestIdRef = useRef(0)
 
   const [selectedFile, setSelectedFile] = useState<ConfigFileResponse | null>(null)
   const [fileLoading, setFileLoading] = useState(false)
@@ -91,25 +94,35 @@ export function ConfigPage() {
   // --- Files mode logic ---
 
   const loadTree = useCallback(async (path: string) => {
+    const requestId = ++treeRequestIdRef.current
     setTreeLoading(true)
     setTreeError(null)
     try {
       const result = await getConfigTree(path || undefined)
+      if (requestId !== treeRequestIdRef.current) return
       setWorkspaceRoot(result.workspace_root)
       setTreeEntries(result.items)
       setParentPath(result.parent_path)
       setTreePath(result.current_path)
     } catch (err) {
+      if (requestId !== treeRequestIdRef.current) return
       setTreeError({
         message: err instanceof Error ? err.message : 'Failed to load tree',
         path,
       })
     } finally {
-      setTreeLoading(false)
+      if (requestId === treeRequestIdRef.current) setTreeLoading(false)
     }
   }, [])
 
-  useEffect(() => { loadTree('') }, [loadTree])
+  useEffect(() => {
+    setSelectedFile(null)
+    setFileError(null)
+    setSaveMessage(null)
+    setCreatingFile(false)
+    setConfirmDiscard(false)
+    void loadTree(requestedTreePath)
+  }, [loadTree, requestedTreePath])
 
   const openFile = useCallback(async (path: string) => {
     setFileLoading(true)
@@ -130,12 +143,13 @@ export function ConfigPage() {
   }, [])
 
   const navigateDir = useCallback((path: string) => {
-    loadTree(path)
-    setSelectedFile(null)
-    setFileError(null)
-    setSaveMessage(null)
-    setCreatingFile(false)
-  }, [loadTree])
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current)
+      if (path) next.set('path', path)
+      else next.delete('path')
+      return next
+    })
+  }, [setSearchParams])
 
   const handleSave = useCallback(async () => {
     if (!selectedFile) return
@@ -286,8 +300,8 @@ export function ConfigPage() {
 
   const requestNavigateDir = useCallback((path: string) => {
     if (treePath === path) return
-    requestDiscardingAction(() => navigateDir(path))
-  }, [navigateDir, requestDiscardingAction, treePath])
+    navigateDir(path)
+  }, [navigateDir, treePath])
 
   const requestModeSwitch = useCallback((newMode: Mode) => {
     if (mode === newMode) return
@@ -308,8 +322,9 @@ export function ConfigPage() {
       <div aria-busy={mode === 'files' ? treeLoading : gitLoading} className="hidden w-64 shrink-0 flex-col rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-[var(--shadow)] lg:flex">
         <div className="mb-3 text-xs uppercase tracking-wider text-[var(--accent)]">Config workspace</div>
         <p className="mb-3 text-xs text-[var(--muted)]">
-          Files here live under <span className="font-mono">{workspaceRoot ?? 'the managed config root'}</span>. They are only used when a stack mounts or references them.
+          Files here are only used when a stack mounts or references them.
         </p>
+        <WorkspacePath root={workspaceRoot} path={treeLoading || treeError ? requestedTreePath : treePath} />
 
         {/* Mode toggle */}
         <div className="mb-3 flex gap-1">
@@ -356,6 +371,7 @@ export function ConfigPage() {
                 message={`Files unavailable: ${treeError.message}`}
                 retryLabel="Retry config files"
                 onRetry={() => { void loadTree(treeError.path) }}
+                onOpenRoot={treeError.path ? () => navigateDir('') : undefined}
               />
             )}
             {!treeLoading && !treeError && (
@@ -492,8 +508,9 @@ export function ConfigPage() {
       <BottomSheet open={sheetOpen} onClose={() => setSheetOpen(false)} label="Config workspace">
         <div className="mb-3 text-xs uppercase tracking-wider text-[var(--accent)]">Config workspace</div>
         <p className="mb-3 text-xs text-[var(--muted)]">
-          Files here live under <span className="font-mono">{workspaceRoot ?? 'the managed config root'}</span>. They are only used when a stack mounts or references them.
+          Files here are only used when a stack mounts or references them.
         </p>
+        <WorkspacePath root={workspaceRoot} path={treeLoading || treeError ? requestedTreePath : treePath} />
 
         {/* Mode toggle */}
         <div className="mb-3 flex gap-1">
@@ -540,6 +557,7 @@ export function ConfigPage() {
                 message={`Files unavailable: ${treeError.message}`}
                 retryLabel="Retry config files"
                 onRetry={() => { void loadTree(treeError.path) }}
+                onOpenRoot={treeError.path ? () => navigateDir('') : undefined}
               />
             )}
             {!treeLoading && !treeError && (
@@ -841,10 +859,11 @@ export function ConfigPage() {
   )
 }
 
-function WorkspaceLoadError({ message, retryLabel, onRetry }: {
+function WorkspaceLoadError({ message, retryLabel, onRetry, onOpenRoot }: {
   message: string
   retryLabel: string
   onRetry: () => void
+  onOpenRoot?: () => void
 }) {
   return (
     <div
@@ -852,13 +871,39 @@ function WorkspaceLoadError({ message, retryLabel, onRetry }: {
       className="rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-3 py-2 text-xs text-[var(--danger)]"
     >
       <p>{message}</p>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="mt-2 rounded-md border border-[var(--danger)]/30 px-2 py-1 hover:bg-[var(--danger)]/10"
-      >
-        {retryLabel}
-      </button>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={onRetry}
+          className="rounded-md border border-[var(--danger)]/30 px-2 py-1 hover:bg-[var(--danger)]/10"
+        >
+          {retryLabel}
+        </button>
+        {onOpenRoot && (
+          <button
+            type="button"
+            onClick={onOpenRoot}
+            className="rounded-md border border-[var(--panel-border)] px-2 py-1 text-[var(--muted)] hover:text-[var(--text)]"
+          >
+            Open config root
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function WorkspacePath({ root, path }: { root: string | null; path: string }) {
+  const currentPath = root
+    ? `${root}${path ? `/${path}` : ''}`
+    : (path || 'Loading managed config root...')
+
+  return (
+    <div
+      className="mb-3 break-all rounded-md border border-[var(--panel-border)] bg-[rgba(0,0,0,0.16)] px-2 py-1.5 font-mono text-xs text-[var(--text)]"
+    >
+      <div className="mb-1 font-sans text-xs uppercase tracking-wider text-[var(--muted)]">Current config path</div>
+      <code>{currentPath}</code>
     </div>
   )
 }

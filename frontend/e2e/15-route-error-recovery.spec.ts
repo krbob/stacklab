@@ -18,7 +18,7 @@ test.describe('Route error recovery', () => {
       await route.abort('failed')
     })
 
-    await page.getByRole('link', { name: 'Files', exact: true }).click()
+    await page.getByRole('link', { name: 'Stack files', exact: true }).click()
 
     await expect(page).toHaveURL(new RegExp(`/stacks/${STACK_ID}/files$`))
     await expect(page.getByRole('heading', { level: 1, name: 'This view could not be displayed' })).toBeVisible()
@@ -32,7 +32,7 @@ test.describe('Route error recovery', () => {
 
     await expect(page).toHaveURL(new RegExp(`/stacks/${STACK_ID}/files$`))
     await expect(page.getByRole('heading', { level: 1, name: STACK_ID })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Files', exact: true })).toHaveAttribute('aria-current', 'page')
+    await expect(page.getByRole('link', { name: 'Stack files', exact: true })).toHaveAttribute('aria-current', 'page')
     await expect(page.getByRole('alert')).toHaveCount(0)
   })
 })

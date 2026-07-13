@@ -63,7 +63,7 @@ export function AppRoutes() {
           <Route path="stacks/:stackId" element={<StackLayout />}>
             <Route index element={<StackOverviewPage />} />
             <Route path="editor" element={<Suspense fallback={<StackViewLoading title="Editor" />}><StackEditorPage /></Suspense>} />
-            <Route path="files" element={<Suspense fallback={<StackViewLoading title="Files" />}><StackFilesPage /></Suspense>} />
+            <Route path="files" element={<Suspense fallback={<StackViewLoading title="Stack files" />}><StackFilesPage /></Suspense>} />
             <Route path="logs" element={<Suspense fallback={<StackViewLoading title="Logs" />}><StackLogsPage /></Suspense>} />
             <Route path="stats" element={<Suspense fallback={<StackViewLoading title="Stats" />}><StackStatsPage /></Suspense>} />
             <Route path="terminal" element={<Suspense fallback={<StackViewLoading title="Terminal" />}><StackTerminalPage /></Suspense>} />
