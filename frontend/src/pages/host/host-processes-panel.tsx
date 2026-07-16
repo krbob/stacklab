@@ -49,7 +49,7 @@ export function HostProcessesPanel({
           tabIndex={0}
           className="overflow-x-auto rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
         >
-          <table className="w-full min-w-[820px] table-fixed text-left text-xs">
+          <table className="w-full min-w-[900px] table-fixed text-left text-xs">
             <thead className="text-[var(--muted)]">
               <tr className="border-b border-[var(--panel-border)]">
                 <th className="w-16 py-2 pr-3 font-medium">PID</th>
@@ -57,7 +57,7 @@ export function HostProcessesPanel({
                 <th className="w-20 px-3 py-2 text-right font-medium">CPU</th>
                 <th className="w-32 px-3 py-2 text-right font-medium">RAM</th>
                 <th className="w-16 px-3 py-2 text-center font-medium">State</th>
-                <th className="w-40 px-3 py-2 font-medium">Source</th>
+                <th className="w-56 px-3 py-2 font-medium">Source</th>
                 <th className="px-3 py-2 font-medium">Command</th>
               </tr>
             </thead>
@@ -72,10 +72,8 @@ export function HostProcessesPanel({
                     <span className="ml-1 text-[var(--muted)]">({formatPercent(process.memory_percent)})</span>
                   </td>
                   <td className="px-3 py-2 text-center font-mono text-[var(--muted)]">{process.state || '-'}</td>
-                  <td className="min-w-0 px-3 py-2" title={processSourceTitle(process)}>
-                    <span className={processSourceClass(process)}>
-                      <span className="truncate">{processSourceLabel(process)}</span>
-                    </span>
+                  <td className="min-w-0 px-3 py-2">
+                    <ProcessSource process={process} />
                   </td>
                   <td className="min-w-0 px-3 py-2 text-[var(--text)]" title={processLabel(process)}>
                     <div className="truncate">{processLabel(process)}</div>
@@ -113,16 +111,44 @@ function processLabel(process: NonNullable<HostMetricSample['processes']>['items
   return process.display_command || process.command
 }
 
-function processSourceLabel(process: NonNullable<HostMetricSample['processes']>['items'][number]): string {
+function ProcessSource({
+  process,
+}: {
+  process: NonNullable<HostMetricSample['processes']>['items'][number]
+}) {
   const container = process.container
   if (!container) {
-    return 'Host'
+    return (
+      <span aria-label="Host process" className={processSourceClass(process)} role="group">
+        Host
+      </span>
+    )
   }
-  if (container.stack_id) {
-    const service = container.service_name || container.name || shortContainerId(container.id)
-    return service ? `${container.stack_id} / ${service}` : container.stack_id
-  }
-  return `Docker / ${container.name || shortContainerId(container.id)}`
+
+  const primary = container.service_name || container.name || shortContainerId(container.id)
+  const containerName = container.name && container.name !== primary ? container.name : null
+
+  return (
+    <span
+      aria-label={processSourceTitle(process)}
+      className={processSourceClass(process)}
+      role="group"
+      title={processSourceTitle(process)}
+    >
+      <span className="min-w-0 [overflow-wrap:anywhere] font-medium leading-4 text-[var(--text)]">
+        {primary}
+      </span>
+      <span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1 text-[11px] leading-4 text-[var(--muted)]">
+        <span className="shrink-0">{container.stack_id ? `stack ${container.stack_id}` : 'Docker'}</span>
+        {containerName && (
+          <>
+            <span aria-hidden="true">·</span>
+            <span className="min-w-0 [overflow-wrap:anywhere]">{containerName}</span>
+          </>
+        )}
+      </span>
+    </span>
+  )
 }
 
 function processSourceTitle(process: NonNullable<HostMetricSample['processes']>['items'][number]): string {
@@ -140,12 +166,12 @@ function processSourceTitle(process: NonNullable<HostMetricSample['processes']>[
 
 function processSourceClass(process: NonNullable<HostMetricSample['processes']>['items'][number]): string {
   return cn(
-    'inline-flex max-w-full items-center rounded border px-2 py-0.5 text-xs',
+    'inline-grid max-w-full rounded border text-xs',
     process.container?.stack_id
-      ? 'border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.10)] text-[var(--text)]'
+      ? 'w-full border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.10)] px-2 py-1 text-[var(--text)]'
       : process.container
-        ? 'border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.05)] text-[var(--muted)]'
-        : 'border-transparent bg-transparent px-0 text-[var(--muted)]',
+        ? 'w-full border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.05)] px-2 py-1 text-[var(--muted)]'
+        : 'w-auto border-transparent bg-transparent text-[var(--muted)]',
   )
 }
 
