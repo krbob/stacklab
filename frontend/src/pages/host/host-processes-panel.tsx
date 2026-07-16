@@ -138,7 +138,7 @@ function ProcessSource({
       <span className="min-w-0 [overflow-wrap:anywhere] font-medium leading-4 text-[var(--text)]">
         {primary}
       </span>
-      <span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1 text-[11px] leading-4 text-[var(--muted)]">
+      <span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1 text-xs leading-4 text-[var(--muted)]">
         <span className="shrink-0">{container.stack_id ? `stack ${container.stack_id}` : 'Docker'}</span>
         {containerName && (
           <>
