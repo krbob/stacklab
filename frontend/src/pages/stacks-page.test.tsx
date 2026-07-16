@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { StacksPage } from './stacks-page'
@@ -83,6 +83,32 @@ describe('StacksPage', () => {
     expect(screen.getByText('mem 89M')).toBeInTheDocument()
     expect(screen.getByText('drift')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Web UI' })).toHaveAttribute('href', 'https://t.example.net')
+  })
+
+  it('gives the full stack name its own wrapping row when status badges are present', async () => {
+    const name = 'wireguard-remote-access-europe'
+    mockGetStacks.mockResolvedValueOnce({
+      ...response,
+      items: [makeStack({
+        id: name,
+        name,
+        updates: {
+          state: 'available',
+          services_with_updates: 1,
+          checked_at: '2026-07-09T03:00:00Z',
+        },
+      })],
+    })
+
+    renderPage()
+
+    const card = await screen.findByTestId(`stack-card-${name}`)
+    const heading = within(card).getByRole('heading', { level: 2, name })
+    expect(heading).toHaveClass('[overflow-wrap:anywhere]')
+    expect(heading).not.toHaveClass('truncate')
+    expect(heading.parentElement).not.toHaveTextContent('update')
+    expect(within(card).getByText('update')).toBeInTheDocument()
+    expect(within(card).getByText('Running')).toBeInTheDocument()
   })
 
   it('filters by name and by problems chip', async () => {

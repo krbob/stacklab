@@ -67,17 +67,11 @@ function StackTile({ stack }: { stack: StackListItem }) {
         aria-label={stack.name}
         className="absolute inset-0 rounded-lg"
       />
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 items-start gap-2">
         <StackGlyph name={stack.name} icon={stack.metadata?.icon} />
-        <span className="min-w-0 truncate font-mono text-sm font-semibold text-[var(--text)]">{stack.name}</span>
-        {stack.updates?.state === 'available' && (
-          <span className="shrink-0 rounded border border-[rgba(245,165,36,0.4)] px-1 font-mono text-xs font-bold uppercase tracking-wide text-[var(--accent)]">
-            update
-          </span>
-        )}
-        <span className={cn('ml-auto shrink-0 text-xs', state.className)}>
-          {stack.activity_state === 'locked' ? 'Working…' : state.label}
-        </span>
+        <h2 className="min-w-0 flex-1 [overflow-wrap:anywhere] font-mono text-sm font-semibold leading-5 text-[var(--text)]">
+          {stack.name}
+        </h2>
       </div>
 
       <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-xs text-[var(--muted)]">
@@ -93,6 +87,16 @@ function StackTile({ stack }: { stack: StackListItem }) {
         {unhealthy > 0 && (
           <span className="text-[var(--warning)]">{unhealthy} unhealthy</span>
         )}
+        <span className="ml-auto flex shrink-0 items-center gap-2 whitespace-nowrap">
+          {stack.updates?.state === 'available' && (
+            <span className="rounded border border-[rgba(245,165,36,0.4)] px-1 font-bold uppercase tracking-wide text-[var(--accent)]">
+              update
+            </span>
+          )}
+          <span className={state.className}>
+            {stack.activity_state === 'locked' ? 'Working…' : state.label}
+          </span>
+        </span>
       </div>
 
       {stack.stats && (
