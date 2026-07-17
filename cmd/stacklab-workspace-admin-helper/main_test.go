@@ -88,7 +88,7 @@ func TestRunRepairRejectsUnexpectedPositionalArguments(t *testing.T) {
 	}
 }
 
-func TestRunRepairACLGrantsAccessWithoutChangingMode(t *testing.T) {
+func TestRunRepairACLGrantsReadWriteWithoutExecuteToRegularFile(t *testing.T) {
 	tempDir := t.TempDir()
 	root := filepath.Join(tempDir, "root")
 	stackRoot := filepath.Join(root, "stacks", "demo")
@@ -98,10 +98,6 @@ func TestRunRepairACLGrantsAccessWithoutChangingMode(t *testing.T) {
 	targetPath := filepath.Join(stackRoot, "secret.txt")
 	if err := os.WriteFile(targetPath, []byte("secret\n"), 0o400); err != nil {
 		t.Fatalf("WriteFile(target) error = %v", err)
-	}
-	before, err := os.Stat(targetPath)
-	if err != nil {
-		t.Fatalf("Stat(target before) error = %v", err)
 	}
 
 	withStacklabEnv(t, "STACKLAB_ROOT="+root+"\n")
@@ -119,13 +115,6 @@ func TestRunRepairACLGrantsAccessWithoutChangingMode(t *testing.T) {
 		t.Fatalf("runRepair() error = %v", err)
 	}
 
-	after, err := os.Stat(targetPath)
-	if err != nil {
-		t.Fatalf("Stat(target after) error = %v", err)
-	}
-	if before.Mode().Perm() != after.Mode().Perm() {
-		t.Fatalf("mode changed from %v to %v", before.Mode().Perm(), after.Mode().Perm())
-	}
 	if len(calls) != 1 {
 		t.Fatalf("setfacl calls = %#v, want one call", calls)
 	}
@@ -133,8 +122,37 @@ func TestRunRepairACLGrantsAccessWithoutChangingMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EvalSymlinks(target) error = %v", err)
 	}
-	if !hasACLEntry(calls[0], "u:", ":rwX") || !hasExactACL(calls[0], "m::rwX") || calls[0][len(calls[0])-1] != resolvedTarget {
+	if !hasACLEntry(calls[0], "u:", ":rw-") || !hasExactACL(calls[0], "m::rw-") || calls[0][len(calls[0])-1] != resolvedTarget {
 		t.Fatalf("unexpected setfacl args: %#v", calls[0])
+	}
+}
+
+func TestRunRepairACLGrantsExecuteToExecutableFile(t *testing.T) {
+	tempDir := t.TempDir()
+	root := filepath.Join(tempDir, "root")
+	stackRoot := filepath.Join(root, "stacks", "demo")
+	if err := os.MkdirAll(stackRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(stackRoot) error = %v", err)
+	}
+	targetPath := filepath.Join(stackRoot, "run.sh")
+	if err := os.WriteFile(targetPath, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatalf("WriteFile(target) error = %v", err)
+	}
+
+	withStacklabEnv(t, "STACKLAB_ROOT="+root+"\n")
+	var calls [][]string
+	restore := replaceACLCommand(func(name string, args ...string) ([]byte, error) {
+		calls = append(calls, append([]string(nil), args...))
+		return nil, nil
+	})
+	defer restore()
+
+	if err := runRepair([]string{"--path", targetPath, "--strategy", "acl"}); err != nil {
+		t.Fatalf("runRepair() error = %v", err)
+	}
+
+	if len(calls) != 1 || !hasACLEntry(calls[0], "u:", ":rwx") || !hasExactACL(calls[0], "m::rwx") {
+		t.Fatalf("unexpected setfacl args: %#v", calls)
 	}
 }
 
@@ -168,14 +186,20 @@ func TestRunRepairACLRecursiveAddsDefaultACLForDirectories(t *testing.T) {
 	if !hasDefaultACL(calls[0]) || !hasDefaultACL(calls[1]) {
 		t.Fatalf("directory calls missing default ACL: %#v", calls)
 	}
+	if !hasACLEntry(calls[0], "u:", ":rwx") || !hasACLEntry(calls[1], "u:", ":rwx") {
+		t.Fatalf("directory calls missing access ACL: %#v", calls)
+	}
+	if !hasExactACL(calls[0], "m::rwx") || !hasExactACL(calls[1], "m::rwx") {
+		t.Fatalf("directory calls missing access ACL mask: %#v", calls)
+	}
 	if !hasExactACL(calls[0], "d:m::rwx") || !hasExactACL(calls[1], "d:m::rwx") {
 		t.Fatalf("directory calls missing default ACL mask: %#v", calls)
 	}
 	if hasDefaultACL(calls[2]) {
 		t.Fatalf("file call unexpectedly has default ACL: %#v", calls[2])
 	}
-	if !hasExactACL(calls[2], "m::rwX") {
-		t.Fatalf("file call missing ACL mask: %#v", calls[2])
+	if !hasACLEntry(calls[2], "u:", ":rw-") || !hasExactACL(calls[2], "m::rw-") {
+		t.Fatalf("file call has unexpected access ACL: %#v", calls[2])
 	}
 }
 
@@ -212,7 +236,7 @@ func withStacklabEnv(t *testing.T, content string) {
 }
 
 func hasDefaultACL(args []string) bool {
-	return hasACLEntry(args, "d:u:", ":rwX")
+	return hasACLEntry(args, "d:u:", ":rwx")
 }
 
 func hasACLEntry(args []string, prefix, suffix string) bool {

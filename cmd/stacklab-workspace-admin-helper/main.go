@@ -383,11 +383,18 @@ func grantACL(path string, info os.FileInfo, uid int) error {
 		return fmt.Errorf("unsupported file type at %s", path)
 	}
 
-	entry := fmt.Sprintf("u:%d:rwX", uid)
-	maskEntry := "m::rwX"
+	// Resolve execute access from the effective mode before widening the ACL
+	// mask. Passing rwX through to setfacl can revive execute bits stored in
+	// existing named entries even when they are currently masked off.
+	permissions := "rw-"
+	if info.IsDir() || info.Mode().Perm()&0o111 != 0 {
+		permissions = "rwx"
+	}
+	entry := fmt.Sprintf("u:%d:%s", uid, permissions)
+	maskEntry := "m::" + permissions
 	args := []string{"-m", entry, "-m", maskEntry, path}
 	if info.IsDir() {
-		defaultEntry := fmt.Sprintf("d:u:%d:rwX", uid)
+		defaultEntry := fmt.Sprintf("d:u:%d:rwx", uid)
 		args = []string{"-m", entry, "-m", maskEntry, "-m", defaultEntry, "-m", "d:m::rwx", path}
 	}
 

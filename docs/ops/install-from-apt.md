@@ -133,6 +133,9 @@ flow instead:
   - optionally set `STACKLAB_WORKSPACE_ADMIN_REPAIR_STRATEGY=acl` when
     container-owned files should keep their owner and receive an ACL grant
     for the Stacklab service user instead of being chowned
+  - the ACL strategy grants `rw` to regular files, retains `x` only for files
+    whose current mode is executable, and grants access plus inheritable `rwx`
+    permissions to directories
   - install the system `acl` package when using the ACL strategy, so
     `setfacl` is available to the helper
   - install a narrow `sudoers` rule for the helper
