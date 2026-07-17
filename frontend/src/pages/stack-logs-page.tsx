@@ -26,16 +26,24 @@ export function StackLogsPage() {
   const serviceNames = stack.services.map((s) => s.name)
   const serviceKey = serviceNames.join(',')
   const requestedService = searchParams.get('service')?.trim() ?? ''
-  const [selectedServices, setSelectedServices] = useState<string[]>([])
+  const [selectedServices, setSelectedServices] = useState<string[]>(() =>
+    requestedService && serviceNames.includes(requestedService) ? [requestedService] : [],
+  )
   const [filter, setFilter] = useState('')
   const [autoScroll, setAutoScroll] = useState(true)
   const [wrapLines, setWrapLines] = useState(true)
   const [transferStatus, setTransferStatus] = useState<{ kind: 'success' | 'error'; message: string } | null>(null)
+  const hasMatchingContainer = selectedServices.length === 0
+    ? stack.containers.length > 0
+    : stack.containers.some((container) => selectedServices.includes(container.service_name))
 
-  const { entries, paused, pause, resume, clear } = useLogStream({
+  const { entries, error: streamError, paused, pause, resume, clear } = useLogStream({
     stackId: stack.id,
     serviceNames: selectedServices,
-    enabled: stack.containers.some((c) => c.status === 'running'),
+    // Docker retains stdout/stderr for restarting and stopped containers too.
+    // Container existence, rather than a stale runtime status, determines
+    // whether there is a log source to query.
+    enabled: hasMatchingContainer,
   })
 
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -76,11 +84,6 @@ export function StackLogsPage() {
   }, [entries, filter])
   const visibleLogText = useMemo(() => serializeLogEntries(filteredEntries), [filteredEntries])
 
-  const activeServices = selectedServices.length > 0 ? selectedServices : serviceNames
-  const noRunning = !stack.containers.some(
-    (c) => c.status === 'running' && activeServices.includes(c.service_name),
-  )
-
   async function handleCopy() {
     if (!visibleLogText) return
     try {
@@ -101,14 +104,14 @@ export function StackLogsPage() {
     }
   }
 
-  if (noRunning) {
+  if (!hasMatchingContainer) {
     return (
       <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-10 text-center">
         <p className="text-[var(--text)]">No logs available</p>
         <p className="mt-1 text-sm text-[var(--muted)]">
           {selectedServices.length > 0
-            ? 'The selected service has no running container or no log output.'
-            : 'This stack has no running containers with log output.'}
+            ? 'The selected service has no container yet.'
+            : 'This stack has no containers to read logs from.'}
         </p>
       </div>
     )
@@ -215,6 +218,11 @@ export function StackLogsPage() {
       {paused && (
         <div className="text-xs text-[var(--warning)]">Paused — new logs are buffered.</div>
       )}
+      {streamError && (
+        <div role="alert" className="text-xs text-[var(--danger)]">
+          Log stream failed: {streamError}
+        </div>
+      )}
       {transferStatus && (
         <div
           role={transferStatus.kind === 'error' ? 'alert' : 'status'}
@@ -233,7 +241,11 @@ export function StackLogsPage() {
       >
         {filteredEntries.length === 0 && (
           <div className="py-8 text-center text-[var(--muted)]">
-            {entries.length > 0 && filter.trim() ? 'No log lines match the current filter.' : 'Waiting for logs...'}
+            {entries.length > 0 && filter.trim()
+              ? 'No log lines match the current filter.'
+              : streamError
+                ? 'Log stream unavailable.'
+                : 'Waiting for logs...'}
           </div>
         )}
         {filteredEntries.map((entry, i) => (

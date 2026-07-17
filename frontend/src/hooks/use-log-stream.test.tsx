@@ -59,6 +59,31 @@ describe('useLogStream', () => {
     expect(result.current.entries).toHaveLength(1)
     expect(result.current.entries[0].line).toBe('Hello world')
     expect(result.current.entries[0].service_name).toBe('app')
+    expect(result.current.error).toBeNull()
+  })
+
+  it('surfaces stream errors and clears them for a new service selection', () => {
+    const { result, rerender } = renderHook(
+      ({ services }) => useLogStream({ stackId: 'test', serviceNames: services }),
+      {
+        initialProps: { services: [] as string[] },
+        wrapper: ({ children }) => <Provider>{children}</Provider>,
+      },
+    )
+
+    act(() => {
+      controls.emit('logs_test_all', {
+        type: 'error',
+        stream_id: 'logs_test_all',
+        error: { code: 'internal_error', message: 'Container log stream terminated unexpectedly.' },
+      })
+    })
+
+    expect(result.current.error).toBe('Container log stream terminated unexpectedly.')
+
+    rerender({ services: ['api'] })
+
+    expect(result.current.error).toBeNull()
   })
 
   it('preserves ANSI style across log entries until reset', () => {

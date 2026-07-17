@@ -155,20 +155,24 @@ Stack exists in filesystem but has never been deployed:
 └──────────────────────────────────────────────┘
 ```
 
-### Logs — no log output
+### Logs — no container
 
 ```
 ┌──────────────────────────────────────────────┐
 │                                              │
 │   No logs available                          │
 │                                              │
-│   The selected service has no log output     │
-│   or is not running.                         │
+│   The selected service has no container yet. │
 │                                              │
 │   [Start stack]                              │
 │                                              │
 └──────────────────────────────────────────────┘
 ```
+
+Retained Docker logs remain available for existing `restarting`, `exited`, and
+`dead` containers; only a service without a container uses this empty state. If
+the backend cannot open or continue a Docker log stream, the UI shows the
+stream error instead of leaving the view on "Waiting for logs...".
 
 ### Stats — no running containers
 

@@ -19,6 +19,10 @@ export function useLogStream({ stackId, serviceNames = [], tail = 200, enabled =
   const selectedServiceNames = useMemo(() => (serviceKey ? serviceKey.split(',') : []), [serviceKey])
   const streamId = `logs_${stackId}_${serviceKey || 'all'}`
   const [entriesState, setEntriesState] = useState<{ streamKey: string; entries: LogEntry[] }>({ streamKey, entries: [] })
+  const [errorState, setErrorState] = useState<{ streamKey: string; message: string | null }>({
+    streamKey,
+    message: null,
+  })
   const [paused, setPaused] = useState(false)
   const bufferRef = useRef<{ streamKey: string; entries: LogEntry[] }>({ streamKey, entries: [] })
   const ansiParserRef = useRef<{ streamKey: string; parser: ReturnType<typeof createAnsiParser> }>({
@@ -38,6 +42,7 @@ export function useLogStream({ stackId, serviceNames = [], tail = 200, enabled =
       ansiParserRef.current = { streamKey, parser: createAnsiParser() }
       setEntriesState({ streamKey, entries: [] })
     }
+    setErrorState({ streamKey, message: null })
 
     send({
       type: 'logs.subscribe',
@@ -98,6 +103,11 @@ export function useLogStream({ stackId, serviceNames = [], tail = 200, enabled =
             return { streamKey, entries: capLogEntries(combined) }
           })
         }
+      } else if (frame.type === 'error') {
+        setErrorState({
+          streamKey,
+          message: frame.error?.message ?? 'Container log stream failed.',
+        })
       }
     })
   }, [subscribe, streamId, streamKey, paused, enabled])
@@ -114,9 +124,11 @@ export function useLogStream({ stackId, serviceNames = [], tail = 200, enabled =
   }, [streamKey])
 
   const entries = entriesState.streamKey === streamKey ? entriesState.entries : []
+  const error = errorState.streamKey === streamKey ? errorState.message : null
 
   return {
     entries,
+    error,
     paused,
     pause: () => setPaused(true),
     resume,

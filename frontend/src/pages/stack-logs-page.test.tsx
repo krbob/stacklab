@@ -40,13 +40,15 @@ const stack = {
   ],
 }
 
+let outletStack = stack
+
 function StackOutlet() {
-  return <Outlet context={{ stack }} />
+  return <Outlet context={{ stack: outletStack }} />
 }
 
-function renderPage() {
+function renderPage(initialEntry = '/stacks/demo/logs') {
   return render(
-    <MemoryRouter initialEntries={['/stacks/demo/logs']}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route path="/stacks/:stackId" element={<StackOutlet />}>
           <Route path="logs" element={<StackLogsPage />} />
@@ -58,9 +60,11 @@ function renderPage() {
 
 describe('StackLogsPage', () => {
   beforeEach(() => {
+    outletStack = stack
     mockUseLogStream.mockReset()
     mockUseLogStream.mockReturnValue({
       entries,
+      error: null,
       paused: false,
       pause: vi.fn(),
       resume: vi.fn(),
@@ -104,5 +108,74 @@ describe('StackLogsPage', () => {
     expect(screen.getByText('No log lines match the current filter.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Copy visible' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Download visible' })).toBeDisabled()
+  })
+
+  it.each(['restarting', 'exited', 'dead'])('reads retained logs from a %s container', (status) => {
+    outletStack = {
+      ...stack,
+      containers: [{ service_name: 'api', status }],
+    }
+
+    renderPage('/stacks/demo/logs?service=api')
+
+    expect(mockUseLogStream).toHaveBeenCalledWith({
+      stackId: 'demo',
+      serviceNames: ['api'],
+      enabled: true,
+    })
+    expect(screen.queryByText('No logs available')).not.toBeInTheDocument()
+  })
+
+  it('reads logs from an orphaned runtime container when All is selected', () => {
+    outletStack = {
+      ...stack,
+      services: [],
+      containers: [{ service_name: 'removed-service', status: 'restarting' }],
+    }
+
+    renderPage()
+
+    expect(mockUseLogStream).toHaveBeenCalledWith({
+      stackId: 'demo',
+      serviceNames: [],
+      enabled: true,
+    })
+    expect(screen.queryByText('No logs available')).not.toBeInTheDocument()
+  })
+
+  it('shows an empty state only when the selected service has no container', () => {
+    outletStack = {
+      ...stack,
+      containers: [{ service_name: 'worker', status: 'running' }],
+    }
+
+    renderPage('/stacks/demo/logs?service=api')
+
+    expect(mockUseLogStream).toHaveBeenCalledWith({
+      stackId: 'demo',
+      serviceNames: ['api'],
+      enabled: false,
+    })
+    expect(screen.getByText('No logs available')).toBeInTheDocument()
+    expect(screen.getByText('The selected service has no container yet.')).toBeInTheDocument()
+  })
+
+  it('explains a log stream failure instead of waiting forever', () => {
+    mockUseLogStream.mockReturnValue({
+      entries: [],
+      error: 'Container log stream terminated unexpectedly.',
+      paused: false,
+      pause: vi.fn(),
+      resume: vi.fn(),
+      clear: vi.fn(),
+    })
+
+    renderPage()
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Log stream failed: Container log stream terminated unexpectedly.',
+    )
+    expect(screen.getByText('Log stream unavailable.')).toBeInTheDocument()
+    expect(screen.queryByText('Waiting for logs...')).not.toBeInTheDocument()
   })
 })

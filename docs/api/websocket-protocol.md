@@ -244,6 +244,10 @@ Notes:
 
 - logs may be batched into `entries[]`
 - UI should preserve order within a batch
+- retained logs may be requested for running, restarting, or stopped
+  containers; container existence, not runtime status, determines eligibility
+- clients must surface stream-scoped `error` frames instead of treating an
+  errored subscription as an empty live stream
 
 ## Stats
 
