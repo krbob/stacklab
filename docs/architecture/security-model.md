@@ -335,6 +335,14 @@ Current intended helper scope:
   - upgrade only the configured Stacklab APT package
   - verify the Stacklab service after restart
   - record the result back into the Stacklab database
+- workspace permission repair workflow:
+  - resolve every target below the trusted managed workspace root
+  - when invoked through `sudo`, apply ownership or ACL grants to sudo's
+    authenticated caller identity rather than trusting workspace ownership or
+    caller-supplied Stacklab configuration
+  - restrict the sudoers entry to the Stacklab service account, because every
+    authorized caller becomes the target identity for its repairs
+  - use the helper process's effective UID/GID only for direct execution
 
 Operational note:
 

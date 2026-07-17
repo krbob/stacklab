@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 )
@@ -126,12 +127,12 @@ func runRepair(args []string) error {
 	if err != nil {
 		return err
 	}
-	resolvedTarget, workspaceRoot, err := resolveManagedTarget(stacklabRoot, targetPath)
+	resolvedTarget, _, err := resolveManagedTarget(stacklabRoot, targetPath)
 	if err != nil {
 		return err
 	}
 
-	uid, gid, err := ownershipOf(workspaceRoot)
+	uid, gid, err := repairIdentity()
 	if err != nil {
 		return err
 	}
@@ -284,16 +285,35 @@ func withinRoot(root, target string) bool {
 	return relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
-func ownershipOf(path string) (int, int, error) {
-	info, err := os.Stat(path)
+func repairIdentity() (int, int, error) {
+	sudoUID, hasSudoUID := os.LookupEnv("SUDO_UID")
+	sudoGID, hasSudoGID := os.LookupEnv("SUDO_GID")
+	if hasSudoUID != hasSudoGID {
+		return 0, 0, errors.New("sudo caller identity is incomplete")
+	}
+	if !hasSudoUID {
+		return os.Geteuid(), os.Getegid(), nil
+	}
+
+	uid, err := parseIdentityID("SUDO_UID", sudoUID)
 	if err != nil {
-		return 0, 0, fmt.Errorf("stat workspace root: %w", err)
+		return 0, 0, err
 	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return 0, 0, errors.New("workspace root stat missing ownership data")
+	gid, err := parseIdentityID("SUDO_GID", sudoGID)
+	if err != nil {
+		return 0, 0, err
 	}
-	return int(stat.Uid), int(stat.Gid), nil
+	return uid, gid, nil
+}
+
+func parseIdentityID(name, value string) (int, error) {
+	const chownUnchangedID = uint64(1<<32 - 1)
+
+	parsed, err := strconv.ParseUint(strings.TrimSpace(value), 10, 32)
+	if err != nil || parsed == chownUnchangedID || uint64(int(parsed)) != parsed {
+		return 0, fmt.Errorf("invalid %s value %q", name, value)
+	}
+	return int(parsed), nil
 }
 
 func repairManagedPath(targetPath string, uid, gid int, recursive bool) (int, error) {

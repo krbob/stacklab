@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -88,6 +89,61 @@ func TestRunRepairRejectsUnexpectedPositionalArguments(t *testing.T) {
 	}
 }
 
+func TestRepairIdentityUsesSudoCaller(t *testing.T) {
+	withSudoIdentity(t, 104, 111)
+
+	uid, gid, err := repairIdentity()
+	if err != nil {
+		t.Fatalf("repairIdentity() error = %v", err)
+	}
+	if uid != 104 || gid != 111 {
+		t.Fatalf("repairIdentity() = %d:%d, want 104:111", uid, gid)
+	}
+}
+
+func TestRepairIdentityUsesEffectiveIdentityWithoutSudo(t *testing.T) {
+	withoutEnv(t, "SUDO_UID")
+	withoutEnv(t, "SUDO_GID")
+
+	uid, gid, err := repairIdentity()
+	if err != nil {
+		t.Fatalf("repairIdentity() error = %v", err)
+	}
+	if uid != os.Geteuid() || gid != os.Getegid() {
+		t.Fatalf("repairIdentity() = %d:%d, want %d:%d", uid, gid, os.Geteuid(), os.Getegid())
+	}
+}
+
+func TestRepairIdentityRejectsInvalidSudoCaller(t *testing.T) {
+	for _, value := range []string{"", "invalid", "-1", "4294967295", "4294967296"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("SUDO_UID", value)
+			t.Setenv("SUDO_GID", "111")
+
+			if _, _, err := repairIdentity(); err == nil || !strings.Contains(err.Error(), "invalid SUDO_UID") {
+				t.Fatalf("repairIdentity() error = %v, want invalid SUDO_UID", err)
+			}
+		})
+	}
+}
+
+func TestRepairIdentityRejectsIncompleteSudoCaller(t *testing.T) {
+	t.Run("missing gid", func(t *testing.T) {
+		t.Setenv("SUDO_UID", "104")
+		withoutEnv(t, "SUDO_GID")
+		if _, _, err := repairIdentity(); err == nil || !strings.Contains(err.Error(), "incomplete") {
+			t.Fatalf("repairIdentity() error = %v, want incomplete sudo identity", err)
+		}
+	})
+	t.Run("missing uid", func(t *testing.T) {
+		withoutEnv(t, "SUDO_UID")
+		t.Setenv("SUDO_GID", "111")
+		if _, _, err := repairIdentity(); err == nil || !strings.Contains(err.Error(), "incomplete") {
+			t.Fatalf("repairIdentity() error = %v, want incomplete sudo identity", err)
+		}
+	})
+}
+
 func TestRunRepairACLGrantsReadWriteWithoutExecuteToRegularFile(t *testing.T) {
 	tempDir := t.TempDir()
 	root := filepath.Join(tempDir, "root")
@@ -101,6 +157,7 @@ func TestRunRepairACLGrantsReadWriteWithoutExecuteToRegularFile(t *testing.T) {
 	}
 
 	withStacklabEnv(t, "STACKLAB_ROOT="+root+"\n")
+	withSudoIdentity(t, 4242, 4343)
 	var calls [][]string
 	restore := replaceACLCommand(func(name string, args ...string) ([]byte, error) {
 		if name != "setfacl" {
@@ -122,7 +179,7 @@ func TestRunRepairACLGrantsReadWriteWithoutExecuteToRegularFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EvalSymlinks(target) error = %v", err)
 	}
-	if !hasACLEntry(calls[0], "u:", ":rw-") || !hasExactACL(calls[0], "m::rw-") || calls[0][len(calls[0])-1] != resolvedTarget {
+	if !hasExactACL(calls[0], "u:4242:rw-") || !hasExactACL(calls[0], "m::rw-") || calls[0][len(calls[0])-1] != resolvedTarget {
 		t.Fatalf("unexpected setfacl args: %#v", calls[0])
 	}
 }
@@ -140,6 +197,7 @@ func TestRunRepairACLGrantsExecuteToExecutableFile(t *testing.T) {
 	}
 
 	withStacklabEnv(t, "STACKLAB_ROOT="+root+"\n")
+	withSudoIdentity(t, 4242, 4343)
 	var calls [][]string
 	restore := replaceACLCommand(func(name string, args ...string) ([]byte, error) {
 		calls = append(calls, append([]string(nil), args...))
@@ -151,7 +209,7 @@ func TestRunRepairACLGrantsExecuteToExecutableFile(t *testing.T) {
 		t.Fatalf("runRepair() error = %v", err)
 	}
 
-	if len(calls) != 1 || !hasACLEntry(calls[0], "u:", ":rwx") || !hasExactACL(calls[0], "m::rwx") {
+	if len(calls) != 1 || !hasExactACL(calls[0], "u:4242:rwx") || !hasExactACL(calls[0], "m::rwx") {
 		t.Fatalf("unexpected setfacl args: %#v", calls)
 	}
 }
@@ -169,6 +227,7 @@ func TestRunRepairACLRecursiveAddsDefaultACLForDirectories(t *testing.T) {
 	}
 
 	withStacklabEnv(t, "STACKLAB_ROOT="+root+"\n")
+	withSudoIdentity(t, 4242, 4343)
 	var calls [][]string
 	restore := replaceACLCommand(func(name string, args ...string) ([]byte, error) {
 		calls = append(calls, append([]string(nil), args...))
@@ -186,7 +245,7 @@ func TestRunRepairACLRecursiveAddsDefaultACLForDirectories(t *testing.T) {
 	if !hasDefaultACL(calls[0]) || !hasDefaultACL(calls[1]) {
 		t.Fatalf("directory calls missing default ACL: %#v", calls)
 	}
-	if !hasACLEntry(calls[0], "u:", ":rwx") || !hasACLEntry(calls[1], "u:", ":rwx") {
+	if !hasExactACL(calls[0], "u:4242:rwx") || !hasExactACL(calls[1], "u:4242:rwx") {
 		t.Fatalf("directory calls missing access ACL: %#v", calls)
 	}
 	if !hasExactACL(calls[0], "m::rwx") || !hasExactACL(calls[1], "m::rwx") {
@@ -198,7 +257,7 @@ func TestRunRepairACLRecursiveAddsDefaultACLForDirectories(t *testing.T) {
 	if hasDefaultACL(calls[2]) {
 		t.Fatalf("file call unexpectedly has default ACL: %#v", calls[2])
 	}
-	if !hasACLEntry(calls[2], "u:", ":rw-") || !hasExactACL(calls[2], "m::rw-") {
+	if !hasExactACL(calls[2], "u:4242:rw-") || !hasExactACL(calls[2], "m::rw-") {
 		t.Fatalf("file call has unexpected access ACL: %#v", calls[2])
 	}
 }
@@ -232,6 +291,27 @@ func withStacklabEnv(t *testing.T, content string) {
 	stacklabEnvFilePath = envPath
 	t.Cleanup(func() {
 		stacklabEnvFilePath = original
+	})
+}
+
+func withSudoIdentity(t *testing.T, uid, gid int) {
+	t.Helper()
+	t.Setenv("SUDO_UID", fmt.Sprintf("%d", uid))
+	t.Setenv("SUDO_GID", fmt.Sprintf("%d", gid))
+}
+
+func withoutEnv(t *testing.T, name string) {
+	t.Helper()
+	value, exists := os.LookupEnv(name)
+	if err := os.Unsetenv(name); err != nil {
+		t.Fatalf("Unsetenv(%s) error = %v", name, err)
+	}
+	t.Cleanup(func() {
+		if exists {
+			_ = os.Setenv(name, value)
+			return
+		}
+		_ = os.Unsetenv(name)
 	})
 }
 

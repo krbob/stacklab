@@ -377,6 +377,11 @@ go run ./scripts/dev/seed-retention-fixtures.go \
   pokazuje powód zamiast błędu.
 - **W6** Per-stack Files (`/stacks/:id/files`): edycja np. `Dockerfile`;
   compose.yaml/.env przekierowują do Editora.
+- **W7** Root-owned workspace: ustaw katalog stacka i pomocniczy plik jako
+  `root:root`, uruchom „Repair access” przez sudo jako usługę `stacklab`, a
+  następnie potwierdź `getfacl`, że strategia ACL nadała wpis użytkownikowi
+  `stacklab` (nie `root`), oraz wykonaj rzeczywisty zapis pliku z UI. Dla
+  strategii ownership potwierdź analogicznie właściciela `stacklab:stacklab`.
 
 ---
 

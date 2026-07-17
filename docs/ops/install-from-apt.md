@@ -136,6 +136,12 @@ flow instead:
   - the ACL strategy grants `rw` to regular files, retains `x` only for files
     whose current mode is executable, and grants access plus inheritable `rwx`
     permissions to directories
+  - when invoked through `sudo`, the helper grants access to the authenticated
+    caller recorded by sudo in `SUDO_UID`/`SUDO_GID`; it does not infer the
+    Stacklab identity from a stack or config directory owner
+  - keep the helper sudoers allowlist restricted to the Stacklab service
+    account; every authorized caller becomes the target identity for repairs
+  - direct execution without `sudo` uses the helper process's effective UID/GID
   - install the system `acl` package when using the ACL strategy, so
     `setfacl` is available to the helper
   - install a narrow `sudoers` rule for the helper
