@@ -85,6 +85,12 @@ Core fields:
 - `depends_on[]`
 - `healthcheck_present`
 
+`healthcheck_present` means that the Compose service explicitly declares a
+`healthcheck` block. A value of `false` does not prove that the runtime
+container has no healthcheck: Docker may inherit one from the image. The
+effective runtime result is reported separately as the container
+`health_status`.
+
 `mode` values:
 
 - `image`

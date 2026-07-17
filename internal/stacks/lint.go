@@ -45,7 +45,7 @@ func LintCompose(content []byte) []ComposeWarning {
 			warnings = append(warnings, ComposeWarning{
 				Code:    "missing_healthcheck",
 				Service: name,
-				Message: fmt.Sprintf("Service %q has no healthcheck; restart loops and hangs stay invisible.", name),
+				Message: fmt.Sprintf("Service %q does not declare a healthcheck in Compose. It may inherit one from its image; otherwise hangs and readiness failures cannot be detected.", name),
 			})
 		}
 		if service.Restart == "" || service.Restart == "no" {

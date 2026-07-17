@@ -67,13 +67,15 @@ Individual containers within a stack detail view. Maps to the normalized Docker 
 | Domain `status` | UI label | Color | Notes |
 |---|---|---|---|
 | `created` | Created | Gray | Container exists but never started |
-| `running` | Running | Green | Health shown separately if healthcheck present |
+| `running` | Running | Green | Runtime health shown separately when Docker reports it |
 | `restarting` | Restarting | Yellow pulsing | Container in restart loop |
 | `paused` | Paused | Yellow | Container paused |
 | `exited` | Exited | Gray (code 0) or Red (non-zero) | Show exit code |
 | `dead` | Dead | Red | Unrecoverable state |
 
-Health status (shown as supplementary badge when `healthcheck_present = true`):
+Health status is shown from the runtime container `health_status`, independently
+of the Compose-only `healthcheck_present` field. The effective healthcheck may
+be declared by Compose or inherited from the image.
 
 | Health | UI indicator | Color |
 |---|---|---|

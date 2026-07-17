@@ -148,7 +148,9 @@ logs/stats/jobs streams:
 - `POST /api/stacks/{stackId}/resolved-config` resolves a draft definition
   without saving it and returns
   `warnings: [{ code, message, service, line }]`. The initial lint rules cover
-  a missing healthcheck, a missing restart policy, and `0.0.0.0` port binds.
+  a missing Compose-declared healthcheck, a missing restart policy, and
+  `0.0.0.0` port binds. An image may still provide the effective runtime
+  healthcheck.
   Warnings never block save or deploy.
 - `GET /api/stacks/{stackId}/resolved-config?source=last_valid` resolves the persisted deploy
   baseline — powers the "diff vs last known good" editor view and completes

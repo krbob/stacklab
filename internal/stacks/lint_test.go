@@ -34,12 +34,16 @@ services:
 	warnings := LintCompose(content)
 	codes := map[string]int{}
 	publicPortWarnings := map[string]bool{}
+	var missingHealthcheckMessage string
 	for _, warning := range warnings {
 		if warning.Service == "good" {
 			t.Fatalf("unexpected warning for good service: %+v", warning)
 		}
 		if warning.Code == "public_port_bind" {
 			publicPortWarnings[warning.Service] = true
+		}
+		if warning.Code == "missing_healthcheck" {
+			missingHealthcheckMessage = warning.Message
 		}
 		codes[warning.Code]++
 	}
@@ -50,6 +54,10 @@ services:
 		if !publicPortWarnings[service] {
 			t.Fatalf("public_port_bind warning missing for %q: %+v", service, warnings)
 		}
+	}
+	const wantHealthcheckMessage = `Service "bad" does not declare a healthcheck in Compose. It may inherit one from its image; otherwise hangs and readiness failures cannot be detected.`
+	if missingHealthcheckMessage != wantHealthcheckMessage {
+		t.Fatalf("missing healthcheck message = %q, want %q", missingHealthcheckMessage, wantHealthcheckMessage)
 	}
 }
 
