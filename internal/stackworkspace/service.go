@@ -593,7 +593,7 @@ func parentRelativePath(relativePath string) string {
 }
 
 func writeFileAtomic(path, content, pattern string) error {
-	return atomicfile.WriteString(path, content, pattern)
+	return atomicfile.WriteStringAdoptingOwnership(path, content, pattern)
 }
 
 func isReservedDefinitionPath(relativePath string) bool {

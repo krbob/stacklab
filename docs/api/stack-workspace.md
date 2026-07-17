@@ -223,6 +223,14 @@ Response:
 }
 ```
 
+Save semantics:
+
+- writes replace the file atomically and preserve its permission bits, ACLs,
+  and supported extended metadata
+- after explicit permission repair, the first save of a foreign-owned file may
+  transfer its owner/group to the Stacklab service identity when the service
+  cannot preserve the foreign owner without elevated privileges
+
 ## `POST /api/stacks/{stackId}/workspace/repair-permissions`
 
 Repair ownership and owner access bits for one existing path under the stack root.

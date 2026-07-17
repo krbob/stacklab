@@ -28,6 +28,19 @@ func WriteString(path, content, pattern string) error {
 	return commit(path, stagedPath)
 }
 
+// WriteStringAdoptingOwnership is WriteString with one explicit fallback for
+// unprivileged workspace editors: when assigning an existing file's
+// owner/group to the replacement is denied, the replacement keeps the process
+// owner/group. Permission bits and supported extended metadata are still
+// preserved.
+func WriteStringAdoptingOwnership(path, content, pattern string) error {
+	stagedPath, err := stage(path, []byte(content), pattern, nil, allowOwnerGroupAdoption)
+	if err != nil {
+		return err
+	}
+	return commit(path, stagedPath)
+}
+
 // WriteStringMode is WriteString with an explicit final permission mode.
 // Existing owner, group, and supported extended metadata are still preserved.
 func WriteStringMode(path, content, pattern string, mode os.FileMode) error {

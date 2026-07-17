@@ -281,6 +281,11 @@ Rules:
 - new files may be created
 - parent directory creation is optional and explicit
 - binary files must not be overwritten through this endpoint unless they are intentionally treated as text by backend policy
+- writes replace the file atomically and preserve its permission bits, ACLs,
+  and supported extended metadata
+- after explicit permission repair, the first save of a foreign-owned file may
+  transfer its owner/group to the Stacklab service identity when the service
+  cannot preserve the foreign owner without elevated privileges
 
 ## `POST /api/config/workspace/repair-permissions`
 

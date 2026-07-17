@@ -34,6 +34,34 @@ func TestWriteStringCreatesAndReplacesFile(t *testing.T) {
 	}
 }
 
+func TestWriteStringAdoptingOwnershipCreatesAndPreservesMode(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "managed.conf")
+
+	if err := WriteStringAdoptingOwnership(path, "initial\n", ".stacklab-adopting-test-*"); err != nil {
+		t.Fatalf("WriteStringAdoptingOwnership(new) error = %v", err)
+	}
+	assertFile(t, path, "initial\n", 0o644)
+
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatalf("Chmod(managed.conf) error = %v", err)
+	}
+	if err := WriteStringAdoptingOwnership(path, "updated\n", ".stacklab-adopting-test-*"); err != nil {
+		t.Fatalf("WriteStringAdoptingOwnership(replace) error = %v", err)
+	}
+	assertFile(t, path, "updated\n", 0o600)
+
+	matches, err := filepath.Glob(filepath.Join(dir, ".stacklab-adopting-test-*"))
+	if err != nil {
+		t.Fatalf("Glob(temp files) error = %v", err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("temporary files left behind: %#v", matches)
+	}
+}
+
 func TestWriteStringModeEnforcesModeForNewAndExistingFile(t *testing.T) {
 	t.Parallel()
 

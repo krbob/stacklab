@@ -632,5 +632,5 @@ func parentRelativePath(relativePath string) string {
 }
 
 func writeFileAtomic(path, content string) error {
-	return atomicfile.WriteString(path, content, ".stacklab-config-*")
+	return atomicfile.WriteStringAdoptingOwnership(path, content, ".stacklab-config-*")
 }
