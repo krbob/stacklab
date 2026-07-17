@@ -4,7 +4,7 @@ set -euo pipefail
 # renovate: datasource=go depName=github.com/rhysd/actionlint
 readonly ACTIONLINT_VERSION="v1.7.12"
 # renovate: datasource=go depName=github.com/zricethezav/gitleaks/v8
-readonly GITLEAKS_VERSION="v8.30.0"
+readonly GITLEAKS_VERSION="v8.30.1"
 # renovate: datasource=github-releases depName=koalaman/shellcheck
 readonly SHELLCHECK_VERSION="0.11.0"
 
