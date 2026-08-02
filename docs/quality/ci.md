@@ -6,16 +6,13 @@ a rollout plan.
 
 ## Pull Requests And Main
 
-The following workflows run for every pull request and every push to `main`:
+One workflow runs for every pull request and every push to `main`:
 
 | Workflow | Job or scope | Local equivalent |
 | --- | --- | --- |
 | `pr-quality.yml` | `frontend-quality` | `make check-frontend` |
 | `pr-quality.yml` | `backend-test` with package coverage floors | `make check-backend-coverage` |
-| `pr-quality.yml` | `backend-hygiene` | `make check-backend-hygiene` |
-| `pr-quality.yml` | `repository-hygiene` | `make check-hygiene` |
-| `docker-integration.yml` | Docker/Compose-backed HTTP and WebSocket integration tests | `go test -tags=integration ./internal/httpapi -count=1` |
-| `browser-e2e.yml` | production frontend and backend exercised through Playwright | See [Browser End-to-End Tests](browser-e2e.md) |
+| `pr-quality.yml` | `ci-required` aggregate result | both jobs above |
 
 `make check` is the canonical source-tree gate before a push. It verifies the
 pinned toolchains, backend tests and hygiene, the generated OpenAPI client,
@@ -28,9 +25,9 @@ enforces package-specific floors defined in
 `scripts/quality/check-go-coverage.sh`. Its HTML, function, package, and
 Markdown reports are retained as a workflow artifact for 14 days.
 
-## Repository Hygiene
+## Optional Repository Hygiene
 
-The `repository-hygiene` job enforces:
+`make check-hygiene` remains an explicit local maintenance command. It checks:
 
 - valid GitHub Actions syntax with actionlint;
 - ShellCheck for tracked scripts and Debian maintainer scripts;
@@ -50,16 +47,12 @@ the exact update procedure and secret-scan exception policy.
 
 ## Advisory Analysis
 
-`advisory-static-analysis.yml` runs `staticcheck` and `govulncheck` for pull
-requests, pushes to `main`, and manual dispatches. These jobs provide additional
-signal but are intentionally separate from the reproducible baseline. Changing
-whether they block merges is a branch-protection decision in GitHub, not a
-property of the workflow file.
+`advisory-static-analysis.yml` runs `staticcheck` and `govulncheck` only on
+manual dispatch. Vulnerability database availability is not part of pull-request CI.
 
 ## Packaging And Release Gates
 
-Packaging smoke workflows run on relevant path changes and can also be started
-manually:
+Packaging smoke workflows run from release gates or can be started manually:
 
 - `deb-package-smoke.yml` builds a release artifact and Debian package, then
   tests installation and upgrade under systemd in a disposable environment;
@@ -86,8 +79,8 @@ are documented in the operations section.
 - failed workflow logs remain the first source for command output and runner
   context.
 
-Do not fix a gate by weakening its threshold, adding a broad secret exception,
-or skipping a failing test without documenting and reviewing the policy change.
+Keep the required gate limited to deterministic build and test failures. Run the
+broader maintenance and release suites when their affected seam requires them.
 
 ## Changing CI
 
