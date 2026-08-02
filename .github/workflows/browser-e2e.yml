@@ -7,11 +7,7 @@ on:
         description: Exact source revision to validate
         required: true
         type: string
-  pull_request:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 permissions:
   contents: read

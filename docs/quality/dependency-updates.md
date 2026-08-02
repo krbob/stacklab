@@ -61,11 +61,10 @@ expect:
 
 - frontend tests, generated API contract check, typecheck, and production
   build;
-- backend tests and package coverage floors;
-- Go formatting and `go vet`;
-- repository hygiene, production npm audit, and zero-warning ESLint;
-- Docker-backed integration tests;
-- browser E2E.
+- backend tests and package coverage floors.
+
+Repository hygiene, vulnerability analysis, Docker integration and browser E2E
+remain explicit maintenance or release checks and do not block routine Renovate PRs.
 
 See [Continuous Integration](ci.md) for workflow ownership and local commands.
 

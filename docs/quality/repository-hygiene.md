@@ -1,10 +1,10 @@
 # Repository Hygiene Checks
 
-## Enforcement
+## Use
 
-The required `repository-hygiene` job is part of `.github/workflows/pr-quality.yml`.
-It runs for pull requests and pushes to `main`; release workflows inherit it
-through the reusable release quality gate and validate the requested source SHA.
+Repository hygiene is an explicit local maintenance check. It is deliberately
+outside the required pull-request path so network tools, advisory databases and
+generated notices do not block tested dependency updates.
 
 The job enforces:
 
