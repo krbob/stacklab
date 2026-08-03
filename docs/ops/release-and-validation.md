@@ -66,9 +66,10 @@ Every stable, nightly, and hotfix build produces:
 - `stacklab_<version>_arm64.deb`;
 - a SHA-256 checksum beside each artifact.
 
-Tarballs include `LICENSE`, `NOTICE`, and generated
-`THIRD_PARTY_NOTICES.md`. Debian packages expose project and distributed
-third-party license text through `/usr/share/doc/stacklab/copyright`, with
+Tarballs include `LICENSE`, `NOTICE`, and an up-to-date
+`THIRD_PARTY_NOTICES.md` generated while the artifact is built. Debian packages
+expose project and distributed third-party license text through
+`/usr/share/doc/stacklab/copyright`, with
 `NOTICE` alongside it. Packaging smoke verifies representative required files
 and attributions.
 
