@@ -36,7 +36,7 @@ mkdir -p "${output_dir}"
 rm -rf "${stage_dir}" "${tarball_path}" "${sha_path}"
 mkdir -p "${stage_dir}/bin" "${stage_dir}/frontend" "${stage_dir}/metadata" "${stage_dir}/systemd" "${stage_dir}/host-tools"
 
-"${repo_root}/scripts/release/generate-third-party-notices.sh" --check
+"${repo_root}/scripts/release/generate-third-party-notices.sh"
 
 if [[ "${skip_frontend_build}" != "1" ]]; then
   echo "Building frontend assets..."

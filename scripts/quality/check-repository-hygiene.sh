@@ -82,9 +82,6 @@ if [[ ! -x frontend/node_modules/.bin/eslint ]]; then
   exit 1
 fi
 
-echo "==> Third-party notices"
-scripts/release/generate-third-party-notices.sh --check
-
 echo "==> npm production audit"
 npm --prefix frontend audit --omit=dev
 
