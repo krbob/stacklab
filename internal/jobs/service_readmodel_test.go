@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -32,7 +33,7 @@ func TestServiceReadModelsAndActivitySubscriptions(t *testing.T) {
 	receiveActivitySignal(t, activity)
 
 	liveEvents, unsubscribeEvents := service.Subscribe(job.ID)
-	step := &store.JobEventStep{Index: 1, Total: 2, Action: "pull", TargetStackID: "alpha", TargetServiceNames: []string{"web"}}
+	step := &store.JobEventStep{Index: 1, Total: 2, Action: "pull", State: "running", TargetStackID: "alpha", TargetServiceNames: []string{"web"}}
 	progress := &store.JobProgress{Phase: "pulling", Completed: 1, Total: 2, Unit: "images", Detail: "web"}
 	if err := service.PublishEventWithProgress(ctx, job, "job_progress", "Pulled web.", "sha256:abc", step, progress); err != nil {
 		t.Fatalf("PublishEventWithProgress() error = %v", err)
@@ -58,7 +59,7 @@ func TestServiceReadModelsAndActivitySubscriptions(t *testing.T) {
 		t.Fatalf("Events() = %#v", events)
 	}
 	lastEvent := events.Items[1]
-	if lastEvent.Step == nil || lastEvent.Step.Index != 1 || lastEvent.Step.Action != "pull" || lastEvent.Step.TargetStackID != "alpha" {
+	if lastEvent.Step == nil || lastEvent.Step.Index != 1 || lastEvent.Step.Action != "pull" || lastEvent.Step.State != "running" || lastEvent.Step.TargetStackID != "alpha" || !reflect.DeepEqual(lastEvent.Step.TargetServiceNames, []string{"web"}) {
 		t.Fatalf("Events() step = %#v", lastEvent.Step)
 	}
 	if lastEvent.Progress == nil || lastEvent.Progress.Detail != "web" || lastEvent.Data != "sha256:abc" {
@@ -97,7 +98,7 @@ func TestServiceReadModelsAndActivitySubscriptions(t *testing.T) {
 	if running.StackID == nil || *running.StackID != "alpha" || running.Workflow == nil || len(running.Workflow.Steps) != 2 {
 		t.Fatalf("running active job = %#v", running)
 	}
-	if running.LatestEvent == nil || running.LatestEvent.Event != "job_progress" || running.CurrentStep == nil || running.CurrentStep.Action != "pull" {
+	if running.LatestEvent == nil || running.LatestEvent.Event != "job_progress" || running.CurrentStep == nil || running.CurrentStep.Action != "pull" || running.CurrentStep.State != "running" || !reflect.DeepEqual(running.CurrentStep.TargetServiceNames, []string{"web"}) {
 		t.Fatalf("running latest activity = %#v", running)
 	}
 	queued := findActiveJob(t, active.Items, queuedJob.ID)

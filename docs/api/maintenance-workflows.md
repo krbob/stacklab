@@ -161,13 +161,23 @@ Recommended target order:
 
 - alphabetical by `stack_id`
 
-Recommended failure semantics for v1:
+Failure semantics:
 
-- fail-fast by default
-- stop processing remaining stacks after the first failed stack step
-- keep all completed step history in the job events
-
-Later extensions may add best-effort continue-on-error behavior, but not in the first version.
+- transient registry failures during `pull` are retried twice, after 5 and 20
+  seconds; retryable failures include network/TLS timeouts, connection resets,
+  temporary DNS failures, and registry rate limiting
+- authentication, missing-manifest, cancellation, and configuration failures
+  are not retried
+- after a stack step exhausts its retries, dependent steps for that stack are
+  marked `skipped`, but independent later stacks continue in deterministic order
+- prune-after is marked `skipped` when any preceding stack update failed
+- the top-level job finishes as `failed` when any requested stack step failed,
+  even when other stacks completed successfully
+- `job_warning` records retries, step-scoped `job_error` records exhausted
+  failures, and `step.state` distinguishes the step outcome from the still
+  running aggregate job
+- cancellation, timeout, and durable state-write errors still stop the workflow
+  immediately
 
 ## REST Endpoints
 

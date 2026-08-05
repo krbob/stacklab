@@ -286,6 +286,8 @@ export interface components {
     ActiveJobStep: {
       action: string;
       index: number;
+      state?: components["schemas"]["WorkflowStepState"];
+      target_service_names?: string[];
       target_stack_id?: string;
       total: number;
     };
@@ -298,7 +300,7 @@ export interface components {
     ActiveJobWorkflow: {
       steps: {
           action: string;
-          state: components["schemas"]["JobState"];
+          state: components["schemas"]["WorkflowStepState"];
           target_stack_id?: string;
         }[];
     };
@@ -849,7 +851,7 @@ export interface components {
       workflow?: {
         steps: {
             action: string;
-            state: components["schemas"]["JobState"];
+            state: components["schemas"]["WorkflowStepState"];
             target_service_names?: string[];
             target_stack_id?: string;
           }[];
@@ -1602,6 +1604,8 @@ export interface components {
       source: string;
       target: string;
     };
+    /** @enum {string} */
+    WorkflowStepState: "queued" | "running" | "succeeded" | "failed" | "skipped" | "cancel_requested" | "cancelled" | "timed_out";
     WorkspaceRepairCapability: {
       reason?: string;
       recursive: boolean;

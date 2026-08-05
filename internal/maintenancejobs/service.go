@@ -16,6 +16,38 @@ import (
 	"stacklab/internal/store"
 )
 
+const (
+	maintenanceErrorSummaryLimit = 1024
+	maintenanceErrorMessageLimit = 4096
+)
+
+var defaultPullRetryDelays = []time.Duration{5 * time.Second, 20 * time.Second}
+
+type retryWaitFunc func(context.Context, time.Duration) error
+
+type updateStepFailure struct {
+	StackID  string
+	Action   string
+	Attempts int
+	Message  string
+}
+
+type updateStepResult struct {
+	Attempts int
+	Output   string
+}
+
+func waitForRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
 type stackReader interface {
 	List(ctx context.Context, query stacks.ListQuery) (stacks.StackListResponse, error)
 	Get(ctx context.Context, stackID string) (stacks.StackDetailResponse, error)
@@ -32,20 +64,24 @@ type pruneRunner interface {
 }
 
 type Service struct {
-	logger      *slog.Logger
-	jobs        *jobs.Service
-	audit       *audit.Service
-	stackReader stackReader
-	maintenance pruneRunner
+	logger          *slog.Logger
+	jobs            *jobs.Service
+	audit           *audit.Service
+	stackReader     stackReader
+	maintenance     pruneRunner
+	pullRetryDelays []time.Duration
+	retryWait       retryWaitFunc
 }
 
 func NewService(logger *slog.Logger, jobService *jobs.Service, auditService *audit.Service, stackService stackReader, maintenanceService pruneRunner) *Service {
 	return &Service{
-		logger:      logger,
-		jobs:        jobService,
-		audit:       auditService,
-		stackReader: stackService,
-		maintenance: maintenanceService,
+		logger:          logger,
+		jobs:            jobService,
+		audit:           auditService,
+		stackReader:     stackService,
+		maintenance:     maintenanceService,
+		pullRetryDelays: append([]time.Duration(nil), defaultPullRetryDelays...),
+		retryWait:       waitForRetry,
 	}
 }
 
@@ -266,65 +302,119 @@ func (s *Service) ExecuteUpdate(ctx context.Context, job store.Job, run UpdateRu
 	ctx = runCtx
 
 	workflow := append([]store.JobWorkflowStep(nil), run.Workflow...)
-	var err error
+	failures := make([]updateStepFailure, 0)
+	blockedStacks := make(map[string]updateStepFailure)
 
-	for index, step := range workflow {
-		stepRef := workflowStepRef(workflow, index)
-		onProgress := s.progressPublisher(ctx, job, step, stepRef)
-		output, runErr := s.runUpdateWorkflowStep(ctx, step, run.Request.Options, run.ManagedStackIDs, onProgress)
-		if trimmed := strings.TrimSpace(output); trimmed != "" {
-			_ = s.jobs.PublishEvent(ctx, job, "job_log", updateStepMessage("Output", step), trimmed, workflowStepRef(workflow, index))
+	for index := range workflow {
+		step := workflow[index]
+		if reason := updateStepSkipReason(step, failures, blockedStacks); reason != "" {
+			workflow = markWorkflowState(workflow, index, "skipped")
+			updatedJob, updateErr := s.jobs.UpdateWorkflow(ctx, job, workflow)
+			if updateErr != nil {
+				return s.finishUpdateExecutionError(ctx, job, workflow, index, updateErr, run)
+			}
+			job = updatedJob
+			_ = s.jobs.PublishEvent(ctx, job, "job_step_finished", reason, "", workflowStepRef(workflow, index))
+			continue
 		}
+
+		if workflow[index].State != "running" {
+			workflow = markWorkflowRunning(workflow, index)
+			updatedJob, updateErr := s.jobs.UpdateWorkflow(ctx, job, workflow)
+			if updateErr != nil {
+				return s.finishUpdateExecutionError(ctx, job, workflow, index, updateErr, run)
+			}
+			job = updatedJob
+			_ = s.jobs.PublishEvent(ctx, job, "job_step_started", updateStepMessage("Starting", workflow[index]), "", workflowStepRef(workflow, index))
+		}
+
+		step = workflow[index]
+		result, runErr := s.runUpdateWorkflowStepWithRetry(ctx, job, workflow, index, run.Request.Options, run.ManagedStackIDs, run.Request.Trigger)
 		if runErr != nil {
-			finishCtx, cancel := jobFinalizationContext()
-			terminalState, errorCode, errorMessage := maintenanceFailure(ctx, "update_stacks_failed", runErr, s.jobCancelRequested(job.ID))
-			finishedJob, finishErr := s.finishUpdateFailure(finishCtx, job, workflow, index, terminalState, errorCode, errorMessage, run)
-			cancel()
-			if finishErr != nil {
+			if ctx.Err() != nil || errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
+				finishCtx, finishCancel := jobFinalizationContext()
+				terminalState, errorCode, errorMessage := maintenanceFailure(ctx, "update_stacks_failed", runErr, s.jobCancelRequested(job.ID))
+				finishedJob, finishErr := s.finishUpdateFailure(finishCtx, job, workflow, index, terminalState, errorCode, errorMessage, run)
+				finishCancel()
 				return finishedJob, finishErr
 			}
-			return finishedJob, nil
+
+			failure := updateStepFailure{
+				StackID:  step.TargetStackID,
+				Action:   step.Action,
+				Attempts: result.Attempts,
+				Message:  summarizeMaintenanceError(result.Output, runErr),
+			}
+			failures = append(failures, failure)
+			if step.TargetStackID != "" {
+				blockedStacks[step.TargetStackID] = failure
+			}
+
+			workflow = markWorkflowState(workflow, index, "failed")
+			updatedJob, updateErr := s.jobs.UpdateWorkflow(ctx, job, workflow)
+			if updateErr != nil {
+				return s.finishUpdateExecutionError(ctx, job, workflow, index, updateErr, run)
+			}
+			job = updatedJob
+			stepRef := workflowStepRef(workflow, index)
+			_ = s.jobs.PublishEvent(ctx, job, "job_error", updateStepFailureMessage(failure), "", stepRef)
+			_ = s.jobs.PublishEvent(ctx, job, "job_step_finished", updateStepMessage("Failed", step), "", stepRef)
+			continue
 		}
+
 		if step.TargetStackID != "" && updateStepInvalidatesImageUpdates(step.Action) {
 			if err := s.stackReader.InvalidateImageUpdateStatus(ctx, step.TargetStackID, step.TargetServiceNames); err != nil && s.logger != nil {
 				s.logger.Warn("invalidate image update status failed", slog.String("stack_id", step.TargetStackID), slog.String("job_id", job.ID), slog.String("err", err.Error()))
 			}
 		}
 		if step.Action == "up" && step.TargetStackID != "" && step.TargetServiceNames == nil {
-			if baselineErr := s.stackReader.RecordDeployBaseline(ctx, step.TargetStackID, job.ID, time.Now().UTC()); baselineErr != nil {
-				if s.logger != nil {
-					s.logger.Warn("record deploy baseline failed", slog.String("stack_id", step.TargetStackID), slog.String("job_id", job.ID), slog.String("err", baselineErr.Error()))
-				}
+			if baselineErr := s.stackReader.RecordDeployBaseline(ctx, step.TargetStackID, job.ID, time.Now().UTC()); baselineErr != nil && s.logger != nil {
+				s.logger.Warn("record deploy baseline failed", slog.String("stack_id", step.TargetStackID), slog.String("job_id", job.ID), slog.String("err", baselineErr.Error()))
 			}
 		}
 
 		workflow = markWorkflowSucceeded(workflow, index)
-		_ = s.jobs.PublishEvent(ctx, job, "job_step_finished", updateStepMessage("Finished", step), "", workflowStepRef(workflow, index))
-		if index+1 < len(workflow) {
-			workflow = markWorkflowRunning(workflow, index+1)
-			_ = s.jobs.PublishEvent(ctx, job, "job_step_started", updateStepMessage("Starting", workflow[index+1]), "", workflowStepRef(workflow, index+1))
-		}
 		updatedJob, updateErr := s.jobs.UpdateWorkflow(ctx, job, workflow)
 		if updateErr != nil {
-			finishCtx, cancel := jobFinalizationContext()
-			terminalState, errorCode, errorMessage := maintenanceFailure(ctx, "update_stacks_failed", updateErr, s.jobCancelRequested(job.ID))
-			finishedJob, finishErr := s.finishUpdateFailure(finishCtx, job, workflow, index, terminalState, errorCode, errorMessage, run)
-			cancel()
-			return finishedJob, errors.Join(updateErr, finishErr)
+			return s.finishUpdateExecutionError(ctx, job, workflow, index, updateErr, run)
 		}
 		job = updatedJob
+		_ = s.jobs.PublishEvent(ctx, job, "job_step_finished", updateStepMessage("Finished", step), "", workflowStepRef(workflow, index))
 	}
 
-	finishCtx, cancel := jobFinalizationContext()
-	defer cancel()
-	job, err = s.jobs.FinishSucceeded(finishCtx, job)
-	if err != nil {
-		return job, err
+	finishCtx, finishCancel := jobFinalizationContext()
+	defer finishCancel()
+	if len(failures) > 0 {
+		message := aggregateUpdateFailureMessage(failures)
+		finishedJob, finishErr := s.jobs.FinishFailed(finishCtx, job, "update_stacks_failed", message)
+		if finishErr != nil {
+			return finishedJob, finishErr
+		}
+		details := updateAuditDetails(run.Request, run.TargetStackIDs)
+		details["failed_steps"] = updateFailureAuditDetails(failures)
+		if auditErr := s.audit.RecordJob(finishCtx, finishedJob, details); auditErr != nil && s.logger != nil {
+			s.logger.Warn("record maintenance audit failed", slog.String("job_id", finishedJob.ID), slog.String("err", auditErr.Error()))
+		}
+		s.logUpdateFailures(finishedJob, run.Request, failures)
+		return finishedJob, nil
 	}
-	if err := s.audit.RecordJob(finishCtx, job, updateAuditDetails(run.Request, run.TargetStackIDs)); err != nil && s.logger != nil {
-		s.logger.Warn("record maintenance audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+
+	finishedJob, finishErr := s.jobs.FinishSucceeded(finishCtx, job)
+	if finishErr != nil {
+		return finishedJob, finishErr
 	}
-	return job, nil
+	if auditErr := s.audit.RecordJob(finishCtx, finishedJob, updateAuditDetails(run.Request, run.TargetStackIDs)); auditErr != nil && s.logger != nil {
+		s.logger.Warn("record maintenance audit failed", slog.String("job_id", finishedJob.ID), slog.String("err", auditErr.Error()))
+	}
+	return finishedJob, nil
+}
+
+func (s *Service) finishUpdateExecutionError(ctx context.Context, job store.Job, workflow []store.JobWorkflowStep, index int, runErr error, run UpdateRun) (store.Job, error) {
+	finishCtx, finishCancel := jobFinalizationContext()
+	defer finishCancel()
+	terminalState, errorCode, errorMessage := maintenanceFailure(ctx, "update_stacks_failed", runErr, s.jobCancelRequested(job.ID))
+	finishedJob, finishErr := s.finishUpdateFailure(finishCtx, job, workflow, index, terminalState, errorCode, errorMessage, run)
+	return finishedJob, errors.Join(runErr, finishErr)
 }
 
 func (s *Service) RunPrune(ctx context.Context, request PruneRequest, requestedBy string, managedStackIDs []string) (store.Job, error) {
@@ -434,6 +524,7 @@ func (s *Service) finishUpdateFailure(ctx context.Context, job store.Job, workfl
 	if err := s.audit.RecordJob(ctx, finishedJob, updateAuditDetails(run.Request, run.TargetStackIDs)); err != nil && s.logger != nil {
 		s.logger.Warn("record maintenance audit failed", slog.String("job_id", finishedJob.ID), slog.String("err", err.Error()))
 	}
+	s.logTerminalMaintenanceFailure("update", finishedJob, run.Request.Trigger, run.Request.ScheduleKey)
 	return finishedJob, nil
 }
 
@@ -454,7 +545,23 @@ func (s *Service) finishPruneFailure(ctx context.Context, job store.Job, workflo
 	if err := s.audit.RecordJob(ctx, finishedJob, pruneAuditDetails(run.Request)); err != nil && s.logger != nil {
 		s.logger.Warn("record prune audit failed", slog.String("job_id", finishedJob.ID), slog.String("err", err.Error()))
 	}
+	s.logTerminalMaintenanceFailure("prune", finishedJob, run.Request.Trigger, run.Request.ScheduleKey)
 	return finishedJob, nil
+}
+
+func (s *Service) logTerminalMaintenanceFailure(kind string, job store.Job, trigger, scheduleKey string) {
+	if s.logger == nil || (job.State != "failed" && job.State != "timed_out") {
+		return
+	}
+	s.logger.Error("maintenance job failed",
+		slog.String("kind", kind),
+		slog.String("job_id", job.ID),
+		slog.String("trigger", fallbackTrigger(trigger)),
+		slog.String("schedule_key", scheduleKey),
+		slog.String("state", job.State),
+		slog.String("error_code", job.ErrorCode),
+		slog.String("err", truncateRunes(job.ErrorMessage, maintenanceErrorSummaryLimit)),
+	)
 }
 
 func (s *Service) jobCancelRequested(jobID string) bool {
@@ -557,6 +664,202 @@ func (s *Service) runUpdateWorkflowStep(ctx context.Context, step store.JobWorkf
 	}, onProgress)
 }
 
+func (s *Service) runUpdateWorkflowStepWithRetry(ctx context.Context, job store.Job, workflow []store.JobWorkflowStep, index int, options UpdateOptions, targetStackIDs []string, trigger string) (updateStepResult, error) {
+	step := workflow[index]
+	delays := []time.Duration(nil)
+	if step.Action == "pull" {
+		delays = s.pullRetryDelays
+	}
+	maxAttempts := len(delays) + 1
+	result := updateStepResult{}
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		result.Attempts = attempt
+		onProgress := s.progressPublisher(ctx, job, step, workflowStepRef(workflow, index))
+		output, runErr := s.runUpdateWorkflowStep(ctx, step, options, targetStackIDs, onProgress)
+		result.Output = output
+		if trimmed := strings.TrimSpace(output); trimmed != "" {
+			message := updateStepMessage("Output", step)
+			if attempt > 1 {
+				message = fmt.Sprintf("%s Attempt %d/%d.", strings.TrimSuffix(message, "."), attempt, maxAttempts)
+			}
+			_ = s.jobs.PublishEvent(ctx, job, "job_log", message, trimmed, workflowStepRef(workflow, index))
+		}
+		if runErr == nil {
+			return result, nil
+		}
+		if attempt == maxAttempts || !isRetryablePullError(ctx, output, runErr) {
+			return result, runErr
+		}
+
+		delay := delays[attempt-1]
+		summary := summarizeMaintenanceError(output, runErr)
+		message := fmt.Sprintf("Pull attempt %d/%d failed for %s; retrying in %s.", attempt, maxAttempts, updateStepTarget(step), delay)
+		_ = s.jobs.PublishEvent(ctx, job, "job_warning", message, summary, workflowStepRef(workflow, index))
+		if s.logger != nil {
+			s.logger.Warn("maintenance pull retry scheduled",
+				slog.String("job_id", job.ID),
+				slog.String("trigger", fallbackTrigger(trigger)),
+				slog.String("stack_id", step.TargetStackID),
+				slog.Int("attempt", attempt),
+				slog.Int("max_attempts", maxAttempts),
+				slog.Duration("retry_in", delay),
+				slog.String("err", summary),
+			)
+		}
+		wait := s.retryWait
+		if wait == nil {
+			wait = waitForRetry
+		}
+		if waitErr := wait(ctx, delay); waitErr != nil {
+			return result, waitErr
+		}
+	}
+	return result, errors.New("maintenance pull retry loop exhausted unexpectedly")
+}
+
+func updateStepSkipReason(step store.JobWorkflowStep, failures []updateStepFailure, blockedStacks map[string]updateStepFailure) string {
+	if step.Action == "prune" && len(failures) > 0 {
+		return "Skipped prune because one or more stack updates failed."
+	}
+	if failure, ok := blockedStacks[step.TargetStackID]; ok && step.TargetStackID != "" {
+		return fmt.Sprintf("Skipped %s for %s because %s failed.", strings.ToLower(maintenanceActionLabel(step.Action)), step.TargetStackID, strings.ToLower(maintenanceActionLabel(failure.Action)))
+	}
+	return ""
+}
+
+func isRetryablePullError(ctx context.Context, output string, err error) bool {
+	if err == nil || ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	message := strings.ToLower(strings.TrimSpace(output + "\n" + err.Error()))
+	markers := []string{
+		"tls handshake timeout",
+		"client.timeout exceeded",
+		"i/o timeout",
+		"connection reset by peer",
+		"connection refused",
+		"unexpected eof",
+		"temporary failure in name resolution",
+		"no such host",
+		"server misbehaving",
+		"toomanyrequests",
+		"too many requests",
+		"status code 429",
+		"retry-after",
+		"service unavailable",
+		"bad gateway",
+		"gateway timeout",
+	}
+	for _, marker := range markers {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func summarizeMaintenanceError(output string, err error) string {
+	message := strings.TrimSpace(output)
+	if message == "" && err != nil {
+		message = strings.TrimSpace(err.Error())
+	}
+	lines := strings.Split(strings.ReplaceAll(message, "\r\n", "\n"), "\n")
+	for index := len(lines) - 1; index >= 0; index-- {
+		if line := strings.TrimSpace(lines[index]); line != "" {
+			return truncateRunes(line, maintenanceErrorSummaryLimit)
+		}
+	}
+	return "Maintenance step failed."
+}
+
+func truncateRunes(value string, limit int) string {
+	value = strings.TrimSpace(value)
+	if limit <= 0 {
+		return ""
+	}
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	return strings.TrimSpace(string(runes[:limit-1])) + "…"
+}
+
+func updateStepTarget(step store.JobWorkflowStep) string {
+	if step.TargetStackID != "" {
+		return step.TargetStackID
+	}
+	return "workspace"
+}
+
+func updateStepFailureMessage(failure updateStepFailure) string {
+	return fmt.Sprintf("%s failed for %s after %d attempt(s): %s", maintenanceActionLabel(failure.Action), updateFailureTarget(failure), failure.Attempts, failure.Message)
+}
+
+func updateFailureTarget(failure updateStepFailure) string {
+	if failure.StackID != "" {
+		return failure.StackID
+	}
+	return "workspace"
+}
+
+func aggregateUpdateFailureMessage(failures []updateStepFailure) string {
+	label := "update step failed"
+	if len(failures) != 1 {
+		label = "update steps failed"
+	}
+	parts := make([]string, 0, len(failures))
+	for _, failure := range failures {
+		parts = append(parts, fmt.Sprintf("%s/%s after %d attempt(s): %s", updateFailureTarget(failure), failure.Action, failure.Attempts, failure.Message))
+	}
+	return truncateRunes(fmt.Sprintf("%d %s: %s", len(failures), label, strings.Join(parts, "; ")), maintenanceErrorMessageLimit)
+}
+
+func updateFailureAuditDetails(failures []updateStepFailure) []map[string]any {
+	details := make([]map[string]any, 0, len(failures))
+	for _, failure := range failures {
+		details = append(details, map[string]any{
+			"stack_id": failure.StackID,
+			"action":   failure.Action,
+			"attempts": failure.Attempts,
+			"message":  failure.Message,
+		})
+	}
+	return details
+}
+
+func (s *Service) logUpdateFailures(job store.Job, request UpdateRequest, failures []updateStepFailure) {
+	if s.logger == nil {
+		return
+	}
+	stackSet := make(map[string]struct{})
+	for _, failure := range failures {
+		if failure.StackID != "" {
+			stackSet[failure.StackID] = struct{}{}
+		}
+	}
+	failedStacks := make([]string, 0, len(stackSet))
+	for stackID := range stackSet {
+		failedStacks = append(failedStacks, stackID)
+	}
+	sort.Strings(failedStacks)
+	s.logger.Error("maintenance update completed with failures",
+		slog.String("job_id", job.ID),
+		slog.String("trigger", fallbackTrigger(request.Trigger)),
+		slog.String("schedule_key", request.ScheduleKey),
+		slog.Int("failed_step_count", len(failures)),
+		slog.Any("failed_stacks", failedStacks),
+		slog.String("err", truncateRunes(job.ErrorMessage, maintenanceErrorSummaryLimit)),
+	)
+}
+
+func fallbackTrigger(trigger string) string {
+	if strings.TrimSpace(trigger) == "" {
+		return "manual"
+	}
+	return trigger
+}
+
 var progressUnits = map[string]string{
 	"pull":              "layers",
 	"build":             "steps",
@@ -613,6 +916,7 @@ func workflowStepRef(steps []store.JobWorkflowStep, index int) *store.JobEventSt
 		Index:              index + 1,
 		Total:              len(steps),
 		Action:             steps[index].Action,
+		State:              steps[index].State,
 		TargetStackID:      steps[index].TargetStackID,
 		TargetServiceNames: steps[index].TargetServiceNames,
 	}

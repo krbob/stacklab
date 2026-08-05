@@ -610,6 +610,7 @@ func workflowStepRef(steps []store.JobWorkflowStep, index int) *store.JobEventSt
 		Index:         index + 1,
 		Total:         len(steps),
 		Action:        steps[index].Action,
+		State:         steps[index].State,
 		TargetStackID: steps[index].TargetStackID,
 	}
 }

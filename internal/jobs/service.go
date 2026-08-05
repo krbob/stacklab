@@ -396,10 +396,12 @@ func (s *Service) Events(ctx context.Context, id string) (EventsResponse, error)
 		var step *ActiveJobStep
 		if event.Step != nil {
 			step = &ActiveJobStep{
-				Index:         event.Step.Index,
-				Total:         event.Step.Total,
-				Action:        event.Step.Action,
-				TargetStackID: event.Step.TargetStackID,
+				Index:              event.Step.Index,
+				Total:              event.Step.Total,
+				Action:             event.Step.Action,
+				State:              event.Step.State,
+				TargetStackID:      event.Step.TargetStackID,
+				TargetServiceNames: append([]string(nil), event.Step.TargetServiceNames...),
 			}
 		}
 		response.Items = append(response.Items, JobEventRecord{
@@ -520,10 +522,12 @@ func (s *Service) ListActive(ctx context.Context) (ActiveJobsResponse, error) {
 			}
 			if latestEvent.Step != nil {
 				step := ActiveJobStep{
-					Index:         latestEvent.Step.Index,
-					Total:         latestEvent.Step.Total,
-					Action:        latestEvent.Step.Action,
-					TargetStackID: latestEvent.Step.TargetStackID,
+					Index:              latestEvent.Step.Index,
+					Total:              latestEvent.Step.Total,
+					Action:             latestEvent.Step.Action,
+					State:              latestEvent.Step.State,
+					TargetStackID:      latestEvent.Step.TargetStackID,
+					TargetServiceNames: append([]string(nil), latestEvent.Step.TargetServiceNames...),
 				}
 				item.CurrentStep = &step
 				item.LatestEvent.Step = &step
@@ -684,6 +688,7 @@ func interruptedWorkflow(steps []store.JobWorkflowStep) ([]store.JobWorkflowStep
 		Index:         index + 1,
 		Total:         len(cloned),
 		Action:        cloned[index].Action,
+		State:         cloned[index].State,
 		TargetStackID: cloned[index].TargetStackID,
 	}
 }

@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import type { JobEvent, JobProgress } from '@/lib/ws-types'
+import type { JobEvent, JobProgress, JobStepState } from '@/lib/ws-types'
 import { cn } from '@/lib/cn'
 
 interface StepCardsProps {
@@ -11,7 +11,7 @@ interface StepData {
   total: number
   action: string
   targetStackId?: string
-  state: 'running' | 'succeeded' | 'failed' | 'queued'
+  state: JobStepState
   startedAt: string | null
   finishedAt: string | null
   progress: JobProgress | null
@@ -22,6 +22,10 @@ const statusDot: Record<string, string> = {
   running: 'animate-pulse bg-[var(--run)]',
   succeeded: 'bg-[var(--ok)]',
   failed: 'bg-[var(--danger)]',
+  skipped: 'bg-stone-600',
+  cancel_requested: 'bg-[var(--warning)]',
+  cancelled: 'bg-stone-600',
+  timed_out: 'bg-[var(--danger)]',
   queued: 'bg-stone-600',
 }
 
@@ -29,6 +33,10 @@ const statusLabel: Record<string, { text: string; color: string }> = {
   running: { text: 'Running', color: 'text-[var(--run)]' },
   succeeded: { text: 'Done', color: 'text-[var(--ok)]' },
   failed: { text: 'Failed', color: 'text-[var(--danger)]' },
+  skipped: { text: 'Skipped', color: 'text-[var(--muted)]' },
+  cancel_requested: { text: 'Cancelling', color: 'text-[var(--warning)]' },
+  cancelled: { text: 'Cancelled', color: 'text-[var(--muted)]' },
+  timed_out: { text: 'Timed out', color: 'text-[var(--danger)]' },
   queued: { text: 'Queued', color: 'text-[var(--muted)]' },
 }
 
@@ -208,10 +216,10 @@ function buildSteps(events: JobEvent[]): StepData[] {
     const step = stepsMap.get(key)!
 
     if (event.event === 'job_step_started') {
-      step.state = 'running'
+      step.state = event.step.state ?? 'running'
       step.startedAt = event.timestamp
     } else if (event.event === 'job_step_finished') {
-      step.state = event.state === 'failed' ? 'failed' : 'succeeded'
+      step.state = event.step.state ?? terminalStepStateFromJob(event.state)
       step.finishedAt = event.timestamp
     }
 
@@ -231,4 +239,15 @@ function buildSteps(events: JobEvent[]): StepData[] {
   }
 
   return Array.from(stepsMap.values()).sort((a, b) => a.index - b.index)
+}
+
+function terminalStepStateFromJob(jobState: string): JobStepState {
+  switch (jobState) {
+    case 'failed':
+    case 'cancelled':
+    case 'timed_out':
+      return jobState
+    default:
+      return 'succeeded'
+  }
 }

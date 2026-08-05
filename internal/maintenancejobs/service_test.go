@@ -1,10 +1,13 @@
 package maintenancejobs
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,12 +25,18 @@ type fakeMaintenanceStackReader struct {
 	baselineErr      error
 	invalidateCalls  int
 	invalidatedImage []invalidatedImageCall
+	stepResults      map[string][]maintenanceStepResult
 }
 
 type maintenanceStepCall struct {
 	StackID      string
 	Action       string
 	ServiceNames []string
+}
+
+type maintenanceStepResult struct {
+	Output string
+	Err    error
 }
 
 type invalidatedImageCall struct {
@@ -74,6 +83,12 @@ func (f *fakeMaintenanceStackReader) RunMaintenanceStepStreaming(ctx context.Con
 		Action:       action,
 		ServiceNames: append([]string(nil), options.ServiceNames...),
 	})
+	key := stackID + "/" + action
+	if results := f.stepResults[key]; len(results) > 0 {
+		result := results[0]
+		f.stepResults[key] = results[1:]
+		return result.Output, result.Err
+	}
 	return "", nil
 }
 
@@ -93,6 +108,8 @@ func (f *fakeMaintenanceStackReader) InvalidateImageUpdateStatus(ctx context.Con
 
 type fakeMaintenancePruneRunner struct {
 	systemPruneCalls []systemPruneCall
+	stepErr          error
+	systemErr        error
 }
 
 type systemPruneCall struct {
@@ -101,7 +118,7 @@ type systemPruneCall struct {
 }
 
 func (f *fakeMaintenancePruneRunner) RunPruneStep(ctx context.Context, action string, managedStackIDs []string) (string, error) {
-	return "", nil
+	return "", f.stepErr
 }
 
 func (f *fakeMaintenancePruneRunner) RunSystemPrune(ctx context.Context, includeVolumes bool, managedStackIDs []string) (string, error) {
@@ -109,7 +126,7 @@ func (f *fakeMaintenancePruneRunner) RunSystemPrune(ctx context.Context, include
 		IncludeVolumes:  includeVolumes,
 		ManagedStackIDs: append([]string(nil), managedStackIDs...),
 	})
-	return "", nil
+	return "", f.systemErr
 }
 
 func TestResolveUpdateServiceTargetsExcludesKnownServices(t *testing.T) {
@@ -450,6 +467,233 @@ func TestRunUpdatePruneAfterWithVolumesUsesAllManagedStacks(t *testing.T) {
 	}
 }
 
+func TestRunUpdateRetriesTransientPullAndSucceedsWithWarnings(t *testing.T) {
+	t.Parallel()
+
+	reader := fakeMaintenanceReader()
+	reader.stepResults["demo/pull"] = []maintenanceStepResult{
+		{Output: `Get "https://lscr.io/v2/": net/http: TLS handshake timeout`, Err: errors.New("pull failed")},
+		{Output: "toomanyrequests: retry-after: 1s", Err: errors.New("pull failed")},
+		{},
+	}
+	service := newMaintenanceTestService(t, reader)
+	var waits []time.Duration
+	service.retryWait = func(_ context.Context, delay time.Duration) error {
+		waits = append(waits, delay)
+		return nil
+	}
+
+	job, err := service.RunUpdate(context.Background(), UpdateRequest{
+		Target:  UpdateTarget{Mode: "selected", StackIDs: []string{"demo"}},
+		Options: UpdateOptions{PullImages: true, BuildImages: false},
+		Trigger: "scheduled",
+	}, "scheduler")
+	if err != nil {
+		t.Fatalf("RunUpdate() error = %v", err)
+	}
+	if job.State != "succeeded" {
+		t.Fatalf("RunUpdate() state = %q, want succeeded", job.State)
+	}
+	if !reflect.DeepEqual(waits, defaultPullRetryDelays) {
+		t.Fatalf("retry waits = %v, want %v", waits, defaultPullRetryDelays)
+	}
+	pullCalls := 0
+	for _, call := range reader.stepCalls {
+		if call.StackID == "demo" && call.Action == "pull" {
+			pullCalls++
+		}
+	}
+	if pullCalls != 3 {
+		t.Fatalf("pull calls = %d, want 3", pullCalls)
+	}
+	events, err := service.jobs.ReplayEvents(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("ReplayEvents() error = %v", err)
+	}
+	warnings := 0
+	for _, event := range events {
+		if event.Event == "job_warning" {
+			warnings++
+			if event.Step == nil || event.Step.State != "running" {
+				t.Fatalf("retry warning step = %#v, want running", event.Step)
+			}
+		}
+	}
+	if warnings != 2 {
+		t.Fatalf("job warnings = %d, want 2", warnings)
+	}
+}
+
+func TestRunUpdateContinuesAfterExhaustedPullAndSkipsDependentSteps(t *testing.T) {
+	t.Parallel()
+
+	reader := fakeMaintenanceReader()
+	zeta := reader.details["demo"]
+	zeta.Stack.ID = "zeta"
+	zeta.Stack.Name = "zeta"
+	reader.details["zeta"] = zeta
+	reader.stepResults["demo/pull"] = []maintenanceStepResult{
+		{Output: "TLS handshake timeout", Err: errors.New("pull failed")},
+		{Output: "connection reset by peer", Err: errors.New("pull failed")},
+		{Output: "toomanyrequests", Err: errors.New("pull failed")},
+	}
+	pruner := &fakeMaintenancePruneRunner{}
+	service := newMaintenanceTestServiceWithPruner(t, reader, pruner)
+	service.retryWait = func(context.Context, time.Duration) error { return nil }
+	var logs bytes.Buffer
+	service.logger = slog.New(slog.NewTextHandler(&logs, nil))
+
+	job, err := service.RunUpdate(context.Background(), UpdateRequest{
+		Target: UpdateTarget{Mode: "selected", StackIDs: []string{"demo", "zeta"}},
+		Options: UpdateOptions{
+			PullImages: true,
+			PruneAfter: true,
+		},
+		Trigger:     "scheduled",
+		ScheduleKey: "update",
+	}, "scheduler")
+	if err != nil {
+		t.Fatalf("RunUpdate() error = %v", err)
+	}
+	if job.State != "failed" {
+		t.Fatalf("RunUpdate() state = %q, want failed", job.State)
+	}
+	if !strings.Contains(job.ErrorMessage, "demo/pull after 3 attempt(s)") {
+		t.Fatalf("RunUpdate() error message = %q", job.ErrorMessage)
+	}
+	wantStates := []string{"failed", "skipped", "succeeded", "succeeded", "skipped"}
+	if job.Workflow == nil || len(job.Workflow.Steps) != len(wantStates) {
+		t.Fatalf("workflow = %#v, want %d steps", job.Workflow, len(wantStates))
+	}
+	for index, want := range wantStates {
+		if got := job.Workflow.Steps[index].State; got != want {
+			t.Fatalf("workflow step %d state = %q, want %q", index, got, want)
+		}
+	}
+	for _, call := range reader.stepCalls {
+		if call.StackID == "demo" && call.Action != "pull" {
+			t.Fatalf("unexpected dependent demo call after pull failure: %#v", call)
+		}
+	}
+	if reader.invalidateCalls != 1 || reader.baselineCalls != 1 {
+		t.Fatalf("successful zeta effects: invalidations=%d baselines=%d, want 1/1", reader.invalidateCalls, reader.baselineCalls)
+	}
+	if len(pruner.systemPruneCalls) != 0 {
+		t.Fatalf("prune calls = %#v, want none after update failure", pruner.systemPruneCalls)
+	}
+	events, err := service.jobs.ReplayEvents(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("ReplayEvents() error = %v", err)
+	}
+	stepStates := map[string]string{}
+	for _, event := range events {
+		if event.Event == "job_step_finished" && event.Step != nil {
+			stepStates[event.Step.TargetStackID+"/"+event.Step.Action] = event.Step.State
+		}
+	}
+	if stepStates["demo/pull"] != "failed" || stepStates["demo/up"] != "skipped" || stepStates["zeta/up"] != "succeeded" || stepStates["/prune"] != "skipped" {
+		t.Fatalf("finished step states = %#v", stepStates)
+	}
+	if output := logs.String(); !strings.Contains(output, "maintenance update completed with failures") || !strings.Contains(output, "job_id="+job.ID) || !strings.Contains(output, "failed_stacks=[demo]") {
+		t.Fatalf("maintenance failure log = %q", output)
+	}
+	auditEntries, err := service.audit.List(context.Background(), audit.ListQuery{Limit: 10})
+	if err != nil {
+		t.Fatalf("audit.List() error = %v", err)
+	}
+	if len(auditEntries.Items) != 1 || auditEntries.Items[0].DetailJSON == nil || !strings.Contains(*auditEntries.Items[0].DetailJSON, `"failed_steps"`) || !strings.Contains(*auditEntries.Items[0].DetailJSON, `"attempts":3`) {
+		t.Fatalf("maintenance failure audit = %#v", auditEntries.Items)
+	}
+}
+
+func TestRetryablePullErrorClassification(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		message string
+		want    bool
+	}{
+		{name: "tls timeout", message: "net/http: TLS handshake timeout", want: true},
+		{name: "rate limit", message: "toomanyrequests: retry-after: 829ms", want: true},
+		{name: "connection reset", message: "read: connection reset by peer", want: true},
+		{name: "dns", message: "temporary failure in name resolution", want: true},
+		{name: "unauthorized", message: "unauthorized: authentication required", want: false},
+		{name: "manifest missing", message: "manifest for example.test/app:missing not found", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isRetryablePullError(context.Background(), tt.message, errors.New(tt.message)); got != tt.want {
+				t.Fatalf("isRetryablePullError(%q) = %t, want %t", tt.message, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExecuteUpdateCancelsDuringRetryWait(t *testing.T) {
+	t.Parallel()
+
+	reader := fakeMaintenanceReader()
+	reader.stepResults["demo/pull"] = []maintenanceStepResult{{Output: "TLS handshake timeout", Err: errors.New("pull failed")}}
+	service := newMaintenanceTestService(t, reader)
+	request := UpdateRequest{
+		Target:  UpdateTarget{Mode: "selected", StackIDs: []string{"demo"}},
+		Options: UpdateOptions{PullImages: true},
+	}
+	job, run, err := service.StartUpdate(context.Background(), request, "test")
+	if err != nil {
+		t.Fatalf("StartUpdate() error = %v", err)
+	}
+	service.retryWait = func(ctx context.Context, _ time.Duration) error {
+		if _, cancelErr := service.jobs.Cancel(context.Background(), job.ID); cancelErr != nil {
+			return cancelErr
+		}
+		return ctx.Err()
+	}
+
+	finishedJob, err := service.ExecuteUpdate(context.Background(), job, run)
+	if err != nil {
+		t.Fatalf("ExecuteUpdate() error = %v", err)
+	}
+	if finishedJob.State != "cancelled" {
+		t.Fatalf("ExecuteUpdate() state = %q, want cancelled", finishedJob.State)
+	}
+	pullCalls := 0
+	for _, call := range reader.stepCalls {
+		if call.Action == "pull" {
+			pullCalls++
+		}
+	}
+	if pullCalls != 1 {
+		t.Fatalf("pull calls = %d, want 1", pullCalls)
+	}
+}
+
+func TestRunPruneLogsPersistedOperationalFailure(t *testing.T) {
+	t.Parallel()
+
+	pruner := &fakeMaintenancePruneRunner{stepErr: errors.New("prune registry unavailable")}
+	service := newMaintenanceTestServiceWithPruner(t, fakeMaintenanceReader(), pruner)
+	var logs bytes.Buffer
+	service.logger = slog.New(slog.NewTextHandler(&logs, nil))
+
+	job, err := service.RunPrune(context.Background(), PruneRequest{
+		Scope:       maintenance.PruneScope{Images: true},
+		Trigger:     "scheduled",
+		ScheduleKey: "prune",
+	}, "scheduler", []string{"demo"})
+	if err != nil {
+		t.Fatalf("RunPrune() error = %v", err)
+	}
+	if job.State != "failed" {
+		t.Fatalf("RunPrune() state = %q, want failed", job.State)
+	}
+	if output := logs.String(); !strings.Contains(output, "maintenance job failed") || !strings.Contains(output, "kind=prune") || !strings.Contains(output, "job_id="+job.ID) || !strings.Contains(output, "prune registry unavailable") {
+		t.Fatalf("prune failure log = %q", output)
+	}
+}
+
 func TestExecuteUpdateFinalizesAndUnlocksWhenWorkflowUpdateFails(t *testing.T) {
 	t.Parallel()
 
@@ -527,6 +771,7 @@ func newMaintenanceTestServiceWithPruner(t *testing.T, reader *fakeMaintenanceSt
 func fakeMaintenanceReader() *fakeMaintenanceStackReader {
 	buildContext := "/tmp/demo"
 	return &fakeMaintenanceStackReader{
+		stepResults: map[string][]maintenanceStepResult{},
 		details: map[string]stacks.StackDetailResponse{
 			"demo": {
 				Stack: stacks.StackDetail{

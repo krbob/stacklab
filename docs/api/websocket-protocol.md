@@ -413,6 +413,10 @@ Rules:
   - `cancelled`
   - `timed_out`
 - `step` is `null` for non-workflow jobs
+- `step.state`, when present, is the workflow-step state (`queued`, `running`,
+  `succeeded`, `failed`, `skipped`, `cancel_requested`, `cancelled`, or
+  `timed_out`). Consumers should prefer it over the top-level job `state` when
+  rendering a step and fall back to the job state for historical events.
 - `job_progress` events for pull/build-heavy steps may additionally carry a
   structured `progress` object (additive, Slice C of
   `dashboard-read-model-and-progress.md`):

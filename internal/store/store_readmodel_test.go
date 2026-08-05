@@ -114,7 +114,7 @@ func TestJobUpdatesEventsAndActiveReadModel(t *testing.T) {
 	if next, err := testStore.NextJobEventSequence(ctx, job.ID); err != nil || next != 1 {
 		t.Fatalf("NextJobEventSequence(empty) = %d, %v; want 1", next, err)
 	}
-	step := &JobEventStep{Index: 1, Total: 1, Action: "pull", TargetStackID: "alpha", TargetServiceNames: []string{"web"}}
+	step := &JobEventStep{Index: 1, Total: 1, Action: "pull", State: "running", TargetStackID: "alpha", TargetServiceNames: []string{"web"}}
 	progress := &JobProgress{Phase: "pulling", Completed: 1, Total: 1, Unit: "image", Detail: "web"}
 	event := JobEvent{
 		JobID: job.ID, Sequence: 1, Event: "job_progress", State: "running", Message: "Pulled web.", Data: "sha256:abc",
@@ -130,7 +130,7 @@ func TestJobUpdatesEventsAndActiveReadModel(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("LatestJobEvent() = %#v, %t, %v", latest, found, err)
 	}
-	if latest.Step == nil || latest.Step.TargetServiceNames[0] != "web" || latest.Progress == nil || latest.Progress.Detail != "web" || latest.Data != "sha256:abc" {
+	if latest.Step == nil || latest.Step.State != "running" || latest.Step.TargetServiceNames[0] != "web" || latest.Progress == nil || latest.Progress.Detail != "web" || latest.Data != "sha256:abc" {
 		t.Fatalf("LatestJobEvent() = %#v", latest)
 	}
 	if _, found, err := testStore.LatestJobEvent(ctx, "missing"); err != nil || found {

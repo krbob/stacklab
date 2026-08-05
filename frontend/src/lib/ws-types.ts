@@ -81,11 +81,15 @@ export interface JobEvent {
     index: number
     total: number
     action: string
+    state?: JobStepState
     target_stack_id?: string
+    target_service_names?: string[]
   } | null
   progress?: JobProgress | null
   timestamp: string
 }
+
+export type JobStepState = 'queued' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'cancel_requested' | 'cancelled' | 'timed_out'
 
 export interface JobProgress {
   phase: string

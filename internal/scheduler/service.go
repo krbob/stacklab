@@ -292,9 +292,24 @@ func (s *Service) finalizeScheduledRun(ctx context.Context, scheduleKey string, 
 		case errors.Is(runErr, jobs.ErrResourceConflict):
 			result = "skipped"
 			message = "Another maintenance job was already running."
+			if s.logger != nil {
+				s.logger.Warn("scheduled maintenance run skipped",
+					slog.String("schedule_key", scheduleKey),
+					slog.String("scheduled_for", scheduledFor.UTC().Format(time.RFC3339)),
+					slog.String("err", runErr.Error()),
+				)
+			}
 		default:
 			result = "failed"
 			message = runErr.Error()
+			if s.logger != nil {
+				s.logger.Error("scheduled maintenance run failed before completion",
+					slog.String("schedule_key", scheduleKey),
+					slog.String("scheduled_for", scheduledFor.UTC().Format(time.RFC3339)),
+					slog.String("job_id", jobID),
+					slog.String("err", runErr.Error()),
+				)
+			}
 		}
 		finishedAt := s.clock.Now()
 		_ = s.audit.RecordSystemEvent(finalCtx, "run_maintenance_schedule", "scheduler", result, scheduledFor, &finishedAt, map[string]any{

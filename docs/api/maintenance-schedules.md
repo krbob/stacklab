@@ -153,6 +153,10 @@ Behavior:
 - if another maintenance job already holds the needed locks:
   - the scheduled run is marked `skipped`
   - no retry loop is started automatically
+- scheduled updates use the maintenance workflow's bounded per-pull retry
+  policy; Stacklab does not retry the entire scheduled run
+- one failed stack does not prevent later independent stacks from being
+  attempted, but the scheduled run remains `failed`
 - scheduled jobs reuse the same:
   - job model
   - audit trail

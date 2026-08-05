@@ -4176,7 +4176,7 @@ components:
                   action:
                     type: string
                   state:
-                    $ref: '#/components/schemas/JobState'
+                    $ref: '#/components/schemas/WorkflowStepState'
                   target_stack_id:
                     type: string
                   target_service_names:
@@ -4266,7 +4266,7 @@ components:
               action:
                 type: string
               state:
-                $ref: '#/components/schemas/JobState'
+                $ref: '#/components/schemas/WorkflowStepState'
               target_stack_id:
                 type: string
             required: [action, state]
@@ -4280,8 +4280,14 @@ components:
           type: integer
         action:
           type: string
+        state:
+          $ref: '#/components/schemas/WorkflowStepState'
         target_stack_id:
           type: string
+        target_service_names:
+          type: array
+          items:
+            type: string
       required: [index, total, action]
     ActiveJobLatestEvent:
       type: object
@@ -4668,3 +4674,6 @@ components:
     JobStateTerminal:
       type: string
       enum: [succeeded, failed, cancelled, timed_out]
+    WorkflowStepState:
+      type: string
+      enum: [queued, running, succeeded, failed, skipped, cancel_requested, cancelled, timed_out]

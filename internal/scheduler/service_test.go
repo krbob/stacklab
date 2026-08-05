@@ -1,10 +1,13 @@
 package scheduler
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -475,6 +478,24 @@ func TestFinalizeScheduledRunPersistsAfterContextCancellation(t *testing.T) {
 	}
 	if runtimeState.Update.LastMessage != "runner failed" {
 		t.Fatalf("LastMessage = %q", runtimeState.Update.LastMessage)
+	}
+}
+
+func TestFinalizeScheduledRunLogsFailureBeforeJobStarts(t *testing.T) {
+	t.Parallel()
+
+	testStore := openSchedulerTestStore(t)
+	clock := newManualClock(time.Date(2026, 4, 10, 6, 0, 0, 0, time.UTC))
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	service := newService(testStore, audit.NewService(testStore), &fakeRunner{}, &fakeStackLister{}, logger, clock, time.UTC)
+
+	scheduledFor := time.Date(2026, 4, 10, 5, 30, 0, 0, time.UTC)
+	service.finalizeScheduledRun(context.Background(), "update", scheduledFor, store.Job{}, errors.New("target resolution failed"))
+
+	output := logs.String()
+	if !strings.Contains(output, "scheduled maintenance run failed before completion") || !strings.Contains(output, "schedule_key=update") || !strings.Contains(output, "target resolution failed") {
+		t.Fatalf("scheduler failure log = %q", output)
 	}
 }
 

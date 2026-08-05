@@ -473,6 +473,7 @@ function RecentMaintenance({ entries, loading, error, hasData, onRetry, onOpenJo
                     className="flex w-full items-center gap-3 rounded-md border border-[var(--panel-border)] px-3 py-2 text-left text-xs transition hover:border-[rgba(245,165,36,0.25)] hover:bg-[rgba(255,255,255,0.03)]"
                   >
                     {content}
+                    <span aria-hidden className="shrink-0 text-[var(--accent)]">detail ›</span>
                   </button>
                 ) : (
                   <div key={entry.id} className="flex items-center gap-3 rounded-md border border-[var(--panel-border)] px-3 py-2 text-xs">

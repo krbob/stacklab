@@ -143,6 +143,7 @@ type JobEventStep struct {
 	Index              int      `json:"index"`
 	Total              int      `json:"total"`
 	Action             string   `json:"action"`
+	State              string   `json:"state,omitempty"`
 	TargetStackID      string   `json:"target_stack_id,omitempty"`
 	TargetServiceNames []string `json:"target_service_names,omitempty"`
 }

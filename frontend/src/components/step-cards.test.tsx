@@ -132,6 +132,71 @@ describe('StepCards', () => {
     expect(screen.queryByText('Progress pull for demo.')).not.toBeInTheDocument()
   })
 
+  it('uses explicit step states while the aggregate job continues', () => {
+    const events: JobEvent[] = [
+      makeEvent({
+        event: 'job_step_started',
+        state: 'running',
+        timestamp: '2026-04-09T10:00:00Z',
+        step: { index: 1, total: 3, action: 'pull', state: 'running', target_stack_id: 'alpha' },
+      }),
+      makeEvent({
+        event: 'job_error',
+        state: 'running',
+        message: 'Pull failed after retries',
+        timestamp: '2026-04-09T10:00:03Z',
+        step: { index: 1, total: 3, action: 'pull', state: 'failed', target_stack_id: 'alpha' },
+      }),
+      makeEvent({
+        event: 'job_step_finished',
+        state: 'running',
+        timestamp: '2026-04-09T10:00:03Z',
+        step: { index: 1, total: 3, action: 'pull', state: 'failed', target_stack_id: 'alpha' },
+      }),
+      makeEvent({
+        event: 'job_step_finished',
+        state: 'running',
+        message: 'Skipped dependent up',
+        timestamp: '2026-04-09T10:00:03Z',
+        step: { index: 2, total: 3, action: 'up', state: 'skipped', target_stack_id: 'alpha' },
+      }),
+      makeEvent({
+        event: 'job_step_started',
+        state: 'running',
+        timestamp: '2026-04-09T10:00:04Z',
+        step: { index: 3, total: 3, action: 'pull', state: 'running', target_stack_id: 'beta' },
+      }),
+    ]
+
+    render(<StepCards events={events} />)
+
+    expect(screen.getByText('Failed')).toBeInTheDocument()
+    expect(screen.getByText('Skipped')).toBeInTheDocument()
+    expect(screen.getByText('Running')).toBeInTheDocument()
+    expect(screen.getByText('Pull failed after retries')).toBeInTheDocument()
+  })
+
+  it('falls back to the historical top-level event state when step state is absent', () => {
+    const events: JobEvent[] = [
+      makeEvent({
+        event: 'job_step_started',
+        state: 'running',
+        timestamp: '2026-04-09T10:00:00Z',
+        step: { index: 1, total: 1, action: 'pull', target_stack_id: 'demo' },
+      }),
+      makeEvent({
+        event: 'job_step_finished',
+        state: 'failed',
+        timestamp: '2026-04-09T10:00:03Z',
+        step: { index: 1, total: 1, action: 'pull', target_stack_id: 'demo' },
+      }),
+    ]
+
+    render(<StepCards events={events} />)
+
+    expect(screen.getByText('Failed')).toBeInTheDocument()
+  })
+
   it('expands collapsed output on demand', () => {
     const events: JobEvent[] = [
       makeEvent({
