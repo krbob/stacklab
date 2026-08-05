@@ -4,7 +4,7 @@ go 1.26.5
 
 require (
 	github.com/creack/pty v1.1.24
-	github.com/getkin/kin-openapi v0.145.0
+	github.com/getkin/kin-openapi v0.146.0
 	github.com/gorilla/websocket v1.5.3
 	golang.org/x/crypto v0.54.0
 	golang.org/x/sys v0.47.0
