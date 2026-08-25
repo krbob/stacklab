@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"path/filepath"
 	"reflect"
@@ -494,8 +495,8 @@ func TestRunUpdateRetriesTransientPullAndSucceedsWithWarnings(t *testing.T) {
 	if job.State != "succeeded" {
 		t.Fatalf("RunUpdate() state = %q, want succeeded", job.State)
 	}
-	if !reflect.DeepEqual(waits, defaultPullRetryDelays) {
-		t.Fatalf("retry waits = %v, want %v", waits, defaultPullRetryDelays)
+	if !reflect.DeepEqual(waits, defaultUpdateStepRetryDelays) {
+		t.Fatalf("retry waits = %v, want %v", waits, defaultUpdateStepRetryDelays)
 	}
 	pullCalls := 0
 	for _, call := range reader.stepCalls {
@@ -521,6 +522,121 @@ func TestRunUpdateRetriesTransientPullAndSucceedsWithWarnings(t *testing.T) {
 	}
 	if warnings != 2 {
 		t.Fatalf("job warnings = %d, want 2", warnings)
+	}
+}
+
+func TestRunUpdateRetriesTransientBuildAndSucceedsWithWarnings(t *testing.T) {
+	t.Parallel()
+
+	reader := fakeMaintenanceReader()
+	reader.stepResults["demo/build"] = []maintenanceStepResult{
+		{Output: "failed to solve: context deadline exceeded", Err: errors.New("build failed")},
+		{Err: fmt.Errorf("resolve source metadata: %w", context.DeadlineExceeded)},
+		{},
+	}
+	service := newMaintenanceTestService(t, reader)
+	var waits []time.Duration
+	service.retryWait = func(_ context.Context, delay time.Duration) error {
+		waits = append(waits, delay)
+		return nil
+	}
+
+	job, err := service.RunUpdate(context.Background(), UpdateRequest{
+		Target:  UpdateTarget{Mode: "selected", StackIDs: []string{"demo"}},
+		Options: UpdateOptions{PullImages: false, BuildImages: true},
+		Trigger: "scheduled",
+	}, "scheduler")
+	if err != nil {
+		t.Fatalf("RunUpdate() error = %v", err)
+	}
+	if job.State != "succeeded" {
+		t.Fatalf("RunUpdate() state = %q, want succeeded", job.State)
+	}
+	if !reflect.DeepEqual(waits, defaultUpdateStepRetryDelays) {
+		t.Fatalf("retry waits = %v, want %v", waits, defaultUpdateStepRetryDelays)
+	}
+	buildCalls := 0
+	upCalls := 0
+	for _, call := range reader.stepCalls {
+		switch call.Action {
+		case "build":
+			buildCalls++
+		case "up":
+			upCalls++
+		}
+	}
+	if buildCalls != 3 || upCalls != 1 {
+		t.Fatalf("step calls = %#v, want 3 build and 1 up", reader.stepCalls)
+	}
+	if reader.invalidateCalls != 1 {
+		t.Fatalf("image invalidations = %d, want 1 after successful build", reader.invalidateCalls)
+	}
+
+	events, err := service.jobs.ReplayEvents(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("ReplayEvents() error = %v", err)
+	}
+	warnings := 0
+	for _, event := range events {
+		if event.Event != "job_warning" {
+			continue
+		}
+		warnings++
+		if !strings.HasPrefix(event.Message, "Build attempt ") {
+			t.Fatalf("retry warning message = %q, want Build attempt", event.Message)
+		}
+		if event.Step == nil || event.Step.Action != "build" || event.Step.State != "running" {
+			t.Fatalf("retry warning step = %#v, want running build", event.Step)
+		}
+	}
+	if warnings != 2 {
+		t.Fatalf("job warnings = %d, want 2", warnings)
+	}
+}
+
+func TestRunUpdateExhaustsTransientBuildRetriesAndSkipsUp(t *testing.T) {
+	t.Parallel()
+
+	reader := fakeMaintenanceReader()
+	reader.stepResults["demo/build"] = []maintenanceStepResult{
+		{Err: context.DeadlineExceeded},
+		{Err: context.DeadlineExceeded},
+		{Err: context.DeadlineExceeded},
+	}
+	service := newMaintenanceTestService(t, reader)
+	service.retryWait = func(context.Context, time.Duration) error { return nil }
+
+	job, err := service.RunUpdate(context.Background(), UpdateRequest{
+		Target:  UpdateTarget{Mode: "selected", StackIDs: []string{"demo"}},
+		Options: UpdateOptions{PullImages: false, BuildImages: true},
+		Trigger: "scheduled",
+	}, "scheduler")
+	if err != nil {
+		t.Fatalf("RunUpdate() error = %v", err)
+	}
+	if job.State != "failed" {
+		t.Fatalf("RunUpdate() state = %q, want failed", job.State)
+	}
+	if !strings.Contains(job.ErrorMessage, "demo/build after 3 attempt(s)") {
+		t.Fatalf("RunUpdate() error message = %q", job.ErrorMessage)
+	}
+	if job.Workflow == nil || len(job.Workflow.Steps) != 2 || job.Workflow.Steps[0].State != "failed" || job.Workflow.Steps[1].State != "skipped" {
+		t.Fatalf("RunUpdate() workflow = %#v, want failed build and skipped up", job.Workflow)
+	}
+	buildCalls := 0
+	for _, call := range reader.stepCalls {
+		if call.Action == "build" {
+			buildCalls++
+		}
+		if call.Action == "up" {
+			t.Fatalf("unexpected up call after exhausted build retries: %#v", call)
+		}
+	}
+	if buildCalls != 3 {
+		t.Fatalf("build calls = %d, want 3", buildCalls)
+	}
+	if reader.invalidateCalls != 0 || reader.baselineCalls != 0 {
+		t.Fatalf("effects after failed build: invalidations=%d baselines=%d, want 0/0", reader.invalidateCalls, reader.baselineCalls)
 	}
 }
 
@@ -606,26 +722,46 @@ func TestRunUpdateContinuesAfterExhaustedPullAndSkipsDependentSteps(t *testing.T
 	}
 }
 
-func TestRetryablePullErrorClassification(t *testing.T) {
+func TestRetryableUpdateStepErrorClassification(t *testing.T) {
 	t.Parallel()
 
+	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	deadlineCtx, deadlineCancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer deadlineCancel()
+
 	tests := []struct {
-		name    string
-		message string
-		want    bool
+		name   string
+		ctx    context.Context
+		output string
+		err    error
+		want   bool
 	}{
-		{name: "tls timeout", message: "net/http: TLS handshake timeout", want: true},
-		{name: "rate limit", message: "toomanyrequests: retry-after: 829ms", want: true},
-		{name: "connection reset", message: "read: connection reset by peer", want: true},
-		{name: "dns", message: "temporary failure in name resolution", want: true},
-		{name: "unauthorized", message: "unauthorized: authentication required", want: false},
-		{name: "manifest missing", message: "manifest for example.test/app:missing not found", want: false},
+		{name: "tls timeout", output: "net/http: TLS handshake timeout", err: errors.New("exit status 1"), want: true},
+		{name: "context deadline output", output: "Get https://lscr.io/v2/: context deadline exceeded", err: errors.New("exit status 1"), want: true},
+		{name: "context deadline error text", err: errors.New("context deadline exceeded"), want: true},
+		{name: "context deadline sentinel", err: context.DeadlineExceeded, want: true},
+		{name: "wrapped context deadline sentinel", err: fmt.Errorf("registry request: %w", context.DeadlineExceeded), want: true},
+		{name: "rate limit", output: "toomanyrequests: retry-after: 829ms", err: errors.New("exit status 1"), want: true},
+		{name: "connection reset", output: "read: connection reset by peer", err: errors.New("exit status 1"), want: true},
+		{name: "dns", output: "temporary failure in name resolution", err: errors.New("exit status 1"), want: true},
+		{name: "cancelled error", output: "TLS handshake timeout", err: context.Canceled, want: false},
+		{name: "wrapped cancelled error", output: "TLS handshake timeout", err: fmt.Errorf("compose: %w", context.Canceled), want: false},
+		{name: "cancelled parent", ctx: cancelledCtx, output: "TLS handshake timeout", err: errors.New("exit status 1"), want: false},
+		{name: "expired parent", ctx: deadlineCtx, output: "context deadline exceeded", err: errors.New("exit status 1"), want: false},
+		{name: "unauthorized", output: "unauthorized: authentication required", err: errors.New("exit status 1"), want: false},
+		{name: "manifest missing", output: "manifest for example.test/app:missing not found", err: errors.New("exit status 1"), want: false},
+		{name: "nil error", output: "TLS handshake timeout", want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := isRetryablePullError(context.Background(), tt.message, errors.New(tt.message)); got != tt.want {
-				t.Fatalf("isRetryablePullError(%q) = %t, want %t", tt.message, got, tt.want)
+			ctx := tt.ctx
+			if ctx == nil {
+				ctx = context.Background()
+			}
+			if got := isRetryableUpdateStepError(ctx, tt.output, tt.err); got != tt.want {
+				t.Fatalf("isRetryableUpdateStepError(output=%q, err=%v) = %t, want %t", tt.output, tt.err, got, tt.want)
 			}
 		})
 	}

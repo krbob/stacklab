@@ -21,7 +21,7 @@ const (
 	maintenanceErrorMessageLimit = 4096
 )
 
-var defaultPullRetryDelays = []time.Duration{5 * time.Second, 20 * time.Second}
+var defaultUpdateStepRetryDelays = []time.Duration{5 * time.Second, 20 * time.Second}
 
 type retryWaitFunc func(context.Context, time.Duration) error
 
@@ -64,24 +64,24 @@ type pruneRunner interface {
 }
 
 type Service struct {
-	logger          *slog.Logger
-	jobs            *jobs.Service
-	audit           *audit.Service
-	stackReader     stackReader
-	maintenance     pruneRunner
-	pullRetryDelays []time.Duration
-	retryWait       retryWaitFunc
+	logger                *slog.Logger
+	jobs                  *jobs.Service
+	audit                 *audit.Service
+	stackReader           stackReader
+	maintenance           pruneRunner
+	updateStepRetryDelays []time.Duration
+	retryWait             retryWaitFunc
 }
 
 func NewService(logger *slog.Logger, jobService *jobs.Service, auditService *audit.Service, stackService stackReader, maintenanceService pruneRunner) *Service {
 	return &Service{
-		logger:          logger,
-		jobs:            jobService,
-		audit:           auditService,
-		stackReader:     stackService,
-		maintenance:     maintenanceService,
-		pullRetryDelays: append([]time.Duration(nil), defaultPullRetryDelays...),
-		retryWait:       waitForRetry,
+		logger:                logger,
+		jobs:                  jobService,
+		audit:                 auditService,
+		stackReader:           stackService,
+		maintenance:           maintenanceService,
+		updateStepRetryDelays: append([]time.Duration(nil), defaultUpdateStepRetryDelays...),
+		retryWait:             waitForRetry,
 	}
 }
 
@@ -331,7 +331,7 @@ func (s *Service) ExecuteUpdate(ctx context.Context, job store.Job, run UpdateRu
 		step = workflow[index]
 		result, runErr := s.runUpdateWorkflowStepWithRetry(ctx, job, workflow, index, run.Request.Options, run.ManagedStackIDs, run.Request.Trigger)
 		if runErr != nil {
-			if ctx.Err() != nil || errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
+			if ctx.Err() != nil || errors.Is(runErr, context.Canceled) {
 				finishCtx, finishCancel := jobFinalizationContext()
 				terminalState, errorCode, errorMessage := maintenanceFailure(ctx, "update_stacks_failed", runErr, s.jobCancelRequested(job.ID))
 				finishedJob, finishErr := s.finishUpdateFailure(finishCtx, job, workflow, index, terminalState, errorCode, errorMessage, run)
@@ -667,8 +667,8 @@ func (s *Service) runUpdateWorkflowStep(ctx context.Context, step store.JobWorkf
 func (s *Service) runUpdateWorkflowStepWithRetry(ctx context.Context, job store.Job, workflow []store.JobWorkflowStep, index int, options UpdateOptions, targetStackIDs []string, trigger string) (updateStepResult, error) {
 	step := workflow[index]
 	delays := []time.Duration(nil)
-	if step.Action == "pull" {
-		delays = s.pullRetryDelays
+	if step.Action == "pull" || step.Action == "build" {
+		delays = s.updateStepRetryDelays
 	}
 	maxAttempts := len(delays) + 1
 	result := updateStepResult{}
@@ -688,19 +688,20 @@ func (s *Service) runUpdateWorkflowStepWithRetry(ctx context.Context, job store.
 		if runErr == nil {
 			return result, nil
 		}
-		if attempt == maxAttempts || !isRetryablePullError(ctx, output, runErr) {
+		if attempt == maxAttempts || !isRetryableUpdateStepError(ctx, output, runErr) {
 			return result, runErr
 		}
 
 		delay := delays[attempt-1]
 		summary := summarizeMaintenanceError(output, runErr)
-		message := fmt.Sprintf("Pull attempt %d/%d failed for %s; retrying in %s.", attempt, maxAttempts, updateStepTarget(step), delay)
+		message := fmt.Sprintf("%s attempt %d/%d failed for %s; retrying in %s.", maintenanceActionLabel(step.Action), attempt, maxAttempts, updateStepTarget(step), delay)
 		_ = s.jobs.PublishEvent(ctx, job, "job_warning", message, summary, workflowStepRef(workflow, index))
 		if s.logger != nil {
-			s.logger.Warn("maintenance pull retry scheduled",
+			s.logger.Warn("maintenance update step retry scheduled",
 				slog.String("job_id", job.ID),
 				slog.String("trigger", fallbackTrigger(trigger)),
 				slog.String("stack_id", step.TargetStackID),
+				slog.String("action", step.Action),
 				slog.Int("attempt", attempt),
 				slog.Int("max_attempts", maxAttempts),
 				slog.Duration("retry_in", delay),
@@ -715,7 +716,7 @@ func (s *Service) runUpdateWorkflowStepWithRetry(ctx context.Context, job store.
 			return result, waitErr
 		}
 	}
-	return result, errors.New("maintenance pull retry loop exhausted unexpectedly")
+	return result, errors.New("maintenance update step retry loop exhausted unexpectedly")
 }
 
 func updateStepSkipReason(step store.JobWorkflowStep, failures []updateStepFailure, blockedStacks map[string]updateStepFailure) string {
@@ -728,12 +729,18 @@ func updateStepSkipReason(step store.JobWorkflowStep, failures []updateStepFailu
 	return ""
 }
 
-func isRetryablePullError(ctx context.Context, output string, err error) bool {
-	if err == nil || ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+func isRetryableUpdateStepError(ctx context.Context, output string, err error) bool {
+	if err == nil || ctx.Err() != nil || errors.Is(err, context.Canceled) {
 		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		// The parent is still active, so this deadline belongs to the Docker or
+		// registry operation and is safe to retry as a transient step failure.
+		return true
 	}
 	message := strings.ToLower(strings.TrimSpace(output + "\n" + err.Error()))
 	markers := []string{
+		"context deadline exceeded",
 		"tls handshake timeout",
 		"client.timeout exceeded",
 		"i/o timeout",

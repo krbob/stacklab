@@ -163,9 +163,9 @@ Recommended target order:
 
 Failure semantics:
 
-- transient registry failures during `pull` are retried twice, after 5 and 20
-  seconds; retryable failures include network/TLS timeouts, connection resets,
-  temporary DNS failures, and registry rate limiting
+- transient registry failures during `pull` and `build` are retried twice,
+  after 5 and 20 seconds; retryable failures include network/TLS timeouts,
+  connection resets, temporary DNS failures, and registry rate limiting
 - authentication, missing-manifest, cancellation, and configuration failures
   are not retried
 - after a stack step exhausts its retries, dependent steps for that stack are
