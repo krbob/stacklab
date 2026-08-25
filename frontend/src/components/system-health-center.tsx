@@ -95,7 +95,7 @@ export function SystemHealthCenter() {
           diagnostics={<a href="#stacklab-logs" className="text-[var(--accent)] hover:underline">View Stacklab logs</a>}
         >
           {backend.data ? (
-            <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1">
+            <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1">
               {Object.entries(backend.data.checks).sort(([left], [right]) => left.localeCompare(right)).map(([name, check]) => (
                 <HealthDetail key={name} label={formatCheckName(name)} value={check.status === 'ok' ? 'Ready' : check.message || 'Unavailable'} unhealthy={check.status !== 'ok'} />
               ))}
@@ -120,7 +120,7 @@ export function SystemHealthCenter() {
           diagnostics={<Link to="/docker" className="text-[var(--accent)] hover:underline">Open Docker diagnostics</Link>}
         >
           {docker.data ? (
-            <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1">
+            <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1">
               <HealthDetail
                 label="Engine"
                 value={docker.data.engine.available ? docker.data.engine.version || 'Available' : docker.data.engine.message || 'Unavailable'}
@@ -270,7 +270,7 @@ function HealthDetail({ label, value, unhealthy = false }: { label: string; valu
   return (
     <>
       <dt>{label}</dt>
-      <dd className={cn('break-all text-right font-mono text-[var(--text)]', unhealthy && 'text-[var(--danger)]')}>{value}</dd>
+      <dd className={cn('min-w-0 break-all text-right font-mono text-[var(--text)]', unhealthy && 'text-[var(--danger)]')}>{value}</dd>
     </>
   )
 }

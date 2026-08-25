@@ -105,6 +105,27 @@ describe('SystemHealthCenter', () => {
     expect(within(websocket).getByRole('link', { name: 'Open audit log' })).toHaveAttribute('href', '/audit')
   })
 
+  it('constrains a long nightly version to the wrappable detail column', async () => {
+    const version = '2026.09.0~nightly20260806+r133.g4720e3e'
+    vi.mocked(getReadiness).mockResolvedValue({
+      status: 'ok',
+      version,
+      checks: {
+        database: { status: 'ok' },
+        frontend: { status: 'ok' },
+        runtime: { status: 'ok' },
+      },
+    })
+
+    renderCenter()
+
+    const backend = screen.getByRole('article', { name: 'Backend health' })
+    const value = await within(backend).findByText(version)
+    expect(value.tagName).toBe('DD')
+    expect(value).toHaveClass('min-w-0', 'break-all')
+    expect(value.parentElement).toHaveClass('grid-cols-[auto_minmax(0,1fr)]')
+  })
+
   it('shows degraded component details without claiming a successful check', async () => {
     vi.mocked(getReadiness).mockResolvedValue({
       status: 'unavailable',

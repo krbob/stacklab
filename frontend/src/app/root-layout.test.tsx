@@ -110,6 +110,13 @@ describe('RootLayout keyboard navigation', () => {
     })
   })
 
+  it('uses the display-mode-aware viewport height for the app shell', () => {
+    renderRoot()
+
+    const navigation = screen.getByRole('navigation', { name: 'Primary' })
+    expect(navigation.parentElement).toHaveClass('h-[var(--app-shell-height)]')
+  })
+
   it('keeps Settings active on child routes and uses its canonical security entry', async () => {
     renderRoot({ initialEntry: '/settings/notifications' })
 

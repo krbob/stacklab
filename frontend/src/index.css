@@ -26,6 +26,16 @@
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Space Grotesk Variable", "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, monospace;
+  --app-shell-height: 100dvh;
+}
+
+/* iOS Home Screen apps can report 100dvh as the shorter browser viewport and
+   leave a gap below the app shell. Standalone mode has no browser toolbar, so
+   the stable viewport height is the correct full-screen measurement there. */
+@media (display-mode: standalone) {
+  :root {
+    --app-shell-height: 100vh;
+  }
 }
 
 * {

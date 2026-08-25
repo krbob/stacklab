@@ -137,10 +137,10 @@ export function RootLayout() {
     <ActivityProvider>
     {/* App-shell: on mobile a fixed-height flex column (header · scroll · nav)
         so the bars never overlap content and no content escapes above/below
-        them. 100dvh tracks Safari's dynamic toolbars, so the shell always fits
-        the visible viewport. On desktop it collapses back to normal document
-        flow (the mobile bars are hidden anyway). */}
-    <div className="flex h-[100dvh] flex-col overflow-hidden lg:block lg:h-auto lg:min-h-screen lg:overflow-visible">
+        them. The CSS variable follows Safari's dynamic viewport in a browser
+        tab and switches to the stable full-screen viewport in standalone PWA
+        mode. On desktop it collapses back to normal document flow. */}
+    <div className="flex h-[var(--app-shell-height)] flex-col overflow-hidden lg:block lg:h-auto lg:min-h-screen lg:overflow-visible">
       <header
         className="grid shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-[var(--panel-border)] bg-[var(--bg)] px-4 py-3 lg:hidden"
         style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
