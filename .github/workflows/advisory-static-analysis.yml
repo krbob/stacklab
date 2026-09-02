@@ -27,7 +27,7 @@ jobs:
           cache: true
 
       - name: Run staticcheck
-        run: go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./cmd/... ./internal/...
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./cmd/... ./internal/...
 
   backend-vulncheck:
     name: backend-vulncheck
