@@ -1,22 +1,4 @@
 Package: stacklab
-Version: 2026.08.0~nightly20260713+r108.g73b6fad
-Architecture: arm64
-Maintainer: Krzysztof Bobiński <krzysztof@bobinski.net>
-Depends: adduser, systemd, docker.io | docker-ce | moby-engine, docker-cli | docker-ce-cli | moby-cli | docker.io (<< 26.0), docker-compose | docker-compose-plugin, git
-Recommends: ca-certificates
-Filename: pool/nightly/main/s/stacklab/stacklab_2026.08.0~nightly20260713+r108.g73b6fad_arm64.deb
-Size: 9254694
-MD5sum: 068a5483a610740874323c190cba4a89
-SHA1: 1e65e9995fd90de76c8586295b36d22e9a7304d6
-SHA256: 4e5834e5900d64628b0e6b4daf83a6896d7c1170c2e6b1558f4551dba2ace8e9
-Section: admin
-Priority: optional
-Homepage: https://github.com/krbob/stacklab
-Description: Host-native web control panel for Docker Compose stacks
- Stacklab is a host-native web control panel for managing Docker Compose stacks
- on a single Linux server.
-
-Package: stacklab
 Version: 2026.08.0~nightly20260713+r109.g23e8861
 Architecture: arm64
 Maintainer: Krzysztof Bobiński <krzysztof@bobinski.net>
@@ -117,6 +99,24 @@ Size: 9268334
 MD5sum: b5e8c69959d2f7c2775b2ca0d970b73f
 SHA1: d493259e4012e35517c895773128ffe143755e93
 SHA256: cbe7c598799fe8aae9b2ba73dea66f9fdc172de325aaccf073f2a94be7dcb505
+Section: admin
+Priority: optional
+Homepage: https://github.com/krbob/stacklab
+Description: Host-native web control panel for Docker Compose stacks
+ Stacklab is a host-native web control panel for managing Docker Compose stacks
+ on a single Linux server.
+
+Package: stacklab
+Version: 2026.10.0~nightly20260902+r160.g54c223a
+Architecture: arm64
+Maintainer: Krzysztof Bobiński <krzysztof@bobinski.net>
+Depends: adduser, systemd, docker.io | docker-ce | moby-engine, docker-cli | docker-ce-cli | moby-cli | docker.io (<< 26.0), docker-compose | docker-compose-plugin, git
+Recommends: ca-certificates
+Filename: pool/nightly/main/s/stacklab/stacklab_2026.10.0~nightly20260902+r160.g54c223a_arm64.deb
+Size: 9268726
+MD5sum: 8f97ce43595d543485129bfc10681da1
+SHA1: 44840f6a3542036ac3d4697c546cbb7d568aab2e
+SHA256: 80c5fe08af899476fad19366dc405b00e28f9848f685b7bba23a2c0ebda56a90
 Section: admin
 Priority: optional
 Homepage: https://github.com/krbob/stacklab
