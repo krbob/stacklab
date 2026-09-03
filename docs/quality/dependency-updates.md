@@ -6,18 +6,23 @@ and review expectations.
 
 ## Cadence
 
-- Renovate may create branches and pull requests whenever it detects updates.
-- Routine updates may automerge only on the 2nd and 3rd day of each month,
-  after the stable release scheduled for the 1st.
-- `platformAutomerge` is disabled, so Renovate performs the merge itself using
-  the configured rebase strategy.
-- A branch is rebased when it falls behind `main`.
+- Renovate creates new dependency branches and pull requests from 07:00 on the
+  1st day of each month, after the stable workflow has started with its pinned
+  source revision.
+- GitHub platform automerge merges each update as soon as `ci-required` passes.
+- A branch is rebased only when it conflicts with `main`.
+- Existing branches may be refreshed outside the creation window so they remain
+  current and real conflicts can be resolved.
 - Nightly releases provide soak time between the post-stable update window and
   the next stable release.
 
 The repository intentionally has no hourly or concurrent pull-request limit.
-Grouping controls review volume without delaying security and maintenance
-visibility.
+Grouping controls review volume, while the Dependency Dashboard keeps updates
+visible between monthly creation windows.
+
+Renovate's separate vulnerability-alert PR mechanism is disabled so vulnerable
+dependencies follow the same creation and automerge windows as every other
+update. They remain visible through normal update detection and the dashboard.
 
 ## Grouping
 
@@ -38,16 +43,16 @@ remain separate:
 
 ## Automerge And Review
 
-Routine grouped updates are eligible for automerge only after repository checks
-pass. Automerge is disabled for:
+Every dependency update is eligible for automerge after the required repository
+checks pass, including major updates, GitHub Actions, and the PTY, WebSocket, and
+SQLite modules listed above. Major and runtime-sensitive updates remain separate
+so a failure is isolated and the resulting nightly can be diagnosed or reverted
+without disentangling an unrelated group.
 
-- every major update;
-- every GitHub Actions update;
-- the PTY, WebSocket, and SQLite modules listed above.
-
-Those pull requests require a human decision. Review the release notes and the
-changed runtime seam, then merge only after the relevant automated and targeted
-checks pass.
+Eligible updates merge after the stable workflow has captured its source
+revision. The next nightly is the first published artifact to include them and
+runs the broader release quality gate before publication. A failed or missing
+required check keeps a pull request open for manual intervention.
 
 Renovate does not assign or request reviewers from `CODEOWNERS`. This avoids
 automatic review-request subscriptions; it does not override a user's own
@@ -64,12 +69,13 @@ expect:
 - backend tests and package coverage floors.
 
 Repository hygiene, vulnerability analysis, Docker integration and browser E2E
-remain explicit maintenance or release checks and do not block routine Renovate PRs.
+remain release checks. They gate the nightly that first carries an automerged
+dependency update rather than its pull request.
 
 See [Continuous Integration](ci.md) for workflow ownership and local commands.
 
-Additional targeted checks are required when the update affects a sensitive
-seam:
+The following targeted checks guide diagnosis when PR CI or the nightly release
+gate fails; they are not separate human approval gates:
 
 | Dependency class | Targeted review or validation |
 | --- | --- |
@@ -80,10 +86,9 @@ seam:
 | GitHub Actions | permissions, pinned SHA, action inputs, artifacts, and release behavior |
 | Frontend runtime | affected user journeys in browser E2E and focused component tests |
 
-A patch version alone does not make an update low-risk. Escalate it to manual
-review whenever release notes or the diff show behavior changes in process
-execution, persistent state, authentication, privileged helpers, or release
-publication.
+A patch version alone does not make an update low-risk. If release notes or the
+diff reveal a known regression, migration requirement, or unsafe behavior,
+temporarily hold the affected update with a narrow Renovate rule.
 
 ## Manual Intervention
 
@@ -103,9 +108,8 @@ only to fit the monthly merge window.
 
 When changing `.github/renovate.json5`:
 
-1. keep high-risk exceptions more specific than broad grouping rules;
-2. keep major and GitHub Actions updates review-only unless the risk model is
-   deliberately changed;
+1. keep high-risk separation rules more specific than broad grouping rules;
+2. keep major and runtime-sensitive updates separate even though they automerge;
 3. preserve `assigneesFromCodeOwners: false` and
    `reviewersFromCodeOwners: false` unless automatic notifications are wanted;
 4. update custom-manager patterns together with the pinned tool declarations
