@@ -11,10 +11,10 @@
   automerge: true,
   automergeType: 'pr',
   automergeStrategy: 'rebase',
-  // Release train: stable starts early on day 1, then dependency PRs are created
-  // from 07:00 and GitHub merges green updates into the nightly soak line.
+  // Release train: day 1 is reserved for stable, then GitHub merges green
+  // dependency updates created on day 2 into the nightly soak line.
   schedule: [
-    '* 7-23 1 * *',
+    '* * 2 * *',
   ],
   updateNotScheduled: true,
   platformAutomerge: true,
@@ -135,6 +135,30 @@
         'major',
       ],
       groupName: null,
+    },
+    {
+      description: 'Keep the Go toolchain declarations in .tool-versions and go.mod aligned.',
+      matchManagers: [
+        'asdf',
+        'gomod',
+      ],
+      matchDepNames: [
+        'go',
+        'golang',
+      ],
+      groupName: 'go toolchain',
+      groupSlug: 'go-toolchain',
+    },
+    {
+      description: 'Hold incompatible frontend toolchain majors until their peer ecosystem supports them.',
+      matchManagers: [
+        'npm',
+      ],
+      matchPackageNames: [
+        'openapi-typescript',
+        'typescript',
+      ],
+      allowedVersions: '<7',
     },
   ],
 }

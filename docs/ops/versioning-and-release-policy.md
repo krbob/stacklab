@@ -8,7 +8,7 @@ automated quality boundary, dependency-update timing, and retention policy.
 The policy describes the workflows that are operational today. Workflow files
 remain the executable source of truth when implementation details change.
 
-Status reviewed: 2026-07-12.
+Status reviewed: 2026-09-03.
 
 ## Versioning
 
@@ -121,12 +121,13 @@ train.
 
 ## Renovate Window
 
-Renovate opens new dependency PRs from 07:00 on the 1st day of the month in
-`Europe/Warsaw`. By then the scheduled stable workflow has captured its source
-revision, so later merges cannot change that release. GitHub platform automerge
-merges each PR as soon as `ci-required` passes; existing PRs may be refreshed and
-real conflicts rebased afterwards. The next changed nightly is the first
-published artifact to contain those updates and begins their soak period.
+Renovate creates no new dependency branches or pull requests on the 1st day of
+the month, leaving that day to the scheduled stable workflow. It opens the new
+monthly dependency train throughout the 2nd day in `Europe/Warsaw`. GitHub
+platform automerge merges each PR as soon as `ci-required` passes; existing PRs
+may be refreshed and real conflicts rebased afterwards. The next changed
+nightly after a merge is the first published artifact to contain it and begins
+its soak period.
 
 This includes major-version updates, GitHub Actions, and the high-risk runtime
 modules `modernc.org/sqlite`, `github.com/gorilla/websocket`, and
@@ -135,7 +136,15 @@ require human approval when `ci-required` passes. The next nightly is the first
 published artifact to include them and must pass the full release quality gate.
 
 Failed or missing required checks prevent automerge. The creation window does
-not request reviewers or subscribe maintainers to PR notifications.
+not request reviewers or subscribe maintainers to PR notifications. TypeScript
+7 and `openapi-typescript` 7 remain temporarily constrained below version 7
+until their peer ecosystem and generation path pass the normal gates.
+
+This timing separates newly created updates from release day; it is not a hard
+merge cutoff. Platform automerge is intentionally not time-bounded, so a PR
+armed in an earlier window can still merge on day 1 if its required check later
+becomes green. Carry-over PRs must therefore be resolved or explicitly held
+before the monthly boundary when strict release-day isolation is required.
 
 ## Operating Rules
 

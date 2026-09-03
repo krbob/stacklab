@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -899,12 +900,15 @@ func TestMetricsCollectorUsesCachedFilesystemUsageAfterStatfsTimeout(t *testing.
 
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
+	blockedStatfsStarted := make(chan struct{})
+	var signalBlockedStatfs sync.Once
 
 	var calls atomic.Int32
 	collector := newMetricsCollector(mountPoint, procDir)
 	collector.statfsTimeout = 5 * time.Millisecond
 	collector.statfs = func(_ string, stats *syscall.Statfs_t) error {
 		if calls.Add(1) > 1 {
+			signalBlockedStatfs.Do(func() { close(blockedStatfsStarted) })
 			<-release
 		}
 		stats.Blocks = 100
@@ -918,7 +922,16 @@ func TestMetricsCollectorUsesCachedFilesystemUsageAfterStatfsTimeout(t *testing.
 	if len(first) != 1 {
 		t.Fatalf("first filesystems = %#v", first)
 	}
-	second := collector.readFilesystems()
+	secondResult := make(chan []FilesystemUsage, 1)
+	go func() {
+		secondResult <- collector.readFilesystems()
+	}()
+	select {
+	case <-blockedStatfsStarted:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for the blocking statfs call to start")
+	}
+	second := <-secondResult
 	if len(second) != 1 {
 		t.Fatalf("second filesystems = %#v", second)
 	}
