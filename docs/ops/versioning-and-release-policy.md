@@ -134,6 +134,8 @@ modules `modernc.org/sqlite`, `github.com/gorilla/websocket`, and
 `github.com/creack/pty`. Those updates remain separate for isolation but do not
 require human approval when `ci-required` passes. The next nightly is the first
 published artifact to include them and must pass the full release quality gate.
+The same day-2 train also refreshes lockfiles so transitive-only updates are not
+left behind when no direct dependency version changes.
 
 Failed or missing required checks prevent automerge. The creation window does
 not request reviewers or subscribe maintainers to PR notifications. TypeScript
