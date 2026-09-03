@@ -6,9 +6,10 @@ and review expectations.
 
 ## Cadence
 
-- Renovate creates new dependency branches and pull requests from 07:00 on the
-  1st day of each month, after the stable workflow has started with its pinned
-  source revision.
+- Renovate creates no new dependency branches or pull requests on the 1st day
+  of the month, leaving that day to the stable release workflow.
+- Renovate creates new dependency branches and pull requests throughout the
+  2nd day of the month in `Europe/Warsaw`.
 - GitHub platform automerge merges each update as soon as `ci-required` passes.
 - A branch is rebased only when it conflicts with `main`.
 - Existing branches may be refreshed outside the creation window so they remain
@@ -28,14 +29,15 @@ update. They remain visible through normal update detection and the dashboard.
 
 Renovate groups:
 
+- the Go toolchain declarations in `.tool-versions` and `go.mod`;
 - frontend runtime dependencies;
 - frontend development dependencies;
 - non-high-risk Go modules;
 - low-risk GitHub Actions (`checkout`, `setup-go`, and `setup-node`);
 - all remaining GitHub Actions in a separate group.
 
-Major updates remain separate. The following runtime-sensitive Go modules also
-remain separate:
+Major updates other than the cross-file Go toolchain update remain separate.
+The following runtime-sensitive Go modules also remain separate:
 
 - `github.com/creack/pty`;
 - `github.com/gorilla/websocket`;
@@ -49,10 +51,22 @@ SQLite modules listed above. Major and runtime-sensitive updates remain separate
 so a failure is isolated and the resulting nightly can be diagnosed or reverted
 without disentangling an unrelated group.
 
-Eligible updates merge after the stable workflow has captured its source
-revision. The next nightly is the first published artifact to include them and
-runs the broader release quality gate before publication. A failed or missing
-required check keeps a pull request open for manual intervention.
+Eligible updates enter `main` during or after the day-2 dependency train. The
+next changed nightly after a merge is the first published artifact to include it
+and runs the broader release quality gate before publication. A failed or
+missing required check keeps a pull request open for manual intervention.
+
+TypeScript 7 and `openapi-typescript` 7 are temporarily held because the current
+frontend peer-dependency and generation toolchain does not support them. Remove
+the narrow `<7` constraints only after a focused compatibility update makes the
+normal PR and nightly gates pass.
+
+The day-2 creation window separates the new monthly dependency train from the
+stable release day, but it is not a hard merge cutoff. GitHub platform automerge
+is intentionally schedule-independent for throughput, so a pull request armed
+in an earlier window can still merge on day 1 if its required check becomes
+green. Keep `main` releasable and resolve or explicitly hold such carry-over PRs
+before the monthly boundary.
 
 Renovate does not assign or request reviewers from `CODEOWNERS`. This avoids
 automatic review-request subscriptions; it does not override a user's own
