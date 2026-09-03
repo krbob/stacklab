@@ -121,20 +121,19 @@ train.
 
 ## Renovate Window
 
-Renovate may open and rebase dependency PRs continuously. Eligible green PRs
-can automerge only on days 2 and 3 of the month in `Europe/Warsaw`, immediately
-after the regular stable publication and before the rest-of-month nightly soak.
+Renovate opens new dependency PRs on the 1st day of the month in
+`Europe/Warsaw`, alongside the regular stable publication without modifying that
+release. Existing PRs may be refreshed and rebased afterwards. Green PRs can
+automerge only on days 2 and 3, before the rest-of-month nightly soak.
 
-The following updates are never included in that automatic window:
+This includes major-version updates, GitHub Actions, and the high-risk runtime
+modules `modernc.org/sqlite`, `github.com/gorilla/websocket`, and
+`github.com/creack/pty`. Those updates remain separate for isolation but do not
+require human approval when `ci-required` passes. The next nightly is the first
+published artifact to include them and must pass the full release quality gate.
 
-- major-version updates;
-- GitHub Actions updates;
-- the high-risk runtime modules `modernc.org/sqlite`,
-  `github.com/gorilla/websocket`, and `github.com/creack/pty`.
-
-Those PRs require deliberate review and merge. Failed or missing required checks
-also prevent automerge. The window controls merge timing; it does not request
-reviewers or subscribe maintainers to PR notifications.
+Failed or missing required checks prevent automerge. The window controls merge
+timing; it does not request reviewers or subscribe maintainers to PR notifications.
 
 ## Operating Rules
 
