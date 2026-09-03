@@ -11,19 +11,16 @@
   automerge: true,
   automergeType: 'pr',
   automergeStrategy: 'rebase',
-  // Release train: stable goes out on day 1 while dependency PRs are created,
-  // then green updates merge on days 2-3 and soak in nightly builds.
+  // Release train: stable starts early on day 1, then dependency PRs are created
+  // from 07:00 and GitHub merges green updates into the nightly soak line.
   schedule: [
-    '* * 1 * *',
+    '* 7-23 1 * *',
   ],
   updateNotScheduled: true,
-  automergeSchedule: [
-    '* * 2-3 * *',
-  ],
-  platformAutomerge: false,
+  platformAutomerge: true,
   prConcurrentLimit: 0,
   prHourlyLimit: 0,
-  rebaseWhen: 'behind-base-branch',
+  rebaseWhen: 'conflicted',
   rangeStrategy: 'bump',
   vulnerabilityAlerts: {
     enabled: false,

@@ -121,10 +121,12 @@ train.
 
 ## Renovate Window
 
-Renovate opens new dependency PRs on the 1st day of the month in
-`Europe/Warsaw`, alongside the regular stable publication without modifying that
-release. Existing PRs may be refreshed and rebased afterwards. Green PRs can
-automerge only on days 2 and 3, before the rest-of-month nightly soak.
+Renovate opens new dependency PRs from 07:00 on the 1st day of the month in
+`Europe/Warsaw`. By then the scheduled stable workflow has captured its source
+revision, so later merges cannot change that release. GitHub platform automerge
+merges each PR as soon as `ci-required` passes; existing PRs may be refreshed and
+real conflicts rebased afterwards. The next changed nightly is the first
+published artifact to contain those updates and begins their soak period.
 
 This includes major-version updates, GitHub Actions, and the high-risk runtime
 modules `modernc.org/sqlite`, `github.com/gorilla/websocket`, and
@@ -132,8 +134,8 @@ modules `modernc.org/sqlite`, `github.com/gorilla/websocket`, and
 require human approval when `ci-required` passes. The next nightly is the first
 published artifact to include them and must pass the full release quality gate.
 
-Failed or missing required checks prevent automerge. The window controls merge
-timing; it does not request reviewers or subscribe maintainers to PR notifications.
+Failed or missing required checks prevent automerge. The creation window does
+not request reviewers or subscribe maintainers to PR notifications.
 
 ## Operating Rules
 

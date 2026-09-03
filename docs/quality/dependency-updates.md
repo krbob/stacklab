@@ -6,15 +6,13 @@ and review expectations.
 
 ## Cadence
 
-- Renovate creates new dependency branches and pull requests on the 1st day of
-  each month, alongside the stable release without changing it.
-- Dependency updates may automerge only on the 2nd and 3rd day of each month,
-  after the stable release scheduled for the 1st.
-- `platformAutomerge` is disabled, so Renovate performs the merge itself using
-  the configured rebase strategy.
-- A branch is rebased when it falls behind `main`.
+- Renovate creates new dependency branches and pull requests from 07:00 on the
+  1st day of each month, after the stable workflow has started with its pinned
+  source revision.
+- GitHub platform automerge merges each update as soon as `ci-required` passes.
+- A branch is rebased only when it conflicts with `main`.
 - Existing branches may be refreshed outside the creation window so they remain
-  current and mergeable during the automerge window.
+  current and real conflicts can be resolved.
 - Nightly releases provide soak time between the post-stable update window and
   the next stable release.
 
@@ -51,10 +49,10 @@ SQLite modules listed above. Major and runtime-sensitive updates remain separate
 so a failure is isolated and the resulting nightly can be diagnosed or reverted
 without disentangling an unrelated group.
 
-Eligible updates merge only during the post-stable window. The next nightly is
-the first published artifact to include them and runs the broader release quality
-gate before publication. A failed or missing required check keeps a pull request
-open for manual intervention.
+Eligible updates merge after the stable workflow has captured its source
+revision. The next nightly is the first published artifact to include them and
+runs the broader release quality gate before publication. A failed or missing
+required check keeps a pull request open for manual intervention.
 
 Renovate does not assign or request reviewers from `CODEOWNERS`. This avoids
 automatic review-request subscriptions; it does not override a user's own
