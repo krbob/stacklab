@@ -14,6 +14,8 @@ and review expectations.
 - A branch is rebased only when it conflicts with `main`.
 - Existing branches may be refreshed outside the creation window so they remain
   current and real conflicts can be resolved.
+- Lockfile-only maintenance follows the same day-2 window and automerge gate so
+  transitive dependencies are refreshed even without a direct version change.
 - Nightly releases provide soak time between the post-stable update window and
   the next stable release.
 
@@ -23,7 +25,8 @@ visible between monthly creation windows.
 
 Renovate's separate vulnerability-alert PR mechanism is disabled so vulnerable
 dependencies follow the same creation and automerge windows as every other
-update. They remain visible through normal update detection and the dashboard.
+update. Affected packages remain eligible for ordinary version updates, but this
+does not guarantee that Renovate will surface or remediate a specific alert.
 
 ## Grouping
 
