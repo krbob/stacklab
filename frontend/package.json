@@ -34,7 +34,7 @@
     "@xterm/xterm": "^6.0.0",
     "clsx": "^2.1.1",
     "codemirror": "^6.0.2",
-    "lucide-react": "^1.39.0",
+    "lucide-react": "^1.40.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.3",
