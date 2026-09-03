@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiClientError, getSession, logout } from '@/lib/api-client'
@@ -134,7 +134,7 @@ describe('AuthProvider session bootstrap', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Context logout' }))
 
     expect(await screen.findByText('Auth child: unauthenticated')).toBeInTheDocument()
-    expect(screen.getByTestId('location')).toHaveTextContent('/login')
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/login'))
   })
 
   it('keeps the authenticated session and route when logout cannot be confirmed', async () => {
