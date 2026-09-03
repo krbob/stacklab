@@ -6,18 +6,19 @@ and review expectations.
 
 ## Cadence
 
-- Renovate may create branches and pull requests whenever it detects updates.
-- Routine updates may automerge only on the 2nd and 3rd day of each month,
-  after the stable release scheduled for the 1st.
-- `platformAutomerge` is disabled, so Renovate performs the merge itself using
-  the configured rebase strategy.
-- A branch is rebased when it falls behind `main`.
+- Renovate creates dependency branches and pull requests on the 2nd day of each
+  month, after the stable release scheduled for the 1st.
+- GitHub platform automerge merges eligible updates as soon as required checks
+  pass, using the configured rebase merge strategy.
+- A branch is rebased only when it conflicts with `main`.
 - Nightly releases provide soak time between the post-stable update window and
   the next stable release.
 
-The repository intentionally has no hourly or concurrent pull-request limit.
-Grouping controls review volume without delaying security and maintenance
-visibility.
+The shared Renovate policy allows at most five concurrent pull requests while
+keeping hourly creation unrestricted. Grouping controls review volume, and
+Renovate's separate vulnerability-alert pull requests are disabled because they
+would bypass the release-train schedule. Vulnerable dependencies remain part of
+the normal monthly update run.
 
 ## Grouping
 

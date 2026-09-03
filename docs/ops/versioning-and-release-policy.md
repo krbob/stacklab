@@ -121,9 +121,10 @@ train.
 
 ## Renovate Window
 
-Renovate may open and rebase dependency PRs continuously. Eligible green PRs
-can automerge only on days 2 and 3 of the month in `Europe/Warsaw`, immediately
-after the regular stable publication and before the rest-of-month nightly soak.
+Renovate opens dependency PRs on day 2 of the month in `Europe/Warsaw`,
+immediately after the regular stable publication. GitHub platform automerge
+merges eligible PRs as soon as required checks pass, before the rest-of-month
+nightly soak. Branches are rebased only when they conflict with `main`.
 
 The following updates are never included in that automatic window:
 
@@ -133,7 +134,9 @@ The following updates are never included in that automatic window:
   `github.com/gorilla/websocket`, and `github.com/creack/pty`.
 
 Those PRs require deliberate review and merge. Failed or missing required checks
-also prevent automerge. The window controls merge timing; it does not request
+also prevent automerge. Separate vulnerability-alert PRs are disabled because
+they bypass schedules; vulnerable dependencies remain part of the normal
+monthly update run. The window controls PR creation; it does not request
 reviewers or subscribe maintainers to PR notifications.
 
 ## Operating Rules
