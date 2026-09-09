@@ -1,9 +1,11 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { JobEvent, JobProgress, JobStepState } from '@/lib/ws-types'
+import type { JobDetail } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
 
 interface StepCardsProps {
   events: JobEvent[]
+  job?: Pick<JobDetail, 'state' | 'finished_at' | 'workflow'> | null
 }
 
 interface StepData {
@@ -48,15 +50,25 @@ function formatElapsed(startMs: number, endMs: number): string {
   return `${mins}m ${seconds % 60}s`
 }
 
-export function StepCards({ events }: StepCardsProps) {
-  const steps = useMemo(() => buildSteps(events), [events])
+export function StepCards({ events, job }: StepCardsProps) {
+  const steps = useMemo(() => buildSteps(events, job), [events, job])
+  const jobOutput = events.filter((event) => !event.step && ['job_error', 'job_warning', 'job_log'].includes(event.event))
 
-  if (steps.length === 0) {
+  if (steps.length === 0 && jobOutput.length === 0) {
     return <div className="text-xs text-[var(--muted)]">Waiting for steps...</div>
   }
 
   return (
     <div className="space-y-2">
+      {jobOutput.length > 0 && (
+        <div aria-live="off" className="space-y-1 rounded border border-[var(--panel-border)] bg-black/25 p-3 font-mono text-xs leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]">
+          {jobOutput.map((event, index) => (
+            <div key={index} className={cn(event.event === 'job_error' ? 'text-[var(--danger)]' : event.event === 'job_warning' ? 'text-[var(--warning)]' : 'text-[var(--muted)]')}>
+              {event.message}{event.data && <span> {event.data}</span>}
+            </div>
+          ))}
+        </div>
+      )}
       {steps.map((step) => (
         <StepCard key={`${step.index}-${step.action}-${step.targetStackId ?? ''}`} step={step} />
       ))}
@@ -191,7 +203,7 @@ function StepCard({ step }: { step: StepData }) {
   )
 }
 
-function buildSteps(events: JobEvent[]): StepData[] {
+function buildSteps(events: JobEvent[], job: StepCardsProps['job']): StepData[] {
   const stepsMap = new Map<string, StepData>()
 
   for (const event of events) {
@@ -238,7 +250,46 @@ function buildSteps(events: JobEvent[]): StepData[] {
     }
   }
 
+  // Durable workflow states remain authoritative when older event histories
+  // never emitted job_step_finished (for example, a failed create_stack).
+  const terminalEvent = [...events].reverse().find((event) => event.event === 'job_finished' && isTerminal(event.state))
+  const terminalState = job && isTerminal(job.state) ? job.state : terminalEvent?.state
+  const finishedAt = job && isTerminal(job.state) ? job.finished_at ?? terminalEvent?.timestamp : terminalEvent?.timestamp
+  if (job?.workflow) {
+    job.workflow.steps.forEach((workflowStep, index) => {
+      const key = `${index + 1}-${workflowStep.action}-${workflowStep.target_stack_id ?? ''}`
+      const existing = stepsMap.get(key)
+      if (!existing) {
+        stepsMap.set(key, {
+          index: index + 1,
+          total: job.workflow!.steps.length,
+          action: workflowStep.action,
+          targetStackId: workflowStep.target_stack_id,
+          state: workflowStep.state,
+          startedAt: null,
+          finishedAt: null,
+          progress: null,
+          logLines: [],
+        })
+      } else if (job && isTerminal(job.state)) {
+        existing.state = workflowStep.state
+      }
+    })
+  }
+  if (terminalState) {
+    for (const step of stepsMap.values()) {
+      if (step.state === 'running' || step.state === 'cancel_requested') step.state = terminalStepStateFromJob(terminalState)
+      else if (step.state === 'queued') step.state = 'skipped'
+      // Never keep a timer running after the whole job has finished.
+      step.finishedAt ??= finishedAt ?? null
+    }
+  }
+
   return Array.from(stepsMap.values()).sort((a, b) => a.index - b.index)
+}
+
+function isTerminal(state: string): boolean {
+  return ['succeeded', 'failed', 'cancelled', 'timed_out'].includes(state)
 }
 
 function terminalStepStateFromJob(jobState: string): JobStepState {

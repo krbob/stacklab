@@ -130,7 +130,7 @@ describe('JobDetailDrawer', () => {
         id: 'job_progress',
         stack_id: 'demo',
         action: 'pull',
-        state: 'succeeded',
+        state: 'running',
         requested_at: '2026-04-09T08:00:00Z',
       },
     })
@@ -167,6 +167,30 @@ describe('JobDetailDrawer', () => {
     expect(progress).toHaveAttribute('aria-valuenow', '7')
     expect(progress).toHaveAttribute('aria-valuemax', '12')
     expect(screen.getByText('extracting')).toBeInTheDocument()
+  })
+
+  it('shows the cause and final workflow state for a create failure without a closing step event', async () => {
+    const finishedAt = '2026-04-09T08:00:01Z'
+    mockGetJob.mockResolvedValue({ job: {
+      id: 'job_create_failed', stack_id: 'monitoring', action: 'create_stack', state: 'failed',
+      requested_at: finishedAt, started_at: finishedAt, finished_at: finishedAt,
+      workflow: { steps: [{ action: 'create_stack', state: 'failed' }, { action: 'up', state: 'queued' }] },
+    } })
+    mockGetJobEvents.mockResolvedValue({ retained: true, items: [
+      { job_id: 'job_create_failed', sequence: 1, event: 'job_step_started', state: 'running', timestamp: finishedAt,
+        step: { index: 1, total: 2, action: 'create_stack', state: 'running' } },
+      { job_id: 'job_create_failed', sequence: 2, event: 'job_error', state: 'failed', timestamp: finishedAt,
+        message: 'create data dir: mkdir /srv/stacklab/data/monitoring: permission denied' },
+      { job_id: 'job_create_failed', sequence: 3, event: 'job_finished', state: 'failed', timestamp: finishedAt },
+    ] })
+    renderDrawer('job_create_failed')
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }))
+    expect(await screen.findByText(/create data dir:.*permission denied/)).toBeInTheDocument()
+    expect(screen.getByText('Failed')).toBeInTheDocument()
+    expect(screen.getByText('Skipped')).toBeInTheDocument()
+    expect(screen.getByText('0s')).toBeInTheDocument()
+    expect(screen.queryByText('Running')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Cancel job' })).not.toBeInTheDocument()
   })
 
   it('shows retention notice when detailed output is gone', async () => {

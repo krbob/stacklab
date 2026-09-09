@@ -108,6 +108,19 @@ describe('useJobStream', () => {
     expect(controls.getSentFrames()).toHaveLength(0)
   })
 
+  it('preserves explicit step failures when replaying a still-running workflow over REST', async () => {
+    mockGetJob.mockResolvedValue({ job: { id: 'job_steps', action: 'update_stacks', state: 'running' } })
+    mockGetJobEvents.mockResolvedValue({ retained: true, items: [{
+      job_id: 'job_steps', state: 'running', event: 'job_step_finished', timestamp: '2026-01-01T00:00:01Z',
+      step: { index: 1, total: 2, action: 'up', state: 'failed', target_stack_id: 'demo', target_service_names: ['app'] },
+    }] })
+    const { result } = renderHook(() => useJobStream({ jobId: 'job_steps' }), {
+      wrapper: ({ children }) => <Provider initialConnected={false}>{children}</Provider>,
+    })
+    await waitFor(() => expect(result.current.events).toHaveLength(1))
+    expect(result.current.events[0].step).toEqual({ index: 1, total: 2, action: 'up', state: 'failed', target_stack_id: 'demo', target_service_names: ['app'] })
+  })
+
   it('deduplicates REST history when websocket reconnects and replays it', async () => {
     mockGetJob.mockResolvedValue({
       job: {

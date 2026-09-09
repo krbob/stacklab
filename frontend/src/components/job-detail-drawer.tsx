@@ -241,7 +241,7 @@ function JobDetailDrawerContent({ jobId }: { jobId: string }) {
                     <div>
                       <h3 className="mb-2 text-xs font-medium text-[var(--muted)]">Events</h3>
                       {events.some((e) => e.step) ? (
-                        <StepCards events={events.map(toJobEvent)} />
+                        <StepCards events={events.map(toJobEvent)} job={job} />
                       ) : (
                         <div aria-live="off" className="space-y-0.5 rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.25)] p-3 font-mono text-xs leading-5">
                           {events.map((event) => (

@@ -37,6 +37,15 @@ const eventIcons: Record<string, string> = {
   job_finished: '■',
 }
 
+function eventIcon(event: JobEvent): string {
+  if (event.event === 'job_step_finished') {
+    const state = event.step?.state ?? event.state
+    if (['failed', 'cancelled', 'timed_out'].includes(state)) return '✗'
+    if (state === 'skipped') return '–'
+  }
+  return eventIcons[event.event] ?? '·'
+}
+
 export function ProgressPanel({ jobId, stream, onDone, onClose }: ProgressPanelProps) {
   const internal = useJobStream({ jobId: stream ? null : jobId })
   const events = stream ? stream.events : internal.events
@@ -196,7 +205,7 @@ export function ProgressPanel({ jobId, stream, onDone, onClose }: ProgressPanelP
               event.event !== 'job_warning' && event.event !== 'job_error' && 'text-[var(--muted)]',
             )}
           >
-            <span className="shrink-0 w-3 text-center" aria-hidden="true">{eventIcons[event.event] ?? '·'}</span>
+            <span className="shrink-0 w-3 text-center" aria-hidden="true">{eventIcon(event)}</span>
             <span className="whitespace-pre-wrap break-all">
               {event.message}
               {event.data && (

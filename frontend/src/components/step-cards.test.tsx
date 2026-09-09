@@ -197,6 +197,37 @@ describe('StepCards', () => {
     expect(screen.getByText('Failed')).toBeInTheDocument()
   })
 
+  it.each(['failed', 'cancelled', 'timed_out'] as const)('closes an unfinished step on a %s job and preserves completed steps and job-level output', (state) => {
+    const events: JobEvent[] = [
+      makeEvent({ event: 'job_step_finished', state: 'running', timestamp: '2026-04-09T10:00:00Z',
+        step: { index: 1, total: 2, action: 'pull', state: 'succeeded' } }),
+      makeEvent({ event: 'job_step_started', state: 'running', timestamp: '2026-04-09T10:00:01Z',
+        step: { index: 2, total: 2, action: 'up', state: 'running' } }),
+      makeEvent({ event: 'job_error', state, timestamp: '2026-04-09T10:00:03Z', message: 'Deployment stopped.', data: 'Detailed reason.' }),
+      makeEvent({ event: 'job_finished', state, timestamp: '2026-04-09T10:00:03Z' }),
+    ]
+    render(<StepCards events={events} />)
+    expect(screen.getByText('Done')).toBeInTheDocument()
+    expect(screen.queryByText('Running')).not.toBeInTheDocument()
+    expect(screen.getByText('Deployment stopped.')).toBeInTheDocument()
+    expect(screen.getByText('Detailed reason.')).toBeInTheDocument()
+    expect(screen.getByText('2s')).toBeInTheDocument()
+    act(() => { vi.advanceTimersByTime(60_000) })
+    expect(screen.getByText('2s')).toBeInTheDocument()
+  })
+
+  it('uses a terminal snapshot even when the event response has not caught up', () => {
+    const events = [makeEvent({ event: 'job_step_started', state: 'running', timestamp: '2026-04-09T10:00:00Z',
+      step: { index: 1, total: 2, action: 'create_stack', state: 'running' } })]
+    render(<StepCards events={events} job={{ state: 'failed', finished_at: '2026-04-09T10:00:00Z',
+      workflow: { steps: [{ action: 'create_stack', state: 'failed' }, { action: 'up', state: 'skipped' }] },
+    }} />)
+    expect(screen.getByText('Failed')).toBeInTheDocument()
+    expect(screen.getByText('Skipped')).toBeInTheDocument()
+    expect(screen.getByText('0s')).toBeInTheDocument()
+    expect(screen.queryByText('Running')).not.toBeInTheDocument()
+  })
+
   it('expands collapsed output on demand', () => {
     const events: JobEvent[] = [
       makeEvent({

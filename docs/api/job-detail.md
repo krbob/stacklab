@@ -85,6 +85,18 @@ The UI should treat these states distinctly:
 
 Only the last case is an actual error.
 
+For grouped step output, keep job-level errors, warnings, and logs visible even
+when they do not carry a step reference. A terminal job snapshot and its workflow
+take precedence over incomplete historical step events. A missing closing step
+event must not leave a running label or timer after the job has finished; queued
+steps that never ran are skipped. Already completed steps retain their result.
+
+When stack file creation fails, `POST /api/stacks` returns the usual HTTP error
+with `error.details.job_id`. The create form follows that job to display the
+retained cause without losing the draft. Creation publishes a failed step event,
+skips deployment, and finalizes the job and audit using a context independent of
+the initiating HTTP request.
+
 ## Notes
 
 - event ordering is by ascending `sequence`

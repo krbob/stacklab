@@ -53,6 +53,17 @@ describe('ProgressPanel', () => {
     expect(screen.getByLabelText('Job output')).toHaveAttribute('aria-live', 'off')
   })
 
+  it('does not mark a failed creation step with a success check', () => {
+    render(<ProgressPanel jobId="job_failed" stream={{ state: 'failed', events: [{
+      job_id: 'job_failed', stack_id: 'monitoring', action: 'create_stack', state: 'running',
+      event: 'job_step_finished', message: 'Failed to create stack files.', timestamp: '2026-01-01T00:00:00Z',
+      step: { index: 1, total: 2, action: 'create_stack', state: 'failed' },
+    }] }} />)
+    expect(screen.getByLabelText('Job output')).toHaveTextContent('✗')
+    expect(screen.getByLabelText('Job output')).not.toHaveTextContent('✓')
+    expect(screen.getByText('Failed to create stack files.')).toBeInTheDocument()
+  })
+
   it('shows succeeded state', () => {
     mockUseJobStream.mockReturnValue({
       events: [{

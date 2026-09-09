@@ -176,6 +176,11 @@ export interface paths {
   };
   "/stacks": {
     get: operations["listStacks"];
+    /**
+     * @description Create stack files and optionally deploy. If file creation fails after a
+     * job starts, the error response includes error.details.job_id so clients
+     * can show the retained failure cause and completed workflow steps.
+     */
     post: operations["createStack"];
   };
   "/stacks/{stackId}": {
@@ -2787,6 +2792,11 @@ export interface operations {
       401: components["responses"]["ErrorUnauthorized"];
     };
   };
+  /**
+   * @description Create stack files and optionally deploy. If file creation fails after a
+   * job starts, the error response includes error.details.job_id so clients
+   * can show the retained failure cause and completed workflow steps.
+   */
   createStack: {
     requestBody: {
       content: {
@@ -2805,6 +2815,12 @@ export interface operations {
       409: components["responses"]["ErrorConflict"];
       413: components["responses"]["ErrorContentTooLarge"];
       422: components["responses"]["ErrorValidationFailed"];
+      /** @description Stack creation failed. When a job was started, error.details.job_id links to its retained failure output. */
+      500: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
     };
   };
   getStack: {

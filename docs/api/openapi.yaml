@@ -1109,6 +1109,10 @@ paths:
     post:
       tags: [Stacks]
       operationId: createStack
+      description: |
+        Create stack files and optionally deploy. If file creation fails after a
+        job starts, the error response includes error.details.job_id so clients
+        can show the retained failure cause and completed workflow steps.
       requestBody:
         required: true
         content:
@@ -1132,6 +1136,12 @@ paths:
           $ref: '#/components/responses/ErrorContentTooLarge'
         '422':
           $ref: '#/components/responses/ErrorValidationFailed'
+        '500':
+          description: Stack creation failed. When a job was started, error.details.job_id links to its retained failure output.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /stacks/{stackId}:
     parameters:
       - $ref: '#/components/parameters/StackId'

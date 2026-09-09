@@ -257,6 +257,10 @@ file or a built-in template.
 - `Deploy immediately` chains deployment only after successful creation.
 - Creation returns a job and follows the shared progress contract.
 
+Creation failures keep the draft editable and display the failed job's retained
+output when the response includes a job ID. Permission errors in the managed
+`stacks`, `config`, or `data` directories must be diagnosable from this output.
+
 ## Host And System Health
 
 Route: `/host`

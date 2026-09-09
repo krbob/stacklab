@@ -1,6 +1,6 @@
 import { useCallback, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { createStack, getTemplates } from '@/lib/api-client'
+import { ApiClientError, createStack, getTemplates } from '@/lib/api-client'
 import { useApi } from '@/hooks/use-api'
 import type { StackTemplate } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
@@ -87,6 +87,7 @@ export function CreateStackPage() {
 
     setCreating(true)
     setError(null)
+    setJobId(null)
     try {
       const result = await createStack({
         stack_id: stackId,
@@ -103,6 +104,9 @@ export function CreateStackPage() {
       setJobId(result.job.id)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Create failed')
+      if (err instanceof ApiClientError && typeof err.details?.job_id === 'string') {
+        setJobId(err.details.job_id)
+      }
       setCreating(false)
     }
   }, [stackId, composeYaml, deployAfter, idValid, selectedTemplateObject, templateVariables, templateVariablesValid])
@@ -261,7 +265,7 @@ export function CreateStackPage() {
         </label>
 
         {error && (
-          <div className="rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">
+          <div role="alert" className="rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]">
             {error}
           </div>
         )}

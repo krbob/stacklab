@@ -1,10 +1,11 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createStack, getTemplates } from '@/lib/api-client'
+import { ApiClientError, createStack, getTemplates } from '@/lib/api-client'
 import { CreateStackPage } from './create-stack-page'
 
-vi.mock('@/lib/api-client', () => ({
+vi.mock('@/lib/api-client', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/lib/api-client')>(),
   createStack: vi.fn(),
   getTemplates: vi.fn(),
 }))
@@ -87,6 +88,22 @@ describe('CreateStackPage', () => {
         }),
       }))
     })
+  })
+
+  it('shows failed job output after an HTTP error and clears it before retrying', async () => {
+    mockCreateStack.mockRejectedValueOnce(new ApiClientError(500, 'internal_error', 'Failed to create stack.', { job_id: 'job_failed' }, 'req_create'))
+    render(<MemoryRouter><CreateStackPage /></MemoryRouter>)
+    await screen.findByTestId('template-option-web-service')
+    fireEvent.change(screen.getByTestId('create-stack-name'), { target: { value: 'monitoring' } })
+    fireEvent.click(screen.getByTestId('create-stack-submit'))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to create stack. [Request ID: req_create]')
+    expect(screen.getByTestId('progress-panel')).toHaveTextContent('job_failed')
+    expect(screen.getByTestId('create-stack-name')).toHaveValue('monitoring')
+    expect(screen.getByTestId('create-stack-submit')).toBeEnabled()
+    mockCreateStack.mockReturnValueOnce(new Promise(() => {}))
+    fireEvent.click(screen.getByTestId('create-stack-submit'))
+    expect(screen.queryByTestId('progress-panel')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('blocks submit when a required template variable is empty', async () => {

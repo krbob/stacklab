@@ -8,6 +8,7 @@ import (
 	"sort"
 	"stacklab/internal/auth"
 	"stacklab/internal/jobs"
+	"stacklab/internal/limitedio"
 	"stacklab/internal/stacks"
 	"stacklab/internal/stackworkspace"
 	"stacklab/internal/store"
@@ -278,23 +279,39 @@ func (h *stackController) handleCreateStack(w http.ResponseWriter, r *http.Reque
 	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", "Creating stack files.", "", workflowStepRef(workflow, 0))
 
 	if err := h.stackReader.CreateStack(r.Context(), request); err != nil {
+		ctx, cancel := h.jobFinalizationContext()
+		defer cancel()
 		workflow = markWorkflowFailed(workflow, 0)
-		job, _ = h.jobs.UpdateWorkflow(r.Context(), job, workflow)
-		job, _ = h.jobs.FinishFailed(r.Context(), job, "create_stack_failed", err.Error())
-		_ = h.audit.RecordStackJob(r.Context(), job)
+		for index := 1; index < len(workflow); index++ {
+			workflow = markWorkflowState(workflow, index, "skipped")
+		}
+		// The terminal transition persists the workflow and error together, even
+		// if the client has disconnected while files were being created.
+		job.Workflow = &store.JobWorkflow{Steps: workflow}
+		_ = h.jobs.PublishEvent(ctx, job, "job_step_finished", "Failed to create stack files.", "", workflowStepRef(workflow, 0))
+		failedJob, finishErr := h.jobs.FinishFailed(ctx, job, "create_stack_failed", err.Error())
+		if finishErr != nil {
+			h.logger.Error("finish failed create stack job failed", slog.String("job_id", job.ID), slog.String("err", finishErr.Error()))
+		} else if auditErr := h.audit.RecordStackJob(ctx, failedJob); auditErr != nil {
+			h.logger.Warn("record create stack audit failed", slog.String("job_id", job.ID), slog.String("err", auditErr.Error()))
+		}
+		details := map[string]any{"job_id": job.ID}
 
 		switch {
 		case errors.Is(err, stacks.ErrContentTooLarge):
-			writeContentTooLargeError(w, err)
+			if maxBytes, ok := limitedio.MaxBytes(err); ok {
+				details["max_bytes"] = maxBytes
+			}
+			writeError(w, http.StatusRequestEntityTooLarge, "content_too_large", "Content exceeds the safe processing limit.", details)
 		case errors.Is(err, stacks.ErrConflict):
-			writeError(w, http.StatusConflict, "conflict", "Stack ID already exists.", nil)
+			writeError(w, http.StatusConflict, "conflict", "Stack ID already exists.", details)
 		case errors.Is(err, stacks.ErrNotFound):
-			writeError(w, http.StatusNotFound, "not_found", "Stack template was not found.", nil)
+			writeError(w, http.StatusNotFound, "not_found", "Stack template was not found.", details)
 		case errors.Is(err, stacks.ErrInvalidState):
-			writeError(w, http.StatusConflict, "invalid_state", err.Error(), nil)
+			writeError(w, http.StatusConflict, "invalid_state", err.Error(), details)
 		default:
 			h.logger.Error("create stack failed", slog.String("stack_id", request.StackID), slog.String("err", err.Error()))
-			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create stack.", nil)
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create stack.", details)
 		}
 		return
 	}
@@ -337,7 +354,6 @@ func (h *stackController) runCreateStackDeployJob(job store.Job, workflow []stor
 
 	ctx, finishCancel := h.jobFinalizationContext()
 	defer finishCancel()
-	step := workflowStepRef(workflow, 1)
 
 	if upErr != nil {
 		workflow = markWorkflowFailed(workflow, 1)
@@ -346,7 +362,7 @@ func (h *stackController) runCreateStackDeployJob(job store.Job, workflow []stor
 		} else {
 			h.logger.Warn("update failed create stack workflow failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
 		}
-		_ = h.jobs.PublishEvent(ctx, job, "job_step_finished", "Failed to start stack runtime.", "", step)
+		_ = h.jobs.PublishEvent(ctx, job, "job_step_finished", "Failed to start stack runtime.", "", workflowStepRef(workflow, 1))
 		failedJob, finishErr := h.jobs.FinishFailed(ctx, job, "create_stack_failed", upErr.Error())
 		if finishErr != nil {
 			h.logger.Error("finish create stack job failed", slog.String("job_id", job.ID), slog.String("err", finishErr.Error()))
@@ -368,7 +384,7 @@ func (h *stackController) runCreateStackDeployJob(job store.Job, workflow []stor
 	} else {
 		h.logger.Warn("update successful create stack workflow failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
 	}
-	_ = h.jobs.PublishEvent(ctx, job, "job_step_finished", "Started stack runtime.", "", step)
+	_ = h.jobs.PublishEvent(ctx, job, "job_step_finished", "Started stack runtime.", "", workflowStepRef(workflow, 1))
 
 	finishedJob, err := h.jobs.FinishSucceeded(ctx, job)
 	if err != nil {
