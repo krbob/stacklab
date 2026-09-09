@@ -56,6 +56,7 @@ export type Container = APISchemas['Container']
 export type StackMetadata = NonNullable<APISchemas['StackMetadata']>
 export type StackMetaLink = NonNullable<StackMetadata['links']>[number]
 export type StackStats = NonNullable<APISchemas['StackStats']>
+export type StackStatsResponse = APISchemas['StackStatsResponse']
 export type StackTemplate = APISchemas['StackTemplate']
 export type StackTemplateVariable = APISchemas['TemplateVariable']
 export type TemplatesResponse = APISchemas['TemplatesResponse']

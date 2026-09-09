@@ -27,9 +27,16 @@ badges — the frontend simply does not consume them yet.
 ```
 
 - `null` when the stack has no running containers or the sample is stale (>30s).
-- Source: a single host-level collector goroutine sampling the Docker stats API
-  for all running containers on a fixed 10s interval, aggregated per Compose
-  project label and cached in memory. List requests never call Docker directly.
+- Source: one continuous host-level Docker CLI stats stream for running
+  containers. The collector refreshes Compose project membership every second
+  and aggregates the latest container samples in memory. A disconnected stream
+  retries after one second; failed discovery retains the last known data until
+  it expires.
+- `GET /api/stats/stacks` returns `{ "items": { "<project>": <stats> } }` from
+  memory without scanning definitions or invoking Docker. Missing projects have
+  no fresh sample. Like the stack list, the endpoint requires authentication.
+- The dashboard polls this lightweight endpoint every second while visible.
+  Full stack inventory refreshes remain on a separate 10s cadence.
 - Not persisted. No history (stats history stays frontend-only per the
   retention decision).
 

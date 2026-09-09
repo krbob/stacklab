@@ -44,10 +44,11 @@ type maintenanceUpdateStacksRequest struct {
 		ExcludedServices map[string][]string `json:"excluded_services"`
 	} `json:"target"`
 	Options struct {
-		PullImages    *bool `json:"pull_images"`
-		BuildImages   *bool `json:"build_images"`
-		RemoveOrphans *bool `json:"remove_orphans"`
-		PruneAfter    struct {
+		PullImages       *bool `json:"pull_images"`
+		BuildImages      *bool `json:"build_images"`
+		RemoveOrphans    *bool `json:"remove_orphans"`
+		PreserveInactive *bool `json:"preserve_inactive"`
+		PruneAfter       struct {
 			Enabled        *bool `json:"enabled"`
 			IncludeVolumes *bool `json:"include_volumes"`
 		} `json:"prune_after"`
@@ -193,11 +194,12 @@ func (h *maintenanceController) handleUpdateStacksMaintenance(w http.ResponseWri
 			ExcludedServices: request.Target.ExcludedServices,
 		},
 		Options: maintenancejobs.UpdateOptions{
-			PullImages:     options.PullImages,
-			BuildImages:    options.BuildImages,
-			RemoveOrphans:  options.RemoveOrphans,
-			PruneAfter:     options.PruneAfter,
-			IncludeVolumes: options.IncludeVolumes,
+			PreserveInactive: boolOrDefault(request.Options.PreserveInactive, false),
+			PullImages:       options.PullImages,
+			BuildImages:      options.BuildImages,
+			RemoveOrphans:    options.RemoveOrphans,
+			PruneAfter:       options.PruneAfter,
+			IncludeVolumes:   options.IncludeVolumes,
 		},
 		Trigger: "manual",
 	}, "local")

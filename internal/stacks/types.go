@@ -167,6 +167,10 @@ type StackStats struct {
 	SampledAt   time.Time `json:"sampled_at"`
 }
 
+type StackStatsResponse struct {
+	Items map[string]StackStats `json:"items"`
+}
+
 type HealthSummary struct {
 	HealthyContainerCount       int `json:"healthy_container_count"`
 	UnhealthyContainerCount     int `json:"unhealthy_container_count"`

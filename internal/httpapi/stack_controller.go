@@ -22,6 +22,7 @@ type stackController struct {
 }
 
 func (c *stackController) registerRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/stats/stacks", c.withAuth(c.handleStackStats))
 	mux.HandleFunc("GET /api/stacks", c.withAuth(c.handleListStacks))
 	mux.HandleFunc("POST /api/stacks", c.withAuth(c.handleCreateStack))
 	mux.HandleFunc("GET /api/stacks/{stackId}", c.withAuth(c.handleGetStack))
@@ -179,6 +180,10 @@ func (h *stackController) handleRepairStackWorkspacePermissions(w http.ResponseW
 	}
 
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *stackController) handleStackStats(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, h.stackReader.StatsSnapshot())
 }
 
 func (h *stackController) handleListStacks(w http.ResponseWriter, r *http.Request) {

@@ -247,6 +247,10 @@ export interface paths {
       };
     };
   };
+  "/stats/stacks": {
+    /** @description Cached CPU and memory usage by Compose project, without a stack or Docker scan. Missing projects have no fresh sample. */
+    get: operations["getStackStats"];
+  };
   "/templates": {
     get: operations["listTemplates"];
   };
@@ -1095,6 +1099,11 @@ export interface components {
       options?: {
         /** @default true */
         build_images?: boolean;
+        /**
+         * @description Keep stopped and never-started stacks inactive when updating selected stacks. All-stack and scheduled updates always preserve inactive state.
+         * @default false
+         */
+        preserve_inactive?: boolean;
         prune_after?: {
           /** @default false */
           enabled?: boolean;
@@ -1508,6 +1517,11 @@ export interface components {
       /** Format: date-time */
       sampled_at: string;
     } | null;
+    StackStatsResponse: {
+      items: {
+        [key: string]: components["schemas"]["StackStats"];
+      };
+    };
     StackTemplate: {
       built_in: boolean;
       compose_yaml: string;
@@ -3107,6 +3121,18 @@ export interface operations {
           "application/json": components["schemas"]["ErrorResponse"];
         };
       };
+    };
+  };
+  /** @description Cached CPU and memory usage by Compose project, without a stack or Docker scan. Missing projects have no fresh sample. */
+  getStackStats: {
+    responses: {
+      /** @description Latest resource snapshots for running Compose projects. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["StackStatsResponse"];
+        };
+      };
+      401: components["responses"]["ErrorUnauthorized"];
     };
   };
   listTemplates: {

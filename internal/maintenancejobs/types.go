@@ -12,11 +12,12 @@ type UpdateTarget struct {
 }
 
 type UpdateOptions struct {
-	PullImages     bool `json:"pull_images"`
-	BuildImages    bool `json:"build_images"`
-	RemoveOrphans  bool `json:"remove_orphans"`
-	PruneAfter     bool `json:"prune_after"`
-	IncludeVolumes bool `json:"include_volumes"`
+	PullImages       bool `json:"pull_images"`
+	BuildImages      bool `json:"build_images"`
+	RemoveOrphans    bool `json:"remove_orphans"`
+	PreserveInactive bool `json:"preserve_inactive"`
+	PruneAfter       bool `json:"prune_after"`
+	IncludeVolumes   bool `json:"include_volumes"`
 }
 
 type UpdateRequest struct {

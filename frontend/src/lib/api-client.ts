@@ -70,6 +70,7 @@ import type {
   StackRepairPermissionsResponse,
   StackWorkspaceTreeResponse,
   StackListResponse,
+  StackStatsResponse,
   StacklabLogsResponse,
   TemplatesResponse,
   UpdateDefinitionRequest,
@@ -354,6 +355,10 @@ export function getStacks(params?: StackListQueryParams): Promise<StackListRespo
   if (params?.sort) search.set('sort', params.sort)
   const qs = search.toString()
   return request(`/api/stacks${qs ? `?${qs}` : ''}`)
+}
+
+export function getStackStats(signal?: AbortSignal): Promise<StackStatsResponse> {
+  return request('/api/stats/stacks', { signal })
 }
 
 export function getTemplates(): Promise<TemplatesResponse> {

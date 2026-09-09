@@ -217,6 +217,12 @@ Field rules:
   - omitted when `mode = all`
 - `options.pull_images`:
   - default `true`
+- `options.preserve_inactive`:
+  - default `false` for manually selected stacks
+  - when `true`, stopped and never-started targets may pull or build images but
+    are not deployed; all-stack and scheduled updates always preserve this state
+  - the dashboard's `Update all` uses this option with the explicit set of
+    stacks that had updates at review time
 - `options.build_images`:
   - default `true`
 - `options.remove_orphans`:

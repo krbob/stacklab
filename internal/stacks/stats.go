@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"os/exec"
 	"strconv"
@@ -14,21 +15,22 @@ import (
 )
 
 const (
-	statsSampleInterval = 10 * time.Second
+	statsSampleInterval = time.Second
+	statsCommandTimeout = 5 * time.Second
 	statsMaxAge         = 30 * time.Second
 )
 
-// StatsCollector samples Docker container resource usage on a fixed interval
-// and aggregates it per Compose project. List requests read the cached
-// snapshot and never touch Docker directly (Slice A1 of the dashboard
-// read-model contract).
+// StatsCollector consumes one continuous Docker stats stream and refreshes
+// Compose project membership every second. Resource requests only read memory.
 type StatsCollector struct {
 	logger   *slog.Logger
 	interval time.Duration
 	run      func(ctx context.Context, name string, args ...string) ([]byte, error)
+	stream   func(context.Context, func([]byte)) error
 
-	mu      sync.RWMutex
-	samples map[string]StackStats
+	mu         sync.RWMutex
+	projects   map[string]string
+	containers map[string]StackStats
 }
 
 func NewStatsCollector(logger *slog.Logger) *StatsCollector {
@@ -38,13 +40,18 @@ func NewStatsCollector(logger *slog.Logger) *StatsCollector {
 		run: func(ctx context.Context, name string, args ...string) ([]byte, error) {
 			return exec.CommandContext(ctx, name, args...).Output()
 		},
-		samples: map[string]StackStats{},
+		stream:     streamDockerStats,
+		projects:   map[string]string{},
+		containers: map[string]StackStats{},
 	}
 }
 
 // Run executes the sampling loop until ctx is cancelled.
 func (c *StatsCollector) Run(ctx context.Context) {
-	c.sample(ctx)
+	var streams sync.WaitGroup
+	streams.Go(func() { c.followStats(ctx) })
+	defer streams.Wait()
+	c.refreshProjects(ctx)
 	ticker := time.NewTicker(c.interval)
 	defer ticker.Stop()
 	for {
@@ -52,7 +59,7 @@ func (c *StatsCollector) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			c.sample(ctx)
+			c.refreshProjects(ctx)
 		}
 	}
 }
@@ -68,18 +75,25 @@ func (c *StatsCollector) Snapshot() map[string]StackStats {
 	defer c.mu.RUnlock()
 
 	now := time.Now()
-	result := make(map[string]StackStats, len(c.samples))
-	for project, sample := range c.samples {
-		if now.Sub(sample.SampledAt) > statsMaxAge {
+	result := make(map[string]StackStats)
+	for id, sample := range c.containers {
+		project := c.projects[id]
+		if project == "" || now.Sub(sample.SampledAt) > statsMaxAge {
 			continue
 		}
-		result[project] = sample
+		total := result[project]
+		total.CPUPercent += sample.CPUPercent
+		total.MemoryBytes += sample.MemoryBytes
+		if total.SampledAt.IsZero() || sample.SampledAt.Before(total.SampledAt) {
+			total.SampledAt = sample.SampledAt
+		}
+		result[project] = total
 	}
 	return result
 }
 
-func (c *StatsCollector) sample(ctx context.Context) {
-	sampleCtx, cancel := context.WithTimeout(ctx, c.interval)
+func (c *StatsCollector) refreshProjects(ctx context.Context) {
+	sampleCtx, cancel := context.WithTimeout(ctx, statsCommandTimeout)
 	defer cancel()
 
 	projectsOut, err := c.run(sampleCtx, "docker", "ps", "--format", "{{.ID}}\t{{.Label \"com.docker.compose.project\"}}")
@@ -87,25 +101,87 @@ func (c *StatsCollector) sample(ctx context.Context) {
 		c.logger.Debug("stats collector: docker ps failed", slog.String("err", err.Error()))
 		return
 	}
-	projectByID := parseContainerProjects(projectsOut)
-	if len(projectByID) == 0 {
-		c.store(map[string]StackStats{})
-		return
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.projects = parseContainerProjects(projectsOut)
+	for id := range c.containers {
+		if c.projects[id] == "" {
+			delete(c.containers, id)
+		}
 	}
-
-	statsOut, err := c.run(sampleCtx, "docker", "stats", "--no-stream", "--format", "{{json .}}")
-	if err != nil {
-		c.logger.Debug("stats collector: docker stats failed", slog.String("err", err.Error()))
-		return
-	}
-
-	c.store(aggregateStats(statsOut, projectByID, time.Now().UTC()))
 }
 
-func (c *StatsCollector) store(samples map[string]StackStats) {
+func (c *StatsCollector) followStats(ctx context.Context) {
+	for ctx.Err() == nil {
+		if err := c.stream(ctx, c.record); err != nil && ctx.Err() == nil {
+			c.logger.Debug("stats collector: docker stats stream failed", slog.String("err", err.Error()))
+		}
+		timer := time.NewTimer(c.interval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+func (c *StatsCollector) record(line []byte) {
+	// Streaming CLI output includes terminal escape sequences around each
+	// JSON object, even when stdout is a pipe. Decode only the object.
+	start, end := bytes.IndexByte(line, '{'), bytes.LastIndexByte(line, '}')
+	if start < 0 || end < start {
+		return
+	}
+	var entry dockerStatsLine
+	if json.Unmarshal(line[start:end+1], &entry) != nil || entry.ID == "" {
+		return
+	}
 	c.mu.Lock()
-	c.samples = samples
+	c.containers[shortContainerID(entry.ID)] = StackStats{
+		CPUPercent:  parseCPUPercent(entry.CPUPerc),
+		MemoryBytes: parseMemBytes(entry.MemUsage),
+		SampledAt:   time.Now().UTC(),
+	}
 	c.mu.Unlock()
+}
+
+func streamDockerStats(ctx context.Context, consume func([]byte)) error {
+	streamCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	cmd := exec.CommandContext(streamCtx, "docker", "stats", "--format", "{{json .}}")
+	cmd.WaitDelay = time.Second
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	err = scanDockerStats(stdout, consume)
+	if err != nil {
+		cancel()
+	}
+	waitErr := cmd.Wait()
+	if err != nil {
+		return err
+	}
+	return waitErr
+}
+
+func scanDockerStats(reader io.Reader, consume func([]byte)) error {
+	scanner := bufio.NewScanner(reader)
+	for scanner.Scan() {
+		consume(scanner.Bytes())
+	}
+	return scanner.Err()
+}
+
+func shortContainerID(id string) string {
+	if len(id) > 12 {
+		return id[:12]
+	}
+	return id
 }
 
 func parseContainerProjects(output []byte) map[string]string {
@@ -116,7 +192,7 @@ func parseContainerProjects(output []byte) map[string]string {
 		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 			continue
 		}
-		result[parts[0]] = parts[1]
+		result[shortContainerID(parts[0])] = parts[1]
 	}
 	return result
 }
@@ -125,40 +201,6 @@ type dockerStatsLine struct {
 	ID       string `json:"ID"`
 	CPUPerc  string `json:"CPUPerc"`
 	MemUsage string `json:"MemUsage"`
-}
-
-func aggregateStats(output []byte, projectByID map[string]string, sampledAt time.Time) map[string]StackStats {
-	result := map[string]StackStats{}
-	scanner := bufio.NewScanner(bytes.NewReader(output))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-		var entry dockerStatsLine
-		if err := json.Unmarshal([]byte(line), &entry); err != nil {
-			continue
-		}
-		// docker stats truncates IDs to 12 chars; docker ps does the same by
-		// default, but match on prefix to be safe against full IDs.
-		project := ""
-		for id, p := range projectByID {
-			if strings.HasPrefix(id, entry.ID) || strings.HasPrefix(entry.ID, id) {
-				project = p
-				break
-			}
-		}
-		if project == "" {
-			continue
-		}
-
-		sample := result[project]
-		sample.CPUPercent += parseCPUPercent(entry.CPUPerc)
-		sample.MemoryBytes += parseMemBytes(entry.MemUsage)
-		sample.SampledAt = sampledAt
-		result[project] = sample
-	}
-	return result
 }
 
 func parseCPUPercent(value string) float64 {

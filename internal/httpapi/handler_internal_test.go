@@ -2140,6 +2140,41 @@ func TestHandlerMaintenanceUpdateDoesNotExposeInternalStartError(t *testing.T) {
 	}
 }
 
+func TestHandlerMaintenanceUpdatePreservesInactiveSelectedStacks(t *testing.T) {
+	shimDir := t.TempDir()
+	writeInternalDockerShim(t, filepath.Join(shimDir, "docker"))
+	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	_, served, cfg := newInternalTestHandler(t)
+	cookies := loginInternalTestUser(t, served, "test-password")
+	stackRoot := filepath.Join(cfg.RootDir, "stacks", "demo")
+	if err := os.MkdirAll(stackRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stackRoot, "compose.yaml"), []byte("services:\n  app:\n    image: demo-app:latest\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	response := performInternalJSONRequest(t, served, http.MethodPost, "/api/maintenance/update-stacks", map[string]any{
+		"target": map[string]any{"mode": "selected", "stack_ids": []string{"demo"}},
+		"options": map[string]any{
+			"pull_images":       false,
+			"build_images":      false,
+			"preserve_inactive": true,
+		},
+	}, cookies)
+	if response.Code != http.StatusOK {
+		t.Fatalf("start update status = %d: %s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		Job store.Job `json:"job"`
+	}
+	decodeInternalResponse(t, response, &payload)
+	if payload.Job.Workflow == nil || len(payload.Job.Workflow.Steps) != 1 || payload.Job.Workflow.Steps[0].Action != "preserve_inactive" {
+		t.Fatalf("inactive stack was scheduled for deployment: %+v", payload.Job.Workflow)
+	}
+	waitForInternalJobState(t, served, cookies, payload.Job.ID, "succeeded")
+}
+
 func TestHandlerMaintenanceUpdateWithServiceExclusionsDefaultsRemoveOrphansOff(t *testing.T) {
 	stacks.ResetComposeCLICacheForTests()
 	t.Cleanup(stacks.ResetComposeCLICacheForTests)

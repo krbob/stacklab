@@ -87,6 +87,14 @@ func (s *ServiceReader) AttachStatsCollector(collector *StatsCollector) {
 	s.stats = collector
 }
 
+// StatsSnapshot reads cached resource usage without scanning definitions or Docker.
+func (s *ServiceReader) StatsSnapshot() StackStatsResponse {
+	if s.stats == nil {
+		return StackStatsResponse{Items: map[string]StackStats{}}
+	}
+	return StackStatsResponse{Items: s.stats.Snapshot()}
+}
+
 // AttachUpdateStatus wires the per-image update state provider (Slice B);
 // list responses roll it up per stack when present.
 func (s *ServiceReader) AttachUpdateStatus(provider func() map[string]ImageUpdateState) {

@@ -157,6 +157,9 @@ func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
 	stacksResponse := performJSONRequest(t, handler, http.MethodGet, "/api/stacks", nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/stacks", nil, cookies, stacksResponse)
 
+	statsResponse := performJSONRequest(t, handler, http.MethodGet, "/api/stats/stacks", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/stats/stacks", nil, cookies, statsResponse)
+
 	stackDetailResponse := performJSONRequest(t, handler, http.MethodGet, "/api/stacks/"+stackID, nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/stacks/"+stackID, nil, cookies, stackDetailResponse)
 
@@ -305,9 +308,10 @@ func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
 			"stack_ids": []string{stackID},
 		},
 		"options": map[string]any{
-			"pull_images":    true,
-			"build_images":   true,
-			"remove_orphans": true,
+			"preserve_inactive": true,
+			"pull_images":       true,
+			"build_images":      true,
+			"remove_orphans":    true,
 			"prune_after": map[string]any{
 				"enabled":         false,
 				"include_volumes": false,

@@ -264,7 +264,7 @@ func (s *Service) StartUpdate(ctx context.Context, request UpdateRequest, reques
 		return store.Job{}, UpdateRun{}, err
 	}
 
-	preserveInactive := request.Target.Mode == "all" || request.Trigger == "scheduled"
+	preserveInactive := request.Target.Mode == "all" || request.Trigger == "scheduled" || request.Options.PreserveInactive
 	workflow, err := s.buildUpdateWorkflow(ctx, targetStackIDs, serviceTargets, request.Options, preserveInactive)
 	if err != nil {
 		return store.Job{}, UpdateRun{}, err
@@ -997,11 +997,12 @@ func updateAuditDetails(request UpdateRequest, stackIDs []string) map[string]any
 		"target_mode": request.Target.Mode,
 		"stack_ids":   stackIDs,
 		"options": map[string]any{
-			"pull_images":     request.Options.PullImages,
-			"build_images":    request.Options.BuildImages,
-			"remove_orphans":  request.Options.RemoveOrphans,
-			"prune_after":     request.Options.PruneAfter,
-			"include_volumes": request.Options.IncludeVolumes,
+			"pull_images":       request.Options.PullImages,
+			"build_images":      request.Options.BuildImages,
+			"remove_orphans":    request.Options.RemoveOrphans,
+			"preserve_inactive": request.Options.PreserveInactive,
+			"prune_after":       request.Options.PruneAfter,
+			"include_volumes":   request.Options.IncludeVolumes,
 		},
 	}
 	if hasServiceExclusions(request.Target.ExcludedServices) {

@@ -236,6 +236,7 @@ func TestRunUpdatePreservesInactiveStacksForBulkPolicies(t *testing.T) {
 		name              string
 		target            UpdateTarget
 		trigger           string
+		preserveInactive  bool
 		wantAction        string
 		wantStepCalls     int
 		wantBaselineCalls int
@@ -264,6 +265,14 @@ func TestRunUpdatePreservesInactiveStacksForBulkPolicies(t *testing.T) {
 			wantStepCalls:     1,
 			wantBaselineCalls: 1,
 		},
+		{
+			name:              "dashboard selected",
+			target:            UpdateTarget{Mode: "selected", StackIDs: []string{"demo"}},
+			preserveInactive:  true,
+			wantAction:        "preserve_inactive",
+			wantStepCalls:     0,
+			wantBaselineCalls: 0,
+		},
 	}
 
 	for _, tt := range tests {
@@ -278,7 +287,7 @@ func TestRunUpdatePreservesInactiveStacksForBulkPolicies(t *testing.T) {
 
 			job, err := service.RunUpdate(context.Background(), UpdateRequest{
 				Target:  tt.target,
-				Options: UpdateOptions{},
+				Options: UpdateOptions{PreserveInactive: tt.preserveInactive},
 				Trigger: tt.trigger,
 			}, "test")
 			if err != nil {

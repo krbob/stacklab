@@ -55,10 +55,24 @@ and shows:
 - validated stack metadata links as separate external actions.
 
 The toolbar provides instant name filtering and All, Problems, and Updates
-views. `/` focuses the filter unless focus is already in an editable control.
+views, plus sorting by name (A–Z), CPU, or RAM (highest usage first). Resource
+ties use name order; stacks without samples follow stacks with measured usage.
+The selected order applies to new samples and filtered results.
+`/` focuses the filter unless focus is already in an editable control.
 `Check updates` starts a background job, shows bounded progress, and refreshes
 the list at completion. Normal dashboard refreshes run only while the document
-is visible and retain the last successful response on a later failure.
+is visible and retain the last successful response on a later failure. CPU and
+RAM refresh every second from the cached stats endpoint, independently of the
+full inventory refresh every 10 seconds. Slow stats requests never overlap,
+and returning to a visible tab requests a fresh sample immediately.
+
+When updates are available, `Update all (N)` reviews every stack with a detected
+update, including stacks hidden by the current filters. Confirmation keeps that
+reviewed target fixed and starts one tracked maintenance job: pull images and
+redeploy active stacks, preserving stopped and never-started stacks. It does
+not request builds, orphan removal, or pruning. The job details open immediately;
+the dashboard shows progress and the terminal result, then refreshes its badges.
+Start failures keep the review open for retry.
 
 A successful empty response offers `Create your first stack`. A failed request
 must never be presented as an empty installation.

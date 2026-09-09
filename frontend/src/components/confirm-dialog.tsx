@@ -5,6 +5,7 @@ import { OperationReview, type OperationReviewModel } from '@/components/operati
 interface ConfirmDialogProps {
   title: string
   message: string
+  error?: string | null
   items?: string[]
   review?: OperationReviewModel
   confirmLabel: string
@@ -20,6 +21,7 @@ interface ConfirmDialogProps {
 export function ConfirmDialog({
   title,
   message,
+  error,
   items = [],
   review,
   confirmLabel,
@@ -45,6 +47,7 @@ export function ConfirmDialog({
       initialFocusRef={requireText ? textRef : cancelRef}
     >
       <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{message}</p>
+      {error && <p role="alert" className="mt-2 text-sm text-[var(--danger)]">{error}</p>}
       {review && <OperationReview review={review} />}
       {items.length > 0 && (
         <ul className="mt-3 space-y-1 rounded-md border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-3 py-2 text-xs text-[var(--text)]">
