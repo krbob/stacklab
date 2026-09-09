@@ -82,6 +82,13 @@ not supported.
 
 ## Product tour
 
+<details>
+<summary>Compact stack list with resource sorting</summary>
+
+![Stack list sorted by RAM usage](docs/images/readme/stacks-list.png)
+
+</details>
+
 | Compose editing | Maintenance review |
 | --- | --- |
 | ![Compose editor with resolved configuration](docs/images/readme/stack-editor.png) | ![Maintenance update workflow](docs/images/readme/maintenance-update.png) |

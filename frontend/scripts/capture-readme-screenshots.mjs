@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { chromium } from '@playwright/test'
+import { chromium, expect } from '@playwright/test'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -17,6 +17,7 @@ const VIEWPORT = { width: 1440, height: 960 }
 
 const capturePlan = [
   { name: 'stacks-overview', path: '/stacks', waitFor: waitForStacksPage },
+  { name: 'stacks-list', path: '/stacks', waitFor: waitForStackList },
   { name: 'stack-editor', path: `/stacks/${DEMO_STACK_ID}/editor`, waitFor: waitForStackEditorPage },
   { name: 'maintenance-update', path: '/maintenance', waitFor: waitForMaintenancePage },
 ]
@@ -51,14 +52,19 @@ async function run() {
     await login(page)
     await seedDemoData(context)
 
+    let previousPath
     for (const capture of capturePlan) {
-      await page.goto(`${BASE_URL}${capture.path}`)
+      // Keep the dashboard mounted when switching views so both captures show
+      // the same real history collected from the running fixture.
+      if (capture.path !== previousPath) await page.goto(`${BASE_URL}${capture.path}`)
+      previousPath = capture.path
       await page.addStyleTag({ content: staticCaptureCss })
       await capture.waitFor(page)
       if (capture.prepare) {
         await capture.prepare(page)
       }
-      await page.waitForTimeout(700)
+      await page.evaluate(() => document.fonts.ready)
+      await expect(page.getByRole('alert')).toHaveCount(0)
       const target = path.join(OUTPUT_DIR, `${capture.name}.png`)
       await page.screenshot({ path: target, fullPage: false })
       console.log(`captured ${path.relative(repoRoot, target)}`)
@@ -88,15 +94,34 @@ async function login(page) {
 }
 
 async function waitForStacksPage(page) {
-  await page.getByRole('heading', { name: 'Stacks' }).waitFor({ state: 'visible', timeout: 15_000 })
+  await page.getByRole('button', { name: 'Cards', exact: true }).click()
+  await page.getByTestId(`stack-card-${DEMO_STACK_ID}`).waitFor({ state: 'visible', timeout: 15_000 })
+  // Wait for the one-minute chart to fill from actual Docker samples. A page
+  // heading alone can be visible while inventory and resource data still load.
+  await page.waitForFunction((stackId) => {
+    const chart = document.querySelector(`[aria-label="${stackId} CPU history · last 60 seconds"]`)
+    const points = Array.from(chart?.querySelectorAll('polyline') ?? [])
+      .flatMap((line) => Array.from(line.points, (point) => point.x))
+    return points.length > 1 && Math.max(...points) - Math.min(...points) >= 110
+  }, DEMO_STACK_ID, { timeout: 90_000 })
+}
+
+async function waitForStackList(page) {
+  await page.getByRole('button', { name: 'List', exact: true }).click()
+  await page.getByRole('button', { name: 'RAM', exact: true }).click()
+  await page.getByTestId(`stack-row-${DEMO_STACK_ID}`).waitFor({ state: 'visible', timeout: 15_000 })
 }
 
 async function waitForStackEditorPage(page) {
   await page.getByText('Resolved config', { exact: true }).waitFor({ state: 'visible', timeout: 15_000 })
+  await page.getByRole('button', { name: 'Save', exact: true }).waitFor({ state: 'visible', timeout: 15_000 })
+  await expect(page.getByTestId('resolved-preview')).toHaveAttribute('aria-busy', 'false')
+  await expect(page.getByTestId('resolved-preview')).toContainText('services:')
 }
 
 async function waitForMaintenancePage(page) {
   await page.getByRole('heading', { name: 'Maintenance' }).waitFor({ state: 'visible', timeout: 15_000 })
+  await page.getByRole('radio', { name: /^All stacks/ }).waitFor({ state: 'visible', timeout: 15_000 })
 }
 
 async function seedDemoData(context) {

@@ -139,6 +139,29 @@ API and remove runtime, definition, config, and data in `afterEach`. Their Alpin
 probe traps termination and uses a short stop grace period so cleanup stays
 bounded.
 
+## README gallery
+
+The manual `README screenshots` workflow uses this same Docker-backed harness
+to regenerate the dashboard cards, compact stack list, Compose editor, and
+Maintenance screenshots in `docs/images/readme/`. It uploads the PNGs as an
+artifact and attempts to open a refresh PR. Review the actual captures before
+merging; live resource values naturally vary between runs.
+
+To capture locally, build the frontend and start the isolated backend above,
+then run:
+
+```bash
+STACKLAB_URL=http://127.0.0.1:18081 \
+STACKLAB_PASSWORD=stacklab-e2e \
+npm --prefix frontend run screenshots:readme
+```
+
+The capture script creates and removes a disposable `readme-stack`. Use the
+isolated harness rather than an operator's installation. Dashboard capture
+waits for about a minute of real resource history, then switches to the table
+without resetting that history. Fonts and screen-specific data must finish
+loading, and visible errors fail the capture.
+
 ## Failure artifacts
 
 Playwright is configured with:
