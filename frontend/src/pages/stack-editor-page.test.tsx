@@ -74,7 +74,7 @@ const stack = {
   activity_state: 'idle' as const,
   health_summary: { healthy_container_count: 1, unhealthy_container_count: 0, unknown_health_container_count: 0 },
   capabilities: { terminal: true, logs: true, stats: true, files: true },
-  available_actions: ['up', 'save_definition'] as const,
+  available_actions: ['up', 'recreate', 'save_definition'] as const,
   services: [],
   containers: [],
   last_deployed_at: '2026-07-06T03:17:00Z',
@@ -222,6 +222,41 @@ describe('StackEditorPage', () => {
     expect(mockSaveDefinition).not.toHaveBeenCalled()
     expect(await screen.findByText('✗ compose is invalid')).toBeInTheDocument()
   })
+
+  it.each(['running', 'stopped', 'defined'] as const)(
+    'applies an inline config edit when saving and deploying a %s stack',
+    async (runtimeState) => {
+      const compose = 'services:\n  app:\n    image: busybox:stable\n    configs: [dashboard]\nconfigs:\n  dashboard:\n    content: version-two\n'
+      const action = runtimeState === 'defined' ? 'up' : 'recreate'
+      mockUseOutletContext.mockReturnValue({
+        stack: { ...stack, runtime_state: runtimeState }, refetch: vi.fn(),
+      })
+      mockResolveConfigDraft.mockResolvedValue({ stack_id: 'demo', valid: true, content: compose })
+      mockSaveDefinition.mockResolvedValue({
+        job: { id: 'job-save', stack_id: 'demo', action: 'save_definition', state: 'succeeded', requested_at: '2026-07-09T08:00:00Z' },
+        definition: {
+          ...definition,
+          files: { ...definition.files, compose_yaml: { ...definition.files.compose_yaml, content: compose } },
+        },
+      })
+      mockInvokeAction.mockResolvedValue({
+        job: { id: 'job-deploy', stack_id: 'demo', action, state: 'running', requested_at: '2026-07-09T08:00:01Z' },
+      })
+
+      renderPage()
+      await screen.findByText('✓ Config valid')
+      fireEvent.change(screen.getByLabelText('yaml-editor'), { target: { value: compose } })
+      fireEvent.click(screen.getByTestId('editor-save-deploy'))
+      expect(await screen.findByText('job-save')).toBeInTheDocument()
+      expect(mockInvokeAction).not.toHaveBeenCalled()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Finish job-save' }))
+      await waitFor(() => expect(mockInvokeAction).toHaveBeenCalledWith('demo', action))
+      expect(await screen.findByText('job-deploy')).toBeInTheDocument()
+      expect(mockSaveDefinition).toHaveBeenCalledTimes(1)
+      expect(mockInvokeAction).toHaveBeenCalledTimes(1)
+    },
+  )
 
   it('saves with the loaded definition revision', async () => {
     mockSaveDefinition.mockResolvedValue({
@@ -413,7 +448,7 @@ describe('StackEditorPage', () => {
       definition,
     })
     mockInvokeAction.mockResolvedValue({
-      job: { id: 'job-deploy', stack_id: 'demo', action: 'up', state: 'running', requested_at: '2026-07-09T08:00:01Z' },
+      job: { id: 'job-deploy', stack_id: 'demo', action: 'recreate', state: 'running', requested_at: '2026-07-09T08:00:01Z' },
     })
 
     renderPage()
@@ -427,7 +462,7 @@ describe('StackEditorPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Finish job-save-deploy' }))
 
-    await waitFor(() => expect(mockInvokeAction).toHaveBeenCalledWith('demo', 'up'))
+    await waitFor(() => expect(mockInvokeAction).toHaveBeenCalledWith('demo', 'recreate'))
     expect(await screen.findByText('job-deploy')).toBeInTheDocument()
     expect(within(screen.getByTestId('resolved-preview')).getByRole('alert')).toHaveTextContent(
       'Failed to refresh resolved preview: preview endpoint unavailable',

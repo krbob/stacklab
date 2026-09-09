@@ -51,7 +51,7 @@ export function ProgressPanel({ jobId, stream, onDone, onClose }: ProgressPanelP
   const events = stream ? stream.events : internal.events
   const state = stream ? stream.state : internal.state
   const scrollRef = useRef<HTMLDivElement>(null)
-  const prevStateRef = useRef<string | null>(null)
+  const prevStateRef = useRef<{ jobId: string; state: string } | null>(null)
   const [canceling, setCanceling] = useState(false)
   const [cancelError, setCancelError] = useState<string | null>(null)
 
@@ -69,14 +69,15 @@ export function ProgressPanel({ jobId, stream, onDone, onClose }: ProgressPanelP
 
   // Notify parent when job finishes
   useEffect(() => {
-    if (!state || state === prevStateRef.current) return
-    prevStateRef.current = state
+    if (!jobId || !state) return
+    if (jobId === prevStateRef.current?.jobId && state === prevStateRef.current.state) return
+    prevStateRef.current = { jobId, state }
 
     const terminal = ['succeeded', 'failed', 'cancelled', 'timed_out']
     if (terminal.includes(state)) {
       onDone?.(state)
     }
-  }, [state, onDone])
+  }, [jobId, state, onDone])
 
   if (!jobId) return null
 

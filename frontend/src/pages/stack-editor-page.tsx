@@ -281,7 +281,10 @@ export function StackEditorPage() {
       if (pendingDeploy) {
         setPendingDeploy(false)
         try {
-          const deployResult = await invokeAction(stack.id, 'up')
+          // Compose can ignore changes to configs.content during ordinary up.
+          // Existing containers must be recreated to apply the saved payload.
+          const action = stack.runtime_state === 'defined' ? 'up' : 'recreate'
+          const deployResult = await invokeAction(stack.id, action)
           setActiveJobId(deployResult.job.id)
         } catch (err) {
           setError(err instanceof Error ? err.message : 'Deploy failed after save')
@@ -291,7 +294,7 @@ export function StackEditorPage() {
       // Save failed — don't chain deploy
       setPendingDeploy(false)
     }
-  }, [refetch, stack.id, pendingDeploy, loadResolvedConfig])
+  }, [refetch, stack.id, stack.runtime_state, pendingDeploy, loadResolvedConfig])
 
   if (loadingDef) {
     return (
@@ -414,6 +417,7 @@ export function StackEditorPage() {
             data-testid="editor-save-deploy"
             onClick={handleSaveAndDeploy}
             disabled={saveDisabled}
+            title="Save changes and recreate existing containers to apply the configuration. Mounted volumes are preserved."
             className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40"
           >
             Save & Deploy

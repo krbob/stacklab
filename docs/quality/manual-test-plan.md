@@ -259,8 +259,11 @@ go run ./scripts/dev/seed-retention-fixtures.go \
 - **E7** Lint warnings (advisory) — np. brak healthcheck / restart policy /
   publiczny `0.0.0.0` bind → pokazane jako ostrzeżenia, **nie** blokują Save ani
   Deploy.
-- **E8** Save & Deploy (poprawny config): zapisuje → job → `up`; ProgressPanel na
-  żywo; po sukcesie stan stacka zaktualizowany, drift baseline odświeżony.
+- **E8** Save & Deploy (poprawny config): zapisuje → job → `recreate` dla
+  istniejących kontenerów (również zatrzymanych), `up` dla pierwszego wdrożenia;
+  ProgressPanel na żywo; po sukcesie stan stacka zaktualizowany, drift baseline
+  odświeżony. Zmień wyłącznie `configs.content`: kontener ma nową treść, a dane
+  w wolumenie pozostają. Powtórz zapis i wdrożenie bez opuszczania edytora.
 - **E9** `resolved-config?source=last_valid` → przed pierwszym deployem `409`;
   po udanym deployu zwraca ostatnią wdrożoną konfigurację nawet po edycji draftu.
 - **E10** Komunikaty walidacji wystarczają do zlokalizowania błędu (linia/opis).

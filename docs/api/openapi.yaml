@@ -3364,6 +3364,7 @@ components:
       required: [stack]
     AvailableStackAction:
       type: string
+      description: Available operation for the current stack state. Recreate applies the saved definition by recreating existing containers, including stopped containers, while preserving mounted volumes.
       enum:
         - validate
         - up

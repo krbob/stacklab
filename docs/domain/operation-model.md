@@ -81,7 +81,8 @@ MVP actions:
 Notes:
 
 - `validate` may be implemented as a non-locking job initially, but the API should still model it as a job-capable action for consistency
-- `recreate` is a higher-level semantic action that may map to a sequence such as `pull/build` followed by `up`
+- `recreate` applies the current definition with forced container recreation;
+  image pulls and builds remain separate actions
 
 ## Job Model
 
@@ -243,12 +244,18 @@ Rules:
 
 Purpose:
 
-- refresh runtime from current definition after image updates or rebuilds
+- refresh runtime from the current definition, including inline config edits,
+  image updates, or rebuilds
 
 Rules:
 
 - API should expose it as a first-class user action
-- backend may implement it as an orchestrated action sequence
+- implemented as `docker compose up -d --force-recreate`, preserving mounted
+  volumes
+- allowed for running and stopped containers when the definition is valid
+- used by Save & Deploy for existing runtime because ordinary Compose `up`
+  may not detect changes to the content of inline configs
+  ([Compose issue #11900](https://github.com/docker/compose/issues/11900))
 
 ### Save Definition
 

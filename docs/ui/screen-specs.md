@@ -138,7 +138,11 @@ resolved configuration pane.
   already-failed job ID, so the UI reports the request error without waiting
   for a subscription it cannot identify.
 - Save & Deploy validates the draft, saves it, waits for save completion, and
-  starts deployment only after a successful write.
+  starts deployment only after a successful write. For an existing runtime,
+  including stopped containers, it uses `recreate` so changes to inline
+  `configs.content` are applied even when Compose's ordinary `up` considers
+  the containers unchanged. Mounted volumes are preserved. A stack with no
+  containers uses `up` for its first deployment.
 - Save and preview failures keep both drafts intact.
 - Successful save refreshes the definition, resolved preview, stack state, and
   capabilities while retaining job output.

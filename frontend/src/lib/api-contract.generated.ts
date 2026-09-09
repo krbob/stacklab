@@ -332,7 +332,10 @@ export interface components {
       items: components["schemas"]["AuditEntry"][];
       next_cursor: string | null;
     };
-    /** @enum {string} */
+    /**
+     * @description Available operation for the current stack state. Recreate applies the saved definition by recreating existing containers, including stopped containers, while preserving mounted volumes.
+     * @enum {string}
+     */
     AvailableStackAction: "validate" | "up" | "down" | "stop" | "restart" | "pull" | "build" | "recreate" | "save_definition" | "remove_stack_definition";
     ComposeWarning: {
       code: string;

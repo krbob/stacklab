@@ -277,7 +277,7 @@ func TestAvailableActions(t *testing.T) {
 				RuntimeState: RuntimeStateStopped,
 				ConfigState:  ConfigStateUnknown,
 			},
-			want: []string{"validate", "up", "down", "pull", "build", "save_definition", "remove_stack_definition"},
+			want: []string{"validate", "up", "down", "pull", "build", "recreate", "save_definition", "remove_stack_definition"},
 		},
 	}
 

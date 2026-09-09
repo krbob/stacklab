@@ -2505,7 +2505,7 @@ func (s discoveredStack) availableActions() []string {
 	case s.RuntimeState == RuntimeStateDefined:
 		return []string{"validate", "up", "pull", "build", "save_definition", "remove_stack_definition"}
 	case s.RuntimeState == RuntimeStateStopped:
-		return []string{"validate", "up", "down", "pull", "build", "save_definition", "remove_stack_definition"}
+		return []string{"validate", "up", "down", "pull", "build", "recreate", "save_definition", "remove_stack_definition"}
 	default:
 		return []string{"validate", "up", "restart", "stop", "down", "pull", "build", "recreate", "save_definition", "remove_stack_definition"}
 	}

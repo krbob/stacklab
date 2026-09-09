@@ -147,6 +147,26 @@ describe('ProgressPanel', () => {
     expect(onDone).toHaveBeenCalledWith('succeeded')
   })
 
+  it('notifies completion for consecutive save and deploy jobs with the same terminal state', () => {
+    const onDone = vi.fn()
+    const completed = { events: [], state: 'succeeded' }
+    const { rerender } = render(<ProgressPanel jobId="save-1" stream={completed} onDone={onDone} />)
+    expect(onDone).toHaveBeenCalledTimes(1)
+
+    rerender(<ProgressPanel jobId="deploy-1" stream={{ events: [], state: null }} onDone={onDone} />)
+    rerender(<ProgressPanel jobId="deploy-1" stream={completed} onDone={onDone} />)
+    expect(onDone).toHaveBeenCalledTimes(2)
+
+    // A fast save can already be complete in the first snapshot for its ID.
+    rerender(<ProgressPanel jobId="save-2" stream={completed} onDone={onDone} />)
+    expect(onDone).toHaveBeenCalledTimes(3)
+    expect(onDone).toHaveBeenLastCalledWith('succeeded')
+
+    const replacementCallback = vi.fn()
+    rerender(<ProgressPanel jobId="save-2" stream={completed} onDone={replacementCallback} />)
+    expect(replacementCallback).not.toHaveBeenCalled()
+  })
+
   it('cancels a running job', async () => {
     mockCancelJob.mockResolvedValue({ job: { id: 'job_123', state: 'cancel_requested' } })
     mockUseJobStream.mockReturnValue({
