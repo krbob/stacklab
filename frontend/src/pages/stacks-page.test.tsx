@@ -77,6 +77,7 @@ function renderPage() {
 
 describe('StacksPage', () => {
   beforeEach(() => {
+    localStorage.clear()
     mockGetStacks.mockReset().mockResolvedValue(response)
     mockGetStackStats.mockReset().mockResolvedValue({
       items: Object.fromEntries(response.items.filter((stack) => stack.stats).map((stack) => [stack.id, stack.stats])),
@@ -87,7 +88,10 @@ describe('StacksPage', () => {
     mockOpenJob.mockReset()
   })
 
-  afterEach(() => vi.useRealTimers())
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
 
   it('renders tiles with stats, drift badge, and metadata links', async () => {
     renderPage()
@@ -95,9 +99,9 @@ describe('StacksPage', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Stacks' })).toBeInTheDocument()
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
     await waitFor(() => expect(screen.getByTestId('stack-card-adguardhome')).toBeInTheDocument())
-    expect(screen.getByText('cpu 0.4%')).toBeInTheDocument()
-    expect(screen.getByText('mem 89M')).toBeInTheDocument()
-    expect(screen.getByText('drift')).toBeInTheDocument()
+    expect(screen.getByLabelText('adguardhome CPU usage')).toHaveTextContent('0.4%')
+    expect(screen.getByLabelText('adguardhome RAM usage')).toHaveTextContent('89 MiB')
+    expect(screen.getByText('Config drift')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Web UI' })).toHaveAttribute('href', 'https://t.example.net')
   })
 
@@ -123,7 +127,7 @@ describe('StacksPage', () => {
     expect(heading).toHaveClass('[overflow-wrap:anywhere]')
     expect(heading).not.toHaveClass('truncate')
     expect(heading.parentElement).not.toHaveTextContent('update')
-    expect(within(card).getByText('update')).toBeInTheDocument()
+    expect(within(card).getByText('Update available')).toBeInTheDocument()
     expect(within(card).getByText('Running')).toBeInTheDocument()
   })
 
@@ -173,7 +177,7 @@ describe('StacksPage', () => {
       },
     })
     renderPage()
-    await screen.findByText('cpu 9.0%')
+    await screen.findByText('9.0%')
     const order = () => screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)
     expect(order()).toEqual(['alpha', 'beta', 'memory', 'missing', 'zero'])
 
@@ -205,9 +209,83 @@ describe('StacksPage', () => {
     expect(mockGetStackStats).toHaveBeenCalledTimes(2)
     expect(screen.getAllByRole('heading', { level: 2 })[0]).toHaveTextContent('jellyfin')
     expect(screen.getByRole('combobox', { name: 'Sort by' })).toHaveValue('cpu')
-    expect(screen.getByText('cpu 80.0%')).toBeInTheDocument()
-    expect(screen.queryByText('cpu 0.4%')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('jellyfin CPU usage')).toHaveTextContent('80.0%')
+    expect(screen.getByLabelText('adguardhome CPU usage')).toHaveTextContent('—')
     expect(screen.queryByText('Refreshing…')).not.toBeInTheDocument()
+  })
+
+  it('keeps the dashboard still and silent while the full inventory refresh is pending', async () => {
+    vi.useFakeTimers()
+    let resolve!: (value: StackListResponse) => void
+    mockGetStacks.mockResolvedValueOnce(response).mockReturnValueOnce(new Promise((done) => { resolve = done }))
+    renderPage()
+    await act(async () => { await Promise.resolve() })
+    const card = screen.getByTestId('stack-card-adguardhome')
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000) })
+    expect(mockGetStacks).toHaveBeenCalledTimes(2)
+    expect(screen.queryByText('Refreshing…')).not.toBeInTheDocument()
+    expect(screen.getByTestId('stack-card-adguardhome')).toBe(card)
+    expect(card.closest('section')).toHaveAttribute('aria-busy', 'false')
+    await act(async () => resolve(response))
+    expect(screen.queryByText('Refreshing…')).not.toBeInTheDocument()
+  })
+
+  it('switches views without losing filtering or sorting and remembers the selected view', async () => {
+    mockGetStacks.mockResolvedValue({
+      ...response,
+      items: response.items.map((stack) => ({ ...stack, last_action: {
+        action: 'up', result: 'succeeded', finished_at: '2026-09-09T10:00:00Z',
+      } })),
+    })
+    const page = renderPage()
+    await screen.findByTestId('stack-card-adguardhome')
+    expect(screen.getByRole('button', { name: 'Cards' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sort by' }), { target: { value: 'cpu' } })
+    fireEvent.change(screen.getByTestId('stacks-filter'), { target: { value: 'adguard' } })
+    fireEvent.click(screen.getByRole('button', { name: 'List' }))
+    expect(screen.queryByTestId('stack-card-adguardhome')).not.toBeInTheDocument()
+    expect(screen.getByTestId('stack-row-adguardhome')).toBeInTheDocument()
+    expect(screen.queryByTestId('stack-row-jellyfin')).not.toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'CPU' })).toHaveAttribute('aria-sort', 'descending')
+    expect(screen.getByLabelText('adguardhome RAM usage')).toHaveTextContent('89 MiB')
+    expect(screen.getByText('up · succeeded')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'adguardhome' })).toHaveAttribute('href', '/stacks/adguardhome')
+    expect(localStorage.getItem('stacklab.dashboard.view')).toBe('list')
+    fireEvent.click(screen.getByRole('button', { name: 'RAM' }))
+    expect(screen.getByRole('combobox', { name: 'Sort by' })).toHaveValue('memory')
+    fireEvent.click(screen.getByRole('button', { name: 'Cards' }))
+    expect(screen.getByTestId('stack-card-adguardhome')).toBeInTheDocument()
+    expect(screen.getByTestId('stacks-filter')).toHaveValue('adguard')
+    expect(screen.getByRole('combobox', { name: 'Sort by' })).toHaveValue('memory')
+    fireEvent.click(screen.getByRole('button', { name: 'List' }))
+    page.unmount()
+    renderPage()
+    await screen.findByTestId('stack-row-adguardhome')
+    expect(screen.getByRole('button', { name: 'List' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('link', { name: 'Web UI' })).toHaveAttribute('href', 'https://t.example.net')
+  })
+
+  it('renders honest missing, zero, and multi-core metrics in both views', async () => {
+    mockGetStackStats.mockResolvedValue({ items: {
+      adguardhome: { cpu_percent: 245.3, memory_bytes: 0, sampled_at: '2026-09-09T10:00:00Z' },
+    } })
+    renderPage()
+    await screen.findByTestId('stack-card-adguardhome')
+    for (const view of ['Cards', 'List']) {
+      fireEvent.click(screen.getByRole('button', { name: view }))
+      expect(screen.getByLabelText('adguardhome CPU usage')).toHaveTextContent('245.3%')
+      expect(screen.getByLabelText('adguardhome RAM usage')).toHaveTextContent('0 B')
+      expect(screen.getByLabelText('jellyfin CPU usage')).toHaveTextContent('—')
+    }
+  })
+
+  it('keeps view controls working when browser storage is unavailable', async () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked') })
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked') })
+    renderPage()
+    await screen.findByTestId('stack-card-adguardhome')
+    fireEvent.click(screen.getByRole('button', { name: 'List' }))
+    expect(screen.getByTestId('stack-row-adguardhome')).toBeInTheDocument()
   })
 
   it('keeps the last stack cards visible when a background poll fails', async () => {

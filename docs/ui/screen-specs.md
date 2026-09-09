@@ -45,14 +45,25 @@ task, not a browser registration flow.
 
 Route: `/stacks`
 
-The dashboard is a responsive tile grid. Each stack tile links to its overview
-and shows:
+The dashboard defaults to a responsive grid of cards. A `Cards` / `List`
+switch selects a compact table, with the choice remembered in this browser.
+Both views share filtering, sorting, and resource history. Each stack links to
+its overview and shows:
 
-- display state, activity state, service count, drift/invalid state, and
-  unhealthy-container count;
-- the latest available CPU and memory snapshot;
-- image-update availability and last action when present;
+- display and activity state, running/defined services, drift/invalid state,
+  and healthy, unhealthy, and unchecked container counts;
+- the latest CPU and memory snapshot, including real zero values and an explicit
+  missing-sample state;
+- image-update availability and last action result with a relative timestamp;
 - validated stack metadata links as separate external actions.
+
+Cards include separate CPU and RAM trends for the last 60 seconds. The table
+includes a CPU trend and sortable Stack, CPU, and RAM column headers. On narrow
+screens the table scrolls within a labeled, keyboard-focusable region.
+History accumulates from observed samples while this dashboard is mounted,
+keeps at most 60 points per stack, and is not persisted. Duplicate or older
+server samples do not add points; polling gaps remain visible. An initial
+sample is labeled as collecting history rather than drawing an invented trend.
 
 The toolbar provides instant name filtering and All, Problems, and Updates
 views, plus sorting by name (A–Z), CPU, or RAM (highest usage first). Resource
@@ -65,6 +76,8 @@ is visible and retain the last successful response on a later failure. CPU and
 RAM refresh every second from the cached stats endpoint, independently of the
 full inventory refresh every 10 seconds. Slow stats requests never overlap,
 and returning to a visible tab requests a fresh sample immediately.
+Background inventory refreshes are silent: no `Refreshing…` row is inserted
+above the cards or table. Initial loading and refresh errors remain visible.
 
 When updates are available, `Update all (N)` reviews every stack with a detected
 update, including stacks hidden by the current filters. Confirmation keeps that

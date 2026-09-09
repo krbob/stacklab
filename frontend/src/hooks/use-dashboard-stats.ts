@@ -1,10 +1,15 @@
 import { useEffect, useState } from 'react'
 import { getStackStats } from '@/lib/api-client'
 import type { StackStatsResponse } from '@/lib/api-types'
+import { updateDashboardHistory, type DashboardHistory } from '@/lib/dashboard-history'
 
 export function useDashboardStats() {
-  const [data, setData] = useState<StackStatsResponse | null>(null)
-  const [error, setError] = useState<Error | null>(null)
+  const [state, setState] = useState<{
+    data: StackStatsResponse | null
+    error: Error | null
+    history: DashboardHistory
+    nowMs: number
+  }>(() => ({ data: null, error: null, history: {}, nowMs: Date.now() }))
 
   useEffect(() => {
     const controller = new AbortController()
@@ -16,11 +21,22 @@ export function useDashboardStats() {
       try {
         const next = await getStackStats(controller.signal)
         if (controller.signal.aborted) return
-        setData(next)
-        setError(null)
+        const nowMs = Date.now()
+        setState((previous) => ({
+          data: next,
+          error: null,
+          history: updateDashboardHistory(previous.history, next, nowMs),
+          nowMs,
+        }))
       } catch (error) {
         if (controller.signal.aborted) return
-        setError(error instanceof Error ? error : new Error('Failed to load resource usage'))
+        const nowMs = Date.now()
+        setState((previous) => ({
+          ...previous,
+          error: error instanceof Error ? error : new Error('Failed to load resource usage'),
+          history: updateDashboardHistory(previous.history, null, nowMs),
+          nowMs,
+        }))
       } finally {
         inFlight = false
       }
@@ -36,5 +52,5 @@ export function useDashboardStats() {
     }
   }, [])
 
-  return { data, error }
+  return state
 }

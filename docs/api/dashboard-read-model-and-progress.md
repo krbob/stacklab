@@ -37,8 +37,9 @@ badges — the frontend simply does not consume them yet.
   no fresh sample. Like the stack list, the endpoint requires authentication.
 - The dashboard polls this lightweight endpoint every second while visible.
   Full stack inventory refreshes remain on a separate 10s cadence.
-- Not persisted. No history (stats history stays frontend-only per the
-  retention decision).
+- Not persisted and no backend history. The dashboard keeps a transient
+  60-second browser history from observed samples for its resource trends,
+  consistent with the frontend-only retention decision.
 
 ### A2. Stack metadata (icon + links)
 

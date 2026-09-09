@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ExternalLink } from 'lucide-react'
+import { LayoutGrid, List } from 'lucide-react'
 
 import { checkImageUpdates, getStacks, updateStacksMaintenance } from '@/lib/api-client'
 import type { StackListItem } from '@/lib/api-types'
@@ -12,27 +12,10 @@ import { AsyncState } from '@/components/async-state'
 import { PageHeader } from '@/components/page-header'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { cn } from '@/lib/cn'
+import { StackCards, StackTable, type StackSortKey, type StackView } from '@/pages/stacks/stack-presentations'
 
 type StatusFilter = 'all' | 'problems' | 'updates'
-type SortKey = 'name' | 'cpu' | 'memory'
-
-const edgeColors: Record<string, string> = {
-  running: 'border-l-[var(--ok)]',
-  partial: 'border-l-[var(--warning)]',
-  error: 'border-l-[var(--danger)]',
-  orphaned: 'border-l-[var(--danger)]',
-  stopped: 'border-l-stone-500',
-  defined: 'border-l-stone-600',
-}
-
-const stateLabels: Record<string, { label: string; className: string }> = {
-  running: { label: 'Running', className: 'text-[var(--ok)]' },
-  partial: { label: 'Partial', className: 'text-[var(--warning)]' },
-  error: { label: 'Error', className: 'text-[var(--danger)]' },
-  orphaned: { label: 'Orphaned', className: 'text-[var(--danger)]' },
-  stopped: { label: 'Stopped', className: 'text-stone-400' },
-  defined: { label: 'Defined', className: 'text-[var(--muted)]' },
-}
+const VIEW_STORAGE_KEY = 'stacklab.dashboard.view'
 
 function hasProblem(stack: StackListItem): boolean {
   return (
@@ -41,128 +24,6 @@ function hasProblem(stack: StackListItem): boolean {
     stack.display_state === 'orphaned' ||
     stack.config_state === 'invalid' ||
     stack.health_summary.unhealthy_container_count > 0
-  )
-}
-
-function formatMemory(bytes: number): string {
-  if (bytes >= 1 << 30) return `${(bytes / (1 << 30)).toFixed(1)}G`
-  if (bytes >= 1 << 20) return `${Math.round(bytes / (1 << 20))}M`
-  return `${Math.max(1, Math.round(bytes / 1024))}K`
-}
-
-function StackTile({ stack }: { stack: StackListItem }) {
-  const state = stateLabels[stack.display_state] ?? stateLabels.defined
-  const unhealthy = stack.health_summary.unhealthy_container_count
-  const links = stack.metadata?.links ?? []
-
-  // Stretched-link card: the stack link is an overlay, so external metadata
-  // links are siblings, not anchors nested inside an anchor.
-  return (
-    <div className="break-inside-avoid pb-3">
-    <article
-      data-testid={`stack-card-${stack.id}`}
-      className={cn(
-        'relative rounded-lg border border-l-[3px] border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-4 py-3 transition focus-within:border-[rgba(245,165,36,0.35)] hover:border-[rgba(245,165,36,0.35)] hover:bg-[rgba(255,255,255,0.05)]',
-        edgeColors[stack.display_state] ?? edgeColors.defined,
-      )}
-    >
-      <Link
-        to={`/stacks/${stack.id}`}
-        aria-label={stack.name}
-        className="absolute inset-0 rounded-lg"
-      />
-      <div className="flex min-w-0 items-start gap-2">
-        <StackGlyph name={stack.name} icon={stack.metadata?.icon} />
-        <h2 className="min-w-0 flex-1 [overflow-wrap:anywhere] font-mono text-sm font-semibold leading-5 text-[var(--text)]">
-          {stack.name}
-        </h2>
-      </div>
-
-      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-xs text-[var(--muted)]">
-        <span>
-          {stack.service_count.running}/{stack.service_count.defined} services
-        </span>
-        {stack.config_state === 'drifted' && (
-          <span className="rounded border border-[rgba(245,165,36,0.35)] px-1 text-xs uppercase tracking-wide text-[var(--accent)]">drift</span>
-        )}
-        {stack.config_state === 'invalid' && (
-          <span className="rounded border border-[var(--danger)]/40 px-1 text-xs uppercase tracking-wide text-[var(--danger)]">invalid</span>
-        )}
-        {unhealthy > 0 && (
-          <span className="text-[var(--warning)]">{unhealthy} unhealthy</span>
-        )}
-        <span className="ml-auto flex shrink-0 items-center gap-2 whitespace-nowrap">
-          {stack.updates?.state === 'available' && (
-            <span className="rounded border border-[rgba(245,165,36,0.4)] px-1 font-bold uppercase tracking-wide text-[var(--accent)]">
-              update
-            </span>
-          )}
-          <span className={state.className}>
-            {stack.activity_state === 'locked' ? 'Working…' : state.label}
-          </span>
-        </span>
-      </div>
-
-      {stack.stats && (
-        <div className="mt-2 flex items-center gap-2 font-mono text-xs tabular-nums text-[var(--muted)]">
-          <span>cpu {stack.stats.cpu_percent.toFixed(1)}%</span>
-          <span
-            role="progressbar"
-            aria-label={`${stack.name} CPU usage`}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.min(100, Math.max(0, Number(stack.stats.cpu_percent.toFixed(1))))}
-            className="h-1 flex-1 overflow-hidden rounded-full bg-[rgba(255,255,255,0.07)]"
-          >
-            <span
-              className="block h-full bg-[var(--accent)]/75"
-              style={{ width: `${Math.min(100, Math.max(0, stack.stats.cpu_percent))}%` }}
-              aria-hidden="true"
-            />
-          </span>
-          <span>mem {formatMemory(stack.stats.memory_bytes)}</span>
-        </div>
-      )}
-
-      {(stack.last_action || links.length > 0) && (
-        <div className="mt-2 flex items-center gap-2 font-mono text-xs text-[var(--muted)]">
-          {stack.last_action && (
-            <span className={cn('min-w-0 truncate', stack.last_action.result === 'failed' && 'text-[var(--danger)]')}>
-              last: {stack.last_action.action} ({stack.last_action.result})
-            </span>
-          )}
-          <span className="relative z-10 ml-auto flex min-w-0 gap-2">
-            {links.map((link) => (
-              <a
-                key={link.url}
-                href={link.url}
-                target="_blank"
-                rel="noreferrer"
-                className="flex min-w-0 items-center gap-1 text-[var(--accent)] hover:underline"
-              >
-                <ExternalLink className="size-3 shrink-0" />
-                <span className="truncate">{link.label}</span>
-              </a>
-            ))}
-          </span>
-        </div>
-      )}
-    </article>
-    </div>
-  )
-}
-
-// Monogram glyph; when metadata declares an icon slug we still monogram until
-// a bundled icon set lands (design decision: no network-fetched icons).
-function StackGlyph({ name, icon }: { name: string; icon?: string }) {
-  const letter = (icon ?? name).charAt(0).toUpperCase()
-  return (
-    <span
-      aria-hidden
-      className="flex size-5 shrink-0 items-center justify-center rounded border border-[rgba(245,165,36,0.25)] bg-[rgba(245,165,36,0.08)] font-mono text-xs font-bold text-[var(--accent)]"
-    >
-      {letter}
-    </span>
   )
 }
 
@@ -183,7 +44,23 @@ export function StacksPage() {
 
   const [filter, setFilter] = useState('')
   const [status, setStatus] = useState<StatusFilter>('all')
-  const [sortKey, setSortKey] = useState<SortKey>('name')
+  const [sortKey, setSortKey] = useState<StackSortKey>('name')
+  const [view, setView] = useState<StackView>(() => {
+    try {
+      return localStorage.getItem(VIEW_STORAGE_KEY) === 'list' ? 'list' : 'cards'
+    } catch {
+      return 'cards'
+    }
+  })
+
+  function changeView(next: StackView) {
+    setView(next)
+    try {
+      localStorage.setItem(VIEW_STORAGE_KEY, next)
+    } catch {
+      // The toggle still works when browser storage is unavailable.
+    }
+  }
   const [checkJobId, setCheckJobId] = useState<string | null>(null)
   const [startingCheck, setStartingCheck] = useState(false)
   const [checkError, setCheckError] = useState<Error | null>(null)
@@ -302,7 +179,7 @@ export function StacksPage() {
   })
 
   return (
-    <section aria-busy={loading || checking || startingUpdate} className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+    <section aria-busy={(loading && data === null) || checking || startingUpdate} className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
       <PageHeader
         kicker="Dashboard"
         title="Stacks"
@@ -408,7 +285,7 @@ export function StacksPage() {
           Sort by
           <select
             value={sortKey}
-            onChange={(event) => setSortKey(event.target.value as SortKey)}
+            onChange={(event) => setSortKey(event.target.value as StackSortKey)}
             className="rounded-md border border-[var(--panel-border)] bg-[var(--panel)] px-2 py-1.5 text-xs text-[var(--text)]"
           >
             <option value="name">Name A–Z</option>
@@ -416,6 +293,19 @@ export function StacksPage() {
             <option value="memory">RAM ↓</option>
           </select>
         </label>
+        <div role="group" aria-label="Stack view" className="inline-flex rounded-md border border-[var(--panel-border)] bg-black/15 p-1">
+          {([
+            ['cards', 'Cards', LayoutGrid],
+            ['list', 'List', List],
+          ] as const).map(([key, label, Icon]) => (
+            <button key={key} type="button" aria-pressed={view === key} onClick={() => changeView(key)}
+              className={cn('inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs transition-colors',
+                view === key ? 'bg-[rgba(245,165,36,0.14)] text-[var(--text)]' : 'text-[var(--muted)] hover:text-[var(--text)]')}>
+              <Icon aria-hidden="true" className="size-3.5" />
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {pendingUpdates && (
@@ -478,7 +368,7 @@ export function StacksPage() {
       {/* Tile grid */}
       <div className="mt-5">
         <AsyncState
-          loading={loading}
+          loading={loading && data === null}
           error={loadError}
           hasData={data !== null}
           isEmpty={data !== null && items.length === 0}
@@ -500,20 +390,16 @@ export function StacksPage() {
           }
           onRetry={refetch}
           loadingFallback={
-            <div className="columns-[15rem] gap-3">
+            <div className={view === 'cards' ? 'grid grid-cols-[repeat(auto-fill,minmax(min(100%,19rem),1fr))] gap-4' : 'space-y-2'}>
               {[1, 2, 3, 4, 5, 6].map((i) => (
-                <div key={i} className="break-inside-avoid pb-3">
-                  <div className="h-20 animate-pulse rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)]" />
-                </div>
+                <div key={i} className={cn('animate-pulse rounded-xl border border-[var(--panel-border)] bg-white/3', view === 'cards' ? 'h-72' : 'h-16')} />
               ))}
             </div>
           }
         >
-          <div className="columns-[15rem] gap-3">
-            {visible.map((stack) => (
-              <StackTile key={stack.id} stack={stack} />
-            ))}
-          </div>
+          {visible.length > 0 && (view === 'cards'
+            ? <StackCards stacks={visible} history={stats.history} nowMs={stats.nowMs} />
+            : <StackTable stacks={visible} history={stats.history} nowMs={stats.nowMs} sortKey={sortKey} onSortChange={setSortKey} />)}
 
           {visible.length === 0 && items.length > 0 && (
             <div className="rounded-md border border-[var(--panel-border)] bg-[rgba(255,255,255,0.02)] px-5 py-10 text-center">
