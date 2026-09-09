@@ -157,7 +157,7 @@ function StepCard({ step }: { step: StepData }) {
             </span>
           </div>
           {step.progress.detail && (
-            <div className="mt-1 truncate font-mono text-xs text-[var(--muted)]">{step.progress.detail}</div>
+            <div className="mt-1 overflow-hidden text-ellipsis whitespace-pre font-mono text-xs text-[var(--muted)]">{step.progress.detail}</div>
           )}
         </div>
       )}
@@ -169,7 +169,7 @@ function StepCard({ step }: { step: StepData }) {
             id={outputId}
             ref={previewRef}
             className={cn(
-              'relative overflow-hidden rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.25)] px-2 py-1.5 font-mono text-xs leading-5 [overflow-wrap:anywhere]',
+              'relative overflow-hidden rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.25)] px-2 py-1.5 font-mono text-xs leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]',
               !expanded && 'max-h-[4.75rem]',
             )}
           >

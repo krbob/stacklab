@@ -184,7 +184,7 @@ export function ProgressPanel({ jobId, stream, onDone, onClose }: ProgressPanelP
             </span>
           </div>
           {latestProgress.detail && (
-            <div className="mt-1 truncate font-mono text-xs text-[var(--muted)]">{latestProgress.detail}</div>
+            <div className="mt-1 overflow-hidden text-ellipsis whitespace-pre font-mono text-xs text-[var(--muted)]">{latestProgress.detail}</div>
           )}
         </div>
       )}

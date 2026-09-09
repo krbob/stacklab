@@ -367,6 +367,8 @@ opens the shared job-detail drawer.
   and live events.
 - Show action, target, step, elapsed time, warnings, raw output, and terminal
   state without announcing every appended log line.
+- Preserve spaces in live progress details and spaces/newlines in raw output,
+  so Docker's text progress bars keep a constant width as they fill.
 - Allow navigation while work continues and keep unrelated resources usable.
 - Offer cancellation only for cancellable queued/running work and expose the
   intermediate Cancelling state.
