@@ -29,7 +29,7 @@ dist/release/stacklab_<version>_<arch>.deb.sha256
 
 The generated control metadata declares:
 
-- `adduser` and `systemd`;
+- `acl`, `adduser`, and `systemd`;
 - Docker Engine from `docker.io`, Docker CE, or Moby packages;
 - a compatible Docker CLI package;
 - Compose through `docker-compose` or `docker-compose-plugin`;
@@ -92,7 +92,10 @@ See [systemd Deployment](systemd.md) for the runtime and reverse-proxy model.
 The implemented `postinst` is idempotent. On configuration it:
 
 1. creates the system group and non-login service account when absent;
-2. creates `/srv/stacklab/{stacks,config,data}` only when missing;
+2. creates `/srv/stacklab` and its `stacks`, `config`, and `data` directories
+   when missing, and ensures service access to all four directories on every
+   install or upgrade: access and default ACLs grant `stacklab` `rwx`, while
+   service-owned directories also receive owner `rwx` permissions;
 3. creates private runtime, home, and Docker config directories;
 4. enforces mode `0600` on the service environment file and SQLite/WAL/SHM
    files; service-owned stack `.env` files remain `0600`, while externally
@@ -102,6 +105,16 @@ The implemented `postinst` is idempotent. On configuration it:
 6. reloads and enables the service, starts it on first install, or performs a
    best-effort restart after upgrade;
 7. prints a bootstrap-password hint when authentication is not yet configured.
+
+The workspace permission repair preserves existing directory owners and only
+changes these four parents. It never recursively changes container data or
+existing stack/config payloads. Default ACLs provide inherited service access
+for new children, subject to the modes requested by their creator. Existing
+payload permissions remain the responsibility of the owning workload or the
+opt-in workspace repair helper. The ACL mask is updated to make the service
+grant effective. Workspace parents must be real directories on a filesystem
+supporting POSIX ACLs; a symlink, non-directory, or ACL error fails package
+configuration with the affected path instead of silently skipping the repair.
 
 The implemented `prerm` stops `stacklab.service` for package removal or
 deconfiguration. There is no destructive `postrm`: remove/purge does not delete
@@ -122,7 +135,11 @@ changes, on `main`, by manual dispatch, and as a reusable release gate. It:
 4. performs an A-to-B package upgrade;
 5. verifies service identity, health, frontend serving, legal files,
    environment preservation, SQLite preservation and modes, workspace/runtime
-   fixtures, session continuity, and service restart.
+   fixtures, session continuity, and service restart;
+6. exercises an existing operator-owned workspace on first install, missing
+   and masked service ACLs plus restrictive owner permissions on upgrade,
+   inherited service access, and repeated configuration, while verifying that
+   container payload ownership, modes, ACLs, and content remain unchanged.
 
 Nightly, stable, and hotfix workflows additionally build tarballs and packages
 for both architectures, smoke the produced `amd64` package and tarball, and

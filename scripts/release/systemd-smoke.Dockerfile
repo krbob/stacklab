@@ -8,6 +8,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # that broad exclusion so this fixture behaves like a normal Debian install.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
+      acl \
       adduser \
       ca-certificates \
       curl \

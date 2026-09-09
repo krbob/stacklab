@@ -125,8 +125,9 @@ with the saved password. Confirm:
 - Docker and Stacklab health are visible;
 - the managed workspace points to `/srv/stacklab`;
 - the service account can create directories in all three managed parents:
-  `stacks`, `config`, and `data` (a shared workspace's ownership or ACLs must
-  cover each parent; writable definitions alone do not make stack creation work);
+  `stacks`, `config`, and `data` (the package configures the required parent
+  permissions automatically during install and upgrade, including shared
+  workspaces owned by another user);
 - a logout followed by a new login succeeds;
 - `STACKLAB_BOOTSTRAP_PASSWORD` is absent from the environment file.
 

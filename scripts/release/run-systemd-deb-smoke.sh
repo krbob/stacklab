@@ -135,6 +135,99 @@ configure_smoke_auth() {
   chmod 0600 "${env_file}"
 }
 
+create_existing_workspace() {
+  local work_dir="$1"
+
+  adduser --system --group --no-create-home stacklab-smoke-operator >/dev/null
+  # Simulate an operator's pre-existing workspace, leaving config absent to
+  # cover newly created directories in the same installation.
+  install -d -o stacklab-smoke-operator -g stacklab-smoke-operator -m 0700 \
+    /srv/stacklab /srv/stacklab/stacks /srv/stacklab/data
+  install -d -o 23456 -g 23456 -m 0700 /srv/stacklab/data/container-payload
+  printf 'container-data=preserved\n' >/srv/stacklab/data/container-payload/state.txt
+  chown 23456:23456 /srv/stacklab/data/container-payload/state.txt
+  chmod 0600 /srv/stacklab/data/container-payload/state.txt
+  setfacl -m u:stacklab-smoke-operator:r-x /srv/stacklab/data/container-payload
+  getfacl -R -n -p /srv/stacklab/data/container-payload >"${work_dir}/payload-acl-before"
+}
+
+assert_workspace_access() {
+  local work_dir="$1"
+  local dir
+
+  for dir in /srv/stacklab /srv/stacklab/stacks /srv/stacklab/config /srv/stacklab/data; do
+    # The child shell expands its own positional argument and probe path.
+    # shellcheck disable=SC2016
+    runuser -u stacklab -- sh -ec '
+      test -r "$1" && test -w "$1" && test -x "$1"
+      probe_dir=$(mktemp -d "$1/.stacklab-permission-smoke.XXXXXX")
+      printf "writable\n" >"${probe_dir}/probe.txt"
+      rm "${probe_dir}/probe.txt"
+      rmdir "${probe_dir}"
+    ' sh "${dir}" || die "stacklab cannot create files and directories in ${dir}"
+  done
+
+  for dir in /srv/stacklab /srv/stacklab/stacks /srv/stacklab/data; do
+    test "$(stat -c %U:%G "${dir}")" = stacklab-smoke-operator:stacklab-smoke-operator \
+      || die "installer changed operator ownership of ${dir}"
+  done
+  test "$(stat -c %U:%G /srv/stacklab/config)" = stacklab:stacklab
+
+  # An operator-created directory inherits service access from its parent.
+  runuser -u stacklab-smoke-operator -- mkdir /srv/stacklab/data/inherited-access
+  runuser -u stacklab -- touch /srv/stacklab/data/inherited-access/probe.txt \
+    || die "operator-created directory did not inherit service write access"
+  rm /srv/stacklab/data/inherited-access/probe.txt
+  rmdir /srv/stacklab/data/inherited-access
+
+  getfacl -R -n -p /srv/stacklab/data/container-payload >"${work_dir}/payload-acl-after"
+  cmp "${work_dir}/payload-acl-before" "${work_dir}/payload-acl-after" \
+    || die "installer changed container payload ownership, modes, or ACLs"
+  grep -q '^container-data=preserved$' /srv/stacklab/data/container-payload/state.txt
+  if runuser -u stacklab -- test -r /srv/stacklab/data/container-payload/state.txt; then
+    die "installer granted stacklab access inside the private container payload"
+  fi
+}
+
+break_workspace_access() {
+  local dir
+  # Reproduce missing and masked ACLs on existing externally owned parents,
+  # plus an owner-mode restriction where a named-user ACL alone cannot help.
+  setfacl -b -k /srv/stacklab/data
+  chmod 0700 /srv/stacklab/data
+  setfacl -m u:stacklab:rwx,m::--- /srv/stacklab/stacks
+  chmod u-w /srv/stacklab/config
+  for dir in /srv/stacklab/stacks /srv/stacklab/config /srv/stacklab/data; do
+    if runuser -u stacklab -- test -w "${dir}"; then
+      die "permission regression fixture is still writable: ${dir}"
+    fi
+  done
+}
+
+assert_invalid_workspace_paths() {
+  local work_dir="$1"
+  local kind
+
+  mv /srv/stacklab/config "${work_dir}/config-preserved"
+  for kind in symlink file; do
+    if [[ "${kind}" = symlink ]]; then
+      ln -s /srv/stacklab/data/container-payload /srv/stacklab/config
+    else
+      printf 'not a directory\n' >/srv/stacklab/config
+    fi
+    if /var/lib/dpkg/info/stacklab.postinst configure >"${work_dir}/postinst-error" 2>&1; then
+      die "installer accepted a ${kind} as a workspace parent"
+    fi
+    grep -Fq 'workspace path must be a real directory: /srv/stacklab/config' "${work_dir}/postinst-error" \
+      || die "installer did not identify the invalid workspace path"
+    getfacl -R -n -p /srv/stacklab/data/container-payload >"${work_dir}/payload-acl-after"
+    cmp "${work_dir}/payload-acl-before" "${work_dir}/payload-acl-after" \
+      || die "installer followed a symlink into container data"
+    rm /srv/stacklab/config
+  done
+  mv "${work_dir}/config-preserved" /srv/stacklab/config
+}
+
 create_persistent_fixtures() {
   install -d -o stacklab -g stacklab -m 0755 \
     /srv/stacklab/stacks/systemd-smoke \
@@ -221,11 +314,15 @@ main() {
   [[ "${STACKLAB_SERVICE_TIMEOUT_SECONDS:-60}" =~ ^[1-9][0-9]*$ ]] \
     || die "STACKLAB_SERVICE_TIMEOUT_SECONDS must be a positive integer"
 
+  need_cmd cmp
   need_cmd curl
   need_cmd dpkg
   need_cmd dpkg-deb
+  need_cmd getfacl
   need_cmd journalctl
   need_cmd ps
+  need_cmd runuser
+  need_cmd setfacl
   need_cmd systemctl
   need_cmd tar
 
@@ -253,6 +350,9 @@ main() {
 
   log "Building source package A from target package ${target_version}"
   build_source_package "${target_deb}" "${source_deb}" "${work_dir}"
+  dpkg-deb --field "${target_deb}" Depends | grep -Eq '(^|, )acl(,|$)' \
+    || die "package does not declare its required acl dependency"
+  create_existing_workspace "${work_dir}"
 
   log "Installing package A under real systemd"
   apt-get install -y --no-install-recommends "${source_deb}" >/dev/null
@@ -267,11 +367,13 @@ main() {
   assert_service_identity
   assert_health_and_frontend "install-a" "${work_dir}"
   login "install-a" "${work_dir}" "${cookie_jar}"
+  assert_workspace_access "${work_dir}"
 
   create_persistent_fixtures
   [[ -f /var/lib/stacklab/stacklab.db ]] || die "runtime database was not created"
   database_inode="$(stat -c %i /var/lib/stacklab/stacklab.db)"
   service_pid_a="$(systemctl show stacklab.service --property=MainPID --value)"
+  break_workspace_access
 
   log "Upgrading package A to package B (${target_version})"
   apt-get install -y --no-install-recommends "${target_deb}" >/dev/null
@@ -291,11 +393,23 @@ main() {
   assert_service_identity
   assert_health_and_frontend "upgrade-b" "${work_dir}"
   assert_persistent_fixtures
+  assert_workspace_access "${work_dir}"
 
   curl -fsS --cookie "${cookie_jar}" http://127.0.0.1:8080/api/session \
     | grep -Eq '"authenticated"[[:space:]]*:[[:space:]]*true' \
     || die "session persisted before upgrade is no longer authenticated"
   login "upgrade-b" "${work_dir}" "${work_dir}/cookies-after-upgrade.txt"
+
+  log "Checking repeated package configuration"
+  getfacl -n -p /srv/stacklab /srv/stacklab/{stacks,config,data} >"${work_dir}/parents-acl-before"
+  /var/lib/dpkg/info/stacklab.postinst configure "${target_version}"
+  wait_for_stacklab "reconfigure B"
+  getfacl -n -p /srv/stacklab /srv/stacklab/{stacks,config,data} >"${work_dir}/parents-acl-after"
+  cmp "${work_dir}/parents-acl-before" "${work_dir}/parents-acl-after" \
+    || die "repeated package configuration changed workspace permissions"
+  assert_workspace_access "${work_dir}"
+  assert_persistent_fixtures
+  assert_invalid_workspace_paths "${work_dir}"
 
   log "Real-systemd install and A-to-B upgrade smoke passed"
 }

@@ -26,13 +26,29 @@ create_user() {
 }
 
 ensure_workspace_dirs() {
+  service_uid="$(id -u "${SERVICE_USER}")"
   for dir in \
     "${WORKSPACE_ROOT}" \
     "${WORKSPACE_ROOT}/stacks" \
     "${WORKSPACE_ROOT}/config" \
     "${WORKSPACE_ROOT}/data"; do
+    if [ -L "${dir}" ] || { [ -e "${dir}" ] && [ ! -d "${dir}" ]; }; then
+      echo "stacklab: workspace path must be a real directory: ${dir}" >&2
+      exit 1
+    fi
     if [ ! -e "${dir}" ]; then
       install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0755 "${dir}"
+    fi
+
+    # A named-user ACL does not apply when that user also owns the directory.
+    if [ "$(stat -c %u "${dir}")" = "${service_uid}" ]; then
+      chmod u+rwx "${dir}"
+    fi
+    # Repair existing parents as well as new ones on every install/upgrade.
+    # Never recurse: container payloads can require their own UID/GID and modes.
+    if ! setfacl -m "u:${SERVICE_USER}:rwx,d:u:${SERVICE_USER}:rwx" -- "${dir}"; then
+      echo "stacklab: cannot grant ${SERVICE_USER} access to ${dir}; workspace directories require POSIX ACL support" >&2
+      exit 1
     fi
   done
 }

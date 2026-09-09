@@ -87,6 +87,13 @@ For a local package artifact:
 sudo apt-get install ./stacklab_<version>_<arch>.deb
 ```
 
+Install and upgrade automatically ensure that `stacklab` can write to
+`/srv/stacklab` and its `stacks`, `config`, and `data` directories, including
+existing directories owned by another user. The package installs the required
+ACL tools and grants access without changing those owners or recursively
+altering container data permissions. These workspace parents must be real
+directories on a filesystem supporting POSIX ACLs.
+
 For other Linux distributions or manual host-native installs, use the tarball
 flow instead:
 
@@ -113,6 +120,7 @@ flow instead:
   - `/usr/share/doc/stacklab/copyright`
   - `/usr/share/doc/stacklab/NOTICE`
 - The package depends on:
+  - `acl`
   - `adduser`
   - `systemd`
   - Docker Engine and Docker CLI
@@ -127,7 +135,8 @@ flow instead:
   - install a narrow `sudoers` rule for the helper
   - keep `NoNewPrivileges=false` in `stacklab.service`
   - include `/etc/docker` in the unit `ReadWritePaths`
-- Workspace permission repair also remains opt-in:
+- Repairing permissions inside existing stack/config payloads remains opt-in;
+  the package handles the four workspace parents automatically:
   - set `STACKLAB_WORKSPACE_ADMIN_HELPER_PATH`
   - set `STACKLAB_WORKSPACE_ADMIN_USE_SUDO=true`
   - optionally set `STACKLAB_WORKSPACE_ADMIN_REPAIR_STRATEGY=acl` when
