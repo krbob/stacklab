@@ -78,6 +78,17 @@ of changed `main` revisions provide the soak channel between stable releases.
 - smoke-test terminal and job WebSocket streams under the production CSP in
   Safari and explicitly extend `connect-src` only if the test proves necessary.
 
+### 4. Git Authentication In Stacklab
+
+- manage Git remote credentials from Settings, following the existing Docker
+  registry login/logout workflow; start with HTTPS username and access token;
+- show the configured remote and authentication status, with actions to test
+  access, replace credentials, and remove them for the Stacklab service account;
+- scope credentials to the intended repository and keep secrets outside the
+  managed Git workspace, out of API responses, logs, and audit details;
+- keep saving credentials separate from pushing changes; evaluate SSH key and
+  known-host management as a follow-up.
+
 ## Mid-Term Product Goals
 
 - add light internationalization groundwork, then selected translations after
