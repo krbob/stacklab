@@ -8,10 +8,10 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"stacklab/internal/config"
@@ -898,53 +898,53 @@ func TestMetricsCollectorUsesCachedFilesystemUsageAfterStatfsTimeout(t *testing.
 		t.Fatalf("WriteFile(mountinfo) error = %v", err)
 	}
 
-	release := make(chan struct{})
-	t.Cleanup(func() { close(release) })
-	blockedStatfsStarted := make(chan struct{})
-	var signalBlockedStatfs sync.Once
+	// Advance time only when the probe is blocked, so runner scheduling cannot
+	// turn the initial cache-populating probe into an unintended timeout.
+	synctest.Test(t, func(t *testing.T) {
+		release := make(chan struct{})
+		defer close(release)
 
-	var calls atomic.Int32
-	collector := newMetricsCollector(mountPoint, procDir)
-	collector.statfsTimeout = 5 * time.Millisecond
-	collector.statfs = func(_ string, stats *syscall.Statfs_t) error {
-		if calls.Add(1) > 1 {
-			signalBlockedStatfs.Do(func() { close(blockedStatfsStarted) })
-			<-release
+		var calls atomic.Int32
+		collector := newMetricsCollector(mountPoint, procDir)
+		collector.statfsTimeout = 5 * time.Millisecond
+		collector.statfs = func(_ string, stats *syscall.Statfs_t) error {
+			if calls.Add(1) > 1 {
+				<-release
+			}
+			stats.Blocks = 100
+			stats.Bfree = 40
+			stats.Bavail = 35
+			stats.Bsize = 4096
+			return nil
 		}
-		stats.Blocks = 100
-		stats.Bfree = 40
-		stats.Bavail = 35
-		stats.Bsize = 4096
-		return nil
-	}
 
-	first := collector.readFilesystems()
-	if len(first) != 1 {
-		t.Fatalf("first filesystems = %#v", first)
-	}
-	secondResult := make(chan []FilesystemUsage, 1)
-	go func() {
-		secondResult <- collector.readFilesystems()
-	}()
-	select {
-	case <-blockedStatfsStarted:
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for the blocking statfs call to start")
-	}
-	second := <-secondResult
-	if len(second) != 1 {
-		t.Fatalf("second filesystems = %#v", second)
-	}
-	if second[0].TotalBytes != first[0].TotalBytes || second[0].UsedBytes != first[0].UsedBytes {
-		t.Fatalf("timeout did not use cached usage: first=%#v second=%#v", first[0], second[0])
-	}
-	third := collector.readFilesystems()
-	if len(third) != 1 {
-		t.Fatalf("third filesystems = %#v", third)
-	}
-	if calls.Load() != 2 {
-		t.Fatalf("statfs calls = %d, want 2 while timed-out call remains in flight", calls.Load())
-	}
+		first := collector.readFilesystems()
+		if len(first) != 1 || first[0].TotalBytes != 100*4096 || first[0].UsedBytes != 60*4096 {
+			t.Fatalf("first filesystems = %#v, want successful initial usage", first)
+		}
+		startedAt := time.Now()
+		second := collector.readFilesystems()
+		if elapsed := time.Since(startedAt); elapsed != collector.statfsTimeout {
+			t.Fatalf("blocked probe elapsed = %s, want timeout %s", elapsed, collector.statfsTimeout)
+		}
+		if len(second) != 1 {
+			t.Fatalf("second filesystems = %#v", second)
+		}
+		if second[0] != first[0] {
+			t.Fatalf("timeout did not use cached usage: first=%#v second=%#v", first[0], second[0])
+		}
+		startedAt = time.Now()
+		third := collector.readFilesystems()
+		if len(third) != 1 || third[0] != first[0] {
+			t.Fatalf("in-flight probe did not retain cached usage: %#v", third)
+		}
+		if elapsed := time.Since(startedAt); elapsed != 0 {
+			t.Fatalf("in-flight probe waited another %s, want immediate cached usage", elapsed)
+		}
+		if calls.Load() != 2 {
+			t.Fatalf("statfs calls = %d, want 2 while timed-out call remains in flight", calls.Load())
+		}
+	})
 }
 
 func TestMetricsCollectorReadsThermalZoneTemperatureSensors(t *testing.T) {
