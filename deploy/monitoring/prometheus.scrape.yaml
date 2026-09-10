@@ -1,0 +1,23 @@
+# Append these entries to the existing scrape_configs list.
+# Set the same `host` label on all three targets. Match the Stacklab target to
+# STACKLAB_HTTP_ADDR, or use HTTPS through your existing authenticated proxy.
+scrape_configs:
+  - job_name: node-exporter
+    static_configs:
+      - targets: [host.docker.internal:9100]
+        labels:
+          host: homelab
+  - job_name: cadvisor
+    static_configs:
+      - targets: [cadvisor:8080]
+        labels:
+          host: homelab
+  - job_name: stacklab
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: /run/secrets/stacklab-metrics-token
+    static_configs:
+      - targets: [host.docker.internal:8080]
+        labels:
+          host: homelab
