@@ -69,6 +69,12 @@ func TestServiceRecordsOperationalAuditEvents(t *testing.T) {
 			},
 		},
 		{
+			name: "config file delete",
+			run: func() error {
+				return service.RecordConfigFileDelete(ctx, "alpha/obsolete.conf", &stackID, "operator", map[string]any{"path": "alpha/obsolete.conf"})
+			},
+		},
+		{
 			name: "stack file save",
 			run: func() error {
 				return service.RecordStackFileSave(ctx, "alpha", "compose.yaml", "operator", map[string]any{"bytes": 128})
@@ -109,8 +115,8 @@ func TestServiceRecordsOperationalAuditEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
-	if len(result.Items) != 10 {
-		t.Fatalf("List() item count = %d, want 10", len(result.Items))
+	if len(result.Items) != 11 {
+		t.Fatalf("List() item count = %d, want 11", len(result.Items))
 	}
 
 	byAction := make(map[string][]store.AuditEntry)
@@ -155,6 +161,9 @@ func TestServiceRecordsOperationalAuditEvents(t *testing.T) {
 	}
 	if entry := byAction["save_stack_file"][0]; entry.TargetType != "stack_file" || entry.StackID == nil || *entry.StackID != "alpha" {
 		t.Fatalf("stack save entry = %#v", entry)
+	}
+	if entry := byAction["delete_config_file"][0]; entry.TargetType != "config_file" || entry.TargetID == nil || *entry.TargetID != "alpha/obsolete.conf" || entry.StackID == nil || *entry.StackID != "alpha" || entry.RequestedBy != "operator" {
+		t.Fatalf("config delete entry = %#v", entry)
 	}
 	if entry := byAction["repair_config_workspace_permissions"][0]; entry.TargetType != "config_file" {
 		t.Fatalf("config permission entry = %#v", entry)

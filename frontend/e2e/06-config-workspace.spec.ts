@@ -86,6 +86,37 @@ test.describe('Config Workspace', () => {
     await expect(page.getByText('save_config_file').first()).toBeVisible({ timeout: 10_000 })
   })
 
+  test('deletes a config file after review and records the deletion in audit', async ({ page }) => {
+    const path = `${STACK_ID}/delete-me.conf`
+    const created = await page.request.put('/api/config/workspace/file', {
+      data: { path, content: 'temporary;\n', create_parent_directories: false },
+    })
+    expect(created.ok()).toBeTruthy()
+    const saved = await created.json()
+
+    await page.goto(`/config?path=${STACK_ID}`)
+    await page.getByRole('button', { name: 'delete-me.conf', exact: true }).click()
+    await page.getByRole('button', { name: 'Delete file', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Delete "delete-me.conf"?' })
+    await expect(dialog.getByText(path, { exact: true })).toBeVisible()
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+    expect((await page.request.get(`/api/config/workspace/file?path=${encodeURIComponent(path)}`)).ok()).toBeTruthy()
+
+    await page.getByRole('button', { name: 'Delete file', exact: true }).click()
+    const deletion = page.waitForResponse((response) => response.url().endsWith('/api/config/workspace/file') && response.request().method() === 'DELETE')
+    await dialog.getByRole('button', { name: 'Delete file', exact: true }).click()
+    const response = await deletion
+    expect(response.ok()).toBeTruthy()
+    expect(response.request().postDataJSON()).toEqual({ path, expected_modified_at: saved.modified_at })
+    await expect(dialog).not.toBeVisible()
+    await expect(page.getByRole('status').filter({ hasText: `Deleted ${path}` })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'delete-me.conf', exact: true })).toHaveCount(0)
+    await expect(page.locator('.cm-content')).not.toBeVisible()
+    expect((await page.request.get(`/api/config/workspace/file?path=${encodeURIComponent(path)}`)).status()).toBe(404)
+    await page.goto('/audit')
+    await expect(page.getByText('delete_config_file', { exact: true }).first()).toBeVisible()
+  })
+
   test('creates a new file in config workspace', async ({ page }) => {
     const cookies = await page.context().cookies()
     const sessionCookie = cookies.find((c) => c.name.startsWith('stacklab'))

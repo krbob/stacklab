@@ -43,6 +43,7 @@ func domainRouteContract() []domainRoute {
 		{http.MethodGet, "/api/config/workspace/tree", "GET /api/config/workspace/tree"},
 		{http.MethodGet, "/api/config/workspace/file", "GET /api/config/workspace/file"},
 		{http.MethodPut, "/api/config/workspace/file", "PUT /api/config/workspace/file"},
+		{http.MethodDelete, "/api/config/workspace/file", "DELETE /api/config/workspace/file"},
 		{http.MethodPost, "/api/config/workspace/repair-permissions", "POST /api/config/workspace/repair-permissions"},
 		{http.MethodGet, "/api/git/workspace/status", "GET /api/git/workspace/status"},
 		{http.MethodGet, "/api/git/workspace/diff", "GET /api/git/workspace/diff"},
@@ -99,8 +100,8 @@ func TestHandlerRegistersDomainRouteContract(t *testing.T) {
 	handler.registerRoutes()
 	routes := domainRouteContract()
 
-	if len(routes) != 70 {
-		t.Fatalf("route contract contains %d operations, want 70", len(routes))
+	if len(routes) != 71 {
+		t.Fatalf("route contract contains %d operations, want 71", len(routes))
 	}
 	for _, route := range routes {
 		route := route
@@ -225,8 +226,8 @@ func TestDomainRoutesPreserveAuthenticationPolicy(t *testing.T) {
 			t.Errorf("protected route %s returned %d, want %d", route.pattern, response.Code, http.StatusUnauthorized)
 		}
 	}
-	if protectedCount != 64 {
-		t.Fatalf("protected route count = %d, want 64", protectedCount)
+	if protectedCount != 65 {
+		t.Fatalf("protected route count = %d, want 65", protectedCount)
 	}
 }
 

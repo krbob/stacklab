@@ -20,6 +20,7 @@ func (c *workspaceController) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/config/workspace/tree", c.withAuth(c.handleConfigWorkspaceTree))
 	mux.HandleFunc("GET /api/config/workspace/file", c.withAuth(c.handleConfigWorkspaceFile))
 	mux.HandleFunc("PUT /api/config/workspace/file", c.withAuth(c.handlePutConfigWorkspaceFile))
+	mux.HandleFunc("DELETE /api/config/workspace/file", c.withAuth(c.handleDeleteConfigWorkspaceFile))
 	mux.HandleFunc("POST /api/config/workspace/repair-permissions", c.withAuth(c.handleRepairConfigWorkspacePermissions))
 	mux.HandleFunc("GET /api/git/workspace/status", c.withAuth(c.handleGitWorkspaceStatus))
 	mux.HandleFunc("GET /api/git/workspace/diff", c.withAuth(c.handleGitWorkspaceDiff))
@@ -122,6 +123,48 @@ func (h *workspaceController) handlePutConfigWorkspaceFile(w http.ResponseWriter
 		h.logger.Warn("record save_config_file audit failed", slog.String("path", response.Path), slog.String("err", err.Error()))
 	}
 
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *workspaceController) handleDeleteConfigWorkspaceFile(w http.ResponseWriter, r *http.Request) {
+	if !auth.SameOrigin(r) {
+		writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+		return
+	}
+	var request configworkspace.DeleteFileRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDecodeJSONError(w, err)
+		return
+	}
+	response, err := h.configFiles.DeleteFile(r.Context(), request)
+	if err != nil {
+		switch {
+		case errors.Is(err, configworkspace.ErrValidation):
+			writeError(w, http.StatusBadRequest, "validation_failed", "The file's expected_modified_at timestamp is required.", nil)
+		case errors.Is(err, configworkspace.ErrPathOutsideWorkspace):
+			writeError(w, http.StatusBadRequest, "path_outside_workspace", "Path escapes the config workspace.", nil)
+		case errors.Is(err, configworkspace.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Workspace file was not found.", nil)
+		case errors.Is(err, configworkspace.ErrPathNotFile):
+			writeError(w, http.StatusBadRequest, "path_not_file", "Only regular files can be deleted. Directories and symbolic links are not supported.", nil)
+		case errors.Is(err, configworkspace.ErrPermissionDenied):
+			writeError(w, http.StatusConflict, "permission_denied", "File cannot be deleted due to permissions. Check access to its parent directory.", nil)
+		case errors.Is(err, configworkspace.ErrConflict):
+			writeError(w, http.StatusConflict, "edit_conflict", "File changed on disk. Reload it before deleting.", nil)
+		default:
+			h.logger.Error("delete config workspace file failed", slog.String("err", err.Error()))
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to delete config workspace file.", nil)
+		}
+		return
+	}
+	stackID := deriveConfigWorkspaceStackID(response.Path)
+	details := map[string]any{"path": response.Path}
+	if stackID != nil {
+		details["stack_id"] = *stackID
+	}
+	if err := h.audit.RecordConfigFileDelete(r.Context(), response.Path, stackID, "local", details); err != nil {
+		h.logger.Warn("record delete_config_file audit failed", slog.String("path", response.Path), slog.String("err", err.Error()))
+	}
 	writeJSON(w, http.StatusOK, response)
 }
 

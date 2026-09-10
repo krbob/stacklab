@@ -4,6 +4,8 @@ import type {
   ConfigFileResponse,
   ConfigFileSaveRequest,
   ConfigFileSaveResponse,
+  ConfigFileDeleteRequest,
+  ConfigFileDeleteResponse,
   ConfigRepairPermissionsRequest,
   ConfigRepairPermissionsResponse,
   ConfigTreeResponse,
@@ -325,6 +327,14 @@ export function getConfigTree(path?: ConfigWorkspaceTreeQueryParams['path']): Pr
 
 export function getConfigFile(path: ConfigWorkspaceFileQueryParams['path']): Promise<ConfigFileResponse> {
   return request(`/api/config/workspace/file?path=${encodeURIComponent(path)}`)
+}
+
+export function deleteConfigFile(path: string, expectedModifiedAt: string): Promise<ConfigFileDeleteResponse> {
+  const requestBody: ConfigFileDeleteRequest = { path, expected_modified_at: expectedModifiedAt }
+  return request('/api/config/workspace/file', {
+    method: 'DELETE',
+    body: JSON.stringify(requestBody),
+  })
 }
 
 export function saveConfigFile(path: string, content: string, createParentDirectories = false, expectedModifiedAt?: string): Promise<ConfigFileSaveResponse> {

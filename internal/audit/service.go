@@ -137,6 +137,14 @@ func (s *Service) RecordTerminalEvent(ctx context.Context, stackID, sessionID, c
 }
 
 func (s *Service) RecordConfigFileSave(ctx context.Context, relativePath string, stackID *string, requestedBy string, details map[string]any) error {
+	return s.recordConfigFileAction(ctx, "save_config_file", relativePath, stackID, requestedBy, details)
+}
+
+func (s *Service) RecordConfigFileDelete(ctx context.Context, relativePath string, stackID *string, requestedBy string, details map[string]any) error {
+	return s.recordConfigFileAction(ctx, "delete_config_file", relativePath, stackID, requestedBy, details)
+}
+
+func (s *Service) recordConfigFileAction(ctx context.Context, action, relativePath string, stackID *string, requestedBy string, details map[string]any) error {
 	detailJSON, err := marshalDetails(details)
 	if err != nil {
 		return err
@@ -149,7 +157,7 @@ func (s *Service) RecordConfigFileSave(ctx context.Context, relativePath string,
 	return s.store.CreateAuditEntry(ctx, store.AuditEntry{
 		ID:          "audit_" + randomToken(18),
 		StackID:     stackID,
-		Action:      "save_config_file",
+		Action:      action,
 		RequestedBy: fallback(requestedBy, "local"),
 		Result:      "succeeded",
 		RequestedAt: requestedAt,

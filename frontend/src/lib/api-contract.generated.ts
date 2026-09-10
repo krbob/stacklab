@@ -22,6 +22,7 @@ export interface paths {
   "/config/workspace/file": {
     get: operations["getConfigWorkspaceFile"];
     put: operations["saveConfigWorkspaceFile"];
+    delete: operations["deleteConfigWorkspaceFile"];
   };
   "/config/workspace/repair-permissions": {
     post: operations["repairConfigWorkspacePermissions"];
@@ -344,6 +345,16 @@ export interface components {
     };
     /** @enum {string} */
     ConfigEntryType: "directory" | "text_file" | "binary_file" | "unknown_file";
+    ConfigFileDeleteRequest: {
+      /** Format: date-time */
+      expected_modified_at: string;
+      path: string;
+    };
+    ConfigFileDeleteResponse: {
+      audit_action: string;
+      deleted: boolean;
+      path: string;
+    };
     ConfigFileResponse: {
       blocked_reason: string | null;
       content: string | null;
@@ -1849,6 +1860,41 @@ export interface operations {
         };
       };
       413: components["responses"]["ErrorContentTooLarge"];
+    };
+  };
+  deleteConfigWorkspaceFile: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ConfigFileDeleteRequest"];
+      };
+    };
+    responses: {
+      /** @description Config workspace file deleted without committing or pushing. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["ConfigFileDeleteResponse"];
+        };
+      };
+      /** @description Invalid path, missing timestamp, or target is not a regular file. */
+      400: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      401: components["responses"]["ErrorUnauthorized"];
+      /** @description Cross-origin request rejected. */
+      403: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      404: components["responses"]["ErrorNotFound"];
+      /** @description File changed since it was loaded or deletion is blocked by permissions. */
+      409: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
     };
   };
   repairConfigWorkspacePermissions: {

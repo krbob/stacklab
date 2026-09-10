@@ -103,6 +103,7 @@ type ConfigWorkspaceReader interface {
 	Tree(ctx context.Context, currentPath string) (configworkspace.TreeResponse, error)
 	File(ctx context.Context, filePath string) (configworkspace.FileResponse, error)
 	SaveFile(ctx context.Context, request configworkspace.SaveFileRequest) (configworkspace.SaveFileResponse, error)
+	DeleteFile(ctx context.Context, request configworkspace.DeleteFileRequest) (configworkspace.DeleteFileResponse, error)
 	RepairPermissions(ctx context.Context, request configworkspace.RepairPermissionsRequest) (configworkspace.RepairPermissionsResponse, error)
 }
 

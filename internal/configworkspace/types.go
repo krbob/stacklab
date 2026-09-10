@@ -70,6 +70,17 @@ type RepairPermissionsRequest struct {
 	Recursive bool   `json:"recursive"`
 }
 
+type DeleteFileRequest struct {
+	Path               string    `json:"path"`
+	ExpectedModifiedAt time.Time `json:"expected_modified_at"`
+}
+
+type DeleteFileResponse struct {
+	Deleted     bool   `json:"deleted"`
+	Path        string `json:"path"`
+	AuditAction string `json:"audit_action"`
+}
+
 type RepairPermissionsResponse struct {
 	Repaired                bool                       `json:"repaired"`
 	Path                    string                     `json:"path"`

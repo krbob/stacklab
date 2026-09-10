@@ -187,6 +187,10 @@ func (f *fakeConfigWorkspaceReader) RepairPermissions(ctx context.Context, reque
 	return f.repairResponse, f.repairError
 }
 
+func (f *fakeConfigWorkspaceReader) DeleteFile(ctx context.Context, request configworkspace.DeleteFileRequest) (configworkspace.DeleteFileResponse, error) {
+	return configworkspace.DeleteFileResponse{}, nil
+}
+
 func (f *fakeStackWorkspaceReader) Tree(ctx context.Context, stackID, currentPath string) (stackworkspace.TreeResponse, error) {
 	return stackworkspace.TreeResponse{}, nil
 }

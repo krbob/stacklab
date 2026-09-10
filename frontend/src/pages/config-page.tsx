@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { File, FileQuestion, FileWarning, Folder, FolderKanban, GitBranch, Plus } from 'lucide-react'
-import { getConfigTree, getConfigFile, saveConfigFile, repairConfigWorkspacePermissions, repairStackWorkspacePermissions, getGitWorkspaceStatus, getGitWorkspaceDiff } from '@/lib/api-client'
+import { getConfigTree, getConfigFile, saveConfigFile, deleteConfigFile, repairConfigWorkspacePermissions, repairStackWorkspacePermissions, getGitWorkspaceStatus, getGitWorkspaceDiff } from '@/lib/api-client'
 import type { ConfigTreeEntry, ConfigFileResponse, GitStatusItem, GitDiffResponse } from '@/lib/api-types'
 import { YamlEditor } from '@/components/yaml-editor'
 import { DiffView } from '@/components/diff-view'
@@ -56,6 +56,9 @@ export function ConfigPage() {
   const [saving, setSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
+  const [fileToDelete, setFileToDelete] = useState<ConfigFileResponse | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const [creatingFile, setCreatingFile] = useState(false)
   const [newFileName, setNewFileName] = useState('')
@@ -219,6 +222,31 @@ export function ConfigPage() {
   useEffect(() => {
     if (mode === 'changes') loadGitStatus()
   }, [mode, loadGitStatus])
+
+  const handleDeleteFile = useCallback(async () => {
+    if (!fileToDelete || deleting) return
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      await deleteConfigFile(fileToDelete.path, fileToDelete.modified_at)
+      setSelectedFile(null)
+      setEditContent('')
+      setFileError(null)
+      setFileToDelete(null)
+      setSaveMessage({ type: 'success', text: `Deleted ${fileToDelete.path}` })
+      selectedChangePathRef.current = null
+      ++diffRequestIdRef.current
+      setSelectedChangePath(null)
+      setSelectedDiff(null)
+      setDiffLoading(false)
+      setDiffError(null)
+      await Promise.all([loadTree(treePath), loadGitStatus()])
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Delete failed')
+    } finally {
+      setDeleting(false)
+    }
+  }, [fileToDelete, deleting, loadTree, treePath, loadGitStatus])
 
   const openDiff = useCallback(async (path: string) => {
     const requestId = ++diffRequestIdRef.current
@@ -686,10 +714,11 @@ export function ConfigPage() {
       </BottomSheet>
 
       {/* Right panel */}
-      <div aria-busy={fileLoading || diffLoading || saving} className="flex min-w-0 flex-1 flex-col rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+      <div aria-busy={fileLoading || diffLoading || saving || deleting} className="flex min-w-0 flex-1 flex-col rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
         {/* Files mode - editor */}
         {mode === 'files' && (
           <>
+            {saveMessage && <StatusMessage className={cn('mb-2 wrap-anywhere text-xs', saveMessage.type === 'success' ? 'text-[var(--ok)]' : 'text-[var(--danger)]')}>{saveMessage.text}</StatusMessage>}
             {!selectedFile && !fileLoading && !fileError && (
               <div className="flex flex-1 items-center justify-center">
                 <div className="text-center">
@@ -719,17 +748,26 @@ export function ConfigPage() {
                       <span>{new Date(selectedFile.modified_at).toLocaleString()}</span>
                     </div>
                   </div>
-                  {selectedFile.type === 'text_file' && selectedFile.writable && (
-                    <div className="flex items-center gap-2">
-                      {isDirty && <span className="text-xs text-[var(--warning)]">Unsaved changes</span>}
-                      {isDirty && <button onClick={() => setConfirmDiscard(true)} className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]">Discard</button>}
-                      <button data-testid="config-save" onClick={handleSave} disabled={saving || !isDirty} className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40">
-                        {saving ? 'Saving...' : 'Save'}
-                      </button>
-                    </div>
-                  )}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {selectedFile.type === 'text_file' && selectedFile.writable && (
+                      <>
+                        {isDirty && <span className="text-xs text-[var(--warning)]">Unsaved changes</span>}
+                        {isDirty && <button onClick={() => setConfirmDiscard(true)} className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]">Discard</button>}
+                        <button data-testid="config-save" onClick={handleSave} disabled={saving || deleting || fileLoading || !isDirty} className="rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40">
+                          {saving ? 'Saving...' : 'Save'}
+                        </button>
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      disabled={saving || deleting || fileLoading}
+                      onClick={() => { setDeleteError(null); setFileToDelete(selectedFile) }}
+                      className="rounded-md border border-[var(--danger)]/30 bg-[var(--danger)]/10 px-3 py-1 text-xs text-[var(--danger)] disabled:opacity-40"
+                    >
+                      Delete file
+                    </button>
+                  </div>
                 </div>
-                {saveMessage && <StatusMessage className={cn('mt-2 text-xs', saveMessage.type === 'success' ? 'text-[var(--ok)]' : 'text-[var(--danger)]')}>{saveMessage.text}</StatusMessage>}
                 <div className="mt-3 flex-1" style={{ minHeight: '400px' }}>
                   {selectedFile.blocked_reason ? (
                     <BlockedFileCard
@@ -858,6 +896,28 @@ export function ConfigPage() {
           </>
         )}
       </div>
+
+      {fileToDelete && (
+        <ConfirmDialog
+          title={`Delete "${fileToDelete.name}"?`}
+          message={isDirty
+            ? 'Delete this file from disk and discard its unsaved editor changes?'
+            : 'Delete this file from disk?'}
+          review={{
+            target: fileToDelete.path,
+            scope: ['One file in the managed config workspace.'],
+            impact: ['Stacks that mount or reference this file may stop working.'],
+            snapshot: 'No backup is created before deletion.',
+            recovery: 'Restore from a backup or a previous Git commit, if the file was committed.',
+          }}
+          error={deleteError}
+          confirmLabel="Delete file"
+          confirming={deleting}
+          confirmingLabel="Deleting..."
+          onCancel={() => setFileToDelete(null)}
+          onConfirm={() => { void handleDeleteFile() }}
+        />
+      )}
 
       {confirmDiscard && selectedFile && (
         <ConfirmDialog

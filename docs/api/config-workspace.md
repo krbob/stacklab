@@ -5,6 +5,7 @@ This document defines the current contract for the managed config workspace:
 - safe browsing of the managed config root
 - text editing of supported config files
 - read-only fallback for non-text files
+- reviewed deletion of individual config files
 
 It is intentionally narrower than a generic file manager.
 
@@ -359,14 +360,41 @@ This can be deferred if UI starts with editing existing files and creating new f
 
 ## `DELETE /api/config/workspace/file`
 
-Status:
+Request:
 
-- deferred
+```json
+{
+  "path": "nextcloud/nginx.conf",
+  "expected_modified_at": "2026-04-04T12:05:00Z"
+}
+```
 
-Reason:
+Response:
 
-- browsing and editing are higher-value than deletion for the first slice
-- destructive config deletion should come with stronger UX review
+```json
+{
+  "deleted": true,
+  "path": "nextcloud/nginx.conf",
+  "audit_action": "delete_config_file"
+}
+```
+
+Rules:
+
+- delete one regular file, including binary files, within the config workspace;
+- reject directories, file symlinks, and paths that escape the workspace;
+- require the last loaded `modified_at` as `expected_modified_at`; reject a stale
+  timestamp with `409 edit_conflict` so the operator can reload and review again;
+- use the service account's filesystem permissions, including parent directory
+  access; return `409 permission_denied` if deletion is denied;
+- require authentication and same-origin requests, as for saves;
+- record `delete_config_file` in audit without file contents;
+- create no automatic backup, commit, or push; tracked deletions appear in Git
+  Changes for separate review;
+- show a confirmation with the target path, impact on stacks that reference the
+  file, recovery guidance, and notice of any unsaved editor changes;
+- keep the editor and confirmation intact on failure; refresh the tree and Git
+  status after success.
 
 ## Error Handling
 
@@ -396,13 +424,14 @@ Examples:
 
 ## Audit Expectations
 
-Mutating file saves should write audit entries.
+Mutating file saves and deletions write audit entries.
 
 Suggested action names:
 
 - `save_config_file`
+- `delete_config_file`
 - `repair_config_workspace_permissions`
-- later: `create_config_directory`, `delete_config_file`
+- later: `create_config_directory`
 
 Suggested audit details:
 

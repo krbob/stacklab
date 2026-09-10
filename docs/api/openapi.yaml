@@ -472,6 +472,44 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '413':
           $ref: '#/components/responses/ErrorContentTooLarge'
+    delete:
+      tags: [Config]
+      operationId: deleteConfigWorkspaceFile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigFileDeleteRequest'
+      responses:
+        '200':
+          description: Config workspace file deleted without committing or pushing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigFileDeleteResponse'
+        '400':
+          description: Invalid path, missing timestamp, or target is not a regular file.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          description: Cross-origin request rejected.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          description: File changed since it was loaded or deletion is blocked by permissions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /config/workspace/repair-permissions:
     post:
       tags: [Config]
@@ -2859,6 +2897,26 @@ components:
         audit_action:
           type: string
       required: [saved, path, modified_at, audit_action]
+    ConfigFileDeleteRequest:
+      type: object
+      properties:
+        path:
+          type: string
+          minLength: 1
+        expected_modified_at:
+          type: string
+          format: date-time
+      required: [path, expected_modified_at]
+    ConfigFileDeleteResponse:
+      type: object
+      properties:
+        deleted:
+          type: boolean
+        path:
+          type: string
+        audit_action:
+          type: string
+      required: [deleted, path, audit_action]
     WorkspaceRepairCapability:
       type: object
       properties:

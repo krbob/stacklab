@@ -102,6 +102,21 @@ func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
 	configSaveResponse := performJSONRequest(t, handler, http.MethodPut, "/api/config/workspace/file", configSaveBody, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodPut, "/api/config/workspace/file", configSaveBody, cookies, configSaveResponse)
 
+	deleteTarget := filepath.Join(configRoot, "nextcloud", "delete-me.conf")
+	if err := os.WriteFile(deleteTarget, []byte("temporary\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	deleteInfo, err := os.Stat(deleteTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configDeleteBody := map[string]any{"path": "nextcloud/delete-me.conf", "expected_modified_at": deleteInfo.ModTime()}
+	configDeleteResponse := performJSONRequest(t, handler, http.MethodDelete, "/api/config/workspace/file", configDeleteBody, cookies)
+	if configDeleteResponse.Code != http.StatusOK {
+		t.Fatalf("config deletion status=%d body=%s", configDeleteResponse.Code, configDeleteResponse.Body.String())
+	}
+	assertResponseMatchesOpenAPI(t, contract, http.MethodDelete, "/api/config/workspace/file", configDeleteBody, cookies, configDeleteResponse)
+
 	runGit(t, cfg.RootDir, "init", "-b", "main")
 	runGit(t, cfg.RootDir, "config", "user.name", "Stacklab Test")
 	runGit(t, cfg.RootDir, "config", "user.email", "stacklab@example.com")

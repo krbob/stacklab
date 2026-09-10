@@ -12,6 +12,7 @@ import type {
 const mockGetConfigTree = vi.fn()
 const mockGetConfigFile = vi.fn()
 const mockSaveConfigFile = vi.fn()
+const mockDeleteConfigFile = vi.fn()
 const mockGetGitWorkspaceStatus = vi.fn()
 const mockGetGitWorkspaceDiff = vi.fn()
 const mockCommitGitWorkspace = vi.fn()
@@ -29,6 +30,7 @@ vi.mock('@/lib/api-client', () => ({
   getConfigTree: (...args: unknown[]) => mockGetConfigTree(...args),
   getConfigFile: (...args: unknown[]) => mockGetConfigFile(...args),
   saveConfigFile: (...args: unknown[]) => mockSaveConfigFile(...args),
+  deleteConfigFile: (...args: unknown[]) => mockDeleteConfigFile(...args),
   getGitWorkspaceStatus: (...args: unknown[]) => mockGetGitWorkspaceStatus(...args),
   getGitWorkspaceDiff: (...args: unknown[]) => mockGetGitWorkspaceDiff(...args),
   commitGitWorkspace: (...args: unknown[]) => mockCommitGitWorkspace(...args),
@@ -301,6 +303,7 @@ describe('ConfigPage', () => {
     mockGetConfigTree.mockReset()
     mockGetConfigFile.mockReset()
     mockSaveConfigFile.mockReset()
+    mockDeleteConfigFile.mockReset()
     mockGetGitWorkspaceStatus.mockReset()
     mockGetGitWorkspaceDiff.mockReset()
     mockCommitGitWorkspace.mockReset()
@@ -360,6 +363,72 @@ describe('ConfigPage', () => {
     })
     expect(await screen.findByRole('status')).toHaveTextContent('Saved')
     expect(mockGetConfigFile).toHaveBeenLastCalledWith('demo/app.conf')
+  })
+
+  it('reviews deletion without losing unsaved changes on cancel, then refreshes Files and Git on success', async () => {
+    mockGetConfigTree.mockResolvedValue(demoTree)
+    mockGetConfigFile.mockResolvedValue(fileBefore)
+    let resolveDelete!: () => void
+    mockDeleteConfigFile.mockImplementation(() => new Promise<void>((resolve) => { resolveDelete = resolve }))
+    renderPage('/config?path=demo')
+    fireEvent.click(await screen.findByRole('button', { name: 'app.conf' }))
+    const editor = await screen.findByLabelText('yaml-editor')
+    fireEvent.change(editor, { target: { value: 'unsaved content' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete file' }))
+    let dialog = screen.getByRole('dialog', { name: 'Delete "app.conf"?' })
+    expect(within(dialog).getByText('demo/app.conf')).toBeInTheDocument()
+    expect(dialog).toHaveTextContent('discard its unsaved editor changes')
+    expect(dialog).toHaveTextContent('No backup is created')
+    expect(mockDeleteConfigFile).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(editor).toHaveValue('unsaved content')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete file' }))
+    dialog = screen.getByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete file' }))
+    expect(mockDeleteConfigFile).toHaveBeenCalledExactlyOnceWith('demo/app.conf', fileBefore.modified_at)
+    expect(within(dialog).getByRole('button', { name: 'Deleting...' })).toBeDisabled()
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeDisabled()
+    mockGetConfigTree.mockResolvedValue({ ...demoTree, items: [] })
+    await act(async () => { resolveDelete() })
+    expect(await screen.findByRole('status')).toHaveTextContent('Deleted demo/app.conf')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('yaml-editor')).not.toBeInTheDocument()
+    expect(await screen.findByText('Empty directory')).toBeInTheDocument()
+    expect(mockGetConfigTree).toHaveBeenLastCalledWith('demo')
+    expect(mockGetGitWorkspaceStatus).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    'File changed on disk. Reload it before deleting.',
+    'File cannot be deleted due to permissions. Check access to its parent directory.',
+  ])('keeps the file and unsaved editor content after deletion fails: %s', async (message) => {
+    mockGetConfigTree.mockResolvedValue(demoTree)
+    mockGetConfigFile.mockResolvedValue(fileBefore)
+    mockDeleteConfigFile.mockRejectedValue(new Error(message))
+    renderPage('/config?path=demo')
+    fireEvent.click(await screen.findByRole('button', { name: 'app.conf' }))
+    const editor = await screen.findByLabelText('yaml-editor')
+    fireEvent.change(editor, { target: { value: 'keep this draft' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Delete file' }))
+    const dialog = screen.getByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete file' }))
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(message)
+    expect(mockGetConfigTree).toHaveBeenCalledOnce()
+    expect(mockGetGitWorkspaceStatus).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(editor).toHaveValue('keep this draft')
+    expect(screen.getByRole('heading', { name: 'app.conf' })).toBeInTheDocument()
+  })
+
+  it('offers deletion for binary files that cannot be edited', async () => {
+    mockGetConfigTree.mockResolvedValue(demoTree)
+    mockGetConfigFile.mockResolvedValue({ ...fileBefore, type: 'binary_file', content: null, writable: false })
+    renderPage('/config?path=demo')
+    fireEvent.click(await screen.findByRole('button', { name: 'app.conf' }))
+    expect(await screen.findByRole('button', { name: 'Delete file' })).toBeEnabled()
+    expect(screen.queryByTestId('config-save')).not.toBeInTheDocument()
   })
 
   it('opens a URL-addressed config subtree and keeps directory navigation in the URL', async () => {

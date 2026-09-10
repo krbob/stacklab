@@ -30,6 +30,7 @@ var (
 	ErrBinaryNotEditable    = errors.New("binary file is not editable")
 	ErrPermissionDenied     = errors.New("config workspace permission denied")
 	ErrConflict             = errors.New("config workspace file changed")
+	ErrValidation           = errors.New("invalid config workspace request")
 	ErrContentTooLarge      = limitedio.ErrContentTooLarge
 )
 
@@ -344,6 +345,73 @@ func (s *Service) SaveFile(ctx context.Context, request SaveFileRequest) (SaveFi
 		ModifiedAt:  info.ModTime().UTC(),
 		AuditAction: "save_config_file",
 	}, nil
+}
+
+func (s *Service) DeleteFile(ctx context.Context, request DeleteFileRequest) (DeleteFileResponse, error) {
+	if request.ExpectedModifiedAt.IsZero() {
+		return DeleteFileResponse{}, ErrValidation
+	}
+	normalized, err := normalizeRequiredFilePath(request.Path)
+	if err != nil {
+		return DeleteFileResponse{}, err
+	}
+	// Keep the existing workspace boundary diagnostics, then use rooted operations
+	// so a concurrently replaced parent symlink cannot redirect the deletion.
+	if _, err := s.resolveExistingPath(normalized); err != nil {
+		return DeleteFileResponse{}, configDeleteError(err)
+	}
+	rootPath, err := s.resolveExistingPath("")
+	if err != nil {
+		return DeleteFileResponse{}, configDeleteError(err)
+	}
+	parentPath, err := s.resolveExistingPath(parentRelativePath(normalized))
+	if err != nil {
+		return DeleteFileResponse{}, configDeleteError(err)
+	}
+	relativeParent, err := filepath.Rel(rootPath, parentPath)
+	if err != nil {
+		return DeleteFileResponse{}, configDeleteError(err)
+	}
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return DeleteFileResponse{}, configDeleteError(err)
+	}
+	defer root.Close()
+	parent, err := root.OpenRoot(relativeParent)
+	if err != nil {
+		return DeleteFileResponse{}, configDeleteError(err)
+	}
+	defer parent.Close()
+	name := path.Base(normalized)
+	info, err := parent.Lstat(name)
+	if err != nil {
+		return DeleteFileResponse{}, configDeleteError(err)
+	}
+	// Never follow a file symlink or recursively delete a directory.
+	if !info.Mode().IsRegular() {
+		return DeleteFileResponse{}, ErrPathNotFile
+	}
+	if !info.ModTime().Equal(request.ExpectedModifiedAt) {
+		return DeleteFileResponse{}, ErrConflict
+	}
+	if err := ctx.Err(); err != nil {
+		return DeleteFileResponse{}, err
+	}
+	if err := parent.Remove(name); err != nil {
+		return DeleteFileResponse{}, configDeleteError(err)
+	}
+	return DeleteFileResponse{Deleted: true, Path: normalized, AuditAction: "delete_config_file"}, nil
+}
+
+func configDeleteError(err error) error {
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return ErrNotFound
+	case errors.Is(err, os.ErrPermission):
+		return ErrPermissionDenied
+	default:
+		return fmt.Errorf("delete config workspace file: %w", err)
+	}
 }
 
 func (s *Service) RepairPermissions(ctx context.Context, request RepairPermissionsRequest) (RepairPermissionsResponse, error) {
