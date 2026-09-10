@@ -172,6 +172,46 @@ Potential adjustments:
 - prefer `Wants=docker.service` over `Requires=docker.service` so Stacklab survives a Docker daemon restart
 - do not enable sandboxing blindly before terminal and Docker access are verified end-to-end
 
+## Git Authentication
+
+Git commit and push run as the service account, normally `stacklab`. The
+packaged and tarball installs give this account a home at
+`/var/lib/stacklab/home`. An operator's working SSH agent or HTTPS login does
+not automatically configure Git authentication for this account.
+
+For SSH, configure a key with repository write access and a verified
+`known_hosts` entry for the service account. Keep `.ssh` at mode `0700` and
+private keys at `0600`, owned by that account. `ProtectHome=true` makes keys
+under `/home`, `/root`, or `/run/user` unavailable inside the service; use the
+service's own home or another explicitly accessible location. Check existing
+accounts with `getent passwd stacklab`, since installers preserve them.
+
+For HTTPS, configure a credential helper available to the service account with
+credentials authorized to write the repository. Keep credentials outside the
+managed Git workspace and remote URL. Git terminal credential prompts are
+disabled in Stacklab, so authentication must work without interactive input.
+
+To check the service account's Git access without pushing changes, run the
+following on the host (replace `/srv/stacklab` with the configured workspace
+root for a tarball install):
+
+```bash
+sudo -u stacklab -H env GIT_TERMINAL_PROMPT=0 \
+  git -C /srv/stacklab push --dry-run --no-verify
+```
+
+This checks the connection and proposed push, but does not exercise server-side
+hooks or prove that every branch protection rule will accept a real push. It
+also runs outside the systemd sandbox. If it succeeds while Stacklab fails,
+compare the unit's `HOME`, Git/SSH environment, and path restrictions with the
+shell environment.
+
+`git_auth_failed` means authentication or repository access was rejected;
+`git_host_key_failed` means the SSH server identity could not be verified;
+`permission_denied` points to file/key access or ownership. Workspace **Repair
+access** only covers managed config and stack files; it does not configure Git
+credentials or repair the repository's `.git` directory.
+
 ## Service Dependencies
 
 Stacklab depends on:

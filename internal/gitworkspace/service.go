@@ -36,6 +36,7 @@ var (
 	ErrUpstreamNotConfigured = errors.New("git upstream not configured")
 	ErrPushRejected          = errors.New("git push rejected")
 	ErrAuthFailed            = errors.New("git auth failed")
+	ErrHostKeyFailed         = errors.New("git SSH host verification failed")
 	ErrContentTooLarge       = limitedio.ErrContentTooLarge
 )
 
@@ -760,12 +761,13 @@ func (s *Service) runGitAllowTruncatedDiff(ctx context.Context, args ...string) 
 
 func gitCommandEnvironment(base []string, indexPath string) []string {
 	overridden := map[string]struct{}{
-		"GIT_INDEX_FILE":     {},
-		"GIT_OPTIONAL_LOCKS": {},
-		"GIT_PAGER":          {},
-		"LANG":               {},
-		"LC_ALL":             {},
-		"TERM":               {},
+		"GIT_INDEX_FILE":      {},
+		"GIT_OPTIONAL_LOCKS":  {},
+		"GIT_PAGER":           {},
+		"GIT_TERMINAL_PROMPT": {},
+		"LANG":                {},
+		"LC_ALL":              {},
+		"TERM":                {},
 	}
 	environment := make([]string, 0, len(base)+6)
 	for _, entry := range base {
@@ -777,6 +779,7 @@ func gitCommandEnvironment(base []string, indexPath string) []string {
 	}
 	environment = append(environment,
 		"GIT_PAGER=cat",
+		"GIT_TERMINAL_PROMPT=0",
 		"TERM=dumb",
 		"LC_ALL=C",
 		"LANG=C",
@@ -1192,11 +1195,25 @@ func classifyGitCommitError(stderr []byte, err error) error {
 func classifyGitPushError(stdout, stderr []byte, err error) error {
 	text := strings.ToLower(string(stdout) + "\n" + string(stderr))
 	switch {
+	case strings.Contains(text, "host key verification failed"),
+		strings.Contains(text, "remote host identification has changed"):
+		return ErrHostKeyFailed
+	case strings.Contains(text, "bad owner or permissions"),
+		strings.Contains(text, "unprotected private key file"),
+		strings.Contains(text, "load key ") && strings.Contains(text, "permission denied"):
+		return ErrPermissionDenied
 	case strings.Contains(text, "authentication failed"),
-		strings.Contains(text, "permission denied"),
+		strings.Contains(text, "permission denied ("),
+		strings.Contains(text, "permission to ") && strings.Contains(text, " denied to "),
+		strings.Contains(text, "http basic: access denied"),
+		strings.Contains(text, "requested url returned error: 401"),
+		strings.Contains(text, "requested url returned error: 403"),
 		strings.Contains(text, "could not read username"),
+		strings.Contains(text, "could not read password"),
 		strings.Contains(text, "repository not found"):
 		return ErrAuthFailed
+	case strings.Contains(text, "permission denied"), strings.Contains(text, "operation not permitted"):
+		return ErrPermissionDenied
 	case strings.Contains(text, "non-fast-forward"),
 		strings.Contains(text, "[rejected]"),
 		strings.Contains(text, "failed to push some refs"):

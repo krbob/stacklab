@@ -608,13 +608,13 @@ paths:
         '401':
           $ref: '#/components/responses/ErrorUnauthorized'
         '409':
-          description: Upstream is missing or remote rejected the push.
+          description: Upstream is missing, a required file is inaccessible, or remote rejected the push.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '502':
-          description: Remote authentication failed.
+          description: Remote authentication, repository access, or SSH host verification failed.
           content:
             application/json:
               schema:

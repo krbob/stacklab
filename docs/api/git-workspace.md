@@ -403,6 +403,8 @@ Suggested error codes:
 - `git_unavailable`
 - `upstream_not_configured`
 - `git_auth_failed`
+- `git_host_key_failed`
+- `permission_denied`
 - `push_rejected`
 
 ## UI Expectations For Commit And Push
@@ -418,3 +420,12 @@ the existing config or stack workspace repair endpoint with a path relative to
 that workspace, then refreshes Git status, commit eligibility, and the selected
 diff. Repairing one file does not navigate away from Changes or reopen it if
 the operator selected a different file while repair was running.
+
+Push uses the Stacklab service account's Git/SSH environment and disables
+terminal credential prompts. It does not inherit credentials from an operator's
+interactive shell. Authentication or repository authorization failures return
+`502 git_auth_failed`; SSH server identity failures return
+`502 git_host_key_failed`; file/key access failures return
+`409 permission_denied`. These responses explain the configuration to check
+without exposing Git output, remote URLs, or credentials. See
+[Git authentication under systemd](../ops/systemd.md#git-authentication).

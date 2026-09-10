@@ -273,7 +273,11 @@ func (h *workspaceController) handleGitWorkspacePush(w http.ResponseWriter, r *h
 		case errors.Is(err, gitworkspace.ErrUpstreamNotConfigured):
 			writeError(w, http.StatusConflict, "upstream_not_configured", "Current branch has no configured upstream.", nil)
 		case errors.Is(err, gitworkspace.ErrAuthFailed):
-			writeError(w, http.StatusBadGateway, "git_auth_failed", "Push failed due to remote authentication.", nil)
+			writeError(w, http.StatusBadGateway, "git_auth_failed", "Git remote authentication or repository access failed. Check the remote URL and configure an SSH key or HTTPS credentials with write access for the Stacklab service account. Credentials from your shell user are not automatically available to Stacklab.", nil)
+		case errors.Is(err, gitworkspace.ErrHostKeyFailed):
+			writeError(w, http.StatusBadGateway, "git_host_key_failed", "Git SSH host verification failed. Verify the Git server fingerprint and configure known_hosts for the Stacklab service account.", nil)
+		case errors.Is(err, gitworkspace.ErrPermissionDenied):
+			writeError(w, http.StatusConflict, "permission_denied", "Git could not access a required file or key. Check repository and SSH file ownership and permissions for the Stacklab service account, including paths restricted by systemd.", nil)
 		case errors.Is(err, gitworkspace.ErrPushRejected):
 			writeError(w, http.StatusConflict, "push_rejected", "Remote rejected the push.", nil)
 		default:

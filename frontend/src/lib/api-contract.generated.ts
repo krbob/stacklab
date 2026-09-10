@@ -2096,13 +2096,13 @@ export interface operations {
         };
       };
       401: components["responses"]["ErrorUnauthorized"];
-      /** @description Upstream is missing or remote rejected the push. */
+      /** @description Upstream is missing, a required file is inaccessible, or remote rejected the push. */
       409: {
         content: {
           "application/json": components["schemas"]["ErrorResponse"];
         };
       };
-      /** @description Remote authentication failed. */
+      /** @description Remote authentication, repository access, or SSH host verification failed. */
       502: {
         content: {
           "application/json": components["schemas"]["ErrorResponse"];

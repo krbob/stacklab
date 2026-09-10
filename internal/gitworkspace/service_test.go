@@ -621,6 +621,52 @@ func TestClassifyGitCommitErrorPreservesStderr(t *testing.T) {
 	}
 }
 
+func TestClassifyGitPushError(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		output string
+		want   error
+	}{
+		{"https credentials", "fatal: Authentication failed for 'https://example.com/repo.git'", ErrAuthFailed},
+		{"missing username", "fatal: could not read Username for 'https://example.com': terminal prompts disabled", ErrAuthFailed},
+		{"missing password", "fatal: could not read Password for 'https://user@example.com': terminal prompts disabled", ErrAuthFailed},
+		{"SSH credentials", "git@example.com: Permission denied (publickey).", ErrAuthFailed},
+		{"remote authorization", "ERROR: Permission to org/repo.git denied to user.", ErrAuthFailed},
+		{"repository access", "remote: Repository not found.", ErrAuthFailed},
+		{"HTTP access", "fatal: unable to access 'https://example.com/repo.git': The requested URL returned error: 403", ErrAuthFailed},
+		{"host key", "Host key verification failed.", ErrHostKeyFailed},
+		{"changed host", "WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!", ErrHostKeyFailed},
+		{"local repository", "error: cannot lock ref 'refs/remotes/origin/main': Permission denied", ErrPermissionDenied},
+		{"local key", "Load key \"/home/user/.ssh/id_ed25519\": Permission denied\ngit@example.com: Permission denied (publickey).", ErrPermissionDenied},
+		{"key mode", "WARNING: UNPROTECTED PRIVATE KEY FILE!\ngit@example.com: Permission denied (publickey).", ErrPermissionDenied},
+		{"SSH config", "Bad owner or permissions on /home/user/.ssh/config", ErrPermissionDenied},
+		{"rejected", "! [rejected] main -> main (non-fast-forward)\nerror: failed to push some refs", ErrPushRejected},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := classifyGitPushError(nil, []byte(tc.output), errors.New("exit status 128")); !errors.Is(got, tc.want) {
+				t.Fatalf("classifyGitPushError() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestGitCommandEnvironmentDisablesTerminalPromptsAndPreservesSSHConfiguration(t *testing.T) {
+	t.Parallel()
+	environment := gitCommandEnvironment([]string{"GIT_TERMINAL_PROMPT=1", "GIT_SSH_COMMAND=ssh -F /srv/git-ssh.conf", "SSH_AUTH_SOCK=/run/git-agent.sock"}, "")
+	values := map[string]string{}
+	for _, entry := range environment {
+		key, value, _ := strings.Cut(entry, "=")
+		if _, duplicate := values[key]; duplicate {
+			t.Fatalf("duplicate environment variable: %s", key)
+		}
+		values[key] = value
+	}
+	if values["GIT_TERMINAL_PROMPT"] != "0" || values["GIT_SSH_COMMAND"] != "ssh -F /srv/git-ssh.conf" || values["SSH_AUTH_SOCK"] != "/run/git-agent.sock" {
+		t.Fatalf("unexpected Git authentication environment: %#v", values)
+	}
+}
+
 type testRepairCapability struct{}
 
 func (testRepairCapability) Capability(context.Context) workspacerepair.Capability {
