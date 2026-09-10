@@ -65,6 +65,7 @@ type Handler struct {
 	selfUpdate      SelfUpdateManager
 	readinessChecks []ReadinessCheck
 	serviceMetrics  *servicemetrics.Collector
+	metricsHandler  http.Handler
 
 	wsMu          sync.Mutex
 	wsClosing     bool
@@ -207,6 +208,9 @@ func NewHandler(cfg config.Config, logger *slog.Logger, dependencies Dependencie
 		wsConnections:   map[*wsConnection]struct{}{},
 	}
 
+	if err := handler.initializePrometheusMetrics(); err != nil {
+		return nil, err
+	}
 	handler.registerRoutes()
 	handler.served = handler.withRequestID(handler.withLogging(handler.withSecurityHeaders(handler.mux)))
 
@@ -278,6 +282,10 @@ func (h *Handler) registerRoutes() {
 
 func (h *Handler) withLogging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/metrics" {
+			next.ServeHTTP(w, r)
+			return
+		}
 		startedAt := time.Now()
 		h.serviceMetrics.RequestStarted()
 

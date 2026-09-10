@@ -22,6 +22,28 @@ tags:
   - name: Jobs
   - name: Settings
 paths:
+  /metrics:
+    servers:
+      - url: /
+    get:
+      tags: [Observability]
+      operationId: getPrometheusMetrics
+      description: Optional Prometheus scrape endpoint on the main HTTP listener. Enabled by STACKLAB_METRICS_TOKEN_FILE, with a dedicated read-only bearer token. Browser sessions do not grant access. Scrapes do not contribute to HTTP activity counters.
+      security:
+        - metricsBearer: []
+      responses:
+        '200':
+          description: Service aggregates, bounded duration histograms, readiness, and Go/process metrics. Readiness failures are represented as gauge values.
+          content:
+            text/plain:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          description: Metrics endpoint is disabled.
+        '503':
+          description: Concurrent scrape limit or scrape timeout exceeded.
   /live:
     get:
       tags: [Health]
@@ -1745,6 +1767,10 @@ paths:
           $ref: '#/components/responses/ErrorInvalidState'
 components:
   securitySchemes:
+    metricsBearer:
+      type: http
+      scheme: bearer
+      description: Dedicated metrics token loaded from STACKLAB_METRICS_TOKEN_FILE. Grants access only to GET /metrics.
     sessionCookie:
       type: apiKey
       in: cookie

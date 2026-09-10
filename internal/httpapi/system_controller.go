@@ -24,6 +24,7 @@ type systemController struct {
 }
 
 func (c *systemController) registerRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /metrics", c.handlePrometheusMetrics)
 	mux.HandleFunc("GET /api/live", c.handleLive)
 	mux.HandleFunc("GET /api/ready", c.handleReady)
 	mux.HandleFunc("GET /api/health", c.handleReady)

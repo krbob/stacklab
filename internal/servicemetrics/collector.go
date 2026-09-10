@@ -16,6 +16,9 @@ type Collector struct {
 	jobs       JobMetrics
 	webSockets WebSocketMetrics
 	readiness  ReadinessMetrics
+
+	httpDurationBuckets [11]uint64
+	jobDurationBuckets  [12]uint64
 }
 
 type Snapshot struct {
@@ -100,6 +103,7 @@ func (c *Collector) RequestFinished(duration time.Duration, status int) {
 	}
 	c.http.DurationSecondsTotal += seconds
 	c.http.DurationSecondsMax = max(c.http.DurationSecondsMax, seconds)
+	observeDuration(seconds, httpDurationBounds[:], c.httpDurationBuckets[:])
 	c.mu.Unlock()
 }
 
@@ -128,6 +132,7 @@ func (c *Collector) JobFinished(startedAt, finishedAt time.Time, state string) {
 	}
 	c.jobs.DurationSecondsTotal += seconds
 	c.jobs.DurationSecondsMax = max(c.jobs.DurationSecondsMax, seconds)
+	observeDuration(seconds, jobDurationBounds[:], c.jobDurationBuckets[:])
 	c.mu.Unlock()
 }
 
@@ -189,7 +194,10 @@ func (c *Collector) Snapshot(now time.Time) Snapshot {
 	now = now.UTC()
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return c.snapshotLocked(now)
+}
 
+func (c *Collector) snapshotLocked(now time.Time) Snapshot {
 	readiness := c.readiness
 	if readiness.CheckedAt != nil {
 		checkedAt := *readiness.CheckedAt
@@ -213,6 +221,15 @@ func (c *Collector) Snapshot(now time.Time) Snapshot {
 		Jobs:       c.jobs,
 		WebSockets: c.webSockets,
 		Readiness:  readiness,
+	}
+}
+
+func observeDuration(seconds float64, bounds []float64, buckets []uint64) {
+	for i, bound := range bounds {
+		if seconds <= bound {
+			buckets[i]++
+			return
+		}
 	}
 }
 

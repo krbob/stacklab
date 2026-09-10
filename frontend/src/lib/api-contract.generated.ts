@@ -141,6 +141,10 @@ export interface paths {
   "/meta": {
     get: operations["getMeta"];
   };
+  "/metrics": {
+    /** @description Optional Prometheus scrape endpoint on the main HTTP listener. Enabled by STACKLAB_METRICS_TOKEN_FILE, with a dedicated read-only bearer token. Browser sessions do not grant access. Scrapes do not contribute to HTTP activity counters. */
+    get: operations["getPrometheusMetrics"];
+  };
   "/ready": {
     get: operations["getReadiness"];
   };
@@ -2623,6 +2627,26 @@ export interface operations {
         };
       };
       401: components["responses"]["ErrorUnauthorized"];
+    };
+  };
+  /** @description Optional Prometheus scrape endpoint on the main HTTP listener. Enabled by STACKLAB_METRICS_TOKEN_FILE, with a dedicated read-only bearer token. Browser sessions do not grant access. Scrapes do not contribute to HTTP activity counters. */
+  getPrometheusMetrics: {
+    responses: {
+      /** @description Service aggregates, bounded duration histograms, readiness, and Go/process metrics. Readiness failures are represented as gauge values. */
+      200: {
+        content: {
+          "text/plain": string;
+        };
+      };
+      401: components["responses"]["ErrorUnauthorized"];
+      /** @description Metrics endpoint is disabled. */
+      404: {
+        content: never;
+      };
+      /** @description Concurrent scrape limit or scrape timeout exceeded. */
+      503: {
+        content: never;
+      };
     };
   };
   getReadiness: {

@@ -23,6 +23,7 @@ func domainRouteContract() []domainRoute {
 		{http.MethodPost, "/api/auth/login", "POST /api/auth/login"},
 		{http.MethodPost, "/api/auth/logout", "POST /api/auth/logout"},
 		{http.MethodGet, "/api/live", "GET /api/live"},
+		{http.MethodGet, "/metrics", "GET /metrics"},
 		{http.MethodGet, "/api/ready", "GET /api/ready"},
 		{http.MethodGet, "/api/health", "GET /api/health"},
 		{http.MethodGet, "/api/ws", "GET /api/ws"},
@@ -100,8 +101,8 @@ func TestHandlerRegistersDomainRouteContract(t *testing.T) {
 	handler.registerRoutes()
 	routes := domainRouteContract()
 
-	if len(routes) != 71 {
-		t.Fatalf("route contract contains %d operations, want 71", len(routes))
+	if len(routes) != 72 {
+		t.Fatalf("route contract contains %d operations, want 72", len(routes))
 	}
 	for _, route := range routes {
 		route := route
@@ -141,8 +142,15 @@ func TestOpenAPICoversDomainRouteContract(t *testing.T) {
 		t.Fatalf("read OpenAPI spec: %v", err)
 	}
 
+	type server struct {
+		URL string `yaml:"url"`
+	}
 	var spec struct {
-		Paths map[string]map[string]any `yaml:"paths"`
+		Servers []server `yaml:"servers"`
+		Paths   map[string]struct {
+			Servers    []server       `yaml:"servers"`
+			Operations map[string]any `yaml:",inline"`
+		} `yaml:"paths"`
 	}
 	if err := yaml.Unmarshal(rawSpec, &spec); err != nil {
 		t.Fatalf("parse OpenAPI spec: %v", err)
@@ -158,11 +166,18 @@ func TestOpenAPICoversDomainRouteContract(t *testing.T) {
 
 	documented := make(map[string]struct{}, len(expected))
 	for path, pathItem := range spec.Paths {
-		for method := range pathItem {
+		servers := spec.Servers
+		if len(pathItem.Servers) > 0 {
+			servers = pathItem.Servers
+		}
+		if len(servers) != 1 {
+			t.Fatalf("expected one API server for %s, got %#v", path, servers)
+		}
+		for method := range pathItem.Operations {
 			if !isOpenAPIOperationMethod(method) {
 				continue
 			}
-			pattern := strings.ToUpper(method) + " /api" + path
+			pattern := strings.ToUpper(method) + " " + strings.TrimRight(servers[0].URL, "/") + path
 			documented[pattern] = struct{}{}
 			if _, ok := expected[pattern]; !ok {
 				t.Errorf("OpenAPI documents unregistered operation %s", pattern)
@@ -194,6 +209,7 @@ func TestDomainRoutesPreserveAuthenticationPolicy(t *testing.T) {
 
 	publicRoutes := map[string]int{
 		"GET /api/live":        http.StatusOK,
+		"GET /metrics":         http.StatusNotFound, // Explicitly disabled without a configured token file.
 		"GET /api/ready":       http.StatusOK,
 		"GET /api/health":      http.StatusOK,
 		"POST /api/auth/login": http.StatusBadRequest,

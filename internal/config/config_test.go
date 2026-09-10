@@ -50,3 +50,14 @@ func TestLoadTrustedProxySecret(t *testing.T) {
 		t.Fatalf("TrustedProxySecret = %q, want configured secret", cfg.TrustedProxySecret)
 	}
 }
+
+func TestLoadMetricsTokenFileIsOptIn(t *testing.T) {
+	t.Setenv("STACKLAB_METRICS_TOKEN_FILE", "")
+	if Load().MetricsTokenFile != "" {
+		t.Fatal("metrics must be disabled by default")
+	}
+	t.Setenv("STACKLAB_METRICS_TOKEN_FILE", "/run/secrets/metrics-token")
+	if Load().MetricsTokenFile != "/run/secrets/metrics-token" {
+		t.Fatal("metrics token file setting was not loaded")
+	}
+}

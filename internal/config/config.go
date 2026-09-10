@@ -15,6 +15,7 @@ type Config struct {
 	DataDir                      string
 	DatabasePath                 string
 	HTTPAddr                     string
+	MetricsTokenFile             string
 	LogLevel                     slog.Level
 	FrontendDistDir              string
 	BootstrapPassword            string
@@ -53,6 +54,7 @@ func Load() Config {
 		DataDir:                      dataDir,
 		DatabasePath:                 getenv("STACKLAB_DATABASE_PATH", filepath.Join(dataDir, "stacklab.db")),
 		HTTPAddr:                     getenv("STACKLAB_HTTP_ADDR", "127.0.0.1:8080"),
+		MetricsTokenFile:             getenv("STACKLAB_METRICS_TOKEN_FILE", ""),
 		LogLevel:                     parseLogLevel(getenv("STACKLAB_LOG_LEVEL", "info")),
 		FrontendDistDir:              getenv("STACKLAB_FRONTEND_DIST", filepath.Join("frontend", "dist")),
 		BootstrapPassword:            getenv("STACKLAB_BOOTSTRAP_PASSWORD", ""),
