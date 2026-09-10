@@ -3,7 +3,8 @@ name: Nightly Release
 on:
   workflow_dispatch:
   schedule:
-    - cron: '17 3 * * *'
+    # Leave room for delayed scheduled runs before morning host updates at 06:00.
+    - cron: '17 23 * * *'
       timezone: "Europe/Warsaw"
 
 permissions:

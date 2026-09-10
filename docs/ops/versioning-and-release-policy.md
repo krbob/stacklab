@@ -42,8 +42,11 @@ equal. A nightly GitHub prerelease uses a separate immutable tag of the form
 
 ### Nightly
 
-`.github/workflows/nightly-release.yml` runs every day at 03:17 in the
-`Europe/Warsaw` timezone and can also be dispatched manually.
+`.github/workflows/nightly-release.yml` is scheduled every day at 23:17 in the
+`Europe/Warsaw` timezone and can also be dispatched manually. Scheduling the
+previous evening leaves headroom for publication before host updates after
+06:00, including daylight-saving changes. GitHub may delay scheduled runs, so
+this is a scheduling target rather than a guaranteed publication deadline.
 
 For a changed `main` revision it:
 
