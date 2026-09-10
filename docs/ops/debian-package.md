@@ -104,7 +104,10 @@ The implemented `postinst` is idempotent. On configuration it:
 5. adds the service account to existing `docker` and `systemd-journal` groups;
 6. reloads and enables the service, starts it on first install, or performs a
    best-effort restart after upgrade;
-7. prints a bootstrap-password hint when authentication is not yet configured.
+7. prints a bootstrap-password hint on first install when the environment file
+   has no active `STACKLAB_BOOTSTRAP_PASSWORD` entry. Upgrades and repeated
+   configuration skip the hint because the bootstrap secret should be removed
+   after the first password is initialized.
 
 The workspace permission repair preserves existing directory owners and only
 changes these four parents. It never recursively changes container data or

@@ -126,7 +126,10 @@ case "$1" in
     ensure_sensitive_file_modes
     ensure_groups
     maybe_enable_service "$@"
-    print_bootstrap_hint
+    # The bootstrap secret is normally removed after the first password is set.
+    if [ -z "${2:-}" ]; then
+      print_bootstrap_hint
+    fi
     ;;
 esac
 
