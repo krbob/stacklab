@@ -3094,6 +3094,8 @@ components:
     GitDiffResponse:
       type: object
       properties:
+        repair_capability:
+          $ref: '#/components/schemas/WorkspaceRepairCapability'
         available:
           type: boolean
         path:

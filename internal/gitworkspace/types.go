@@ -1,6 +1,9 @@
 package gitworkspace
 
-import "stacklab/internal/fsmeta"
+import (
+	"stacklab/internal/fsmeta"
+	"stacklab/internal/workspacerepair"
+)
 
 type Scope string
 
@@ -48,18 +51,19 @@ type StatusItem struct {
 }
 
 type DiffResponse struct {
-	Available     bool                `json:"available"`
-	Path          string              `json:"path"`
-	Scope         Scope               `json:"scope"`
-	StackID       *string             `json:"stack_id"`
-	Status        FileStatus          `json:"status"`
-	OldPath       *string             `json:"old_path"`
-	Permissions   *fsmeta.Permissions `json:"permissions,omitempty"`
-	DiffAvailable bool                `json:"diff_available"`
-	BlockedReason *string             `json:"blocked_reason"`
-	IsBinary      bool                `json:"is_binary"`
-	Diff          *string             `json:"diff"`
-	Truncated     bool                `json:"truncated"`
+	RepairCapability *workspacerepair.Capability `json:"repair_capability,omitempty"`
+	Available        bool                        `json:"available"`
+	Path             string                      `json:"path"`
+	Scope            Scope                       `json:"scope"`
+	StackID          *string                     `json:"stack_id"`
+	Status           FileStatus                  `json:"status"`
+	OldPath          *string                     `json:"old_path"`
+	Permissions      *fsmeta.Permissions         `json:"permissions,omitempty"`
+	DiffAvailable    bool                        `json:"diff_available"`
+	BlockedReason    *string                     `json:"blocked_reason"`
+	IsBinary         bool                        `json:"is_binary"`
+	Diff             *string                     `json:"diff"`
+	Truncated        bool                        `json:"truncated"`
 }
 
 type CommitRequest struct {

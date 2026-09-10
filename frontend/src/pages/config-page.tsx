@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { File, FileQuestion, FileWarning, Folder, FolderKanban, GitBranch, Plus } from 'lucide-react'
-import { getConfigTree, getConfigFile, saveConfigFile, repairConfigWorkspacePermissions, getGitWorkspaceStatus, getGitWorkspaceDiff } from '@/lib/api-client'
+import { getConfigTree, getConfigFile, saveConfigFile, repairConfigWorkspacePermissions, repairStackWorkspacePermissions, getGitWorkspaceStatus, getGitWorkspaceDiff } from '@/lib/api-client'
 import type { ConfigTreeEntry, ConfigFileResponse, GitStatusItem, GitDiffResponse } from '@/lib/api-types'
 import { YamlEditor } from '@/components/yaml-editor'
 import { DiffView } from '@/components/diff-view'
@@ -86,10 +86,7 @@ export function ConfigPage() {
   const [selectedChangePath, setSelectedChangePath] = useState<string | null>(null)
   const [selectedGitPaths, setSelectedGitPaths] = useState<Set<string>>(new Set())
   const selectedChangePathRef = useRef<string | null>(null)
-
-  useEffect(() => {
-    selectedChangePathRef.current = selectedChangePath
-  }, [selectedChangePath])
+  const diffRequestIdRef = useRef(0)
 
   // --- Files mode logic ---
 
@@ -205,6 +202,9 @@ export function ConfigPage() {
       setGitReason(result.reason ?? null)
       setSelectedGitPaths(new Set())
       if (selectedChangePathRef.current && !(result.items ?? []).some((item) => item.path === selectedChangePathRef.current)) {
+        selectedChangePathRef.current = null
+        ++diffRequestIdRef.current
+        setDiffLoading(false)
         setSelectedDiff(null)
         setSelectedChangePath(null)
         setDiffError(null)
@@ -221,17 +221,21 @@ export function ConfigPage() {
   }, [mode, loadGitStatus])
 
   const openDiff = useCallback(async (path: string) => {
+    const requestId = ++diffRequestIdRef.current
+    selectedChangePathRef.current = path
     setSelectedChangePath(path)
     setDiffLoading(true)
     setDiffError(null)
     setSelectedDiff(null)
     try {
       const result = await getGitWorkspaceDiff(path)
+      if (requestId !== diffRequestIdRef.current) return
       setSelectedDiff(result)
     } catch (err) {
+      if (requestId !== diffRequestIdRef.current) return
       setDiffError(err instanceof Error ? err.message : 'Failed to load diff')
     } finally {
-      setDiffLoading(false)
+      if (requestId === diffRequestIdRef.current) setDiffLoading(false)
     }
     setSheetOpen(false)
   }, [])
@@ -276,6 +280,9 @@ export function ConfigPage() {
   const handleModeSwitch = useCallback((newMode: Mode) => {
     setMode(newMode)
     if (newMode === 'files') {
+      selectedChangePathRef.current = null
+      ++diffRequestIdRef.current
+      setDiffLoading(false)
       setSelectedDiff(null)
       setSelectedChangePath(null)
       setDiffError(null)
@@ -808,7 +815,28 @@ export function ConfigPage() {
                 </div>
                 <div className="mt-3 flex-1" style={{ minHeight: '400px' }}>
                   {selectedDiff.blocked_reason ? (
-                    <BlockedFileCard blockedReason={selectedDiff.blocked_reason} permissions={selectedDiff.permissions} />
+                    <BlockedFileCard
+                      key={selectedDiff.path}
+                      stateKey={selectedDiff.path}
+                      blockedReason={selectedDiff.blocked_reason}
+                      permissions={selectedDiff.permissions}
+                      repairCapability={selectedDiff.repair_capability}
+                      onRepair={selectedDiff.repair_capability?.supported ? async (recursive) => {
+                        const { path, scope, stack_id: stackId } = selectedDiff
+                        let result
+                        if (scope === 'config' && path.startsWith('config/')) {
+                          result = await repairConfigWorkspacePermissions({ path: path.slice('config/'.length), recursive })
+                        } else if (scope === 'stacks' && stackId && path.startsWith(`stacks/${stackId}/`)) {
+                          result = await repairStackWorkspacePermissions(stackId, { path: path.slice(`stacks/${stackId}/`.length), recursive })
+                        } else {
+                          throw new Error('This file is outside a supported repair workspace.')
+                        }
+                        await loadGitStatus()
+                        if (selectedChangePathRef.current === path) void openDiff(path)
+                        void loadTree(treePath)
+                        return result
+                      } : undefined}
+                    />
                   ) : selectedDiff.is_binary ? (
                     <div className="flex h-full items-center justify-center rounded border border-[var(--panel-border)] bg-[rgba(0,0,0,0.2)]">
                       <div className="text-center">

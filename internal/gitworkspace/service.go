@@ -20,6 +20,7 @@ import (
 	"stacklab/internal/fsmeta"
 	"stacklab/internal/limitedio"
 	"stacklab/internal/stacks"
+	"stacklab/internal/workspacerepair"
 )
 
 var (
@@ -50,9 +51,21 @@ type Service struct {
 	workspaceRoot string
 	gitBinary     string
 	mutationMu    sync.Mutex
+	repairer      RepairCapabilityReader
+}
+
+type RepairCapabilityReader interface {
+	Capability(context.Context) workspacerepair.Capability
 }
 
 func NewService(cfg config.Config) *Service {
+	return NewServiceWithRepairer(cfg, workspacerepair.NewService(cfg))
+}
+
+func NewServiceWithRepairer(cfg config.Config, repairer RepairCapabilityReader) *Service {
+	if repairer == nil {
+		repairer = workspacerepair.NewService(cfg)
+	}
 	root := cfg.RootDir
 	if absolute, err := filepath.Abs(root); err == nil {
 		root = absolute
@@ -60,6 +73,7 @@ func NewService(cfg config.Config) *Service {
 	return &Service{
 		workspaceRoot: root,
 		gitBinary:     "git",
+		repairer:      repairer,
 	}
 }
 
@@ -152,6 +166,10 @@ func (s *Service) Diff(ctx context.Context, requestedPath string) (DiffResponse,
 		BlockedReason: item.BlockedReason,
 	}
 	if !item.DiffAvailable {
+		if item.BlockedReason != nil {
+			capability := s.repairer.Capability(ctx)
+			response.RepairCapability = &capability
+		}
 		return response, nil
 	}
 

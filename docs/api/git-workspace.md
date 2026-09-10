@@ -235,7 +235,7 @@ Response:
 }
 ```
 
-For binary files:
+For unreadable files:
 
 ```json
 {
@@ -256,6 +256,10 @@ For binary files:
   },
   "diff_available": false,
   "blocked_reason": "not_readable",
+  "repair_capability": {
+    "supported": true,
+    "recursive": true
+  },
   "is_binary": false,
   "diff": null,
   "truncated": false
@@ -407,3 +411,10 @@ Suggested error codes:
 - primary selection stays per-file
 - stack quick-select is a convenience action that expands to file paths
 - push should be available only when workspace has an upstream and local commits ahead of remote
+
+Blocked diff responses include `repair_capability` from the same permission
+helper used by Files. Changes offers **Repair access** when supported, uses
+the existing config or stack workspace repair endpoint with a path relative to
+that workspace, then refreshes Git status, commit eligibility, and the selected
+diff. Repairing one file does not navigate away from Changes or reopen it if
+the operator selected a different file while repair was running.

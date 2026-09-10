@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"stacklab/internal/config"
+	"stacklab/internal/workspacerepair"
 )
 
 func TestMain(m *testing.M) {
@@ -620,6 +621,12 @@ func TestClassifyGitCommitErrorPreservesStderr(t *testing.T) {
 	}
 }
 
+type testRepairCapability struct{}
+
+func (testRepairCapability) Capability(context.Context) workspacerepair.Capability {
+	return workspacerepair.Capability{Supported: true, Recursive: true}
+}
+
 func TestServiceStatusDiffAndCommitDetectUnreadableFile(t *testing.T) {
 	t.Parallel()
 
@@ -665,6 +672,14 @@ func TestServiceStatusDiffAndCommitDetectUnreadableFile(t *testing.T) {
 	}
 	if diff.DiffAvailable || diff.Diff != nil || diff.BlockedReason == nil || *diff.BlockedReason != "not_readable" {
 		t.Fatalf("unexpected protected diff payload: %#v", diff)
+	}
+	if diff.RepairCapability == nil || diff.RepairCapability.Supported || diff.RepairCapability.Reason == nil {
+		t.Fatalf("blocked diff should explain why repair is unavailable: %#v", diff.RepairCapability)
+	}
+	service = NewServiceWithRepairer(config.Config{RootDir: root}, testRepairCapability{})
+	diff, err = service.Diff(context.Background(), "config/demo/secret.conf")
+	if err != nil || diff.RepairCapability == nil || !diff.RepairCapability.Supported {
+		t.Fatalf("blocked diff should expose the shared repair capability: %#v, %v", diff.RepairCapability, err)
 	}
 
 	if _, err := service.Commit(context.Background(), CommitRequest{

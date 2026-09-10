@@ -612,6 +612,7 @@ export interface components {
       old_path: string | null;
       path: string;
       permissions?: components["schemas"]["FilePermissions"];
+      repair_capability?: components["schemas"]["WorkspaceRepairCapability"];
       scope: components["schemas"]["GitScope"];
       stack_id: string | null;
       status: components["schemas"]["GitFileStatus"];

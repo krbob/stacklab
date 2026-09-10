@@ -16,6 +16,8 @@ const mockGetGitWorkspaceStatus = vi.fn()
 const mockGetGitWorkspaceDiff = vi.fn()
 const mockCommitGitWorkspace = vi.fn()
 const mockPushGitWorkspace = vi.fn()
+const mockRepairConfigWorkspacePermissions = vi.fn()
+const mockRepairStackWorkspacePermissions = vi.fn()
 
 const unsupportedRepairCapability = {
   supported: false,
@@ -31,6 +33,8 @@ vi.mock('@/lib/api-client', () => ({
   getGitWorkspaceDiff: (...args: unknown[]) => mockGetGitWorkspaceDiff(...args),
   commitGitWorkspace: (...args: unknown[]) => mockCommitGitWorkspace(...args),
   pushGitWorkspace: (...args: unknown[]) => mockPushGitWorkspace(...args),
+  repairConfigWorkspacePermissions: (...args: unknown[]) => mockRepairConfigWorkspacePermissions(...args),
+  repairStackWorkspacePermissions: (...args: unknown[]) => mockRepairStackWorkspacePermissions(...args),
 }))
 
 vi.mock('@/components/yaml-editor', () => ({
@@ -301,6 +305,8 @@ describe('ConfigPage', () => {
     mockGetGitWorkspaceDiff.mockReset()
     mockCommitGitWorkspace.mockReset()
     mockPushGitWorkspace.mockReset()
+    mockRepairConfigWorkspacePermissions.mockReset()
+    mockRepairStackWorkspacePermissions.mockReset()
 
     mockGetConfigTree.mockResolvedValue(rootTree)
     mockGetGitWorkspaceStatus.mockResolvedValue(gitStatus)
@@ -862,6 +868,90 @@ describe('ConfigPage', () => {
 
     expect(await screen.findByText('File access blocked')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Open in editor' })).not.toBeInTheDocument()
+  })
+
+  it.each(['config', 'stacks'] as const)('repairs a blocked %s file from Changes and refreshes its diff and commit availability', async (scope) => {
+    const path = `${scope}/demo/secret.conf`
+    const blockedDiff = { ...blockedGitDiff, scope, path, repair_capability: { supported: true, recursive: true } }
+    const blockedItem = { ...blockedGitStatus.items![1], scope, path }
+    const repairedDiff = { ...blockedDiff, blocked_reason: null, diff_available: true, diff: 'repaired diff' }
+    mockGetGitWorkspaceStatus
+      .mockResolvedValueOnce({ ...gitStatus, items: [blockedItem] })
+      .mockResolvedValue({ ...gitStatus, items: [{ ...blockedItem, blocked_reason: null, diff_available: true, commit_allowed: true }] })
+    mockGetGitWorkspaceDiff.mockResolvedValueOnce(blockedDiff).mockResolvedValue(repairedDiff)
+    const repairResult = { repaired: true, changed_items: 1, target_permissions_before: blockedFile.permissions, target_permissions_after: fileBefore.permissions }
+    mockRepairConfigWorkspacePermissions.mockResolvedValue(repairResult)
+    mockRepairStackWorkspacePermissions.mockResolvedValue(repairResult)
+
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /^Changes/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /secret\.conf/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Repair access' }))
+
+    await waitFor(() => expect(screen.queryByText('File access blocked')).not.toBeInTheDocument())
+    expect(mockGetGitWorkspaceDiff).toHaveBeenLastCalledWith(path)
+    expect(mockGetGitWorkspaceDiff).toHaveBeenCalledTimes(2)
+    expect(screen.getByRole('button', { name: /^Changes/, pressed: true })).toBeInTheDocument()
+    expect(screen.getAllByRole('checkbox').every((checkbox) => !checkbox.hasAttribute('disabled'))).toBe(true)
+    if (scope === 'config') {
+      expect(mockRepairConfigWorkspacePermissions).toHaveBeenCalledWith({ path: 'demo/secret.conf', recursive: false })
+      expect(mockRepairStackWorkspacePermissions).not.toHaveBeenCalled()
+    } else {
+      expect(mockRepairStackWorkspacePermissions).toHaveBeenCalledWith('demo', { path: 'secret.conf', recursive: false })
+      expect(mockRepairConfigWorkspacePermissions).not.toHaveBeenCalled()
+    }
+  })
+
+  it('keeps a repair failure visible in Changes and allows retrying', async () => {
+    mockGetGitWorkspaceStatus.mockResolvedValue(blockedGitStatus)
+    mockGetGitWorkspaceDiff.mockResolvedValue({ ...blockedGitDiff, repair_capability: { supported: true, recursive: true } })
+    mockRepairConfigWorkspacePermissions.mockRejectedValue(new Error('Workspace helper unavailable'))
+
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /^Changes/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /secret\.conf/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Repair access' }))
+
+    expect(await screen.findByText('Workspace helper unavailable')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Repair access' })).toBeEnabled()
+    expect(mockGetGitWorkspaceDiff).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not reopen a repaired file after another change was selected', async () => {
+    let finishRepair!: (result: unknown) => void
+    mockGetGitWorkspaceStatus.mockResolvedValue(blockedGitStatus)
+    mockGetGitWorkspaceDiff.mockImplementation((path) => Promise.resolve(path === blockedGitDiff.path
+      ? { ...blockedGitDiff, repair_capability: { supported: true, recursive: true } }
+      : gitDiff))
+    mockRepairConfigWorkspacePermissions.mockReturnValue(new Promise((resolve) => { finishRepair = resolve }))
+
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /^Changes/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /secret\.conf/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Repair access' }))
+    fireEvent.click(screen.getByRole('button', { name: /app\.conf/ }))
+    expect(await screen.findByRole('heading', { name: 'app.conf' })).toBeInTheDocument()
+
+    await act(async () => finishRepair({ repaired: true, changed_items: 1, target_permissions_before: blockedFile.permissions, target_permissions_after: fileBefore.permissions }))
+
+    expect(screen.getByRole('heading', { name: 'app.conf' })).toBeInTheDocument()
+    expect(mockGetGitWorkspaceDiff).toHaveBeenCalledTimes(2)
+  })
+
+  it('ignores an older diff response after selecting another changed file', async () => {
+    let finishDiff!: (result: GitDiffResponse) => void
+    mockGetGitWorkspaceStatus.mockResolvedValue(blockedGitStatus)
+    mockGetGitWorkspaceDiff.mockReturnValueOnce(new Promise((resolve) => { finishDiff = resolve })).mockResolvedValue(gitDiff)
+
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /^Changes/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /secret\.conf/ }))
+    fireEvent.click(screen.getByRole('button', { name: /app\.conf/ }))
+    expect(await screen.findByRole('heading', { name: 'app.conf' })).toBeInTheDocument()
+    await act(async () => finishDiff(blockedGitDiff))
+
+    expect(screen.getByRole('heading', { name: 'app.conf' })).toBeInTheDocument()
+    expect(screen.queryByText('File access blocked')).not.toBeInTheDocument()
   })
 
   it('group selection skips blocked files and still shows group as selected when all committable files are selected', async () => {

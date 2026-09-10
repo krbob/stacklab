@@ -171,7 +171,7 @@ func newApplication(parent context.Context, cfg config.Config, logger *slog.Logg
 		DockerRegistry:  dockerregistryauth.NewService(cfg),
 		ConfigFiles:     configworkspace.NewServiceWithRepairer(cfg, workspaceRepairer),
 		StackFiles:      stackworkspace.NewServiceWithRepairer(cfg, workspaceRepairer),
-		GitStatus:       gitworkspace.NewService(cfg),
+		GitStatus:       gitworkspace.NewServiceWithRepairer(cfg, workspaceRepairer),
 		Maintenance:     maintenanceService,
 		MaintenanceJobs: maintenanceRunner,
 		Notifications:   notificationService,
