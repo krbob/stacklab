@@ -62,44 +62,47 @@ export function GitCommitBar({ selectedPaths, hasUpstream, aheadCount, onCommitt
     <div className="border-t border-[var(--panel-border)] pt-3">
       {/* Result message */}
       {result && (
-        <StatusMessage className={cn('mb-2 text-xs', result.type === 'success' ? 'text-[var(--ok)]' : 'text-[var(--danger)]')}>
+        <StatusMessage className={cn('mb-2 wrap-anywhere text-xs', result.type === 'success' ? 'text-[var(--ok)]' : 'text-[var(--danger)]')}>
           {result.text}
         </StatusMessage>
       )}
 
       {/* Commit input */}
       {showCommitInput && (
-        <form onSubmit={handleCommit} className="mb-2 flex gap-2">
+        <form onSubmit={handleCommit} className="mb-2 flex min-w-0 flex-col gap-2">
           <input
             type="text"
             value={commitMessage}
             onChange={(e) => setCommitMessage(e.target.value)}
             placeholder="Commit message..."
+            aria-label="Commit message"
             autoFocus
             disabled={committing}
             data-testid="git-commit-message"
-            className="flex-1 rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-2 py-1.5 text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50"
+            className="w-full min-w-0 rounded-lg border border-[var(--panel-border)] bg-[rgba(255,255,255,0.03)] px-2 py-1.5 text-xs text-[var(--text)] outline-none focus:border-[rgba(245,165,36,0.35)] disabled:opacity-50"
           />
-          <button
-            type="submit"
-            disabled={committing || !commitMessage.trim() || selectedPaths.size === 0}
-            data-testid="git-commit-submit"
-            className="rounded-lg border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1.5 text-xs text-[var(--text)] disabled:opacity-40"
-          >
-            {committing ? '...' : 'Commit'}
-          </button>
-          <button
-            type="button"
-            onClick={() => { setShowCommitInput(false); setCommitMessage('') }}
-            className="rounded-lg border border-[var(--panel-border)] px-2 py-1.5 text-xs text-[var(--muted)]"
-          >
-            Cancel
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="submit"
+              disabled={committing || !commitMessage.trim() || selectedPaths.size === 0}
+              data-testid="git-commit-submit"
+              className="rounded-lg border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1.5 text-xs text-[var(--text)] disabled:opacity-40"
+            >
+              {committing ? '...' : 'Commit'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setShowCommitInput(false); setCommitMessage('') }}
+              className="rounded-lg border border-[var(--panel-border)] px-2 py-1.5 text-xs text-[var(--muted)]"
+            >
+              Cancel
+            </button>
+          </div>
         </form>
       )}
 
       {/* Action buttons */}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs text-[var(--muted)]">
           {selectedPaths.size} file{selectedPaths.size !== 1 ? 's' : ''} selected
         </span>

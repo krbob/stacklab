@@ -69,6 +69,25 @@ test.describe('Git workspace', () => {
     await page.getByRole('button', { name: 'Commit', exact: true }).click()
     await page.getByTestId('git-commit-message').fill(COMMIT_MESSAGE)
 
+    // The desktop sidebar is narrower than the default text input plus buttons.
+    // Check actual layout before Playwright can scroll a clipped submit into view.
+    await page.evaluate(() => document.fonts.ready)
+    const commitLayout = await page.getByTestId('git-commit-message').evaluate((input) => {
+      const form = input.closest('form')!
+      const bar = form.parentElement!
+      const bounds = bar.getBoundingClientRect()
+      const controls = Array.from(form.querySelectorAll('input, button'))
+      return {
+        overflow: bar.scrollWidth - bar.clientWidth,
+        controlsFit: controls.every((control) => {
+          const rect = control.getBoundingClientRect()
+          return rect.left >= bounds.left - 1 && rect.right <= bounds.right + 1
+        }),
+      }
+    })
+    expect(commitLayout.overflow).toBeLessThanOrEqual(1)
+    expect(commitLayout.controlsFit).toBe(true)
+
     const commitResponse = page.waitForResponse((response) =>
       response.url().endsWith('/api/git/workspace/commit')
       && response.request().method() === 'POST',
