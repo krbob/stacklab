@@ -550,7 +550,7 @@
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 5,
+        "y": 9,
         "w": 24,
         "h": 1
       }
@@ -579,7 +579,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 6,
+        "y": 10,
         "w": 12,
         "h": 8
       },
@@ -658,7 +658,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 6,
+        "y": 10,
         "w": 12,
         "h": 8
       },
@@ -770,7 +770,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 14,
+        "y": 18,
         "w": 12,
         "h": 8
       },
@@ -869,7 +869,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 14,
+        "y": 18,
         "w": 12,
         "h": 8
       },
@@ -946,7 +946,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 22,
+        "y": 26,
         "w": 12,
         "h": 8
       },
@@ -1025,7 +1025,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 22,
+        "y": 26,
         "w": 12,
         "h": 8
       },
@@ -1115,7 +1115,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 30,
+        "y": 34,
         "w": 12,
         "h": 8
       },
@@ -1203,7 +1203,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 30,
+        "y": 34,
         "w": 12,
         "h": 8
       },
@@ -1280,7 +1280,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 38,
+        "y": 42,
         "w": 12,
         "h": 8
       },
@@ -1357,7 +1357,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 38,
+        "y": 42,
         "w": 12,
         "h": 8
       },
@@ -1418,7 +1418,7 @@
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 46,
+        "y": 50,
         "w": 24,
         "h": 1
       }
@@ -1447,7 +1447,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 47,
+        "y": 51,
         "w": 8,
         "h": 4
       },
@@ -1510,7 +1510,7 @@
       ],
       "gridPos": {
         "x": 8,
-        "y": 47,
+        "y": 51,
         "w": 8,
         "h": 4
       },
@@ -1573,7 +1573,7 @@
       ],
       "gridPos": {
         "x": 16,
-        "y": 47,
+        "y": 51,
         "w": 8,
         "h": 4
       },
@@ -1640,7 +1640,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 51,
+        "y": 55,
         "w": 12,
         "h": 8
       },
@@ -1717,7 +1717,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 51,
+        "y": 55,
         "w": 12,
         "h": 8
       },
@@ -1794,7 +1794,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 63,
+        "y": 67,
         "w": 12,
         "h": 8
       },
@@ -1871,7 +1871,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 63,
+        "y": 67,
         "w": 12,
         "h": 8
       },
@@ -1948,7 +1948,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 71,
+        "y": 75,
         "w": 12,
         "h": 8
       },
@@ -2027,7 +2027,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 71,
+        "y": 75,
         "w": 12,
         "h": 8
       },
@@ -2088,7 +2088,7 @@
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 79,
+        "y": 83,
         "w": 24,
         "h": 1
       }
@@ -2128,7 +2128,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 80,
+        "y": 84,
         "w": 12,
         "h": 8
       },
@@ -2216,7 +2216,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 80,
+        "y": 84,
         "w": 12,
         "h": 8
       },
@@ -2315,7 +2315,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 88,
+        "y": 92,
         "w": 12,
         "h": 8
       },
@@ -2403,7 +2403,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 88,
+        "y": 92,
         "w": 12,
         "h": 8
       },
@@ -2502,7 +2502,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 96,
+        "y": 100,
         "w": 12,
         "h": 8
       },
@@ -2579,7 +2579,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 96,
+        "y": 100,
         "w": 12,
         "h": 8
       },
@@ -2658,7 +2658,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 104,
+        "y": 108,
         "w": 12,
         "h": 8
       },
@@ -2757,7 +2757,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 104,
+        "y": 108,
         "w": 12,
         "h": 8
       },
@@ -2845,7 +2845,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 112,
+        "y": 116,
         "w": 12,
         "h": 8
       },
@@ -2922,7 +2922,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 112,
+        "y": 116,
         "w": 12,
         "h": 8
       },
@@ -2977,11 +2977,157 @@
     },
     {
       "id": 40,
+      "type": "stat",
+      "title": "Active infrastructure alerts",
+      "description": "All infrastructure alerts for this host, regardless of Compose project selection. No data means the bundled rules are not loaded or Prometheus is unavailable. Notifications require an Alertmanager receiver.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(ALERTS{stacklab_monitoring=\"true\",host=\"$host\",alertstate=\"firing\"}) or (0 * max(stacklab_monitoring_expected_target{host=\"$host\"}))",
+          "legendFormat": "Alerts",
+          "range": false,
+          "instant": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 6,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 41,
+      "type": "timeseries",
+      "title": "Infrastructure alert history",
+      "description": "An empty history with a zero alert count means no firing alerts in this range. Includes exporter availability, capacity, temperatures, OOMs and Stacklab errors.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "ALERTS{stacklab_monitoring=\"true\",host=\"$host\",alertstate=\"firing\"}",
+          "legendFormat": "{{alertname}} {{job}} {{mountpoint}} {{name}}",
+          "range": true,
+          "instant": false,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 6,
+        "y": 5,
+        "w": 18,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 42,
       "type": "text",
       "title": "Reading container network traffic",
       "gridPos": {
         "x": 0,
-        "y": 59,
+        "y": 63,
         "w": 24,
         "h": 4
       },

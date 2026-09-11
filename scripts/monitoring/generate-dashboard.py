@@ -65,6 +65,8 @@ panel("Stacklab readiness", [(f"stacklab_ready{{{APP}}}", "")], kind="stat", x=1
 panel("Host uptime", [(f"time() - node_boot_time_seconds{{{HOST}}}", "")], kind="stat", unit="s", x=16, width=4, height=4)
 panel("Stacklab uptime", [(f"stacklab_uptime_seconds{{{APP}}}", "")], kind="stat", unit="s", x=20, width=4, height=4)
 y += 4
+alerts_y = y
+y += 4
 
 row("Host — capacity & pressure")
 panel("CPU utilization", [(f'100 * (1 - avg by (host) (rate(node_cpu_seconds_total{{{HOST},mode="idle"}}[$__rate_interval])))', "CPU")], unit="percent", maximum=100)
@@ -150,6 +152,16 @@ panel("Go goroutines & open file descriptors", [(f"go_goroutines{{{APP}}}", "Gor
 panel("Go GC pause time", [(f"rate(go_gc_duration_seconds_sum{{{APP}}}[$__rate_interval])", "GC seconds / second")], unit="s", x=12)
 y += 8
 
+# Append new panels to preserve the IDs of existing panels and saved links.
+y = alerts_y
+alert_selector = 'stacklab_monitoring="true",host="$host",alertstate="firing"'
+panel("Active infrastructure alerts", [(f'sum(ALERTS{{{alert_selector}}}) or (0 * max(stacklab_monitoring_expected_target{{host="$host"}}))', "Alerts")],
+      kind="stat", width=6, height=4,
+      thresholds=[{"color": "green", "value": None}, {"color": "red", "value": 1}],
+      description="All infrastructure alerts for this host, regardless of Compose project selection. No data means the bundled rules are not loaded or Prometheus is unavailable. Notifications require an Alertmanager receiver.")
+panel("Infrastructure alert history", [(f'ALERTS{{{alert_selector}}}', "{{alertname}} {{job}} {{mountpoint}} {{name}}")],
+      x=6, width=18, height=4, maximum=1,
+      description="An empty history with a zero alert count means no firing alerts in this range. Includes exporter availability, capacity, temperatures, OOMs and Stacklab errors.")
 panels.append({"id": len(panels) + 1, "type": "text", "title": "Reading container network traffic",
                "gridPos": {"x": 0, "y": network_notice_y, "w": 24, "h": 4},
                "options": {"mode": "markdown", "content": "These counters belong to the network namespace visible to each container. **Containers using host networking see shared host traffic; do not add their series or attribute that traffic to an individual application.** Use **Host network throughput** for host totals. Containers sharing another container’s network namespace have the same limitation."}})

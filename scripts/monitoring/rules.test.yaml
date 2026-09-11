@@ -1,0 +1,156 @@
+rule_files:
+  - ../../deploy/monitoring/stacklab.rules.yaml
+evaluation_interval: 1m
+tests:
+  - name: Missing targets keep their host identity; brief restarts recover before firing
+    interval: 1m
+    input_series:
+      - series: up{job="node-exporter",host="server"}
+        values: '1 0 0 0 1 1'
+      - series: up{job="cadvisor",host="server"}
+        values: '1 0 1 1 1 1'
+      - series: up{job="stacklab",host="different-server"}
+        values: '1x5'
+    promql_expr_test:
+      - expr: ALERTS{alertname="StacklabMonitoringTargetUnavailable",job="node-exporter",alertstate="firing"}
+        eval_time: 2m
+        exp_samples: []
+      - expr: ALERTS{alertname="StacklabMonitoringTargetUnavailable",job="node-exporter",alertstate="firing"}
+        eval_time: 3m
+        exp_samples:
+          - labels: ALERTS{alertname="StacklabMonitoringTargetUnavailable",job="node-exporter",host="server",alertstate="firing",severity="critical",stacklab_monitoring="true"}
+            value: 1
+      - expr: ALERTS{alertname="StacklabMonitoringTargetUnavailable",job=~"cadvisor|node-exporter",alertstate="firing"}
+        eval_time: 5m
+        exp_samples: []
+      - expr: ALERTS{alertname="StacklabMonitoringTargetUnavailable",job="stacklab",alertstate="firing"}
+        eval_time: 3m
+        exp_samples:
+          - labels: ALERTS{alertname="StacklabMonitoringTargetUnavailable",job="stacklab",host="server",alertstate="firing",severity="critical",stacklab_monitoring="true"}
+            value: 1
+
+  - name: Disk thresholds exclude virtual and read-only mounts and unsupported inodes
+    interval: 1m
+    input_series:
+      - series: node_filesystem_avail_bytes{job="node-exporter",host="server",mountpoint="/",fstype="ext4"}
+        values: '10x30'
+      - series: node_filesystem_size_bytes{job="node-exporter",host="server",mountpoint="/",fstype="ext4"}
+        values: '100x30'
+      - series: node_filesystem_readonly{job="node-exporter",host="server",mountpoint="/",fstype="ext4"}
+        values: '0x30'
+      - series: node_filesystem_avail_bytes{job="node-exporter",host="server",mountpoint="/data",fstype="btrfs"}
+        values: '3x30'
+      - series: node_filesystem_size_bytes{job="node-exporter",host="server",mountpoint="/data",fstype="btrfs"}
+        values: '100x30'
+      - series: node_filesystem_readonly{job="node-exporter",host="server",mountpoint="/data",fstype="btrfs"}
+        values: '0x30'
+      - series: node_filesystem_files{job="node-exporter",host="server",mountpoint="/data",fstype="btrfs"}
+        values: '0x30'
+      - series: node_filesystem_files_free{job="node-exporter",host="server",mountpoint="/data",fstype="btrfs"}
+        values: '0x30'
+      - series: node_filesystem_avail_bytes{job="node-exporter",host="server",mountpoint="/run",fstype="tmpfs"}
+        values: '1x30'
+      - series: node_filesystem_size_bytes{job="node-exporter",host="server",mountpoint="/run",fstype="tmpfs"}
+        values: '100x30'
+      - series: node_filesystem_readonly{job="node-exporter",host="server",mountpoint="/run",fstype="tmpfs"}
+        values: '0x30'
+      - series: node_filesystem_avail_bytes{job="node-exporter",host="server",mountpoint="/archive",fstype="ext4"}
+        values: '1x30'
+      - series: node_filesystem_size_bytes{job="node-exporter",host="server",mountpoint="/archive",fstype="ext4"}
+        values: '100x30'
+      - series: node_filesystem_readonly{job="node-exporter",host="server",mountpoint="/archive",fstype="ext4"}
+        values: '1x30'
+    promql_expr_test:
+      - expr: ALERTS{alertname="StacklabHostFilesystemSpaceLow",alertstate="firing"}
+        eval_time: 29m
+        exp_samples: []
+      - expr: ALERTS{alertname="StacklabHostFilesystemSpaceLow",alertstate="firing"}
+        eval_time: 30m
+        exp_samples:
+          - labels: ALERTS{alertname="StacklabHostFilesystemSpaceLow",job="node-exporter",host="server",mountpoint="/",fstype="ext4",alertstate="firing",severity="warning",stacklab_monitoring="true"}
+            value: 1
+      - expr: ALERTS{alertname="StacklabHostFilesystemSpaceCritical",alertstate="firing"}
+        eval_time: 5m
+        exp_samples:
+          - labels: ALERTS{alertname="StacklabHostFilesystemSpaceCritical",job="node-exporter",host="server",mountpoint="/data",fstype="btrfs",alertstate="firing",severity="critical",stacklab_monitoring="true"}
+            value: 1
+      - expr: ALERTS{alertname="StacklabHostInodesLow",alertstate="firing"}
+        eval_time: 30m
+        exp_samples: []
+
+  - name: Temperatures respect hardware limits and ignore invalid firmware readings
+    interval: 1m
+    input_series:
+      - series: node_hwmon_temp_celsius{job="node-exporter",host="server",chip="acpi",sensor="temp1"}
+        values: '-263.2x15'
+      - series: node_hwmon_temp_celsius{job="node-exporter",host="server",chip="cpu",sensor="temp1"}
+        values: '90x15'
+      - series: node_hwmon_temp_crit_celsius{job="node-exporter",host="server",chip="cpu",sensor="temp1"}
+        values: '105x15'
+      - series: node_hwmon_temp_celsius{job="node-exporter",host="server",chip="nvme",sensor="temp1"}
+        values: '80x15'
+      - series: node_hwmon_temp_crit_celsius{job="node-exporter",host="server",chip="nvme",sensor="temp1"}
+        values: '87x15'
+      - series: node_hwmon_temp_celsius{job="node-exporter",host="server",chip="unknown",sensor="temp1"}
+        values: '50x15'
+    promql_expr_test:
+      - expr: ALERTS{alertname="StacklabHostTemperatureHigh",alertstate="firing"}
+        eval_time: 9m
+        exp_samples: []
+      - expr: ALERTS{alertname="StacklabHostTemperatureHigh",alertstate="firing"}
+        eval_time: 10m
+        exp_samples:
+          - labels: ALERTS{alertname="StacklabHostTemperatureHigh",host="server",chip="cpu",alertstate="firing",severity="warning",stacklab_monitoring="true"}
+            value: 1
+          - labels: ALERTS{alertname="StacklabHostTemperatureHigh",host="server",chip="nvme",alertstate="firing",severity="warning",stacklab_monitoring="true"}
+            value: 1
+
+  - name: Resource pressure and application failures fire after their hold times
+    interval: 1m
+    input_series:
+      - series: node_cpu_seconds_total{job="node-exporter",host="server",cpu="0",mode="idle"}
+        values: '0+1x20'
+      - series: node_memory_MemAvailable_bytes{job="node-exporter",host="server"}
+        values: '5x20'
+      - series: node_memory_MemTotal_bytes{job="node-exporter",host="server"}
+        values: '100x20'
+      - series: node_filesystem_files_free{job="node-exporter",host="server",mountpoint="/",fstype="ext4"}
+        values: '5x20'
+      - series: node_filesystem_files{job="node-exporter",host="server",mountpoint="/",fstype="ext4"}
+        values: '100x20'
+      - series: node_filesystem_readonly{job="node-exporter",host="server",mountpoint="/",fstype="ext4"}
+        values: '0x20'
+      - series: node_filesystem_readonly{job="node-exporter",host="readonly-server",mountpoint="/",fstype="ext4"}
+        values: '1x20'
+      - series: stacklab_ready{job="stacklab",host="server"}
+        values: '1 0 0 0 1 1'
+      - series: stacklab_http_errors_total{job="stacklab",host="server"}
+        values: '0 0 1 1 1 1 1 1'
+      - series: stacklab_jobs_errors_total{job="stacklab",host="server"}
+        values: '0 0 1 1 1 1 1 1'
+      - series: container_oom_events_total{job="cadvisor",host="server",name="app",image="app:1",container_label_com_docker_compose_project="apps"}
+        values: '0 0 1 1 1 1 1 1'
+      - series: container_oom_events_total{job="cadvisor",host="server",name="reset",image="app:1",container_label_com_docker_compose_project="apps"}
+        values: '10 10 0 0 0 0 0 0'
+    promql_expr_test:
+      - expr: count(ALERTS{alertname=~"StacklabHostCPUHigh|StacklabHostMemoryLow|StacklabHostInodesLow|StacklabHostRootFilesystemReadOnly",alertstate="firing"})
+        eval_time: 16m
+        exp_samples:
+          - labels: '{}'
+            value: 4
+      - expr: ALERTS{alertname="StacklabNotReady",alertstate="firing"}
+        eval_time: 2m
+        exp_samples: []
+      - expr: ALERTS{alertname="StacklabNotReady",alertstate="firing"}
+        eval_time: 3m
+        exp_samples:
+          - labels: ALERTS{alertname="StacklabNotReady",host="server",job="stacklab",alertstate="firing",severity="critical",stacklab_monitoring="true"}
+            value: 1
+      - expr: count(ALERTS{alertname=~"StacklabHTTPServerErrors|StacklabJobFailures|StacklabContainerOOM",alertstate="firing"})
+        eval_time: 3m
+        exp_samples:
+          - labels: '{}'
+            value: 3
+      - expr: ALERTS{alertname=~"StacklabNotReady|StacklabHTTPServerErrors|StacklabJobFailures|StacklabContainerOOM",alertstate="firing"}
+        eval_time: 7m
+        exp_samples: []

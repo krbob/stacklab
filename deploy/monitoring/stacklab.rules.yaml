@@ -1,0 +1,121 @@
+# setup.py sets the expected-target host labels for this installation.
+# Keep these records even when a scrape job disappears: missing data is not UP.
+groups:
+  - name: stacklab-infrastructure
+    rules:
+      - record: stacklab_monitoring_expected_target
+        expr: vector(1)
+        labels: {host: server, job: node-exporter}
+      - record: stacklab_monitoring_expected_target
+        expr: vector(1)
+        labels: {host: server, job: cadvisor}
+      - record: stacklab_monitoring_expected_target
+        expr: vector(1)
+        labels: {host: server, job: stacklab}
+
+      - alert: StacklabMonitoringTargetUnavailable
+        expr: stacklab_monitoring_expected_target unless on (host, job) (up == 1)
+        for: 2m
+        labels: {severity: critical, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'Monitoring target unavailable: {{ $labels.host }} / {{ $labels.job }}'
+          description: 'The expected target is DOWN or missing for 2 minutes. Check the service, scrape configuration, network and metrics authentication.'
+
+      - alert: StacklabHostCPUHigh
+        expr: 1 - avg by (host) (rate(node_cpu_seconds_total{job="node-exporter", mode="idle"}[5m])) > 0.90
+        for: 15m
+        labels: {severity: warning, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'Sustained CPU pressure on {{ $labels.host }}'
+          description: 'CPU utilization has exceeded 90% for 15 minutes. Inspect the host and container CPU panels.'
+
+      - alert: StacklabHostMemoryLow
+        expr: node_memory_MemAvailable_bytes{job="node-exporter"} / node_memory_MemTotal_bytes{job="node-exporter"} < 0.10
+        for: 10m
+        labels: {severity: warning, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'Low available memory on {{ $labels.host }}'
+          description: 'Less than 10% of RAM is available for 10 minutes. Check container working sets and host memory before processes are killed.'
+
+      - alert: StacklabHostFilesystemSpaceLow
+        expr: |
+          (node_filesystem_avail_bytes{job="node-exporter",fstype!~"tmpfs|devtmpfs|overlay|squashfs|proc|sysfs|nsfs|ramfs",mountpoint!~"/run.*|/var/lib/docker.*"}
+          / node_filesystem_size_bytes{job="node-exporter"} < 0.15 >= 0.05)
+          and (node_filesystem_readonly{job="node-exporter"} == 0)
+        for: 30m
+        labels: {severity: warning, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'Low disk space: {{ $labels.host }} {{ $labels.mountpoint }}'
+          description: 'Less than 15% of filesystem space is available to non-root processes for 30 minutes. Review disk growth and retention.'
+
+      - alert: StacklabHostFilesystemSpaceCritical
+        expr: |
+          (node_filesystem_avail_bytes{job="node-exporter",fstype!~"tmpfs|devtmpfs|overlay|squashfs|proc|sysfs|nsfs|ramfs",mountpoint!~"/run.*|/var/lib/docker.*"}
+          / node_filesystem_size_bytes{job="node-exporter"} < 0.05)
+          and (node_filesystem_readonly{job="node-exporter"} == 0)
+        for: 5m
+        labels: {severity: critical, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'Critically low disk space: {{ $labels.host }} {{ $labels.mountpoint }}'
+          description: 'Less than 5% of filesystem space is available to non-root processes for 5 minutes. Free space or expand the filesystem.'
+
+      - alert: StacklabHostInodesLow
+        expr: |
+          (node_filesystem_files_free{job="node-exporter",fstype!~"tmpfs|devtmpfs|overlay|squashfs|proc|sysfs|nsfs|ramfs",mountpoint!~"/run.*|/var/lib/docker.*"}
+          / (node_filesystem_files{job="node-exporter"} > 0) < 0.10)
+          and (node_filesystem_readonly{job="node-exporter"} == 0)
+        for: 15m
+        labels: {severity: warning, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'Low free inodes: {{ $labels.host }} {{ $labels.mountpoint }}'
+          description: 'Less than 10% of inodes remain for 15 minutes. Check for large numbers of small files. Filesystems without a finite inode count are excluded.'
+
+      - alert: StacklabHostRootFilesystemReadOnly
+        expr: node_filesystem_readonly{job="node-exporter",mountpoint="/"} == 1
+        for: 2m
+        labels: {severity: critical, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'Root filesystem is read-only on {{ $labels.host }}'
+          description: 'The root filesystem has been read-only for 2 minutes. Check filesystem and device errors in the kernel logs.'
+
+      - alert: StacklabHostTemperatureHigh
+        expr: |
+          max by (host, chip) (
+            (node_hwmon_temp_celsius{job="node-exporter"} >= 0 <= 150)
+            - (clamp_max((node_hwmon_temp_crit_celsius{job="node-exporter"} > 10 <= 150) - 10, 85)
+               or (0 * node_hwmon_temp_celsius{job="node-exporter"} + 85))
+          ) > 0
+        for: 10m
+        labels: {severity: warning, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'Sustained high temperature: {{ $labels.host }} {{ $labels.chip }}'
+          description: 'A valid sensor exceeds 85°C or is within 10°C of its hardware critical limit for 10 minutes. Inspect cooling and workload. Invalid firmware readings are excluded.'
+
+      - alert: StacklabContainerOOM
+        expr: increase(container_oom_events_total{job="cadvisor",image!="",container_label_com_docker_compose_project!=""}[5m]) > 0
+        labels: {severity: critical, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'Container OOM: {{ $labels.host }} {{ $labels.name }}'
+          description: 'cAdvisor recorded an out-of-memory event in the last 5 minutes. Check container logs, memory consumption and limits.'
+
+      - alert: StacklabNotReady
+        expr: stacklab_ready{job="stacklab"} == 0
+        for: 2m
+        labels: {severity: critical, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'Stacklab is not ready on {{ $labels.host }}'
+          description: 'Readiness checks have failed for 2 minutes. Check the database, frontend and runtime readiness panels and Stacklab logs.'
+
+      - alert: StacklabHTTPServerErrors
+        expr: increase(stacklab_http_errors_total{job="stacklab"}[5m]) > 0
+        labels: {severity: warning, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'Stacklab HTTP 5xx on {{ $labels.host }}'
+          description: 'Stacklab returned a server error in the last 5 minutes. Inspect the request ID and service logs.'
+
+      - alert: StacklabJobFailures
+        expr: increase(stacklab_jobs_errors_total{job="stacklab"}[5m]) > 0
+        labels: {severity: warning, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'Stacklab job failed on {{ $labels.host }}'
+          description: 'A job failed or timed out in the last 5 minutes. Inspect recent jobs in Stacklab for the cause.'

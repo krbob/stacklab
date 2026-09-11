@@ -3,6 +3,7 @@
 
 import argparse
 import functools
+import fnmatch
 import hashlib
 import ipaddress
 import json
@@ -29,6 +30,8 @@ except ImportError:
 MANAGED = "# Managed by Stacklab monitoring setup.\n"
 EXPORTERS = ("node-exporter", "cadvisor")
 JOBS = (*EXPORTERS, "stacklab")
+RULE_GROUP = "stacklab-infrastructure"
+RULE_PATH = "/etc/prometheus/stacklab.rules.yaml"
 
 
 def run(*args, capture=False):
@@ -236,11 +239,25 @@ def build_plan(cfg, assets, *, adopt=False):
     if any(job.get("job_name") in JOBS for job in old_jobs) and not (managed or adopt):
         raise ValueError("Monitoring scrape jobs already exist; review them and use --adopt-existing once")
     prom["scrape_configs"] = [job for job in old_jobs if job.get("job_name") not in JOBS] + jobs
+    rules = load_yaml(assets / "stacklab.rules.yaml")
+    for group in rules["groups"]:
+        for rule in group["rules"]:
+            if rule.get("record") == "stacklab_monitoring_expected_target":
+                rule["labels"]["host"] = cfg["host_label"]
+    rule_file = cfg["prometheus_config"].parent / "stacklab.rules.yaml"
+    if rule_file.exists() and rule_file.read_bytes() != encoded(rules) and not (managed or adopt):
+        raise ValueError("Infrastructure rule file already exists; review it and use --adopt-existing once")
+    # A dedicated file bind also supports existing stacks that mount only their
+    # prometheus.yml. Leave all pre-existing rule files and mounts intact.
+    merge_mount(prometheus, bind(rule_file, RULE_PATH), replace=managed or adopt)
+    rule_files = prom.setdefault("rule_files", [])
+    if not any(fnmatch.fnmatchcase(RULE_PATH, pattern) for pattern in rule_files):
+        rule_files.append(RULE_PATH)
     dashboard = json.loads((assets / "stacklab-overview.json").read_text())
     for variable in dashboard["templating"]["list"]:
         if variable["name"] == "host":
             variable["current"] = {"text": cfg["host_label"], "value": cfg["host_label"]}
-    files = {cfg["prometheus_config"]: encoded(prom),
+    files = {cfg["prometheus_config"]: encoded(prom), rule_file: encoded(rules),
              cfg["dashboard_dir"] / "Homelab/stacklab-overview.json": (json.dumps(dashboard, indent=2, ensure_ascii=False) + "\n").encode()}
     if not existing:
         for job in prom["scrape_configs"]:
@@ -317,6 +334,10 @@ def verify(cfg):
     result = json.loads(compose_command(cfg, "exec", "-T", "prometheus", "wget", "-qO-", url, capture=True))
     if not result.get("data", {}).get("result"):
         raise ValueError("The Stacklab target has not returned application metrics yet")
+    result = json.loads(compose_command(cfg, "exec", "-T", "prometheus", "wget", "-qO-", prom_url + "/api/v1/rules", capture=True))
+    groups = [group for group in result.get("data", {}).get("groups", []) if group.get("name") == RULE_GROUP]
+    if len(groups) != 1 or not groups[0].get("rules") or any(rule.get("health") != "ok" for rule in groups[0]["rules"]):
+        raise ValueError("Infrastructure alert rules are missing or have evaluation errors")
     if cfg["mode"] == "standalone":
         url = "http://" + cfg["grafana_listen"] + "/api/dashboards/uid/stacklab-overview"
         dashboard = json.loads(compose_command(cfg, "exec", "-T", "prometheus", "wget", "-qO-", url, capture=True))
@@ -404,7 +425,7 @@ def apply(cfg, files, *, deploy=False):
             run("systemctl", "restart", cfg["systemd_unit"])
         if deploy:
             recreate = []
-            if cfg["prometheus_config"] in changed or cfg["token"] in changed:
+            if any(path in changed for path in (cfg["prometheus_config"], cfg["token"], cfg["prometheus_config"].parent / "stacklab.rules.yaml")):
                 recreate.append("prometheus")
             if cfg["mode"] == "standalone" and any("provisioning" in path.parts for path in changed):
                 recreate.append("grafana")

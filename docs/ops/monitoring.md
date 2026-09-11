@@ -7,6 +7,8 @@ Stacklab can join an existing single-host monitoring stack:
 - Stacklab's authenticated `/metrics` endpoint observes the application itself;
 - Prometheus retains history and Grafana displays it. Stacklab does not store a
   second copy of monitoring history.
+- Versioned Prometheus rules detect missing monitoring targets, host capacity
+  pressure, container OOMs and application failures.
 
 The versioned [dashboard](../../deploy/monitoring/stacklab-overview.json) has UID
 `stacklab-overview`. It uses the shared `host` target label and lets the operator
@@ -88,7 +90,7 @@ and `dashboard_dir` must point to the host directory already read by a Grafana
 provider. The defaults match Stacklab's `config/<stack>/prometheus/` and
 `config/<stack>/grafana/dashboards/` layout.
 
-The tool merges three scrape jobs and two exporters into the existing files. It
+The tool merges three scrape jobs, two exporters and infrastructure alert rules into the existing files. It
 preserves other services, jobs, alert rules, retention, Grafana settings, networks,
 and named data volumes. YAML formatting/comments can change when files are
 serialized; review the Git diff. Existing provider and datasource configuration
@@ -147,7 +149,8 @@ python3 /usr/lib/stacklab/monitoring/setup.py --config /srv/stacklab/monitoring-
 
 Verification requires Docker access but does not read or print the token. It
 queries Prometheus from inside its container, including when hostnames only
-resolve in Docker.
+resolve in Docker. It also checks that the infrastructure rules are loaded and
+evaluate successfully.
 
 Before writing changed files, the tool stores their prior contents and metadata
 under `<state_dir>/monitoring/backups/<timestamp>/`, together with a `restore.json`
@@ -176,6 +179,55 @@ Keep the backup directory private because it may contain old credentials.
 The setup state receipt and backup directory are not needed to reproduce the
 configuration from Git. Tokens and measurement history are intentionally separate
 from the versioned files.
+
+## Infrastructure Alerts
+
+[stacklab.rules.yaml](../../deploy/monitoring/stacklab.rules.yaml) is installed
+beside `prometheus.yml` and mounted at `/etc/prometheus/stacklab.rules.yaml`.
+Setup registers that file without removing existing `rule_files` entries or
+duplicating a matching wildcard. Existing Stock rules and Alertmanager routing
+remain in place. Rule changes are applied by running setup again.
+
+The `stacklab-infrastructure` group includes three expected-target records with
+the configured `host_label`. They let the availability alert detect a removed or
+missing scrape job as well as `up == 0`. Each generated setup monitors one local
+host; keep the expected-target labels aligned with the three scrape jobs.
+
+| Condition | Threshold / hold time | Severity |
+| --- | --- | --- |
+| Expected host, Docker or Stacklab scrape missing/down | 2 minutes | Critical |
+| CPU utilization | Above 90% for 15 minutes | Warning |
+| Available RAM | Below 10% for 10 minutes | Warning |
+| Available filesystem space | Below 15% for 30 minutes; below 5% for 5 minutes | Warning / critical |
+| Free inodes | Below 10% for 15 minutes, when a finite inode count exists | Warning |
+| Root filesystem read-only | 2 minutes | Critical |
+| Hardware temperature | Above 85°C, or within 10°C of a lower hardware critical limit, for 10 minutes | Warning |
+| Compose container OOM | Counter increased within 5 minutes | Critical |
+| Stacklab readiness failed | 2 minutes | Critical |
+| Stacklab HTTP 5xx or failed/timed-out job | Counter increased within 5 minutes | Warning |
+
+Filesystem capacity alerts exclude virtual mounts and read-only filesystems.
+Temperature checks ignore readings outside 0–150°C. Missing optional hardware or
+OOM metrics do not establish a healthy value. Exporter availability is not a
+Docker healthcheck: these rules cannot detect every stopped or unhealthy
+application without an inventory of expected services and application probes.
+
+The dashboard shows the active infrastructure alert count and firing history for
+the selected host, independent of the Compose project filter. An empty count
+means the expected-target records are unavailable; it is not displayed as zero.
+**Notifications require an Alertmanager with a configured receiver.** Setup
+creates rules and dashboard visibility; it does not configure email, chat or
+push notifications, and does not add an Alertmanager service. Prometheus itself
+being down also requires an independent external availability check.
+
+The rules are tested with `promtool`, including transient restarts, missing jobs,
+threshold hold times, invalid sensors, unsupported inode counts, counter resets
+and recovery. Run the same check as CI:
+
+```bash
+docker run --rm -v "$PWD:/workspace:ro" -w /workspace --entrypoint /bin/promtool \
+  prom/prometheus:v3.14.0 test rules scripts/monitoring/rules.test.yaml
+```
 
 ## Manual Setup Reference
 
@@ -241,6 +293,11 @@ Keep the same `host` value on all three jobs. Retain the existing scrape interva
 and retention policy; 15-second collection and 30-day retention work well for
 this dashboard. Pull only the new exporter images when adding monitoring.
 
+For manual installations, copy `stacklab.rules.yaml` beside `prometheus.yml`,
+set the three expected-target records' `host` labels to the scrape jobs' host,
+and add `/etc/prometheus/stacklab.rules.yaml` to `rule_files` unless an existing
+wildcard already includes it. Ensure the rule file is mounted in Prometheus.
+
 Validate the combined Compose and Prometheus configurations before deployment:
 
 ```bash
@@ -265,12 +322,18 @@ Verify all three targets are `UP` in Prometheus, then open
 `/d/stacklab-overview` in Grafana. The top row distinguishes successful collection
 from Stacklab readiness. Rates need at least two samples; p95 and average job
 duration can be empty when no requests/jobs occurred in the selected window.
-Temperature panels require available hwmon sensors, and OOM series depend on
+Temperature panels require available hwmon sensors; only readings within 0–150°C
+are plotted, so invalid firmware readings do not distort the scale. Filesystems
+without a finite inode count are omitted from the inode panel. OOM series depend on
 cAdvisor/kernel support. Container CPU uses percent of one core, so a container
 using multiple cores can exceed 100%. Working-set memory differs from process
 RSS. HTTP p95 includes WebSocket handlers when they close.
 Containers using host networking share host network counters; their throughput
-cannot be attributed exclusively to one container.
+cannot be attributed exclusively to one container. The dashboard makes this
+limitation visible above the network panels. The same applies to containers
+sharing another container's network namespace. Use the host network panel for
+host totals, and do not sum the container series. A missing CPU throttling graph
+is expected without CPU quotas or when CFS counters are unavailable.
 
 Source and credential changes should be backed up before deployment. To roll
 back, restore the previous Compose/scrape configuration, remove only the two

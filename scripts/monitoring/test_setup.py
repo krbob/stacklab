@@ -96,11 +96,27 @@ class SetupTests(unittest.TestCase):
         for name in ("grafana", "alertmanager"):
             self.assertEqual(before_compose["services"][name], after_compose["services"][name])
         self.assertEqual(before_compose["services"]["prometheus"]["command"], after_compose["services"]["prometheus"]["command"])
-        for key in ("global", "rule_files", "alerting"):
+        for key in ("global", "alerting"):
             self.assertEqual(before_prom[key], after_prom[key])
+        self.assertEqual(after_prom["rule_files"], before_prom["rule_files"] + [setup.RULE_PATH])
         self.assertEqual(before_prom["scrape_configs"][0], after_prom["scrape_configs"][0])
         self.persist(files)
         self.assertEqual(files, setup.build_plan(self.cfg, ASSETS))
+
+    def test_rules_follow_host_label_and_do_not_duplicate_existing_glob(self):
+        self.existing()
+        prom = setup.load_yaml(self.cfg["prometheus_config"])
+        prom["rule_files"].append("/etc/prometheus/*.yaml")
+        self.cfg["prometheus_config"].write_bytes(setup.encoded(prom))
+        self.cfg["host_label"] = 'new-host"with-quote'
+        files = setup.build_plan(self.cfg, ASSETS)
+        rules = yaml.safe_load(files[self.cfg["prometheus_config"].parent / "stacklab.rules.yaml"])
+        records = [r for g in rules["groups"] for r in g["rules"] if "record" in r]
+        self.assertEqual({r["labels"]["job"] for r in records}, set(setup.JOBS))
+        self.assertTrue(all(r["labels"]["host"] == self.cfg["host_label"] for r in records))
+        self.assertEqual(yaml.safe_load(files[self.cfg["prometheus_config"]])["rule_files"], prom["rule_files"])
+        mounts = yaml.safe_load(files[self.cfg["compose_file"]])["services"]["prometheus"]["volumes"]
+        self.assertIn(setup.bind(self.cfg["prometheus_config"].parent / "stacklab.rules.yaml", setup.RULE_PATH), mounts)
 
     def test_conflicting_jobs_and_exporters_require_explicit_adoption(self):
         compose, prom = self.existing()
@@ -140,6 +156,8 @@ class SetupTests(unittest.TestCase):
             if args[-1].endswith("/targets"):
                 return json.dumps({"data": {"activeTargets": [
                     {"health": "up", "labels": {"job": job, "host": cfg["host_label"]}} for job in setup.JOBS]}})
+            if args[-1].endswith("/rules"):
+                return json.dumps({"data": {"groups": [{"name": setup.RULE_GROUP, "rules": [{"health": "ok"}]}]}})
             return json.dumps({"data": {"result": [{"metric": {"__name__": "stacklab_build_info"}}]}})
 
         with patch.object(setup, "compose_command", side_effect=query):
@@ -147,6 +165,19 @@ class SetupTests(unittest.TestCase):
         self.assertFalse(cfg["token"].exists())
         self.assertTrue(all(call[:3] == ("exec", "-T", "prometheus") for call in calls))
         self.assertNotIn("Authorization", str(calls))
+
+    def test_verification_rejects_missing_or_broken_rules(self):
+        for groups in ([], [{"name": setup.RULE_GROUP, "rules": [{"health": "err"}]}]):
+            def query(_cfg, *args, **kwargs):
+                if args[-1].endswith("/targets"):
+                    return json.dumps({"data": {"activeTargets": [
+                        {"health": "up", "labels": {"job": job, "host": self.cfg["host_label"]}} for job in setup.JOBS]}})
+                if args[-1].endswith("/rules"):
+                    return json.dumps({"data": {"groups": groups}})
+                return json.dumps({"data": {"result": [{}]}})
+            with self.subTest(groups=groups), patch.object(setup, "compose_command", side_effect=query):
+                with self.assertRaisesRegex(ValueError, "Infrastructure alert rules"):
+                    setup.verify(self.cfg)
 
     def test_verification_rejects_exporters_from_another_host(self):
         response = json.dumps({"data": {"activeTargets": [
@@ -216,6 +247,18 @@ class HostLifecycleTests(SetupTests):
         self.assertFalse(self.cfg["token"].exists())
         self.assertFalse(self.cfg["compose_file"].exists())
         self.assertEqual(len(list((self.cfg["state_dir"] / "monitoring/backups").glob("*/restore.json"))), 1)
+
+    def test_rule_only_update_recreates_prometheus_single_file_bind(self):
+        files = setup.build_plan(self.cfg, ASSETS)
+        with patch.object(setup, "run", side_effect=self.fake_run):
+            setup.apply(self.cfg, files)
+            rule_file = self.cfg["prometheus_config"].parent / "stacklab.rules.yaml"
+            rules = yaml.safe_load(files[rule_file])
+            rules["groups"][0]["rules"][3]["for"] = "3m"
+            files[rule_file] = setup.encoded(rules)
+            with patch.object(setup, "deploy_stack") as deploy:
+                setup.apply(self.cfg, files, deploy=True)
+                deploy.assert_called_once_with(self.cfg, recreate=["prometheus"])
 
     def test_token_symlink_is_rejected_before_any_write(self):
         files = setup.build_plan(self.cfg, ASSETS)

@@ -99,6 +99,9 @@ jobs:
       - name: Test migration and privileged file lifecycle
         run: sudo env PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m unittest discover -s scripts/monitoring -p 'test_*.py' -v
 
+      - name: Test Prometheus alert thresholds and recovery
+        run: docker run --rm -v "$PWD:/workspace:ro" -w /workspace --entrypoint /bin/promtool prom/prometheus:v3.14.0 test rules scripts/monitoring/rules.test.yaml
+
   ci-required:
     name: ci-required
     if: ${{ always() }}
