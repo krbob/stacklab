@@ -79,7 +79,8 @@ y += 8
 filesystem = HOST + ',fstype!~"tmpfs|devtmpfs|overlay|squashfs|proc|sysfs|nsfs|ramfs",mountpoint!~"/run.*|/var/lib/docker.*"'
 panel("Filesystem space used", [(f"100 * (1 - node_filesystem_avail_bytes{{{filesystem}}} / node_filesystem_size_bytes{{{filesystem}}})", "{{mountpoint}}")], unit="percent", maximum=100,
       description="Uses space available to non-root processes. Virtual and Docker overlay mounts are excluded.")
-panel("Filesystem inodes used", [(f"100 * (1 - node_filesystem_files_free{{{filesystem}}} / node_filesystem_files{{{filesystem}}})", "{{mountpoint}}")], unit="percent", maximum=100, x=12)
+panel("Filesystem inodes used", [(f"100 * (1 - node_filesystem_files_free{{{filesystem}}} / (node_filesystem_files{{{filesystem}}} > 0))", "{{mountpoint}}")], unit="percent", maximum=100, x=12,
+      description="Filesystems without a finite inode count (for example Btrfs and FAT) are omitted.")
 y += 8
 disk = HOST + ',device!~"loop.*|ram.*|fd.*|sr.*"'
 panel("Disk throughput", [(f"rate(node_disk_read_bytes_total{{{disk}}}[$__rate_interval])", "{{device}} read"),
@@ -89,8 +90,8 @@ panel("Host network throughput", [(f"rate(node_network_receive_bytes_total{{{net
                                   (f"rate(node_network_transmit_bytes_total{{{network}}}[$__rate_interval])", "{{device}} transmit")], unit="Bps", x=12)
 y += 8
 panel("Disk busy time", [(f"100 * rate(node_disk_io_time_seconds_total{{{disk}}}[$__rate_interval])", "{{device}}")], unit="percent")
-panel("Hardware temperatures", [(f"node_hwmon_temp_celsius{{{HOST}}}", "{{chip}} / {{sensor}}")], unit="celsius", x=12,
-      description="Available hwmon sensors; an empty panel means the host does not expose supported sensors.")
+panel("Hardware temperatures", [(f"node_hwmon_temp_celsius{{{HOST}}} >= 0 <= 150", "{{chip}} / {{sensor}}")], unit="celsius", x=12,
+      description="Host hardware sensors within 0–150°C. Invalid firmware readings (such as −263.2°C) are omitted, not converted to zero. Empty means no usable samples.")
 y += 8
 
 row("Docker — Compose project filter")
@@ -106,14 +107,16 @@ panel("CPU per container", [(f"100 * rate(container_cpu_usage_seconds_total{{{CO
       description="100% equals one fully used CPU core; multicore containers can exceed 100%.")
 panel("Working-set memory per container", [(f"container_memory_working_set_bytes{{{CONTAINER}}}", legend)], unit="bytes", x=12)
 y += 8
+network_notice_y = y
+y += 4
 container_network = CONTAINER + ',interface!~"lo|veth.*|docker.*|br-.*"'
-panel("Container network receive", [(f"sum by (name,container_label_com_docker_compose_project) (rate(container_network_receive_bytes_total{{{container_network}}}[$__rate_interval]))", legend)], unit="Bps",
+panel("Network receive seen by container", [(f"sum by (name,container_label_com_docker_compose_project) (rate(container_network_receive_bytes_total{{{container_network}}}[$__rate_interval]))", legend)], unit="Bps",
       description="Containers using host networking share host counters; traffic is not exclusive to each container.")
-panel("Container network transmit", [(f"sum by (name,container_label_com_docker_compose_project) (rate(container_network_transmit_bytes_total{{{container_network}}}[$__rate_interval]))", legend)], unit="Bps", x=12,
+panel("Network transmit seen by container", [(f"sum by (name,container_label_com_docker_compose_project) (rate(container_network_transmit_bytes_total{{{container_network}}}[$__rate_interval]))", legend)], unit="Bps", x=12,
       description="Containers using host networking share host counters; traffic is not exclusive to each container.")
 y += 8
 panel("CPU throttled periods", [(f"100 * rate(container_cpu_cfs_throttled_periods_total{{{CONTAINER}}}[$__rate_interval]) / rate(container_cpu_cfs_periods_total{{{CONTAINER}}}[$__rate_interval])", legend)], unit="percent", maximum=100,
-      description="Share of CFS periods throttled; meaningful when the container has a CPU quota.")
+      description="Share of CFS periods throttled. No data is expected without CPU quotas or when cAdvisor does not expose CFS counters; it does not establish zero throttling.")
 panel("Container uptime", [(f"time() - container_start_time_seconds{{{CONTAINER}}}", legend)], unit="s", x=12)
 y += 8
 
@@ -146,6 +149,10 @@ y += 8
 panel("Go goroutines & open file descriptors", [(f"go_goroutines{{{APP}}}", "Goroutines"), (f"process_open_fds{{{APP}}}", "Open file descriptors")])
 panel("Go GC pause time", [(f"rate(go_gc_duration_seconds_sum{{{APP}}}[$__rate_interval])", "GC seconds / second")], unit="s", x=12)
 y += 8
+
+panels.append({"id": len(panels) + 1, "type": "text", "title": "Reading container network traffic",
+               "gridPos": {"x": 0, "y": network_notice_y, "w": 24, "h": 4},
+               "options": {"mode": "markdown", "content": "These counters belong to the network namespace visible to each container. **Containers using host networking see shared host traffic; do not add their series or attribute that traffic to an individual application.** Use **Host network throughput** for host totals. Containers sharing another container’s network namespace have the same limitation."}})
 
 variables = [
     {"name": "DS_PROMETHEUS", "label": "Datasource", "type": "datasource", "query": "prometheus",

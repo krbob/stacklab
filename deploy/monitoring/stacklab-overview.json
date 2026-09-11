@@ -1005,7 +1005,7 @@
       "id": 14,
       "type": "timeseries",
       "title": "Filesystem inodes used",
-      "description": "",
+      "description": "Filesystems without a finite inode count (for example Btrfs and FAT) are omitted.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1013,7 +1013,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "100 * (1 - node_filesystem_files_free{job=\"node-exporter\",host=\"$host\",fstype!~\"tmpfs|devtmpfs|overlay|squashfs|proc|sysfs|nsfs|ramfs\",mountpoint!~\"/run.*|/var/lib/docker.*\"} / node_filesystem_files{job=\"node-exporter\",host=\"$host\",fstype!~\"tmpfs|devtmpfs|overlay|squashfs|proc|sysfs|nsfs|ramfs\",mountpoint!~\"/run.*|/var/lib/docker.*\"})",
+          "expr": "100 * (1 - node_filesystem_files_free{job=\"node-exporter\",host=\"$host\",fstype!~\"tmpfs|devtmpfs|overlay|squashfs|proc|sysfs|nsfs|ramfs\",mountpoint!~\"/run.*|/var/lib/docker.*\"} / (node_filesystem_files{job=\"node-exporter\",host=\"$host\",fstype!~\"tmpfs|devtmpfs|overlay|squashfs|proc|sysfs|nsfs|ramfs\",mountpoint!~\"/run.*|/var/lib/docker.*\"} > 0))",
           "legendFormat": "{{mountpoint}}",
           "range": true,
           "instant": false,
@@ -1337,7 +1337,7 @@
       "id": 18,
       "type": "timeseries",
       "title": "Hardware temperatures",
-      "description": "Available hwmon sensors; an empty panel means the host does not expose supported sensors.",
+      "description": "Host hardware sensors within 0–150°C. Invalid firmware readings (such as −263.2°C) are omitted, not converted to zero. Empty means no usable samples.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1345,7 +1345,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "node_hwmon_temp_celsius{job=\"node-exporter\",host=\"$host\"}",
+          "expr": "node_hwmon_temp_celsius{job=\"node-exporter\",host=\"$host\"} >= 0 <= 150",
           "legendFormat": "{{chip}} / {{sensor}}",
           "range": true,
           "instant": false,
@@ -1773,7 +1773,7 @@
     {
       "id": 25,
       "type": "timeseries",
-      "title": "Container network receive",
+      "title": "Network receive seen by container",
       "description": "Containers using host networking share host counters; traffic is not exclusive to each container.",
       "datasource": {
         "type": "prometheus",
@@ -1794,7 +1794,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 59,
+        "y": 63,
         "w": 12,
         "h": 8
       },
@@ -1850,7 +1850,7 @@
     {
       "id": 26,
       "type": "timeseries",
-      "title": "Container network transmit",
+      "title": "Network transmit seen by container",
       "description": "Containers using host networking share host counters; traffic is not exclusive to each container.",
       "datasource": {
         "type": "prometheus",
@@ -1871,7 +1871,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 59,
+        "y": 63,
         "w": 12,
         "h": 8
       },
@@ -1928,7 +1928,7 @@
       "id": 27,
       "type": "timeseries",
       "title": "CPU throttled periods",
-      "description": "Share of CFS periods throttled; meaningful when the container has a CPU quota.",
+      "description": "Share of CFS periods throttled. No data is expected without CPU quotas or when cAdvisor does not expose CFS counters; it does not establish zero throttling.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1948,7 +1948,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 67,
+        "y": 71,
         "w": 12,
         "h": 8
       },
@@ -2027,7 +2027,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 67,
+        "y": 71,
         "w": 12,
         "h": 8
       },
@@ -2088,7 +2088,7 @@
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 75,
+        "y": 79,
         "w": 24,
         "h": 1
       }
@@ -2128,7 +2128,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 76,
+        "y": 80,
         "w": 12,
         "h": 8
       },
@@ -2216,7 +2216,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 76,
+        "y": 80,
         "w": 12,
         "h": 8
       },
@@ -2315,7 +2315,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 84,
+        "y": 88,
         "w": 12,
         "h": 8
       },
@@ -2403,7 +2403,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 84,
+        "y": 88,
         "w": 12,
         "h": 8
       },
@@ -2502,7 +2502,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 92,
+        "y": 96,
         "w": 12,
         "h": 8
       },
@@ -2579,7 +2579,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 92,
+        "y": 96,
         "w": 12,
         "h": 8
       },
@@ -2658,7 +2658,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 100,
+        "y": 104,
         "w": 12,
         "h": 8
       },
@@ -2757,7 +2757,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 100,
+        "y": 104,
         "w": 12,
         "h": 8
       },
@@ -2845,7 +2845,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 108,
+        "y": 112,
         "w": 12,
         "h": 8
       },
@@ -2922,7 +2922,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 108,
+        "y": 112,
         "w": 12,
         "h": 8
       },
@@ -2973,6 +2973,21 @@
             "max"
           ]
         }
+      }
+    },
+    {
+      "id": 40,
+      "type": "text",
+      "title": "Reading container network traffic",
+      "gridPos": {
+        "x": 0,
+        "y": 59,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "These counters belong to the network namespace visible to each container. **Containers using host networking see shared host traffic; do not add their series or attribute that traffic to an individual application.** Use **Host network throughput** for host totals. Containers sharing another container’s network namespace have the same limitation."
       }
     }
   ]
