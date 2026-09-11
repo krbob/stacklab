@@ -73,6 +73,9 @@ expose project and distributed third-party license text through
 `NOTICE` alongside it. Packaging smoke verifies representative required files
 and attributions.
 
+Both formats also include the repeatable monitoring setup tool and its templates.
+See [Monitoring](monitoring.md) for dependencies, first setup and host migration.
+
 ## Automated Release Gates
 
 The nightly, stable, and hotfix workflows use the same exact-revision gate from
@@ -84,7 +87,8 @@ Automation requires:
 
 1. frontend API generation/drift check, unit tests, typecheck, and production
    build;
-2. backend tests, coverage thresholds, formatting, vet, and repository hygiene;
+2. backend tests, coverage thresholds, formatting, vet, repository hygiene, and
+   monitoring setup/migration checks including privileged file lifecycle tests;
 3. Docker-backed integration smoke;
 4. browser E2E smoke;
 5. Debian package installation under the systemd smoke harness;

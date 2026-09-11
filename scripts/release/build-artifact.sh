@@ -75,6 +75,9 @@ echo "Building backend binary for ${platform}..."
 )
 
 cp -R "${repo_root}/frontend/dist" "${stage_dir}/frontend/dist"
+mkdir -p "${stage_dir}/monitoring/assets"
+install -m 0755 "${repo_root}/scripts/monitoring/setup.py" "${stage_dir}/monitoring/setup.py"
+cp "${repo_root}/deploy/monitoring/"*.yaml "${repo_root}/deploy/monitoring/"*.json "${stage_dir}/monitoring/assets/"
 install -m 0644 "${repo_root}/LICENSE" "${stage_dir}/LICENSE"
 install -m 0644 "${repo_root}/NOTICE" "${stage_dir}/NOTICE"
 install -m 0644 "${repo_root}/THIRD_PARTY_NOTICES.md" "${stage_dir}/THIRD_PARTY_NOTICES.md"

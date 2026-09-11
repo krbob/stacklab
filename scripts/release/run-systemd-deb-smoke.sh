@@ -40,6 +40,9 @@ assert_service_identity() {
   local process_user
 
   systemctl is-enabled --quiet stacklab.service || die "stacklab.service is not enabled"
+  test -x /usr/lib/stacklab/monitoring/setup.py
+  test -f /usr/lib/stacklab/monitoring/assets/compose.standalone.yaml
+  python3 /usr/lib/stacklab/monitoring/setup.py --help >/dev/null
   systemctl is-active --quiet stacklab.service || die "stacklab.service is not active"
   test "$(systemctl show stacklab.service --property=User --value)" = stacklab \
     || die "stacklab.service is not configured with User=stacklab"

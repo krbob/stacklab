@@ -75,6 +75,7 @@ install -m 0755 "${artifact_dir}/bin/stacklab-workspace-admin-helper" "${pkg_roo
 install -m 0755 "${artifact_dir}/bin/stacklab-self-update-helper" "${pkg_root}/usr/lib/stacklab/bin/stacklab-self-update-helper"
 cp -R "${artifact_dir}/frontend/dist" "${pkg_root}/usr/lib/stacklab/frontend/dist"
 cp -R "${artifact_dir}/metadata/." "${pkg_root}/usr/lib/stacklab/metadata/"
+cp -R "${artifact_dir}/monitoring" "${pkg_root}/usr/lib/stacklab/monitoring"
 install -m 0644 "${repo_root}/packaging/debian/stacklab.service" "${pkg_root}/lib/systemd/system/stacklab.service"
 install -m 0600 "${repo_root}/packaging/debian/stacklab.env" "${pkg_root}/etc/stacklab/stacklab.env"
 install -m 0644 "${repo_root}/packaging/systemd/stacklab-docker-admin.sudoers.example" "${doc_dir}/examples/stacklab-docker-admin.sudoers.example"
@@ -111,7 +112,7 @@ Architecture: ${deb_arch}
 Maintainer: Krzysztof Bobiński <krzysztof@bobinski.net>
 Homepage: https://github.com/krbob/stacklab
 Depends: acl, adduser, systemd, docker.io | docker-ce | moby-engine, docker-cli | docker-ce-cli | moby-cli | docker.io (<< 26.0), docker-compose | docker-compose-plugin, git
-Recommends: ca-certificates
+Recommends: ca-certificates, python3 (>= 3.9), python3-yaml
 Description: Host-native web control panel for Docker Compose stacks
  Stacklab is a host-native web control panel for managing Docker Compose stacks
  on a single Linux server.

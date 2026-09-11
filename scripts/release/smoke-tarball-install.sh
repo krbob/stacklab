@@ -92,6 +92,7 @@ main() {
         passwd \
         perl \
         python3 \
+        python3-yaml \
         tar >/dev/null
 
       cat >/usr/local/bin/systemctl <<'"'"'EOF'"'"'
@@ -116,6 +117,9 @@ EOF
 
       test -n "${artifact_a}"
       test -x "${artifact_a}/host-tools/upgrade.sh"
+      test -x "${artifact_a}/monitoring/setup.py"
+      test -f "${artifact_a}/monitoring/assets/setup.example.json"
+      python3 "${artifact_a}/monitoring/setup.py" --help >/dev/null
       test -f "${artifact_a}/systemd/stacklab.service.example"
       test -f "${artifact_a}/systemd/stacklab.env.example"
       test -f "${artifact_a}/LICENSE"

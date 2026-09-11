@@ -16,6 +16,8 @@ RUN apt-get update \
       docker.io \
       git \
       procps \
+      python3 \
+      python3-yaml \
       systemd \
       systemd-sysv \
     && mkdir -p /etc/docker \
