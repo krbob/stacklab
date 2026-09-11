@@ -3,8 +3,8 @@ name: Nightly Release
 on:
   workflow_dispatch:
   schedule:
-    # Leave room for delayed scheduled runs before morning host updates at 06:00.
-    - cron: '17 23 * * *'
+    # Use the new local calendar day, with headroom before host updates at 06:00.
+    - cron: '17 0 * * *'
       timezone: "Europe/Warsaw"
 
 permissions:
@@ -40,18 +40,18 @@ jobs:
         run: |
           set -euo pipefail
           short_sha="$(git rev-parse --short=7 HEAD)"
-          today="$(date -u +%Y%m%d)"
-          next_base="$(python3 - <<'PY'
-          from datetime import datetime, timezone
-          today = datetime.now(timezone.utc)
+          read -r today next_base < <(python3 - <<'PY'
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          today = datetime.now(ZoneInfo("Europe/Warsaw"))
           year = today.year
           month = today.month + 1
           if month == 13:
               month = 1
               year += 1
-          print(f"{year:04d}.{month:02d}.0")
+          print(today.strftime("%Y%m%d"), f"{year:04d}.{month:02d}.0")
           PY
-          )"
+          )
           nightly_tag="nightly-${today}-${short_sha}"
           release_version="${next_base}~nightly${today}+r${GITHUB_RUN_NUMBER}.g${short_sha}"
           latest_nightly="$(git for-each-ref --sort=-creatordate --format='%(refname:short)' 'refs/tags/nightly-*' | head -n1 || true)"
