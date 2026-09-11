@@ -26,6 +26,8 @@ import type {
   GitCommitRequest,
   GitCommitResponse,
   GitDiffResponse,
+  GitFileDeleteRequest,
+  GitFileDeleteResponse,
   GitPushResponse,
   GitWorkspaceStatusResponse,
   HealthResponse,
@@ -301,6 +303,11 @@ export function getGitWorkspaceStatus(): Promise<GitWorkspaceStatusResponse> {
 
 export function getGitWorkspaceDiff(path: GitWorkspaceDiffQueryParams['path']): Promise<GitDiffResponse> {
   return request(`/api/git/workspace/diff?path=${encodeURIComponent(path)}`)
+}
+
+export function deleteGitWorkspaceFile(path: string, expectedModifiedAt: string): Promise<GitFileDeleteResponse> {
+  const requestBody: GitFileDeleteRequest = { path, expected_modified_at: expectedModifiedAt }
+  return request('/api/git/workspace/file', { method: 'DELETE', body: JSON.stringify(requestBody) })
 }
 
 export function commitGitWorkspace(requestBody: GitCommitRequest): Promise<GitCommitResponse> {

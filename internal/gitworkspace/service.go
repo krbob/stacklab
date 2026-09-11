@@ -166,6 +166,14 @@ func (s *Service) Diff(ctx context.Context, requestedPath string) (DiffResponse,
 		DiffAvailable: item.DiffAvailable,
 		BlockedReason: item.BlockedReason,
 	}
+	if item.Status != FileStatusDeleted {
+		if parent, _, info, err := s.deletionTarget(normalizedPath); err == nil {
+			parent.Close()
+			modifiedAt := info.ModTime().UTC()
+			response.ModifiedAt = &modifiedAt
+			response.DeleteAllowed = true
+		}
+	}
 	if !item.DiffAvailable {
 		if item.BlockedReason != nil {
 			capability := s.repairer.Capability(ctx)

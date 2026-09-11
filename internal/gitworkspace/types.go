@@ -3,6 +3,7 @@ package gitworkspace
 import (
 	"stacklab/internal/fsmeta"
 	"stacklab/internal/workspacerepair"
+	"time"
 )
 
 type Scope string
@@ -51,6 +52,8 @@ type StatusItem struct {
 }
 
 type DiffResponse struct {
+	DeleteAllowed    bool                        `json:"delete_allowed"`
+	ModifiedAt       *time.Time                  `json:"modified_at,omitempty"`
 	RepairCapability *workspacerepair.Capability `json:"repair_capability,omitempty"`
 	Available        bool                        `json:"available"`
 	Path             string                      `json:"path"`

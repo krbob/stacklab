@@ -300,13 +300,41 @@ Expected first UI surface:
 - tree panel gains a mode toggle:
   - `Files`
   - `Changes`
-- `Changes` mode shows only changed files
+- `Files` browses `config/`; `Changes` shows changed files under both `config/` and `stacks/`
+- `Changes` offers **Delete file** for eligible files, including untracked Compose backups absent from `Files`
 - clicking a changed file opens unified diff in the right panel
 
 Recommended grouping:
 
 - by `stack_id`
 - with an `Other` group for paths outside stack-specific directories
+
+## `DELETE /api/git/workspace/file`
+
+Deletes one regular file currently listed in Changes after explicit review. Send
+its full managed `path` (for example `stacks/samba/compose.yaml.bak-20260806T1108`)
+and `expected_modified_at` from the diff response. Diff responses expose
+`delete_allowed` and `modified_at` for eligible files; clients hide the action
+when either is absent.
+
+Directories, symbolic links, paths through symbolic links, Git metadata, and the
+active `stacks/<id>/compose.yaml` and `stacks/<id>/.env` are protected. Use stack
+management for active stack files. Clean or ignored files cannot be deleted
+through this endpoint. Deletion requires a session and same-origin request,
+checks the modification time, and shares the commit/push mutation lock.
+
+Success returns `deleted`, `path`, `scope`, `stack_id`, and `audit_action`
+(`delete_config_file`). The audit records the full managed path. The UI refreshes
+Changes and Files: an untracked backup disappears, while deletion of a tracked
+file remains a change to commit. Deletion does not stage, commit, push, or create
+a backup. The review explicitly warns that an untracked file needs an operator's
+backup for recovery.
+
+A stale review returns `409 edit_conflict`, insufficient directory permissions
+return `409 permission_denied`, and a simultaneous Git mutation returns
+`409 operation_in_progress`. Protected active stack files return
+`400 reserved_path`; non-regular files return `400 path_not_file`; a missing or
+no-longer-changed file returns `404 not_found`.
 
 ## `POST /api/git/workspace/commit`
 

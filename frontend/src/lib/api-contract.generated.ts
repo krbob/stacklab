@@ -57,6 +57,10 @@ export interface paths {
   "/git/workspace/diff": {
     get: operations["getGitWorkspaceDiff"];
   };
+  "/git/workspace/file": {
+    /** @description Delete one changed regular file under config/ or a stack directory. Active stack compose.yaml and .env files, directories, and symbolic links are protected. Does not stage, commit, or push. */
+    delete: operations["deleteGitWorkspaceFile"];
+  };
   "/git/workspace/push": {
     post: operations["pushGitWorkspace"];
   };
@@ -621,9 +625,16 @@ export interface components {
       available: boolean;
       /** @enum {string|null} */
       blocked_reason: "not_readable" | null;
+      /** @description The path identifies a deletable regular file; actual parent directory permissions are checked on deletion. */
+      delete_allowed?: boolean;
       diff: string | null;
       diff_available: boolean;
       is_binary: boolean;
+      /**
+       * Format: date-time
+       * @description Required as expected_modified_at when deleting the reviewed file.
+       */
+      modified_at?: string;
       old_path: string | null;
       path: string;
       permissions?: components["schemas"]["FilePermissions"];
@@ -632,6 +643,19 @@ export interface components {
       stack_id: string | null;
       status: components["schemas"]["GitFileStatus"];
       truncated: boolean;
+    };
+    GitFileDeleteRequest: {
+      /** Format: date-time */
+      expected_modified_at: string;
+      /** @description Full managed path, such as stacks/samba/compose.yaml.bak or config/samba/obsolete.conf. */
+      path: string;
+    };
+    GitFileDeleteResponse: {
+      audit_action: string;
+      deleted: boolean;
+      path: string;
+      scope: components["schemas"]["GitScope"];
+      stack_id: string | null;
     };
     /** @enum {string} */
     GitFileStatus: "modified" | "added" | "deleted" | "renamed" | "untracked" | "conflicted";
@@ -2129,6 +2153,48 @@ export interface operations {
       401: components["responses"]["ErrorUnauthorized"];
       404: components["responses"]["ErrorNotFound"];
       413: components["responses"]["ErrorContentTooLarge"];
+      /** @description Git workspace is unavailable. */
+      503: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  /** @description Delete one changed regular file under config/ or a stack directory. Active stack compose.yaml and .env files, directories, and symbolic links are protected. Does not stage, commit, or push. */
+  deleteGitWorkspaceFile: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["GitFileDeleteRequest"];
+      };
+    };
+    responses: {
+      /** @description The selected workspace file was deleted. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["GitFileDeleteResponse"];
+        };
+      };
+      /** @description Invalid path, missing timestamp, or a protected target. */
+      400: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      401: components["responses"]["ErrorUnauthorized"];
+      /** @description Cross-origin request rejected. */
+      403: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      404: components["responses"]["ErrorNotFound"];
+      /** @description The file changed, permissions block deletion, or a Git mutation is in progress. */
+      409: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
       /** @description Git workspace is unavailable. */
       503: {
         content: {

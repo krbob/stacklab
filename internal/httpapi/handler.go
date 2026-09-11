@@ -118,6 +118,7 @@ type StackWorkspaceReader interface {
 type GitWorkspaceReader interface {
 	Status(ctx context.Context) (gitworkspace.StatusResponse, error)
 	Diff(ctx context.Context, requestedPath string) (gitworkspace.DiffResponse, error)
+	DeleteFile(ctx context.Context, request gitworkspace.DeleteFileRequest) (gitworkspace.DeleteFileResponse, error)
 	Commit(ctx context.Context, request gitworkspace.CommitRequest) (gitworkspace.CommitResponse, error)
 	Push(ctx context.Context) (gitworkspace.PushResponse, error)
 }

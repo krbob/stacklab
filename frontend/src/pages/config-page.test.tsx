@@ -13,6 +13,7 @@ const mockGetConfigTree = vi.fn()
 const mockGetConfigFile = vi.fn()
 const mockSaveConfigFile = vi.fn()
 const mockDeleteConfigFile = vi.fn()
+const mockDeleteGitWorkspaceFile = vi.fn()
 const mockGetGitWorkspaceStatus = vi.fn()
 const mockGetGitWorkspaceDiff = vi.fn()
 const mockCommitGitWorkspace = vi.fn()
@@ -31,6 +32,7 @@ vi.mock('@/lib/api-client', () => ({
   getConfigFile: (...args: unknown[]) => mockGetConfigFile(...args),
   saveConfigFile: (...args: unknown[]) => mockSaveConfigFile(...args),
   deleteConfigFile: (...args: unknown[]) => mockDeleteConfigFile(...args),
+  deleteGitWorkspaceFile: (...args: unknown[]) => mockDeleteGitWorkspaceFile(...args),
   getGitWorkspaceStatus: (...args: unknown[]) => mockGetGitWorkspaceStatus(...args),
   getGitWorkspaceDiff: (...args: unknown[]) => mockGetGitWorkspaceDiff(...args),
   commitGitWorkspace: (...args: unknown[]) => mockCommitGitWorkspace(...args),
@@ -304,6 +306,7 @@ describe('ConfigPage', () => {
     mockGetConfigFile.mockReset()
     mockSaveConfigFile.mockReset()
     mockDeleteConfigFile.mockReset()
+    mockDeleteGitWorkspaceFile.mockReset()
     mockGetGitWorkspaceStatus.mockReset()
     mockGetGitWorkspaceDiff.mockReset()
     mockCommitGitWorkspace.mockReset()
@@ -700,6 +703,64 @@ describe('ConfigPage', () => {
       expect(mockGetConfigFile).toHaveBeenCalledWith('demo/app.conf')
     })
     expect(await screen.findByLabelText('yaml-editor')).toBeInTheDocument()
+  })
+
+  it('deletes an untracked stack backup from Changes after reviewing its full path', async () => {
+    const path = 'stacks/samba/compose.yaml.bak-20260806T1108'
+    mockGetGitWorkspaceStatus.mockResolvedValueOnce({
+      ...gitStatus, items: [{ ...gitStatus.items![0], path, scope: 'stacks', stack_id: 'samba', status: 'untracked' }],
+    }).mockResolvedValue({ ...gitStatus, items: [], clean: true })
+    mockGetGitWorkspaceDiff.mockResolvedValue({
+      ...gitDiff, path, scope: 'stacks', stack_id: 'samba', status: 'untracked',
+      delete_allowed: true, modified_at: fileBefore.modified_at,
+    })
+    renderPage()
+    expect(screen.queryByText('compose.yaml.bak-20260806T1108')).not.toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: /^Changes/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /compose.yaml.bak-20260806T1108$/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete file' }))
+    let dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByText(path)).toBeInTheDocument()
+    expect(within(dialog).getByText(/This file is untracked/)).toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(mockDeleteGitWorkspaceFile).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Delete file' }))
+    dialog = screen.getByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete file' }))
+    await waitFor(() => expect(mockDeleteGitWorkspaceFile).toHaveBeenCalledExactlyOnceWith(path, fileBefore.modified_at))
+    expect(await screen.findByRole('status')).toHaveTextContent(`Deleted ${path}`)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /compose.yaml.bak-20260806T1108$/ })).not.toBeInTheDocument()
+    expect(mockGetGitWorkspaceStatus).toHaveBeenCalledTimes(2)
+    expect(mockDeleteConfigFile).not.toHaveBeenCalled()
+    expect(mockCommitGitWorkspace).not.toHaveBeenCalled()
+    expect(mockPushGitWorkspace).not.toHaveBeenCalled()
+  })
+
+  it('keeps a changed file and its review visible when deletion fails', async () => {
+    mockGetGitWorkspaceDiff.mockResolvedValue({ ...gitDiff, delete_allowed: true, modified_at: fileBefore.modified_at })
+    mockDeleteGitWorkspaceFile.mockRejectedValue(new Error('File changed on disk. Reload its diff before deleting.'))
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /^Changes/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /app\.conf$/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete file' }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete file' }))
+    expect(await within(screen.getByRole('dialog')).findByRole('alert')).toHaveTextContent('File changed on disk')
+    expect(screen.getByRole('button', { name: /app\.conf$/ })).toBeInTheDocument()
+    expect(mockGetGitWorkspaceStatus).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    { delete_allowed: false, modified_at: fileBefore.modified_at },
+    { delete_allowed: true },
+    { delete_allowed: true, modified_at: fileBefore.modified_at, status: 'deleted' },
+  ])('hides deletion when the diff is not eligible: %j', async (metadata) => {
+    mockGetGitWorkspaceDiff.mockResolvedValue({ ...gitDiff, ...metadata })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /^Changes/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /app\.conf$/ }))
+    expect(await screen.findByText('-server_name old.local;')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Delete file' })).not.toBeInTheDocument()
   })
 
   it('keeps Git Retry available on desktop and mobile, then restores Refresh', async () => {

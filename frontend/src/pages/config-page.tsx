@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { File, FileQuestion, FileWarning, Folder, FolderKanban, GitBranch, Plus } from 'lucide-react'
-import { getConfigTree, getConfigFile, saveConfigFile, deleteConfigFile, repairConfigWorkspacePermissions, repairStackWorkspacePermissions, getGitWorkspaceStatus, getGitWorkspaceDiff } from '@/lib/api-client'
+import { getConfigTree, getConfigFile, saveConfigFile, deleteConfigFile, deleteGitWorkspaceFile, repairConfigWorkspacePermissions, repairStackWorkspacePermissions, getGitWorkspaceStatus, getGitWorkspaceDiff } from '@/lib/api-client'
 import type { ConfigTreeEntry, ConfigFileResponse, GitStatusItem, GitDiffResponse } from '@/lib/api-types'
 import { YamlEditor } from '@/components/yaml-editor'
 import { DiffView } from '@/components/diff-view'
@@ -16,6 +16,7 @@ import { StatusMessage } from '@/components/status-message'
 
 type Mode = 'files' | 'changes'
 type TreeLoadError = { message: string; path: string }
+type DeleteTarget = Pick<ConfigFileResponse, 'path' | 'name' | 'modified_at'> & { source?: 'changes'; untracked?: boolean }
 
 const entryIcons: Record<string, typeof File> = {
   directory: Folder,
@@ -56,7 +57,7 @@ export function ConfigPage() {
   const [saving, setSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
-  const [fileToDelete, setFileToDelete] = useState<ConfigFileResponse | null>(null)
+  const [fileToDelete, setFileToDelete] = useState<DeleteTarget | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
@@ -228,10 +229,16 @@ export function ConfigPage() {
     setDeleting(true)
     setDeleteError(null)
     try {
-      await deleteConfigFile(fileToDelete.path, fileToDelete.modified_at)
-      setSelectedFile(null)
-      setEditContent('')
-      setFileError(null)
+      if (fileToDelete.source === 'changes') {
+        await deleteGitWorkspaceFile(fileToDelete.path, fileToDelete.modified_at)
+      } else {
+        await deleteConfigFile(fileToDelete.path, fileToDelete.modified_at)
+      }
+      if (fileToDelete.source !== 'changes' || (selectedFile && `config/${selectedFile.path}` === fileToDelete.path)) {
+        setSelectedFile(null)
+        setEditContent('')
+        setFileError(null)
+      }
       setFileToDelete(null)
       setSaveMessage({ type: 'success', text: `Deleted ${fileToDelete.path}` })
       selectedChangePathRef.current = null
@@ -246,7 +253,7 @@ export function ConfigPage() {
     } finally {
       setDeleting(false)
     }
-  }, [fileToDelete, deleting, loadTree, treePath, loadGitStatus])
+  }, [fileToDelete, deleting, selectedFile, loadTree, treePath, loadGitStatus])
 
   const openDiff = useCallback(async (path: string) => {
     const requestId = ++diffRequestIdRef.current
@@ -357,7 +364,7 @@ export function ConfigPage() {
       <div aria-busy={mode === 'files' ? treeLoading : gitLoading} className="hidden w-64 shrink-0 flex-col rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-[var(--shadow)] lg:flex">
         <div className="mb-3 text-xs uppercase tracking-wider text-[var(--accent)]">Config workspace</div>
         <p className="mb-3 text-xs text-[var(--muted)]">
-          Files here are only used when a stack mounts or references them.
+          {mode === 'files' ? 'Browse config/. Files are used when a stack mounts or references them.' : 'Changes includes files in both config/ and stacks/.'}
         </p>
         <WorkspacePath root={workspaceRoot} path={treeLoading || treeError ? requestedTreePath : treePath} />
 
@@ -543,7 +550,7 @@ export function ConfigPage() {
       <BottomSheet open={sheetOpen} onClose={() => setSheetOpen(false)} label="Config workspace">
         <div className="mb-3 text-xs uppercase tracking-wider text-[var(--accent)]">Config workspace</div>
         <p className="mb-3 text-xs text-[var(--muted)]">
-          Files here are only used when a stack mounts or references them.
+          {mode === 'files' ? 'Browse config/. Files are used when a stack mounts or references them.' : 'Changes includes files in both config/ and stacks/.'}
         </p>
         <WorkspacePath root={workspaceRoot} path={treeLoading || treeError ? requestedTreePath : treePath} />
 
@@ -715,10 +722,10 @@ export function ConfigPage() {
 
       {/* Right panel */}
       <div aria-busy={fileLoading || diffLoading || saving || deleting} className="flex min-w-0 flex-1 flex-col rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+        {saveMessage && <StatusMessage className={cn('mb-2 wrap-anywhere text-xs', saveMessage.type === 'success' ? 'text-[var(--ok)]' : 'text-[var(--danger)]')}>{saveMessage.text}</StatusMessage>}
         {/* Files mode - editor */}
         {mode === 'files' && (
           <>
-            {saveMessage && <StatusMessage className={cn('mb-2 wrap-anywhere text-xs', saveMessage.type === 'success' ? 'text-[var(--ok)]' : 'text-[var(--danger)]')}>{saveMessage.text}</StatusMessage>}
             {!selectedFile && !fileLoading && !fileError && (
               <div className="flex flex-1 items-center justify-center">
                 <div className="text-center">
@@ -817,7 +824,7 @@ export function ConfigPage() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <div className="flex items-center gap-2">
-                      <h2 className="text-lg font-medium text-[var(--text)]">{selectedDiff.path.split('/').pop()}</h2>
+                      <h2 className="wrap-anywhere text-lg font-medium text-[var(--text)]">{selectedDiff.path.split('/').pop()}</h2>
                       {statusPrefixes[selectedDiff.status] && (
                         <span className={cn('rounded-md border border-[var(--panel-border)] px-2 py-0.5 text-xs', statusPrefixes[selectedDiff.status].color)}>
                           {selectedDiff.status}
@@ -825,31 +832,51 @@ export function ConfigPage() {
                       )}
                     </div>
                     <div className="mt-1 flex items-center gap-3 text-xs text-[var(--muted)]">
-                      <span>{selectedDiff.path}</span>
+                      <span className="wrap-anywhere">{selectedDiff.path}</span>
                       {selectedDiff.stack_id && <Link to={`/stacks/${selectedDiff.stack_id}`} className="text-[var(--accent)] hover:underline">{selectedDiff.stack_id}</Link>}
                       <span className="text-[var(--muted)]">{selectedDiff.scope}</span>
                     </div>
                   </div>
-                  {selectedDiff.status !== 'deleted' && selectedDiff.scope === 'config' && !selectedDiff.blocked_reason && (
-                    <button
-                      onClick={() => {
-                        const configPath = selectedDiff.path.replace(/^config\//, '')
-                        handleModeSwitch('files')
-                        openFile(configPath)
-                      }}
-                      className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]"
-                    >
-                      Open in editor
-                    </button>
-                  )}
-                  {selectedDiff.status !== 'deleted' && selectedDiff.scope === 'stacks' && selectedDiff.stack_id && (
-                    <Link
-                      to={`/stacks/${selectedDiff.stack_id}/editor`}
-                      className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]"
-                    >
-                      Open stack editor
-                    </Link>
-                  )}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {selectedDiff.status !== 'deleted' && selectedDiff.scope === 'config' && !selectedDiff.blocked_reason && (
+                      <button
+                        onClick={() => {
+                          const configPath = selectedDiff.path.replace(/^config\//, '')
+                          handleModeSwitch('files')
+                          openFile(configPath)
+                        }}
+                        className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]"
+                      >
+                        Open in editor
+                      </button>
+                    )}
+                    {selectedDiff.status !== 'deleted' && selectedDiff.scope === 'stacks' && selectedDiff.stack_id && (
+                      <Link
+                        to={`/stacks/${selectedDiff.stack_id}/editor`}
+                        className="rounded-md border border-[var(--panel-border)] px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]"
+                      >
+                        Open stack editor
+                      </Link>
+                    )}
+                    {selectedDiff.status !== 'deleted' && selectedDiff.delete_allowed && selectedDiff.modified_at && (
+                      <button
+                        type="button"
+                        disabled={saving || deleting || diffLoading}
+                        onClick={() => {
+                          if (!selectedDiff.modified_at) return
+                          setDeleteError(null)
+                          setFileToDelete({
+                            source: 'changes', path: selectedDiff.path,
+                            name: selectedDiff.path.split('/').pop() ?? selectedDiff.path,
+                            modified_at: selectedDiff.modified_at, untracked: selectedDiff.status === 'untracked',
+                          })
+                        }}
+                        className="rounded-md border border-[var(--danger)]/30 bg-[var(--danger)]/10 px-3 py-1 text-xs text-[var(--danger)] disabled:opacity-40"
+                      >
+                        Delete file
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="mt-3 flex-1" style={{ minHeight: '400px' }}>
                   {selectedDiff.blocked_reason ? (
@@ -900,15 +927,15 @@ export function ConfigPage() {
       {fileToDelete && (
         <ConfirmDialog
           title={`Delete "${fileToDelete.name}"?`}
-          message={isDirty
+          message={isDirty && fileToDelete.source !== 'changes'
             ? 'Delete this file from disk and discard its unsaved editor changes?'
             : 'Delete this file from disk?'}
           review={{
             target: fileToDelete.path,
-            scope: ['One file in the managed config workspace.'],
+            scope: [fileToDelete.source === 'changes' ? 'One changed file in config/ or a stack directory.' : 'One file in the managed config workspace.'],
             impact: ['Stacks that mount or reference this file may stop working.'],
             snapshot: 'No backup is created before deletion.',
-            recovery: 'Restore from a backup or a previous Git commit, if the file was committed.',
+            recovery: fileToDelete.untracked ? 'This file is untracked. Restoring it requires your own backup.' : 'Restore from a backup or a previous Git commit, if the file was committed.',
           }}
           error={deleteError}
           confirmLabel="Delete file"

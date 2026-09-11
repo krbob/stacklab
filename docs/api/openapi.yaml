@@ -615,6 +615,52 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /git/workspace/file:
+    delete:
+      tags: [Git]
+      operationId: deleteGitWorkspaceFile
+      description: Delete one changed regular file under config/ or a stack directory. Active stack compose.yaml and .env files, directories, and symbolic links are protected. Does not stage, commit, or push.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GitFileDeleteRequest'
+      responses:
+        '200':
+          description: The selected workspace file was deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitFileDeleteResponse'
+        '400':
+          description: Invalid path, missing timestamp, or a protected target.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          description: Cross-origin request rejected.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          description: The file changed, permissions block deletion, or a Git mutation is in progress.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Git workspace is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /git/workspace/commit:
     post:
       tags: [Git]
@@ -3178,6 +3224,13 @@ components:
     GitDiffResponse:
       type: object
       properties:
+        delete_allowed:
+          type: boolean
+          description: The path identifies a deletable regular file; actual parent directory permissions are checked on deletion.
+        modified_at:
+          type: string
+          format: date-time
+          description: Required as expected_modified_at when deleting the reviewed file.
         repair_capability:
           $ref: '#/components/schemas/WorkspaceRepairCapability'
         available:
@@ -3224,6 +3277,30 @@ components:
         writable:
           type: boolean
       required: [mode, readable, writable]
+    GitFileDeleteRequest:
+      type: object
+      properties:
+        path:
+          type: string
+          description: Full managed path, such as stacks/samba/compose.yaml.bak or config/samba/obsolete.conf.
+        expected_modified_at:
+          type: string
+          format: date-time
+      required: [path, expected_modified_at]
+    GitFileDeleteResponse:
+      type: object
+      properties:
+        deleted:
+          type: boolean
+        path:
+          type: string
+        scope:
+          $ref: '#/components/schemas/GitScope'
+        stack_id:
+          type: [string, 'null']
+        audit_action:
+          type: string
+      required: [deleted, path, scope, stack_id, audit_action]
     GitCommitRequest:
       type: object
       properties:
