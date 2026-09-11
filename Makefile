@@ -9,9 +9,13 @@ GO_FORMAT_PATHS := cmd internal
 .PHONY: check check-toolchain check-toolchain-go check-toolchain-node
 .PHONY: check-backend check-backend-test check-backend-coverage check-backend-hygiene
 .PHONY: backend-test backend-coverage backend-hygiene frontend-dependencies frontend-api-contract frontend-checks docs-checks release-script-tests hygiene-checks
-.PHONY: check-frontend check-docs check-hygiene
+.PHONY: check-frontend check-docs check-hygiene check-monitoring
 
-check: check-toolchain backend-test backend-hygiene frontend-dependencies frontend-checks hygiene-checks
+check: check-toolchain backend-test backend-hygiene frontend-dependencies frontend-checks check-monitoring hygiene-checks
+
+check-monitoring:
+	@echo "==> Monitoring setup and migration"
+	@PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/monitoring -p 'test_*.py' -v
 
 check-toolchain:
 	@echo "==> Toolchain"

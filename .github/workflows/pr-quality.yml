@@ -78,12 +78,34 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  monitoring-setup:
+    name: monitoring-setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+          persist-credentials: false
+
+      - name: Verify source revision
+        env:
+          EXPECTED_SHA: ${{ inputs.source_sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+
+      - name: Install monitoring setup dependency
+        run: sudo apt-get update && sudo apt-get install -y python3-yaml
+
+      - name: Test migration and privileged file lifecycle
+        run: sudo env PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m unittest discover -s scripts/monitoring -p 'test_*.py' -v
+
   ci-required:
     name: ci-required
     if: ${{ always() }}
     needs:
       - frontend-quality
       - backend-test
+      - monitoring-setup
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -92,6 +114,8 @@ jobs:
         env:
           FRONTEND_RESULT: ${{ needs.frontend-quality.result }}
           BACKEND_RESULT: ${{ needs.backend-test.result }}
+          MONITORING_RESULT: ${{ needs.monitoring-setup.result }}
         run: |
           test "$FRONTEND_RESULT" = success
           test "$BACKEND_RESULT" = success
+          test "$MONITORING_RESULT" = success

@@ -24,6 +24,9 @@ frontend/playwright-report/
 bin/
 coverage.out
 
+# Python setup tools
+__pycache__/
+
 # Runtime
 .env
 .env.*

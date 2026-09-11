@@ -71,6 +71,11 @@ the access path, initialize the operator password, and verify readiness. The
 [APT guide](docs/ops/install-from-apt.md) covers channels, upgrades, and
 optional privileged helpers.
 
+For host, Docker and application metrics, follow the
+[Prometheus and Grafana setup guide](docs/ops/monitoring.md). Releases include a
+repeatable setup tool for a new monitoring stack or an existing Prometheus/Grafana
+installation, with configuration that can be committed and restored on another host.
+
 ### Other Linux distributions: release tarball
 
 Release artifacts and SHA-256 checksums for supported architectures are

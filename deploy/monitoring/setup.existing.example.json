@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "mode": "existing",
+  "workspace": "/srv/stacklab",
+  "state_dir": "/var/lib/stacklab",
+  "stack": "monitoring",
+  "host_label": "server",
+  "metrics_url": "http://host.docker.internal:8080/metrics",
+  "network": "monitoring"
+}

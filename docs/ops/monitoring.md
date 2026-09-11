@@ -14,7 +14,175 @@ filter Docker series by Compose project. Existing dashboards and data sources
 can be kept. The default Prometheus datasource UID is `prometheus`; a datasource
 selector permits another instance.
 
-## Enable Stacklab Metrics
+## Repeatable Setup From A Release Or Git
+
+[setup.py](../../scripts/monitoring/setup.py) configures monitoring on a local,
+rootful Linux Docker Engine host with Compose v2 (`docker compose` or
+`docker-compose`), running
+Stacklab as a systemd service. It supports
+both package and tarball installations. It does not install or replace Stacklab;
+install a release that supports `/metrics` first.
+
+The tool and all templates ship in release archives under `monitoring/` and in
+Debian packages under `/usr/lib/stacklab/monitoring/`. Python 3.9 or newer and
+PyYAML are required. Debian packages recommend `python3` and `python3-yaml`; if
+recommendations were disabled, install them explicitly:
+
+```bash
+sudo apt-get install python3 python3-yaml
+```
+
+### New Monitoring Stack
+
+Copy [setup.example.json](../../deploy/monitoring/setup.example.json) into your
+workspace, for example `/srv/stacklab/monitoring-setup.json`. Set `host_label` to
+the name to display in Grafana. The example uses the packaged workspace and
+Stacklab's default listener. For a tarball install, set `workspace` to your actual
+root, normally `/opt/stacklab`; `state_dir` normally remains `/var/lib/stacklab`.
+
+Preview and apply from a package installation:
+
+```bash
+sudo python3 /usr/lib/stacklab/monitoring/setup.py --config /srv/stacklab/monitoring-setup.json
+sudo python3 /usr/lib/stacklab/monitoring/setup.py --config /srv/stacklab/monitoring-setup.json --apply --deploy
+```
+
+From a Git checkout, use `python3 scripts/monitoring/setup.py`; from an extracted
+release, use `python3 monitoring/setup.py`, with the same arguments. The default
+invocation only previews file changes. `--apply` writes configuration and enables
+Stacklab metrics; `--deploy` additionally starts containers and verifies the
+scrape targets. Without `--deploy`, the generated stack can be deployed through
+Stacklab's existing stack actions.
+
+Standalone mode creates Prometheus, Grafana, node_exporter and cAdvisor with
+pinned image versions. They use host networking with loopback listeners, so the
+default `http://127.0.0.1:8080/metrics` is reachable without changing Stacklab's
+listener. Ports default to Grafana 3000, Prometheus 9090, node_exporter 9100, and
+cAdvisor 8081. These ports must be available on the new host.
+
+Grafana grants anonymous Viewer access and listens on loopback. For remote access,
+forward its port over SSH:
+
+```bash
+ssh -L 3000:127.0.0.1:3000 user@server
+```
+
+Then open `http://localhost:3000/d/stacklab-overview`. To use a reverse proxy,
+configure `grafana_listen` with a host address reachable from that proxy and
+configure the proxy separately. The generated stack has no dependency on a
+particular domain, Traefik network, or certificate resolver.
+
+### Existing Prometheus And Grafana
+
+Start from [setup.existing.example.json](../../deploy/monitoring/setup.existing.example.json)
+and set `metrics_url` to the full endpoint URL reachable **from Prometheus**.
+For a bridged container, this may be a host bridge address or an HTTPS hostname.
+The example's `host.docker.internal` is configured through Docker's host gateway;
+Stacklab must actually listen on an address reachable through that gateway.
+A loopback-only listener is unsuitable for this bridged mode.
+
+Existing mode requires services named `prometheus` and `grafana`, Prometheus
+attached to the configured Compose `network`, and existing file provisioning in
+Grafana. `prometheus_config` must be mounted at `/etc/prometheus/prometheus.yml`,
+and `dashboard_dir` must point to the host directory already read by a Grafana
+provider. The defaults match Stacklab's `config/<stack>/prometheus/` and
+`config/<stack>/grafana/dashboards/` layout.
+
+The tool merges three scrape jobs and two exporters into the existing files. It
+preserves other services, jobs, alert rules, retention, Grafana settings, networks,
+and named data volumes. YAML formatting/comments can change when files are
+serialized; review the Git diff. Existing provider and datasource configuration
+is kept; select your Prometheus datasource in the dashboard if its UID differs.
+
+On first adoption of an integration configured manually, existing `node-exporter`,
+`cadvisor` services or monitoring jobs cause a conflict. Review those definitions,
+then use `--adopt-existing` with the preview and first apply. Subsequent runs
+recognize the `x-stacklab-monitoring` marker committed in the Compose file, so
+adoption is not needed after cloning that configuration to another host.
+
+### Configuration Options
+
+Only the setup JSON contains installation-specific choices. Unknown keys are
+rejected to catch misspellings. Tokens, passwords and package versions do not
+belong in this file.
+
+| Option | Default / purpose |
+| --- | --- |
+| `schema_version` | `1` |
+| `mode` | `standalone` or `existing` |
+| `workspace`, `state_dir` | `/srv/stacklab`, `/var/lib/stacklab`; state must be outside the Git workspace |
+| `stack`, `host_label` | Compose project `monitoring`, displayed host `server` |
+| `metrics_url` | `http://127.0.0.1:8080/metrics`; full URL without embedded credentials |
+| `systemd_unit`, `service_user` | `stacklab.service`, `stacklab`; must match the installed unit |
+| `prometheus_gid` | `65534`; numeric group that can read the Prometheus token bind mount |
+| `compose_file` | `<workspace>/stacks/<stack>/compose.yaml` |
+| `prometheus_config` | `<workspace>/config/<stack>/prometheus/prometheus.yml` |
+| `dashboard_dir` | `<workspace>/config/<stack>/grafana/dashboards` |
+| `network` | `monitoring`; existing mode's exporter/Prometheus network |
+| `host_gateway` | `auto`; detect the Docker bridge gateway in existing mode |
+| `docker_root` | `auto`; detect Docker's data directory for cAdvisor |
+| `grafana_listen` | `127.0.0.1:3000`; standalone Grafana listener |
+| `prometheus_listen` | `127.0.0.1:9090`; standalone listener / existing Prometheus address inside its container |
+| `node_exporter_port`, `cadvisor_port` | `9100`, `8081`; cAdvisor's port option applies to standalone mode |
+
+### Reapply, Update, And Recover
+
+The token lives at `<state_dir>/monitoring/metrics-token`. An existing token is
+retained; a missing one is generated locally. Its mode is `0440`, owner is the
+service user, and group is `prometheus_gid`. The tool writes a separate environment
+file and a `90-monitoring.conf` systemd drop-in. It preserves the main Stacklab
+environment file and restarts Stacklab only when its metrics settings change.
+Reapplying matching configuration preserves the token inode and avoids a service
+restart. A package upgrade does not remove these runtime settings.
+
+Run the same command after changing setup options or adopting new exporter or
+dashboard templates from a Stacklab release. Prometheus/Grafana image choices in
+an existing stack remain under your control. `--deploy` pulls missing images,
+validates Prometheus configuration, recreates affected containers to attach updated
+files, and waits for all three targets plus application metrics. To verify later:
+
+```bash
+python3 /usr/lib/stacklab/monitoring/setup.py --config /srv/stacklab/monitoring-setup.json --verify
+```
+
+Verification requires Docker access but does not read or print the token. It
+queries Prometheus from inside its container, including when hostnames only
+resolve in Docker.
+
+Before writing changed files, the tool stores their prior contents and metadata
+under `<state_dir>/monitoring/backups/<timestamp>/`, together with a `restore.json`
+mapping. On failure it restores those files and the prior metrics settings. If
+container deployment already started, reconcile the running stack with the
+restored Compose configuration; on a first deployment, remove only the newly
+created monitoring containers. Data volumes are never deleted by the tool.
+Keep the backup directory private because it may contain old credentials.
+
+### Move To Another Server
+
+1. Commit the setup JSON, generated Compose file and monitoring configuration
+   directories to your workspace repository. Review the diff before pushing.
+2. Install Stacklab, Docker and the setup tool dependencies on the new host; clone
+   the workspace. Update `workspace`, addresses and `host_label` if they changed.
+   In existing mode also adapt the existing stack's own bind paths/networks.
+3. Restore Stacklab's private state if migrating the whole application. For
+   monitoring alone, either restore the token privately or let setup generate a
+   new one; the new Prometheus instance will use the same token file automatically.
+4. Run the same `--apply --deploy` command. It recreates the host settings from the
+   versioned configuration; no installer prepared for the old host is needed.
+5. Restore Prometheus/Grafana named volumes from a consistent backup if you need
+   prior history or other saved Grafana state. Without those volumes, provisioning
+   recreates the dashboard and datasource, and metric history starts fresh.
+
+The setup state receipt and backup directory are not needed to reproduce the
+configuration from Git. Tokens and measurement history are intentionally separate
+from the versioned files.
+
+## Manual Setup Reference
+
+The remaining sections describe the individual steps for installations where the
+operator manages host configuration through another provisioning system.
+
+### Enable Stacklab Metrics
 
 Use a build with the `/metrics` endpoint. On a package-managed Linux host:
 

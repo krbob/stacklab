@@ -26,6 +26,7 @@ Required local tools:
 - Node.js `24.18.0` from `.nvmrc`
 - the npm version bundled with that Node.js release
 - GNU Make
+- Python 3.9+ with PyYAML for monitoring setup/migration checks
 - ShellCheck `0.11.0` for repository hygiene
 - Docker Engine
 - Compose v2 available as either `docker compose` or standalone `docker-compose`
@@ -122,7 +123,7 @@ make check
 ```
 
 This verifies the active toolchain, backend tests and hygiene, frontend tests,
-typecheck and build, then delegates repository hygiene to the existing QA-03
+typecheck and build, monitoring setup/migration tests, then delegates repository hygiene to the existing QA-03
 script. Go commands are explicitly limited to `cmd` and `internal`, so they do
 not traverse `frontend/node_modules`. See
 [`../quality/developer-checks.md`](../quality/developer-checks.md) for focused
