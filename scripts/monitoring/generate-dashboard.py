@@ -119,6 +119,7 @@ panel("Network transmit seen by container", [(f"sum by (name,container_label_com
 y += 8
 panel("CPU throttled periods", [(f"100 * rate(container_cpu_cfs_throttled_periods_total{{{CONTAINER}}}[$__rate_interval]) / rate(container_cpu_cfs_periods_total{{{CONTAINER}}}[$__rate_interval])", legend)], unit="percent", maximum=100,
       description="Share of CFS periods throttled. No data is expected without CPU quotas or when cAdvisor does not expose CFS counters; it does not establish zero throttling.")
+panels[-1]["fieldConfig"]["defaults"]["noValue"] = "CFS counters unavailable"
 panel("Container uptime", [(f"time() - container_start_time_seconds{{{CONTAINER}}}", legend)], unit="s", x=12)
 y += 8
 
@@ -126,9 +127,9 @@ row("Stacklab — traffic, jobs & process")
 panel("HTTP requests & service errors", [(f"rate(stacklab_http_requests_total{{{APP}}}[$__rate_interval])", "Requests / s"),
                                        (f"rate(stacklab_http_errors_total{{{APP}}}[$__rate_interval])", "5xx / s")], unit="reqps",
       description="Prometheus scrapes are excluded. Client 4xx responses are not service errors.")
-panel("HTTP duration — p95 & mean", [(f"histogram_quantile(0.95, sum by (le) (rate(stacklab_http_request_duration_seconds_bucket{{{APP}}}[$__rate_interval])))", "p95"),
-                                    (f"rate(stacklab_http_request_duration_seconds_sum{{{APP}}}[$__rate_interval]) / rate(stacklab_http_request_duration_seconds_count{{{APP}}}[$__rate_interval])", "Mean")], unit="s", x=12,
-      description="Completed HTTP handlers, including WebSockets when they close. Empty when no requests completed in the window.")
+panel("HTTP response duration — p95 & mean", [(f"histogram_quantile(0.95, sum by (le) (rate(stacklab_http_response_duration_seconds_bucket{{{APP}}}[$__rate_interval])))", "p95"),
+                                    (f"rate(stacklab_http_response_duration_seconds_sum{{{APP}}}[$__rate_interval]) / rate(stacklab_http_response_duration_seconds_count{{{APP}}}[$__rate_interval])", "Mean")], unit="s", x=12,
+      description="Completed HTTP responses, excluding upgraded WebSocket connections and Prometheus scrapes. Empty when no responses complete, or before the response histogram was introduced; no fallback to WebSocket handler lifetimes.")
 y += 8
 panel("Jobs — active, completed & failed", [(f"stacklab_jobs_active{{{APP}}}", "Active"),
                                          (f"increase(stacklab_jobs_completed_total{{{APP}}}[5m])", "Completed / 5m"),
@@ -151,6 +152,7 @@ y += 8
 panel("Go goroutines & open file descriptors", [(f"go_goroutines{{{APP}}}", "Goroutines"), (f"process_open_fds{{{APP}}}", "Open file descriptors")])
 panel("Go GC pause time", [(f"rate(go_gc_duration_seconds_sum{{{APP}}}[$__rate_interval])", "GC seconds / second")], unit="s", x=12)
 y += 8
+extra_y = y
 
 # Append new panels to preserve the IDs of existing panels and saved links.
 y = alerts_y
@@ -165,6 +167,19 @@ panel("Infrastructure alert history", [(f'ALERTS{{{alert_selector}}}', "{{alertn
 panels.append({"id": len(panels) + 1, "type": "text", "title": "Reading container network traffic",
                "gridPos": {"x": 0, "y": network_notice_y, "w": 24, "h": 4},
                "options": {"mode": "markdown", "content": "These counters belong to the network namespace visible to each container. **Containers using host networking see shared host traffic; do not add their series or attribute that traffic to an individual application.** Use **Host network throughput** for host totals. Containers sharing another container’s network namespace have the same limitation."}})
+
+y = extra_y
+panel("WebSocket failures by reason", [(f"increase(stacklab_websocket_failures_total{{{APP}}}[5m])", "{{operation}} / {{reason}}")],
+      description="Unexpected failures, at most one per connection. Empty close frames (1005), normal closes, navigation, revoked sessions and intentional server shutdown are excluded. Timeouts and abrupt disconnects remain visible. Details are logged with request and connection IDs.")
+panel("Closed WebSocket connection duration — mean", [(f"rate(stacklab_websocket_connection_duration_seconds_sum{{{APP}}}[$__rate_interval]) / rate(stacklab_websocket_connection_duration_seconds_count{{{APP}}}[$__rate_interval])", "Mean connection lifetime")],
+      unit="s", x=12, description="Connection lifetime, separate from HTTP response latency. Empty when no connections closed in the window or before this histogram was introduced.")
+y += 8
+application_alerts = 'ALERTS{stacklab_monitoring!="true",host=~"$host|",alertstate="firing"}'
+panel("Other application alert history", [(application_alerts, "{{alertname}} {{job}} {{instance}}")], x=6, width=18, maximum=1,
+      description="Firing Prometheus alerts outside the Stacklab infrastructure rules. Includes the selected host and alerts without a host label; unassigned alerts may belong to another host. This makes existing application rules visible without changing notification routing.")
+panel("Active other application alerts", [(f'sum({application_alerts}) or (0 * max(stacklab_monitoring_expected_target{{host="$host"}}))', "Alerts")],
+      kind="stat", width=6, height=8, thresholds=[{"color": "green", "value": None}, {"color": "red", "value": 1}],
+      description="Current non-infrastructure alerts for this host, plus alerts with no host label. Unassigned alerts may belong to another host. No data means the monitoring baseline is unavailable.")
 
 variables = [
     {"name": "DS_PROMETHEUS", "label": "Datasource", "type": "datasource", "query": "prometheus",

@@ -130,7 +130,7 @@ export function WsProvider({ children, authenticated = false }: { children: Reac
         wsRef.current = null
         ws.onclose = null
         ws.onerror = null
-        ws.close()
+        ws.close(1000, 'client disconnect')
       }
     }
   }, [connect, authenticated])
@@ -148,7 +148,7 @@ export function WsProvider({ children, authenticated = false }: { children: Reac
       wsRef.current = null
       ws.onclose = null
       ws.onerror = null
-      ws.close()
+      ws.close(1000, 'client reconnect')
     }
     setConnected(false)
     connectRef.current?.()

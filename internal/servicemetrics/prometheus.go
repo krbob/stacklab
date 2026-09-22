@@ -17,23 +17,29 @@ type metricDefinition struct {
 }
 
 type prometheusCollector struct {
-	collector *Collector
-	metrics   []metricDefinition
-	build     *prometheus.Desc
-	check     *prometheus.Desc
-	httpTime  *prometheus.Desc
-	jobTime   *prometheus.Desc
+	collector         *Collector
+	metrics           []metricDefinition
+	build             *prometheus.Desc
+	check             *prometheus.Desc
+	httpTime          *prometheus.Desc
+	jobTime           *prometheus.Desc
+	httpResponseTime  *prometheus.Desc
+	webSocketFailures *prometheus.Desc
+	webSocketTime     *prometheus.Desc
 }
 
 // NewPrometheusRegistry uses a private registry so application instances and tests
 // never share counters. Only bounded service aggregates and runtime data are exposed.
 func NewPrometheusRegistry(c *Collector, version, commit string) *prometheus.Registry {
 	p := &prometheusCollector{
-		collector: c,
-		build:     prometheus.NewDesc("stacklab_build_info", "Stacklab build information.", nil, prometheus.Labels{"version": version, "commit": commit}),
-		check:     prometheus.NewDesc("stacklab_readiness_check", "Whether a readiness component is healthy (1) or unavailable/unknown (0).", []string{"component"}, nil),
-		httpTime:  prometheus.NewDesc("stacklab_http_request_duration_seconds", "Duration of completed HTTP handlers, including closed WebSocket handlers. Scrapes are excluded.", nil, nil),
-		jobTime:   prometheus.NewDesc("stacklab_job_duration_seconds", "Duration of completed jobs, including failed and cancelled jobs.", nil, nil),
+		collector:         c,
+		build:             prometheus.NewDesc("stacklab_build_info", "Stacklab build information.", nil, prometheus.Labels{"version": version, "commit": commit}),
+		check:             prometheus.NewDesc("stacklab_readiness_check", "Whether a readiness component is healthy (1) or unavailable/unknown (0).", []string{"component"}, nil),
+		httpTime:          prometheus.NewDesc("stacklab_http_request_duration_seconds", "Duration of completed HTTP handlers, including closed WebSocket handlers. Scrapes are excluded.", nil, nil),
+		jobTime:           prometheus.NewDesc("stacklab_job_duration_seconds", "Duration of completed jobs, including failed and cancelled jobs.", nil, nil),
+		httpResponseTime:  prometheus.NewDesc("stacklab_http_response_duration_seconds", "Duration of completed HTTP responses, excluding upgraded WebSocket connections and Prometheus scrapes.", nil, nil),
+		webSocketFailures: prometheus.NewDesc("stacklab_websocket_failures_total", "Unexpected WebSocket failures by bounded operation and reason; at most one per connection.", []string{"operation", "reason"}, nil),
+		webSocketTime:     prometheus.NewDesc("stacklab_websocket_connection_duration_seconds", "Lifetime of closed WebSocket connections, separate from HTTP response latency.", nil, nil),
 	}
 	add := func(name, help string, kind prometheus.ValueType, value func(Snapshot) float64) {
 		p.metrics = append(p.metrics, metricDefinition{prometheus.NewDesc("stacklab_"+name, help, nil, nil), kind, value})
@@ -66,7 +72,7 @@ func (p *prometheusCollector) Describe(ch chan<- *prometheus.Desc) {
 	for _, metric := range p.metrics {
 		ch <- metric.desc
 	}
-	for _, desc := range []*prometheus.Desc{p.build, p.check, p.httpTime, p.jobTime} {
+	for _, desc := range []*prometheus.Desc{p.build, p.check, p.httpTime, p.jobTime, p.httpResponseTime, p.webSocketFailures, p.webSocketTime} {
 		ch <- desc
 	}
 }
@@ -77,6 +83,11 @@ func (p *prometheusCollector) Collect(ch chan<- prometheus.Metric) {
 	snapshot := c.snapshotLocked(time.Now().UTC())
 	httpBuckets := cumulativeBuckets(httpDurationBounds[:], c.httpDurationBuckets[:])
 	jobBuckets := cumulativeBuckets(jobDurationBounds[:], c.jobDurationBuckets[:])
+	responseBuckets := cumulativeBuckets(httpDurationBounds[:], c.httpResponseBuckets[:])
+	responseCount, responseSeconds := c.httpResponseCount, c.httpResponseSeconds
+	wsFailures := c.webSocketFailures
+	wsBuckets := cumulativeBuckets(jobDurationBounds[:], c.webSocketDurationBuckets[:])
+	wsClosed := c.webSocketsClosed
 	c.mu.Unlock()
 	for _, metric := range p.metrics {
 		ch <- prometheus.MustNewConstMetric(metric.desc, metric.kind, metric.value(snapshot))
@@ -87,6 +98,13 @@ func (p *prometheusCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 	ch <- prometheus.MustNewConstHistogram(p.httpTime, snapshot.HTTP.RequestsTotal, snapshot.HTTP.DurationSecondsTotal, httpBuckets)
 	ch <- prometheus.MustNewConstHistogram(p.jobTime, snapshot.Jobs.CompletedTotal, snapshot.Jobs.DurationSecondsTotal, jobBuckets)
+	ch <- prometheus.MustNewConstHistogram(p.httpResponseTime, responseCount, responseSeconds, responseBuckets)
+	ch <- prometheus.MustNewConstHistogram(p.webSocketTime, wsClosed, snapshot.WebSockets.ConnectionDurationSecondsTotal, wsBuckets)
+	for op, operation := range webSocketOperations {
+		for kind, reason := range webSocketReasons {
+			ch <- prometheus.MustNewConstMetric(p.webSocketFailures, prometheus.CounterValue, float64(wsFailures[op][kind]), operation, reason)
+		}
+	}
 }
 
 func cumulativeBuckets(bounds []float64, counts []uint64) map[float64]uint64 {

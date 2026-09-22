@@ -48,6 +48,15 @@ describe('WsProvider session verification', () => {
     vi.unstubAllGlobals()
   })
 
+  it('sends a normal close code when disconnecting or reconnecting intentionally', () => {
+    const { unmount } = render(<WsProvider authenticated><ConnectionStatus /></WsProvider>)
+    act(() => { MockWebSocket.instances[0].emitOpen() })
+    fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }))
+    expect(MockWebSocket.instances[0].close).toHaveBeenCalledWith(1000, 'client reconnect')
+    unmount()
+    expect(MockWebSocket.instances[1].close).toHaveBeenCalledWith(1000, 'client disconnect')
+  })
+
   it('reconnects instead of ending the session when its verification endpoint returns 500', async () => {
     mockFetch.mockResolvedValue({ status: 500, ok: false })
     render(<WsProvider authenticated><div>App</div></WsProvider>)

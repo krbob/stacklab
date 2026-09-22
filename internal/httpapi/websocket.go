@@ -7,15 +7,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
 
 	"stacklab/internal/auth"
 	"stacklab/internal/jobs"
+	"stacklab/internal/requestid"
 	"stacklab/internal/store"
 )
 
@@ -54,9 +58,10 @@ type wsConnection struct {
 	writeMu   sync.Mutex
 	closeOnce sync.Once
 	errorOnce sync.Once
+	closing   atomic.Bool
 	workers   sync.WaitGroup
 	openedAt  time.Time
-	onError   func()
+	onError   func(string, string, int)
 }
 
 func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -82,8 +87,8 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := wsUpgrader.Upgrade(w, r, upgradeHeaders)
 	if err != nil {
 		unsubscribeSession()
-		h.serviceMetrics.WebSocketError()
-		h.logger.Warn("websocket upgrade failed", "err", err)
+		h.serviceMetrics.WebSocketFailure("upgrade", "protocol")
+		h.logger.Warn("websocket upgrade failed", "request_id", requestid.FromContext(r.Context()), "err", err)
 		return
 	}
 	conn.SetReadLimit(wsReadLimitBytes)
@@ -92,7 +97,14 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return conn.SetReadDeadline(time.Now().Add(wsPongWait))
 	})
 
-	wsConn := &wsConnection{conn: conn, onError: h.serviceMetrics.WebSocketError}
+	connectionID := "conn_" + randomID(18)
+	wsConn := &wsConnection{conn: conn, onError: func(operation, reason string, closeCode int) {
+		h.serviceMetrics.WebSocketFailure(operation, reason)
+		if h.logger != nil {
+			h.logger.Warn("websocket connection failed", "request_id", requestid.FromContext(r.Context()),
+				"connection_id", connectionID, "operation", operation, "reason", reason, "close_code", closeCode)
+		}
+	}}
 	if !h.registerWebSocket(wsConn) {
 		unsubscribeSession()
 		wsConn.close(websocket.CloseGoingAway, "server shutting down")
@@ -120,7 +132,6 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 
-	connectionID := "conn_" + randomID(18)
 	if err := wsConn.writeJSON(wsServerFrame{
 		Type: "hello",
 		Payload: map[string]any{
@@ -167,9 +178,9 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	for {
 		var frame wsClientFrame
 		if err := conn.ReadJSON(&frame); err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.ClosePolicyViolation) {
-				wsConn.markError()
-			}
+			wsConn.markError("read", err)
+			// Stop writers before deferred subscription cleanup and worker waits.
+			wsConn.closing.Store(true)
 			return
 		}
 		if frame.Type != "pong" {
@@ -384,7 +395,11 @@ func (h *Handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *wsConnection) close(code int, reason string) {
-	if c == nil || c.conn == nil {
+	if c == nil {
+		return
+	}
+	c.closing.Store(true)
+	if c.conn == nil {
 		return
 	}
 	c.closeOnce.Do(func() {
@@ -408,11 +423,35 @@ func (c *wsConnection) wait() {
 	c.workers.Wait()
 }
 
-func (c *wsConnection) markError() {
-	if c == nil || c.onError == nil {
+func (c *wsConnection) markError(operation string, err error) {
+	if c == nil || c.onError == nil || c.closing.Load() || err == nil {
 		return
 	}
-	c.errorOnce.Do(c.onError)
+	// Browsers may send an empty, valid close frame for WebSocket.close().
+	// Gorilla reports that as 1005; it is not an abnormal transport failure.
+	if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway,
+		websocket.CloseNoStatusReceived, websocket.ClosePolicyViolation) || errors.Is(err, websocket.ErrCloseSent) {
+		c.closing.Store(true)
+		return
+	}
+	reason, closeCode := "transport", 0
+	var closeErr *websocket.CloseError
+	var netErr net.Error
+	var syntaxErr *json.SyntaxError
+	var typeErr *json.UnmarshalTypeError
+	switch {
+	case errors.As(err, &closeErr):
+		closeCode = closeErr.Code
+		reason = "protocol"
+		if closeCode == websocket.CloseAbnormalClosure {
+			reason = "abnormal_close"
+		}
+	case errors.As(err, &netErr) && netErr.Timeout():
+		reason = "timeout"
+	case errors.As(err, &syntaxErr), errors.As(err, &typeErr), errors.Is(err, io.ErrUnexpectedEOF):
+		reason = "protocol"
+	}
+	c.errorOnce.Do(func() { c.onError(operation, reason, closeCode) })
 }
 
 func (h *Handler) registerWebSocket(conn *wsConnection) bool {
@@ -559,9 +598,12 @@ func (h *Handler) forwardJobEvents(ctx context.Context, wsConn *wsConnection, st
 func (c *wsConnection) writeJSON(frame wsServerFrame) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
+	if c.closing.Load() {
+		return websocket.ErrCloseSent
+	}
 	err := c.conn.WriteJSON(frame)
 	if err != nil {
-		c.markError()
+		c.markError("write", err)
 	}
 	return err
 }

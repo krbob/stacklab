@@ -68,6 +68,23 @@ class SetupTests(unittest.TestCase):
         jobs = yaml.safe_load(files[self.cfg["prometheus_config"]])["scrape_configs"]
         self.assertEqual(jobs[-1]["static_configs"][0]["targets"], ["127.0.0.1:8080"])
 
+    def test_filesystem_warning_overrides_keep_default_and_critical_protection(self):
+        cfg = self.config(filesystem_warning_thresholds={"/mnt/storage": 0.10})
+        files = setup.build_plan(cfg, ASSETS)
+        rules = yaml.safe_load(files[cfg["prometheus_config"].parent / "stacklab.rules.yaml"])
+        by_name = {r.get("alert"): r for g in rules["groups"] for r in g["rules"]}
+        warning = by_name["StacklabHostFilesystemSpaceLow"]["expr"]
+        self.assertIn('mountpoint!="/mnt/storage"', warning)
+        self.assertIn('mountpoint="/mnt/storage"', warning)
+        self.assertIn('< 0.15', warning)
+        self.assertIn('< 0.1', warning)
+        self.assertNotIn('/mnt/storage', by_name["StacklabHostFilesystemSpaceCritical"]["expr"])
+        self.persist(files)
+        self.assertEqual(files, setup.build_plan(cfg, ASSETS))
+        for value in [None, {"relative": 0.1}, {"/data": 0.05}, {"/data": True}, {"/data": float("nan")}, {"/data": 1}]:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                self.config(filesystem_warning_thresholds=value)
+
     def test_repeat_and_git_only_migration_preserve_config_without_secret_state(self):
         first = setup.build_plan(self.cfg, ASSETS)
         self.persist(first)

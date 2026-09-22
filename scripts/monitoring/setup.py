@@ -97,11 +97,19 @@ def configuration(raw):
                     service_user="stacklab", prometheus_gid=65534, network="monitoring",
                     host_gateway="auto", docker_root="auto", grafana_listen="127.0.0.1:3000",
                     prometheus_listen="127.0.0.1:9090", node_exporter_port=9100, cadvisor_port=8081)
-    optional = {"compose_file", "prometheus_config", "dashboard_dir"}
+    optional = {"compose_file", "prometheus_config", "dashboard_dir", "filesystem_warning_thresholds"}
     unknown = set(raw) - defaults.keys() - optional
     if unknown:
         raise ValueError("Unknown setup options: " + ", ".join(sorted(unknown)))
     cfg = {**defaults, **raw}
+    thresholds = cfg.setdefault("filesystem_warning_thresholds", {})
+    if not isinstance(thresholds, dict):
+        raise ValueError("filesystem_warning_thresholds must map mountpoints to free-space ratios")
+    for mountpoint, threshold in thresholds.items():
+        if not isinstance(mountpoint, str) or not mountpoint.startswith("/") or any(c in mountpoint for c in '\n\r\0'):
+            raise ValueError("Filesystem warning mountpoints must be absolute paths")
+        if type(threshold) not in (int, float) or not 0.05 < threshold < 1:
+            raise ValueError("Filesystem warning ratios must be greater than 0.05 and less than 1")
     if cfg["schema_version"] != 1 or cfg["mode"] not in ("standalone", "existing"):
         raise ValueError("Supported schema_version is 1; mode is standalone or existing")
     for key in ("stack", "service_user", "network", "systemd_unit"):
@@ -244,6 +252,17 @@ def build_plan(cfg, assets, *, adopt=False):
         for rule in group["rules"]:
             if rule.get("record") == "stacklab_monitoring_expected_target":
                 rule["labels"]["host"] = cfg["host_label"]
+            if rule.get("alert") == "StacklabHostFilesystemSpaceLow" and cfg["filesystem_warning_thresholds"]:
+                original = rule["expr"].strip()
+                selector = 'node_filesystem_avail_bytes{'
+                overrides = cfg["filesystem_warning_thresholds"]
+                excluded = ','.join('mountpoint!=' + json.dumps(path) for path in sorted(overrides))
+                branches = [original.replace(selector, selector + excluded + ',')]
+                for path, threshold in sorted(overrides.items()):
+                    branch = original.replace(selector, selector + 'mountpoint=' + json.dumps(path) + ',')
+                    branches.append(branch.replace('< 0.15', '< ' + str(threshold)))
+                rule["expr"] = '\n or\n'.join('(' + branch + ')' for branch in branches)
+                rule["annotations"]["description"] = "Available space has remained below this filesystem's configured warning threshold for 30 minutes. Review disk growth and retention."
     rule_file = cfg["prometheus_config"].parent / "stacklab.rules.yaml"
     if rule_file.exists() and rule_file.read_bytes() != encoded(rules) and not (managed or adopt):
         raise ValueError("Infrastructure rule file already exists; review it and use --adopt-existing once")

@@ -17,8 +17,14 @@ type Collector struct {
 	webSockets WebSocketMetrics
 	readiness  ReadinessMetrics
 
-	httpDurationBuckets [11]uint64
-	jobDurationBuckets  [12]uint64
+	httpDurationBuckets      [11]uint64
+	jobDurationBuckets       [12]uint64
+	httpResponseBuckets      [11]uint64
+	httpResponseCount        uint64
+	httpResponseSeconds      float64
+	webSocketFailures        [4][5]uint64
+	webSocketDurationBuckets [12]uint64
+	webSocketsClosed         uint64
 }
 
 type Snapshot struct {
@@ -89,6 +95,12 @@ func (c *Collector) RequestStarted() {
 }
 
 func (c *Collector) RequestFinished(duration time.Duration, status int) {
+	c.RequestFinishedWithUpgrade(duration, status, false)
+}
+
+// RequestFinishedWithUpgrade retains the all-handler counters while keeping
+// long-lived upgraded connections out of the HTTP response latency histogram.
+func (c *Collector) RequestFinishedWithUpgrade(duration time.Duration, status int, upgraded bool) {
 	if c == nil {
 		return
 	}
@@ -104,6 +116,11 @@ func (c *Collector) RequestFinished(duration time.Duration, status int) {
 	c.http.DurationSecondsTotal += seconds
 	c.http.DurationSecondsMax = max(c.http.DurationSecondsMax, seconds)
 	observeDuration(seconds, httpDurationBounds[:], c.httpDurationBuckets[:])
+	if !upgraded {
+		c.httpResponseCount++
+		c.httpResponseSeconds += seconds
+		observeDuration(seconds, httpDurationBounds[:], c.httpResponseBuckets[:])
+	}
 	c.mu.Unlock()
 }
 
@@ -157,15 +174,37 @@ func (c *Collector) WebSocketClosed(duration time.Duration) {
 	}
 	c.webSockets.ConnectionDurationSecondsTotal += seconds
 	c.webSockets.ConnectionDurationSecondsMax = max(c.webSockets.ConnectionDurationSecondsMax, seconds)
+	c.webSocketsClosed++
+	observeDuration(seconds, jobDurationBounds[:], c.webSocketDurationBuckets[:])
 	c.mu.Unlock()
 }
 
 func (c *Collector) WebSocketError() {
+	c.WebSocketFailure("unknown", "unknown")
+}
+
+var webSocketOperations = [...]string{"upgrade", "read", "write", "unknown"}
+var webSocketReasons = [...]string{"abnormal_close", "timeout", "transport", "protocol", "unknown"}
+
+// WebSocketFailure only exports a fixed vocabulary, never error text or IDs.
+func (c *Collector) WebSocketFailure(operation, reason string) {
 	if c == nil {
 		return
 	}
 	c.mu.Lock()
 	c.webSockets.ErrorsTotal++
+	op, kind := 3, 4
+	for i, value := range webSocketOperations {
+		if value == operation {
+			op = i
+		}
+	}
+	for i, value := range webSocketReasons {
+		if value == reason {
+			kind = i
+		}
+	}
+	c.webSocketFailures[op][kind]++
 	c.mu.Unlock()
 }
 

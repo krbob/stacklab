@@ -295,7 +295,7 @@ func (h *Handler) withLogging(next http.Handler) http.Handler {
 			status:         http.StatusOK,
 		}
 		defer func() {
-			h.serviceMetrics.RequestFinished(time.Since(startedAt), recorder.status)
+			h.serviceMetrics.RequestFinishedWithUpgrade(time.Since(startedAt), recorder.status, recorder.hijacked)
 		}()
 
 		next.ServeHTTP(recorder, r)
@@ -335,7 +335,8 @@ func (h *Handler) withSecurityHeaders(next http.Handler) http.Handler {
 
 type statusRecorder struct {
 	http.ResponseWriter
-	status int
+	status   int
+	hijacked bool
 }
 
 const (
@@ -365,7 +366,12 @@ func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if !ok {
 		return nil, nil, http.ErrNotSupported
 	}
-	return hijacker.Hijack()
+	conn, buffer, err := hijacker.Hijack()
+	if err == nil {
+		r.hijacked = true
+		r.status = http.StatusSwitchingProtocols
+	}
+	return conn, buffer, err
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

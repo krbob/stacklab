@@ -207,6 +207,12 @@ host; keep the expected-target labels aligned with the three scrape jobs.
 | Stacklab HTTP 5xx or failed/timed-out job | Counter increased within 5 minutes | Warning |
 
 Filesystem capacity alerts exclude virtual mounts and read-only filesystems.
+For a filesystem with an intentionally smaller free-space reserve, setup accepts
+`"filesystem_warning_thresholds": {"/mnt/storage": 0.10}`. Values are free-space
+ratios greater than `0.05` and below `1`. Unlisted mounts retain the 15% warning;
+the 5% critical threshold and inode/read-only protection remain unchanged. Keep
+this setting in the setup JSON so subsequent setup runs preserve the policy.
+
 Temperature checks ignore readings outside 0–150°C. Missing optional hardware or
 OOM metrics do not establish a healthy value. Exporter availability is not a
 Docker healthcheck: these rules cannot detect every stopped or unhealthy
@@ -219,6 +225,33 @@ means the expected-target records are unavailable; it is not displayed as zero.
 creates rules and dashboard visibility; it does not configure email, chat or
 push notifications, and does not add an Alertmanager service. Prometheus itself
 being down also requires an independent external availability check.
+
+The separate application-alert panels include non-infrastructure rules for the
+selected host and legacy rules with no `host` label. In multi-host installations,
+an unassigned alert may belong to another host. These panels do not change
+notification routing; using Grafana alone is a supported visibility-only setup.
+
+### HTTP latency and WebSocket diagnostics
+
+`stacklab_http_response_duration_seconds` excludes upgraded WebSocket connections,
+so the response p95 is not inflated by connection lifetimes. The original
+`stacklab_http_request_duration_seconds` retains its all-handler semantics for
+existing consumers. `stacklab_websocket_connection_duration_seconds` measures
+closed connection lifetimes separately. New histograms have no historical values
+before the updated application first runs, and quantiles are empty without events.
+
+`stacklab_websocket_failures_total{operation,reason}` categorizes unexpected errors
+with bounded labels. Normal closure (1000), going away (1001), empty close frames
+(1005), revoked sessions (1008), and intentional local shutdown are excluded.
+Abrupt disconnects (1006), timeouts, protocol failures and transport errors remain
+visible. Each failed connection is counted once. The warning log includes the
+request ID, connection ID, operation, reason and close code, but no frame payload,
+session cookie or peer-provided close reason. Match these IDs to the HTTP access
+log; successfully upgraded requests are logged with status 101.
+
+CPU throttling requires CFS counters, normally exposed for containers with CPU
+quotas. A host with no quotas can legitimately show no data. The dashboard labels
+that case as unavailable instead of converting missing measurements to zero.
 
 The rules are tested with `promtool`, including transient restarts, missing jobs,
 threshold hold times, invalid sensors, unsupported inode counts, counter resets

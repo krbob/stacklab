@@ -1,8 +1,17 @@
 package httpapi
 
 import (
+	"context"
+	"errors"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
 
 	"stacklab/internal/servicemetrics"
 	"stacklab/internal/stacks"
@@ -16,17 +25,95 @@ func TestWebSocketLifecycleUpdatesServiceMetrics(t *testing.T) {
 		serviceMetrics: collector,
 		wsConnections:  map[*wsConnection]struct{}{},
 	}
-	connection := &wsConnection{onError: collector.WebSocketError}
+	connection := &wsConnection{onError: func(operation, reason string, _ int) { collector.WebSocketFailure(operation, reason) }}
 	if !handler.registerWebSocket(connection) {
 		t.Fatal("registerWebSocket() = false")
 	}
-	connection.markError()
-	connection.markError()
+	connection.markError("read", &websocket.CloseError{Code: websocket.CloseAbnormalClosure})
+	connection.markError("write", net.ErrClosed)
 	handler.unregisterWebSocket(connection)
 
 	snapshot := collector.Snapshot(time.Now())
 	if snapshot.WebSockets.ConnectionsTotal != 1 || snapshot.WebSockets.ConnectionsActive != 0 || snapshot.WebSockets.ErrorsTotal != 1 {
 		t.Fatalf("WebSocket metrics = %#v", snapshot.WebSockets)
+	}
+}
+
+func TestWebSocketFailureClassification(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		err    error
+		reason string
+		code   int
+	}{
+		{"empty browser close", &websocket.CloseError{Code: websocket.CloseNoStatusReceived}, "", 0},
+		{"normal", &websocket.CloseError{Code: websocket.CloseNormalClosure}, "", 0},
+		{"going away", &websocket.CloseError{Code: websocket.CloseGoingAway}, "", 0},
+		{"session revoked", &websocket.CloseError{Code: websocket.ClosePolicyViolation}, "", 0},
+		{"close already sent", websocket.ErrCloseSent, "", 0},
+		{"abrupt disconnect", &websocket.CloseError{Code: websocket.CloseAbnormalClosure}, "abnormal_close", 1006},
+		{"timeout", &net.OpError{Op: "read", Err: os.ErrDeadlineExceeded}, "timeout", 0},
+		{"invalid frame", &websocket.CloseError{Code: websocket.CloseProtocolError}, "protocol", 1002},
+		{"transport", errors.New("broken pipe"), "transport", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			c := &wsConnection{onError: func(operation, reason string, code int) {
+				calls++
+				if operation != "read" || reason != tc.reason || code != tc.code {
+					t.Errorf("failure = %s/%s/%d", operation, reason, code)
+				}
+			}}
+			c.markError("read", tc.err)
+			c.markError("read", tc.err)
+			want := 1
+			if tc.reason == "" {
+				want = 0
+			}
+			if calls != want {
+				t.Fatalf("failure count = %d, want %d", calls, want)
+			}
+			c.close(websocket.CloseNormalClosure, "done")
+			c.markError("write", net.ErrClosed)
+			if calls != want {
+				t.Fatal("cleanup counted another failure")
+			}
+		})
+	}
+}
+
+func TestBrowserEmptyCloseDoesNotCountAsFailure(t *testing.T) {
+	handler, served, _ := newInternalTestHandler(t)
+	cookies := loginInternalTestUser(t, served, "test-password")
+	server := httptest.NewServer(served)
+	defer server.Close()
+	header := http.Header{}
+	request := &http.Request{Header: header}
+	for _, cookie := range cookies {
+		request.AddCookie(cookie)
+	}
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"/api/ws", header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	var hello wsServerFrame
+	if err := conn.ReadJSON(&hello); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.WriteControl(websocket.CloseMessage, nil, time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
+	_, _, _ = conn.ReadMessage()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := handler.waitForWebSockets(ctx); err != nil {
+		t.Fatal(err)
+	}
+	metrics := handler.serviceMetrics.Snapshot(time.Now())
+	if metrics.WebSockets.ErrorsTotal != 0 || metrics.WebSockets.ConnectionsActive != 0 {
+		t.Fatalf("empty browser close metrics = %+v", metrics.WebSockets)
 	}
 }
 

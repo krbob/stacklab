@@ -118,3 +118,44 @@ func TestPrometheusRegistryIsolationAndConcurrentScrapes(t *testing.T) {
 		}
 	}
 }
+
+func TestResponseLatencyExcludesWebSocketsAndFailureLabelsAreBounded(t *testing.T) {
+	c := New(time.Now())
+	c.RequestStarted()
+	c.RequestFinished(time.Millisecond*20, 200)
+	c.RequestStarted()
+	c.RequestFinishedWithUpgrade(time.Hour, 101, true)
+	c.WebSocketFailure("read", "timeout")
+	c.WebSocketFailure("private-request-id", "private-error-text")
+	families, err := NewPrometheusRegistry(c, "test", "test").Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	var failures float64
+	for _, f := range families {
+		if f.GetName() == "stacklab_http_response_duration_seconds" {
+			found = true
+			h := f.Metric[0].GetHistogram()
+			if h.GetSampleCount() != 1 || h.GetSampleSum() != 0.02 {
+				t.Fatalf("response histogram = %v", h)
+			}
+		}
+		if f.GetName() == "stacklab_websocket_failures_total" {
+			for _, m := range f.Metric {
+				failures += m.GetCounter().GetValue()
+				for _, label := range m.Label {
+					if label.GetValue() == "private-request-id" || label.GetValue() == "private-error-text" {
+						t.Fatal("unbounded failure label")
+					}
+				}
+			}
+		}
+	}
+	if !found || failures != 2 {
+		t.Fatalf("response histogram present = %v, failures = %v", found, failures)
+	}
+	if c.Snapshot(time.Now()).HTTP.RequestsTotal != 2 {
+		t.Fatal("legacy HTTP activity no longer includes WebSockets")
+	}
+}
