@@ -119,3 +119,138 @@ groups:
         annotations:
           summary: 'Stacklab job failed on {{ $labels.host }}'
           description: 'A job failed or timed out in the last 5 minutes. Inspect recent jobs in Stacklab for the cause.'
+
+      - alert: StacklabHardwareCollectionStale
+        expr: |
+          (up{job="node-exporter",stacklab_hardware_monitoring="true"} == 1)
+          unless on (host, instance)
+          (time() - stacklab_hardware_collection_timestamp_seconds{job="node-exporter"} < 180)
+        for: 2m
+        labels: {severity: warning, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'Hardware metrics missing or stale on {{ $labels.host }}'
+          description: 'The enabled hardware collector has no output newer than 3 minutes. Check stacklab-hardware-metrics.timer/service and the textfile directory. Missing data is not a healthy disk.'
+
+      - alert: StacklabHardwareCollectionFailed
+        expr: stacklab_hardware_collector_success{job="node-exporter"} == 0
+        for: 2m
+        labels: {severity: warning, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'Hardware collection failed: {{ $labels.host }} / {{ $labels.collector }}'
+          description: 'A hardware collector could not read its source for 2 minutes. Check permissions, sysfs support, configured NVMe devices and smartmontools.'
+
+      - alert: StacklabNodeCollectorFailed
+        expr: node_scrape_collector_success{job="node-exporter"} == 0 or node_textfile_scrape_error{job="node-exporter"} == 1
+        for: 5m
+        labels: {severity: warning, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'Host metric collection failed on {{ $labels.host }}'
+          description: 'A node_exporter collector or textfile parser is failing. The exporter being UP alone does not guarantee complete metrics.'
+
+      - alert: StacklabPCIeCorrectableErrors
+        expr: increase(stacklab_pcie_errors_total{job="node-exporter",severity="correctable"}[15m]) > 10
+        for: 5m
+        labels: {severity: warning, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'Recurring corrected PCIe errors: {{ $labels.host }} {{ $labels.device }}'
+          description: 'More than 10 corrected PCIe errors in a rolling 15-minute window, sustained for 5 minutes. Inspect the link, firmware and power management; historical totals alone do not trigger this alert.'
+
+      - alert: StacklabPCIeUncorrectableErrors
+        expr: sum by (host, instance, device) (increase(stacklab_pcie_errors_total{job="node-exporter",severity=~"nonfatal|fatal"}[15m])) > 0
+        labels: {severity: critical, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'New uncorrected PCIe error: {{ $labels.host }} {{ $labels.device }}'
+          description: 'An uncorrectable PCIe error was recorded in the last 15 minutes. Inspect kernel AER records and the affected device.'
+
+      - alert: StacklabNVMeHealthCritical
+        expr: stacklab_nvme_health_passed{job="node-exporter"} == 0 or stacklab_nvme_critical_warning{job="node-exporter"} > 0
+        for: 1m
+        labels: {severity: critical, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'NVMe health warning: {{ $labels.host }} {{ $labels.device }}'
+          description: 'SMART health is failing or the NVMe critical-warning bitmask is nonzero. Read smartctl and NVMe health logs.'
+
+      - alert: StacklabNVMeMediaErrors
+        expr: increase(stacklab_nvme_media_errors_total{job="node-exporter"}[15m]) > 0
+        labels: {severity: critical, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'New NVMe media error: {{ $labels.host }} {{ $labels.device }}'
+          description: 'The controller recorded a new media/data-integrity error in the last 15 minutes. Check disk health and backups.'
+
+      - alert: StacklabNVMeWearHigh
+        expr: stacklab_nvme_percentage_used{job="node-exporter"} >= 90
+        for: 10m
+        labels: {severity: warning, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'NVMe endurance estimate is high: {{ $labels.host }} {{ $labels.device }}'
+          description: 'The manufacturer estimates at least 90% of rated endurance consumed. This is wear, not filesystem space usage.'
+
+      - alert: StacklabNVMeSpareLow
+        expr: stacklab_nvme_available_spare_percent{job="node-exporter"} < stacklab_nvme_available_spare_threshold_percent{job="node-exporter"}
+        for: 1m
+        labels: {severity: critical, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'NVMe spare capacity below threshold: {{ $labels.host }} {{ $labels.device }}'
+          description: 'Available spare capacity is below the controller-reported threshold.'
+
+      - alert: StacklabNVMeUnsafeShutdown
+        expr: increase(stacklab_nvme_unsafe_shutdowns_total{job="node-exporter"}[15m]) > 0
+        labels: {severity: warning, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'New unsafe NVMe shutdown: {{ $labels.host }} {{ $labels.device }}'
+          description: 'The controller recorded an unsafe shutdown. Correlate with host power loss, crashes or device resets.'
+
+      - alert: StacklabBtrfsDeviceErrors
+        expr: increase(stacklab_btrfs_device_errors_total{job="node-exporter"}[15m]) > 0
+        labels: {severity: critical, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'New Btrfs device error on {{ $labels.host }}'
+          description: 'Btrfs recorded a new {{ $labels.error }} error for filesystem {{ $labels.filesystem }}, device {{ $labels.device_id }}. Counters are read without resetting them.'
+
+      - alert: StacklabBtrfsDeviceMissing
+        expr: stacklab_btrfs_device_missing{job="node-exporter"} == 1
+        for: 1m
+        labels: {severity: critical, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'Btrfs device missing on {{ $labels.host }}'
+          description: 'Filesystem {{ $labels.filesystem }} reports device {{ $labels.device_id }} missing.'
+
+      - alert: StacklabHostOOM
+        expr: increase(node_vmstat_oom_kill{job="node-exporter"}[15m]) > 0
+        labels: {severity: critical, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'Host OOM kill on {{ $labels.host }}'
+          description: 'The kernel killed a process due to memory pressure. This also covers processes outside Docker.'
+
+      - alert: StacklabHostECCErrors
+        expr: increase(node_edac_correctable_errors_total{job="node-exporter"}[15m]) > 0 or increase(node_edac_uncorrectable_errors_total{job="node-exporter"}[15m]) > 0
+        labels: {severity: critical, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'New memory-controller error on {{ $labels.host }}'
+          description: 'EDAC reported a corrected or uncorrected memory error. Inspect the affected memory controller; no data is normal on hardware without EDAC support.'
+
+      - alert: StacklabHostMemoryStalls
+        expr: rate(node_pressure_memory_stalled_seconds_total{job="node-exporter"}[5m]) > 0.10
+        for: 5m
+        labels: {severity: warning, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'Sustained memory stalls on {{ $labels.host }}'
+          description: 'All non-idle tasks were stalled on memory for over 10% of time during the last 5 minutes, sustained for 5 minutes.'
+
+      - alert: StacklabHostIOStalls
+        expr: rate(node_pressure_io_stalled_seconds_total{job="node-exporter"}[5m]) > 0.20
+        for: 15m
+        labels: {severity: warning, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'Sustained I/O stalls on {{ $labels.host }}'
+          description: 'All non-idle tasks were stalled on I/O for over 20% of time, sustained for 15 minutes. Correlate with disk latency and hardware errors.'
+
+      - alert: StacklabHostNetworkErrors
+        expr: |
+          increase(node_network_receive_errs_total{job="node-exporter",device!~"lo|veth.*|docker.*|br-.*"}[5m])
+          + increase(node_network_transmit_errs_total{job="node-exporter",device!~"lo|veth.*|docker.*|br-.*"}[5m]) > 10
+        for: 5m
+        labels: {severity: warning, stacklab_monitoring: "true"}
+        annotations:
+          summary: 'Recurring network errors: {{ $labels.host }} {{ $labels.device }}'
+          description: 'More than 10 receive/transmit errors per 5 minutes, sustained for 5 minutes. Inspect link and interface counters; intentional packet drops are graphed separately.'

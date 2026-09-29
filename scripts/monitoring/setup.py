@@ -96,12 +96,15 @@ def configuration(raw):
                     metrics_url="http://127.0.0.1:8080/metrics", systemd_unit="stacklab.service",
                     service_user="stacklab", prometheus_gid=65534, network="monitoring",
                     host_gateway="auto", docker_root="auto", grafana_listen="127.0.0.1:3000",
-                    prometheus_listen="127.0.0.1:9090", node_exporter_port=9100, cadvisor_port=8081)
+                    prometheus_listen="127.0.0.1:9090", node_exporter_port=9100, cadvisor_port=8081,
+                    hardware_monitoring=False)
     optional = {"compose_file", "prometheus_config", "dashboard_dir", "filesystem_warning_thresholds"}
     unknown = set(raw) - defaults.keys() - optional
     if unknown:
         raise ValueError("Unknown setup options: " + ", ".join(sorted(unknown)))
     cfg = {**defaults, **raw}
+    if type(cfg["hardware_monitoring"]) is not bool:
+        raise ValueError("hardware_monitoring must be a boolean")
     thresholds = cfg.setdefault("filesystem_warning_thresholds", {})
     if not isinstance(thresholds, dict):
         raise ValueError("filesystem_warning_thresholds must map mountpoints to free-space ratios")
@@ -200,6 +203,9 @@ def build_plan(cfg, assets, *, adopt=False):
     node_listen = f'{"[" + node_host + "]" if ":" in node_host else node_host}:{cfg["node_exporter_port"]}'
     node["command"] = [f"--web.listen-address={node_listen}" if flag.startswith("--web.listen-address=") else flag
                        for flag in node["command"]]
+    if cfg["hardware_monitoring"]:
+        node["command"] += ["--collector.textfile",
+                            "--collector.textfile.directory=/host/var/lib/node_exporter/textfile_collector"]
     docker_root = cfg["docker_root"]
     if docker_root == "auto":
         docker_root = run("docker", "info", "--format", "{{.DockerRootDir}}", capture=True).strip()
@@ -239,6 +245,8 @@ def build_plan(cfg, assets, *, adopt=False):
     jobs = []
     for name, target in (("node-exporter", node_listen), ("cadvisor", "cadvisor:8080" if existing else f'127.0.0.1:{cfg["cadvisor_port"]}'), ("stacklab", url.netloc)):
         job = {"job_name": name, "static_configs": [{"targets": [target], "labels": {"host": cfg["host_label"]}}]}
+        if name == "node-exporter" and cfg["hardware_monitoring"]:
+            job["static_configs"][0]["labels"]["stacklab_hardware_monitoring"] = "true"
         if name == "stacklab":
             job.update(scheme=url.scheme, metrics_path=url.path or "/metrics", authorization={
                 "type": "Bearer", "credentials_file": "/run/secrets/stacklab-metrics-token"})
@@ -303,7 +311,7 @@ def build_plan(cfg, assets, *, adopt=False):
     files[cfg["prometheus_config"]] = encoded(prom)
     files[compose_path] = encoded(compose)
     files[cfg["env_file"]] = (MANAGED + f'STACKLAB_METRICS_TOKEN_FILE="{cfg["token"]}"\n').encode()
-    files[cfg["dropin"]] = (MANAGED + f'[Service]\nEnvironmentFile="{cfg["env_file"]}"\n').encode()
+    files[cfg["dropin"]] = (MANAGED + f'[Service]\nEnvironmentFile={cfg["env_file"]}\n').encode()
     for path in (cfg["env_file"], cfg["dropin"]):
         if path.exists() and not path.read_text().startswith(MANAGED) and not adopt:
             raise ValueError(f"Unmanaged systemd configuration exists: {path}")

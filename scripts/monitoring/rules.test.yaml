@@ -154,3 +154,127 @@ tests:
       - expr: ALERTS{alertname=~"StacklabNotReady|StacklabHTTPServerErrors|StacklabJobFailures|StacklabContainerOOM",alertstate="firing"}
         eval_time: 7m
         exp_samples: []
+
+  - name: Old hardware totals and counter resets do not become new incidents
+    interval: 1m
+    input_series:
+      - series: stacklab_pcie_errors_total{job="node-exporter",host="server",device="0000:01:00.0",severity="correctable"}
+        values: '53051x10 0x20'
+      - series: stacklab_pcie_errors_total{job="node-exporter",host="server",device="0000:01:00.0",severity="fatal"}
+        values: '10x10 0x20'
+      - series: stacklab_nvme_media_errors_total{job="node-exporter",host="server",device="/dev/nvme0"}
+        values: '10x30'
+      - series: stacklab_btrfs_device_errors_total{job="node-exporter",host="server",filesystem="example",device_id="1",error="read"}
+        values: '10x30'
+      - series: stacklab_nvme_unsafe_shutdowns_total{job="node-exporter",host="server",device="/dev/nvme0"}
+        values: '12x30'
+    promql_expr_test:
+      - expr: ALERTS{alertname=~"StacklabPCIe.*|StacklabNVMe.*|StacklabBtrfs.*",alertstate="firing"}
+        eval_time: 20m
+        exp_samples: []
+
+  - name: New hardware errors fire and combined PCIe severities remain one alert
+    interval: 1m
+    input_series:
+      - series: stacklab_pcie_errors_total{job="node-exporter",host="server",device="0000:01:00.0",severity="nonfatal"}
+        values: '0 0 1x20'
+      - series: stacklab_pcie_errors_total{job="node-exporter",host="server",device="0000:01:00.0",severity="fatal"}
+        values: '0 0 1x20'
+      - series: stacklab_nvme_media_errors_total{job="node-exporter",host="server",device="/dev/nvme0"}
+        values: '0 0 1x20'
+      - series: stacklab_btrfs_device_errors_total{job="node-exporter",host="server",filesystem="example",device_id="1",error="read"}
+        values: '0 0 1x20'
+      - series: node_vmstat_oom_kill{job="node-exporter",host="server"}
+        values: '0 0 1x20'
+      - series: node_edac_uncorrectable_errors_total{job="node-exporter",host="server",mc="0"}
+        values: '0 0 1x20'
+    promql_expr_test:
+      - expr: count(ALERTS{alertname=~"StacklabPCIeUncorrectableErrors|StacklabNVMeMediaErrors|StacklabBtrfsDeviceErrors|StacklabHostOOM|StacklabHostECCErrors",alertstate="firing"})
+        eval_time: 3m
+        exp_samples:
+          - labels: '{}'
+            value: 5
+      - expr: ALERTS{alertname=~"StacklabPCIeUncorrectableErrors|StacklabNVMeMediaErrors|StacklabBtrfsDeviceErrors|StacklabHostOOM|StacklabHostECCErrors",alertstate="firing"}
+        eval_time: 20m
+        exp_samples: []
+
+  - name: Recurring corrected PCIe errors require the hold time
+    interval: 1m
+    input_series:
+      - series: stacklab_pcie_errors_total{job="node-exporter",host="server",device="0000:01:00.0",severity="correctable"}
+        values: '0+3x30'
+    promql_expr_test:
+      - expr: ALERTS{alertname="StacklabPCIeCorrectableErrors",alertstate="firing"}
+        eval_time: 7m
+        exp_samples: []
+      - expr: count(ALERTS{alertname="StacklabPCIeCorrectableErrors",alertstate="firing"})
+        eval_time: 10m
+        exp_samples:
+          - labels: '{}'
+            value: 1
+
+  - name: Absent hardware output alerts only on explicitly enabled hosts
+    interval: 1m
+    input_series:
+      - series: up{job="node-exporter",host="enabled",instance="enabled:9100",stacklab_hardware_monitoring="true"}
+        values: '1x10'
+      - series: up{job="node-exporter",host="not-enabled",instance="other:9100"}
+        values: '1x10'
+    promql_expr_test:
+      - expr: ALERTS{alertname="StacklabHardwareCollectionStale",alertstate="firing"}
+        eval_time: 1m
+        exp_samples: []
+      - expr: count by(host) (ALERTS{alertname="StacklabHardwareCollectionStale",alertstate="firing"})
+        eval_time: 2m
+        exp_samples:
+          - labels: '{host="enabled"}'
+            value: 1
+
+  - name: Stale hardware output fires and fresh output clears it
+    interval: 1m
+    input_series:
+      - series: up{job="node-exporter",host="server",instance="server:9100",stacklab_hardware_monitoring="true"}
+        values: '1x30'
+      - series: stacklab_hardware_collection_timestamp_seconds{job="node-exporter",host="server",instance="server:9100"}
+        values: '0+60x4 240x10 900+60x10'
+    promql_expr_test:
+      - expr: ALERTS{alertname="StacklabHardwareCollectionStale",alertstate="firing"}
+        eval_time: 5m
+        exp_samples: []
+      - expr: count(ALERTS{alertname="StacklabHardwareCollectionStale",alertstate="firing"})
+        eval_time: 9m
+        exp_samples:
+          - labels: '{}'
+            value: 1
+      - expr: ALERTS{alertname="StacklabHardwareCollectionStale",alertstate="firing"}
+        eval_time: 19m
+        exp_samples: []
+
+  - name: NVMe health failures remain distinct from collection failures
+    interval: 1m
+    input_series:
+      - series: stacklab_nvme_health_passed{job="node-exporter",host="server",device="/dev/nvme0"}
+        values: '0x20'
+      - series: stacklab_nvme_critical_warning{job="node-exporter",host="server",device="/dev/nvme0"}
+        values: '8x20'
+      - series: stacklab_nvme_available_spare_percent{job="node-exporter",host="server",device="/dev/nvme0"}
+        values: '5x20'
+      - series: stacklab_nvme_available_spare_threshold_percent{job="node-exporter",host="server",device="/dev/nvme0"}
+        values: '10x20'
+      - series: stacklab_nvme_percentage_used{job="node-exporter",host="server",device="/dev/nvme0"}
+        values: '95x20'
+      - series: stacklab_hardware_collector_success{job="node-exporter",host="server",collector="nvme"}
+        values: '1x20'
+      - series: stacklab_hardware_collector_success{job="node-exporter",host="broken-reader",collector="nvme"}
+        values: '0x20'
+    promql_expr_test:
+      - expr: count(ALERTS{alertname=~"StacklabNVMeHealthCritical|StacklabNVMeSpareLow|StacklabNVMeWearHigh",alertstate="firing"})
+        eval_time: 10m
+        exp_samples:
+          - labels: '{}'
+            value: 3
+      - expr: count by(host) (ALERTS{alertname="StacklabHardwareCollectionFailed",alertstate="firing"})
+        eval_time: 2m
+        exp_samples:
+          - labels: '{host="broken-reader"}'
+            value: 1

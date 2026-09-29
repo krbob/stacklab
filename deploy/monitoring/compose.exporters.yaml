@@ -28,14 +28,17 @@ services:
       - --collector.disable-defaults
       - --collector.cpu
       - --collector.diskstats
+      - --collector.edac
       - --collector.filesystem
       - --collector.hwmon
       - --collector.loadavg
       - --collector.meminfo
       - --collector.netdev
+      - --collector.pressure
       - --collector.stat
       - --collector.time
       - --collector.uname
+      - --collector.vmstat
       - --collector.netdev.device-exclude=^(lo|veth.*|docker.*|br-.*)$$
       - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run|var/lib/docker)($$|/)
     volumes:

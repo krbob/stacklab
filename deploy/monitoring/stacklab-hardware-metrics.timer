@@ -1,0 +1,11 @@
+[Unit]
+Description=Collect Stacklab hardware health every minute
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=5s
+Unit=stacklab-hardware-metrics.service
+
+[Install]
+WantedBy=timers.target

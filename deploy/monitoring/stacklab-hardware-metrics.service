@@ -1,0 +1,22 @@
+[Unit]
+Description=Stacklab read-only PCIe, Btrfs and NVMe health metrics
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/python3 /usr/local/lib/stacklab-monitoring/hardware-metrics.py --config /etc/stacklab/hardware-monitoring.json --output /var/lib/node_exporter/textfile_collector/stacklab-hardware.prom
+TimeoutStartSec=100
+Nice=10
+UMask=0022
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX
+ReadWritePaths=/var/lib/node_exporter/textfile_collector

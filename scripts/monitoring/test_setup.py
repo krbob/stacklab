@@ -67,6 +67,7 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(model["services"]["grafana"]["environment"]["GF_SERVER_HTTP_ADDR"], "127.0.0.1")
         jobs = yaml.safe_load(files[self.cfg["prometheus_config"]])["scrape_configs"]
         self.assertEqual(jobs[-1]["static_configs"][0]["targets"], ["127.0.0.1:8080"])
+        self.assertIn(f'EnvironmentFile={self.cfg["env_file"]}\n'.encode(), files[self.cfg["dropin"]])
 
     def test_filesystem_warning_overrides_keep_default_and_critical_protection(self):
         cfg = self.config(filesystem_warning_thresholds={"/mnt/storage": 0.10})
@@ -84,6 +85,25 @@ class SetupTests(unittest.TestCase):
         for value in [None, {"relative": 0.1}, {"/data": 0.05}, {"/data": True}, {"/data": float("nan")}, {"/data": 1}]:
             with self.subTest(value=value), self.assertRaises(ValueError):
                 self.config(filesystem_warning_thresholds=value)
+
+    def test_hardware_collection_is_opt_in_with_persistent_target_expectation(self):
+        files = setup.build_plan(self.cfg, ASSETS)
+        node = yaml.safe_load(files[self.cfg["compose_file"]])["services"]["node-exporter"]
+        self.assertNotIn("--collector.textfile", node["command"])
+        cfg = self.config(hardware_monitoring=True)
+        files = setup.build_plan(cfg, ASSETS)
+        node = yaml.safe_load(files[cfg["compose_file"]])["services"]["node-exporter"]
+        self.assertIn("--collector.textfile.directory=/host/var/lib/node_exporter/textfile_collector", node["command"])
+        self.assertFalse(node.get("privileged", False))
+        jobs = yaml.safe_load(files[cfg["prometheus_config"]])["scrape_configs"]
+        by_name = {j["job_name"]: j for j in jobs}
+        self.assertEqual(by_name["node-exporter"]["static_configs"][0]["labels"]["stacklab_hardware_monitoring"], "true")
+        self.assertNotIn("stacklab_hardware_monitoring", by_name["stacklab"]["static_configs"][0]["labels"])
+        self.persist(files)
+        self.assertEqual(files, setup.build_plan(cfg, ASSETS))
+        for value in ["true", 1, None]:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                self.config(hardware_monitoring=value)
 
     def test_repeat_and_git_only_migration_preserve_config_without_secret_state(self):
         first = setup.build_plan(self.cfg, ASSETS)
