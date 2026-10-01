@@ -84,3 +84,21 @@ Description: Host-native web control panel for Docker Compose stacks
  Stacklab is a host-native web control panel for managing Docker Compose stacks
  on a single Linux server.
 
+Package: stacklab
+Version: 2026.10.0
+Architecture: amd64
+Maintainer: Krzysztof Bobiński <krzysztof@bobinski.net>
+Depends: acl, adduser, systemd, docker.io | docker-ce | moby-engine, docker-cli | docker-ce-cli | moby-cli | docker.io (<< 26.0), docker-compose | docker-compose-plugin, git
+Recommends: ca-certificates, python3 (>= 3.9), python3-yaml
+Filename: pool/stable/main/s/stacklab/stacklab_2026.10.0_amd64.deb
+Size: 11251210
+MD5sum: 47cff04763d677bad46346e2c5965aec
+SHA1: 083eca1f9862d8f74a2c447215ccccf843f8b757
+SHA256: 7c291090934566b6facdd103d53f8d9a3b63adfa4eef57a09b5b7483df4cb156
+Section: admin
+Priority: optional
+Homepage: https://github.com/krbob/stacklab
+Description: Host-native web control panel for Docker Compose stacks
+ Stacklab is a host-native web control panel for managing Docker Compose stacks
+ on a single Linux server.
+
