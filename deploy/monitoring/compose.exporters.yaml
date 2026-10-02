@@ -47,7 +47,7 @@ services:
       - traefik.enable=false
 
   cadvisor:
-    image: ghcr.io/google/cadvisor:0.60.5
+    image: ghcr.io/google/cadvisor:v0.60.6
     restart: unless-stopped
     privileged: true
     pid: host
