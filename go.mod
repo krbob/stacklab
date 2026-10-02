@@ -1,6 +1,6 @@
 module stacklab
 
-go 1.26.5
+go 1.27.1
 
 require (
 	github.com/creack/pty v1.1.24
