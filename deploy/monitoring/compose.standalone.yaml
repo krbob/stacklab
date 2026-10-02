@@ -2,7 +2,7 @@
 # Host networking allows scraping Stacklab's default loopback-only listener.
 services:
   prometheus:
-    image: prom/prometheus:v3.14.0
+    image: prom/prometheus:v3.15.0
     restart: unless-stopped
     network_mode: host
     command:
