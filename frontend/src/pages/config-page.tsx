@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { File, FileQuestion, FileWarning, Folder, FolderKanban, GitBranch, Plus } from 'lucide-react'
-import { getConfigTree, getConfigFile, saveConfigFile, deleteConfigFile, deleteGitWorkspaceFile, repairConfigWorkspacePermissions, repairStackWorkspacePermissions, getGitWorkspaceStatus, getGitWorkspaceDiff } from '@/lib/api-client'
+import { getConfigTree, getConfigFile, saveConfigFile, deleteConfigFile, deleteGitWorkspaceFile, restoreGitWorkspaceFile, repairConfigWorkspacePermissions, repairStackWorkspacePermissions, getGitWorkspaceStatus, getGitWorkspaceDiff } from '@/lib/api-client'
 import type { ConfigTreeEntry, ConfigFileResponse, GitStatusItem, GitDiffResponse } from '@/lib/api-types'
 import { YamlEditor } from '@/components/yaml-editor'
 import { DiffView } from '@/components/diff-view'
@@ -60,6 +60,9 @@ export function ConfigPage() {
   const [fileToDelete, setFileToDelete] = useState<DeleteTarget | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [fileToRestore, setFileToRestore] = useState<GitDiffResponse | null>(null)
+  const [restoring, setRestoring] = useState(false)
+  const [restoreError, setRestoreError] = useState<string | null>(null)
 
   const [creatingFile, setCreatingFile] = useState(false)
   const [newFileName, setNewFileName] = useState('')
@@ -254,6 +257,35 @@ export function ConfigPage() {
       setDeleting(false)
     }
   }, [fileToDelete, deleting, selectedFile, loadTree, treePath, loadGitStatus])
+
+  const handleRestoreFile = useCallback(async () => {
+    if (!fileToRestore?.restore_state || restoring) return
+    setRestoring(true)
+    setRestoreError(null)
+    try {
+      await restoreGitWorkspaceFile(fileToRestore.path, fileToRestore.restore_state)
+      if (selectedFile && `config/${selectedFile.path}` === fileToRestore.path) {
+        setSelectedFile(null)
+        setEditContent('')
+        setFileError(null)
+      }
+      if (selectedChangePathRef.current === fileToRestore.path) {
+        selectedChangePathRef.current = null
+        ++diffRequestIdRef.current
+        setSelectedChangePath(null)
+        setSelectedDiff(null)
+        setDiffLoading(false)
+        setDiffError(null)
+      }
+      setFileToRestore(null)
+      setSaveMessage({ type: 'success', text: `Restored ${fileToRestore.path} to the last commit` })
+      await Promise.all([loadTree(treePath), loadGitStatus()])
+    } catch (err) {
+      setRestoreError(err instanceof Error ? err.message : 'Restore failed')
+    } finally {
+      setRestoring(false)
+    }
+  }, [fileToRestore, restoring, selectedFile, loadTree, treePath, loadGitStatus])
 
   const openDiff = useCallback(async (path: string) => {
     const requestId = ++diffRequestIdRef.current
@@ -721,7 +753,7 @@ export function ConfigPage() {
       </BottomSheet>
 
       {/* Right panel */}
-      <div aria-busy={fileLoading || diffLoading || saving || deleting} className="flex min-w-0 flex-1 flex-col rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
+      <div aria-busy={fileLoading || diffLoading || saving || deleting || restoring} className="flex min-w-0 flex-1 flex-col rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">
         {saveMessage && <StatusMessage className={cn('mb-2 wrap-anywhere text-xs', saveMessage.type === 'success' ? 'text-[var(--ok)]' : 'text-[var(--danger)]')}>{saveMessage.text}</StatusMessage>}
         {/* Files mode - editor */}
         {mode === 'files' && (
@@ -858,10 +890,23 @@ export function ConfigPage() {
                         Open stack editor
                       </Link>
                     )}
+                    {selectedDiff.restore_allowed && selectedDiff.restore_state && selectedDiff.restore_commit && (
+                      <button
+                        type="button"
+                        disabled={saving || deleting || restoring || diffLoading}
+                        onClick={() => {
+                          setRestoreError(null)
+                          setFileToRestore(selectedDiff)
+                        }}
+                        className="rounded-md border border-[var(--danger)]/30 bg-[var(--danger)]/10 px-3 py-1 text-xs text-[var(--danger)] disabled:opacity-40"
+                      >
+                        {selectedDiff.status === 'deleted' ? 'Restore file' : 'Discard changes'}
+                      </button>
+                    )}
                     {selectedDiff.status !== 'deleted' && selectedDiff.delete_allowed && selectedDiff.modified_at && (
                       <button
                         type="button"
-                        disabled={saving || deleting || diffLoading}
+                        disabled={saving || deleting || restoring || diffLoading}
                         onClick={() => {
                           if (!selectedDiff.modified_at) return
                           setDeleteError(null)
@@ -923,6 +968,30 @@ export function ConfigPage() {
           </>
         )}
       </div>
+
+      {fileToRestore && (
+        <ConfirmDialog
+          title={fileToRestore.status === 'deleted'
+            ? `Restore "${fileToRestore.path.split('/').pop()}"?`
+            : `Discard saved changes to "${fileToRestore.path.split('/').pop()}"?`}
+          message={fileToRestore.status === 'deleted'
+            ? 'Restore this file from the last local commit and discard any staged changes to it?'
+            : 'Replace this file with its version from the last local commit? All uncommitted changes to this file, including staged changes, will be lost.'}
+          review={{
+            target: fileToRestore.path,
+            scope: ['This file and its staged changes.'],
+            impact: ['Services reading this configuration may pick up the restored content.'],
+            snapshot: `Source: local commit ${fileToRestore.restore_commit?.slice(0, 12)}.`,
+            recovery: 'Discarded uncommitted changes cannot be recovered through Stacklab.',
+          }}
+          error={restoreError}
+          confirmLabel={fileToRestore.status === 'deleted' ? 'Restore file' : 'Discard changes'}
+          confirming={restoring}
+          confirmingLabel="Restoring..."
+          onCancel={() => setFileToRestore(null)}
+          onConfirm={() => { void handleRestoreFile() }}
+        />
+      )}
 
       {fileToDelete && (
         <ConfirmDialog

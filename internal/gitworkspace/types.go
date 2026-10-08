@@ -52,6 +52,9 @@ type StatusItem struct {
 }
 
 type DiffResponse struct {
+	RestoreAllowed   bool                        `json:"restore_allowed"`
+	RestoreState     string                      `json:"restore_state,omitempty"`
+	RestoreCommit    string                      `json:"restore_commit,omitempty"`
 	DeleteAllowed    bool                        `json:"delete_allowed"`
 	ModifiedAt       *time.Time                  `json:"modified_at,omitempty"`
 	RepairCapability *workspacerepair.Capability `json:"repair_capability,omitempty"`

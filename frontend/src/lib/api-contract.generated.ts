@@ -64,6 +64,10 @@ export interface paths {
   "/git/workspace/push": {
     post: operations["pushGitWorkspace"];
   };
+  "/git/workspace/restore": {
+    /** @description Restore one modified or deleted regular file from HEAD, replacing its working copy and staged changes. Requires the state token from the reviewed diff. Does not commit, push, or deploy. */
+    post: operations["restoreGitWorkspaceFile"];
+  };
   "/git/workspace/status": {
     get: operations["getGitWorkspaceStatus"];
   };
@@ -639,6 +643,12 @@ export interface components {
       path: string;
       permissions?: components["schemas"]["FilePermissions"];
       repair_capability?: components["schemas"]["WorkspaceRepairCapability"];
+      /** @description This modified or deleted file can be restored from HEAD. Renames, conflicts, new files, and symbolic links are unsupported. */
+      restore_allowed?: boolean;
+      /** @description The full local commit ID whose version will be restored. */
+      restore_commit?: string;
+      /** @description Opaque review token binding the path, HEAD, index entry, and working copy; pass as expected_state. */
+      restore_state?: string;
       scope: components["schemas"]["GitScope"];
       stack_id: string | null;
       status: components["schemas"]["GitFileStatus"];
@@ -654,6 +664,19 @@ export interface components {
       audit_action: string;
       deleted: boolean;
       path: string;
+      scope: components["schemas"]["GitScope"];
+      stack_id: string | null;
+    };
+    GitFileRestoreRequest: {
+      expected_state: string;
+      /** @description Full managed path under config/ or stacks/. */
+      path: string;
+    };
+    GitFileRestoreResponse: {
+      audit_action: string;
+      head_commit: string;
+      path: string;
+      restored: boolean;
       scope: components["schemas"]["GitScope"];
       stack_id: string | null;
     };
@@ -2220,6 +2243,48 @@ export interface operations {
       };
       /** @description Remote authentication, repository access, or SSH host verification failed. */
       502: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git workspace is unavailable. */
+      503: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  /** @description Restore one modified or deleted regular file from HEAD, replacing its working copy and staged changes. Requires the state token from the reviewed diff. Does not commit, push, or deploy. */
+  restoreGitWorkspaceFile: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["GitFileRestoreRequest"];
+      };
+    };
+    responses: {
+      /** @description The selected file and its index entry were restored from the reviewed commit. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["GitFileRestoreResponse"];
+        };
+      };
+      /** @description Invalid path, missing review token, or unsupported target. */
+      400: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      401: components["responses"]["ErrorUnauthorized"];
+      /** @description Cross-origin request rejected. */
+      403: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      404: components["responses"]["ErrorNotFound"];
+      /** @description The reviewed file, index entry, or HEAD changed; permissions block restoration; or a Git operation is in progress. */
+      409: {
         content: {
           "application/json": components["schemas"]["ErrorResponse"];
         };

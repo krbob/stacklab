@@ -303,6 +303,7 @@ Expected first UI surface:
 - `Files` browses `config/`; `Changes` shows changed files under both `config/` and `stacks/`
 - `Changes` offers **Delete file** for eligible files, including untracked Compose backups absent from `Files`
 - clicking a changed file opens unified diff in the right panel
+- eligible tracked files offer **Discard changes** (modified) or **Restore file** (deleted), with an explicit review of the full path and source commit
 
 Recommended grouping:
 
@@ -335,6 +336,51 @@ return `409 permission_denied`, and a simultaneous Git mutation returns
 `409 operation_in_progress`. Protected active stack files return
 `400 reserved_path`; non-regular files return `400 path_not_file`; a missing or
 no-longer-changed file returns `404 not_found`.
+
+## `POST /api/git/workspace/restore`
+
+Restores one modified or deleted regular file under `config/` or `stacks/` to
+its version in the last local commit (`HEAD`), including its staged changes.
+Active stack `compose.yaml` and `.env` files are supported. The operation does
+not create a commit, push, or deploy; services reading configuration files may
+pick up the restored content.
+
+```json
+{
+  "path": "config/demo/app.conf",
+  "expected_state": "<restore_state from the reviewed diff>"
+}
+```
+
+Diff responses expose `restore_allowed`, and, when eligible, `restore_state`
+and `restore_commit`. The opaque state token covers the exact path, HEAD,
+that file's index entry, and its working-copy contents, mode, size and mtime
+(or absence). The server checks it again before replacing the file. A stale
+review returns `409 edit_conflict`; reload the diff before trying again.
+
+New files absent from HEAD, renames, conflicts, directories, symbolic links,
+paths through symbolic links, and Git metadata cannot be restored through this
+endpoint. New untracked files retain the separate **Delete file** action.
+Deleted parent directories are recreated as needed. Existing file ownership
+and private read/write permissions are preserved; Git's execute bit is restored.
+
+Restoration requires authentication and a same-origin request, shares the Git
+mutation lock, and holds an exclusively owned `index.lock`. An existing lock
+or merge/rebase/cherry-pick operation returns `409 operation_in_progress`.
+A temporary checkout and index prepare the selected restoration without
+changing unrelated staged or working-copy files. File replacement and index
+installation are separate filesystem operations; if index finalization fails
+after replacement, the request reports an error and the operator should refresh
+Changes to inspect the current state.
+
+Success returns `restored`, `path`, `scope`, `stack_id`, `head_commit`, and
+`audit_action` (`git_restore_file`). The audit includes the full managed path
+and source commit. The UI refreshes both Changes and Files, clearing the old
+diff. Discarded uncommitted content is not backed up or recoverable in Stacklab.
+
+Other errors: `400 validation_failed`, `400 path_outside_workspace`,
+`400 restore_not_supported`, `404 not_found`, `409 permission_denied`,
+`503 git_unavailable`.
 
 ## `POST /api/git/workspace/commit`
 

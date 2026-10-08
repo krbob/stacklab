@@ -55,6 +55,48 @@ test.describe('Git workspace', () => {
     await restoreDirtyFixture(page, baselineContent)
   })
 
+  for (const width of [1280, 390]) {
+    for (const deleted of [false, true]) {
+      test(`${deleted ? 'restores a deleted file' : 'discards saved changes'} at ${width}px`, async ({ page }) => {
+        const before = await (await page.request.get('/api/git/workspace/status')).json()
+        if (deleted) {
+          const file = await getConfigFile(page)
+          const result = await page.request.delete('/api/config/workspace/file', {
+            data: { path: CONFIG_PATH, expected_modified_at: file.modified_at },
+          })
+          expect(result.ok()).toBeTruthy()
+        }
+        await page.setViewportSize({ width, height: 900 })
+        await page.goto('/config')
+        if (width < 1024) await page.getByTestId('config-open-tree').click()
+        await page.getByRole('button', { name: /^Changes/ }).click()
+        await page.getByRole('button', { name: /\.gitkeep$/ }).click()
+        const label = deleted ? 'Restore file' : 'Discard changes'
+        const restore = page.getByRole('button', { name: label, exact: true })
+        await expect(restore).toBeVisible()
+        const bounds = await restore.boundingBox()
+        expect(bounds!.x).toBeGreaterThanOrEqual(0)
+        expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width)
+        await restore.click()
+        const dialog = page.getByRole('dialog')
+        await expect(dialog.getByText(GIT_PATH, { exact: true })).toBeVisible()
+        await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+        const cancelledStatus = await (await page.request.get('/api/git/workspace/status')).json()
+        expect(cancelledStatus.items.some((item: { path: string }) => item.path === GIT_PATH)).toBe(true)
+        await restore.click()
+        const response = page.waitForResponse((result) => result.url().endsWith('/api/git/workspace/restore') && result.request().method() === 'POST')
+        await dialog.getByRole('button', { name: label, exact: true }).click()
+        expect((await response).ok()).toBeTruthy()
+        await expect(dialog).not.toBeVisible()
+        await expect(page.getByRole('status').filter({ hasText: `Restored ${GIT_PATH} to the last commit` })).toBeVisible()
+        expect((await getConfigFile(page)).content ?? '').toBe(baselineContent)
+        const after = await (await page.request.get('/api/git/workspace/status')).json()
+        expect(after.head_commit).toBe(before.head_commit)
+        expect(after.items?.some((item: { path: string }) => item.path === GIT_PATH) ?? false).toBe(false)
+      })
+    }
+  }
+
   test('reviews, commits, and pushes a config change', async ({ page }) => {
     await page.goto('/config')
     await page.getByRole('button', { name: /^Changes/ }).click()

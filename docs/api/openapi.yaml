@@ -661,6 +661,52 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /git/workspace/restore:
+    post:
+      tags: [Git]
+      operationId: restoreGitWorkspaceFile
+      description: Restore one modified or deleted regular file from HEAD, replacing its working copy and staged changes. Requires the state token from the reviewed diff. Does not commit, push, or deploy.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GitFileRestoreRequest'
+      responses:
+        '200':
+          description: The selected file and its index entry were restored from the reviewed commit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitFileRestoreResponse'
+        '400':
+          description: Invalid path, missing review token, or unsupported target.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          description: Cross-origin request rejected.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          description: The reviewed file, index entry, or HEAD changed; permissions block restoration; or a Git operation is in progress.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Git workspace is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /git/workspace/commit:
     post:
       tags: [Git]
@@ -3224,6 +3270,15 @@ components:
     GitDiffResponse:
       type: object
       properties:
+        restore_allowed:
+          type: boolean
+          description: This modified or deleted file can be restored from HEAD. Renames, conflicts, new files, and symbolic links are unsupported.
+        restore_state:
+          type: string
+          description: Opaque review token binding the path, HEAD, index entry, and working copy; pass as expected_state.
+        restore_commit:
+          type: string
+          description: The full local commit ID whose version will be restored.
         delete_allowed:
           type: boolean
           description: The path identifies a deletable regular file; actual parent directory permissions are checked on deletion.
@@ -3301,6 +3356,33 @@ components:
         audit_action:
           type: string
       required: [deleted, path, scope, stack_id, audit_action]
+    GitFileRestoreRequest:
+      type: object
+      properties:
+        path:
+          type: string
+          description: Full managed path under config/ or stacks/.
+        expected_state:
+          type: string
+          minLength: 64
+          maxLength: 64
+      required: [path, expected_state]
+    GitFileRestoreResponse:
+      type: object
+      properties:
+        restored:
+          type: boolean
+        path:
+          type: string
+        scope:
+          $ref: '#/components/schemas/GitScope'
+        stack_id:
+          type: [string, 'null']
+        head_commit:
+          type: string
+        audit_action:
+          type: string
+      required: [restored, path, scope, stack_id, head_commit, audit_action]
     GitCommitRequest:
       type: object
       properties:

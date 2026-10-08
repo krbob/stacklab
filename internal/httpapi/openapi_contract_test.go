@@ -132,6 +132,22 @@ func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
 	gitDiffResponse := performJSONRequest(t, handler, http.MethodGet, "/api/git/workspace/diff?path=config%2Fnextcloud%2Fapp.conf", nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/git/workspace/diff?path=config%2Fnextcloud%2Fapp.conf", nil, cookies, gitDiffResponse)
 
+	var gitDiff struct {
+		RestoreState string `json:"restore_state"`
+	}
+	if err := json.Unmarshal(gitDiffResponse.Body.Bytes(), &gitDiff); err != nil || gitDiff.RestoreState == "" {
+		t.Fatalf("missing restore state: %s, %v", gitDiffResponse.Body.String(), err)
+	}
+	gitRestoreBody := map[string]any{"path": "config/nextcloud/app.conf", "expected_state": gitDiff.RestoreState}
+	gitRestoreResponse := performJSONRequest(t, handler, http.MethodPost, "/api/git/workspace/restore", gitRestoreBody, cookies)
+	if gitRestoreResponse.Code != http.StatusOK {
+		t.Fatalf("restore status=%d body=%s", gitRestoreResponse.Code, gitRestoreResponse.Body.String())
+	}
+	assertResponseMatchesOpenAPI(t, contract, http.MethodPost, "/api/git/workspace/restore", gitRestoreBody, cookies, gitRestoreResponse)
+	if err := os.WriteFile(filepath.Join(configRoot, "nextcloud", "app.conf"), []byte("PORT=9091\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	remoteDir := filepath.Join(t.TempDir(), "origin.git")
 	cmd := exec.CommandContext(context.Background(), "git", "init", "--bare", remoteDir)
 	if output, err := cmd.CombinedOutput(); err != nil {

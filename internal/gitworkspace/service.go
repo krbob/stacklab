@@ -130,7 +130,7 @@ func (s *Service) Status(ctx context.Context) (StatusResponse, error) {
 	return base, nil
 }
 
-func (s *Service) Diff(ctx context.Context, requestedPath string) (DiffResponse, error) {
+func (s *Service) Diff(ctx context.Context, requestedPath string) (response DiffResponse, resultErr error) {
 	normalizedPath, err := normalizeManagedPath(requestedPath)
 	if err != nil {
 		return DiffResponse{}, err
@@ -155,7 +155,7 @@ func (s *Service) Diff(ctx context.Context, requestedPath string) (DiffResponse,
 		return DiffResponse{}, ErrNotFound
 	}
 
-	response := DiffResponse{
+	response = DiffResponse{
 		Available:     true,
 		Path:          item.Path,
 		Scope:         item.Scope,
@@ -165,6 +165,22 @@ func (s *Service) Diff(ctx context.Context, requestedPath string) (DiffResponse,
 		Permissions:   item.Permissions,
 		DiffAvailable: item.DiffAvailable,
 		BlockedReason: item.BlockedReason,
+	}
+	if canRestore(*item) {
+		if review, err := s.restoreReview(ctx, normalizedPath); err == nil {
+			defer func() {
+				// Only offer a destructive action if its review remained stable
+				// throughout generation of the displayed diff.
+				if resultErr != nil {
+					return
+				}
+				if current, err := s.restoreReview(ctx, normalizedPath); err == nil && current == review {
+					response.RestoreAllowed = true
+					response.RestoreState = review.token
+					response.RestoreCommit = review.head
+				}
+			}()
+		}
 	}
 	if item.Status != FileStatusDeleted {
 		if parent, _, info, err := s.deletionTarget(normalizedPath); err == nil {

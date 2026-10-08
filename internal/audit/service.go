@@ -144,6 +144,10 @@ func (s *Service) RecordConfigFileDelete(ctx context.Context, relativePath strin
 	return s.recordConfigFileAction(ctx, "delete_config_file", relativePath, stackID, requestedBy, details)
 }
 
+func (s *Service) RecordGitFileRestore(ctx context.Context, path string, stackID *string, requestedBy string, details map[string]any) error {
+	return s.recordConfigFileAction(ctx, "git_restore_file", path, stackID, requestedBy, details)
+}
+
 func (s *Service) recordConfigFileAction(ctx context.Context, action, relativePath string, stackID *string, requestedBy string, details map[string]any) error {
 	detailJSON, err := marshalDetails(details)
 	if err != nil {

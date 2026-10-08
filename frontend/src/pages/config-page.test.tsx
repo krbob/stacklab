@@ -14,6 +14,7 @@ const mockGetConfigFile = vi.fn()
 const mockSaveConfigFile = vi.fn()
 const mockDeleteConfigFile = vi.fn()
 const mockDeleteGitWorkspaceFile = vi.fn()
+const mockRestoreGitWorkspaceFile = vi.fn()
 const mockGetGitWorkspaceStatus = vi.fn()
 const mockGetGitWorkspaceDiff = vi.fn()
 const mockCommitGitWorkspace = vi.fn()
@@ -33,6 +34,7 @@ vi.mock('@/lib/api-client', () => ({
   saveConfigFile: (...args: unknown[]) => mockSaveConfigFile(...args),
   deleteConfigFile: (...args: unknown[]) => mockDeleteConfigFile(...args),
   deleteGitWorkspaceFile: (...args: unknown[]) => mockDeleteGitWorkspaceFile(...args),
+  restoreGitWorkspaceFile: (...args: unknown[]) => mockRestoreGitWorkspaceFile(...args),
   getGitWorkspaceStatus: (...args: unknown[]) => mockGetGitWorkspaceStatus(...args),
   getGitWorkspaceDiff: (...args: unknown[]) => mockGetGitWorkspaceDiff(...args),
   commitGitWorkspace: (...args: unknown[]) => mockCommitGitWorkspace(...args),
@@ -307,6 +309,7 @@ describe('ConfigPage', () => {
     mockSaveConfigFile.mockReset()
     mockDeleteConfigFile.mockReset()
     mockDeleteGitWorkspaceFile.mockReset()
+    mockRestoreGitWorkspaceFile.mockReset()
     mockGetGitWorkspaceStatus.mockReset()
     mockGetGitWorkspaceDiff.mockReset()
     mockCommitGitWorkspace.mockReset()
@@ -735,6 +738,80 @@ describe('ConfigPage', () => {
     expect(mockDeleteConfigFile).not.toHaveBeenCalled()
     expect(mockCommitGitWorkspace).not.toHaveBeenCalled()
     expect(mockPushGitWorkspace).not.toHaveBeenCalled()
+  })
+
+  it.each(['modified', 'deleted'] as const)('restores a %s file after review and refreshes Changes and Files', async (status) => {
+    const label = status === 'deleted' ? 'Restore file' : 'Discard changes'
+    mockGetGitWorkspaceDiff.mockResolvedValue({
+      ...gitDiff, status, restore_allowed: true, restore_state: 'review-token', restore_commit: 'abc1234567890',
+    })
+    mockGetGitWorkspaceStatus.mockResolvedValueOnce(gitStatus).mockResolvedValue({ ...gitStatus, clean: true, items: [] })
+    let finishRestore!: () => void
+    mockRestoreGitWorkspaceFile.mockImplementation(() => new Promise<void>((resolve) => { finishRestore = resolve }))
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /^Changes/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /app\.conf$/ }))
+    fireEvent.click(await screen.findByRole('button', { name: label }))
+    let dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByText('config/demo/app.conf')).toBeInTheDocument()
+    expect(dialog).toHaveTextContent('staged changes')
+    expect(dialog).toHaveTextContent('abc123456789')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(mockRestoreGitWorkspaceFile).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: label }))
+    dialog = screen.getByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: label }))
+    expect(within(dialog).getByRole('button', { name: 'Restoring...' })).toBeDisabled()
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeDisabled()
+    expect(mockRestoreGitWorkspaceFile).toHaveBeenCalledExactlyOnceWith('config/demo/app.conf', 'review-token')
+    await act(async () => finishRestore())
+    expect(await screen.findByRole('status')).toHaveTextContent('Restored config/demo/app.conf to the last commit')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /app\.conf$/ })).not.toBeInTheDocument()
+    expect(mockGetGitWorkspaceStatus).toHaveBeenCalledTimes(2)
+    expect(mockGetConfigTree).toHaveBeenCalledTimes(2)
+    expect(mockCommitGitWorkspace).not.toHaveBeenCalled()
+    expect(mockPushGitWorkspace).not.toHaveBeenCalled()
+  })
+
+  it('keeps the diff and review when a restore is rejected, and uses a fresh token after reloading', async () => {
+    mockGetGitWorkspaceDiff.mockResolvedValue({
+      ...gitDiff, restore_allowed: true, restore_state: 'stale-token', restore_commit: 'abc1234567890',
+    })
+    mockRestoreGitWorkspaceFile.mockRejectedValue(new Error('The file, staged changes, or latest commit changed. Reload the diff before restoring.'))
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /^Changes/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /app\.conf$/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Discard changes' }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Discard changes' }))
+    expect(await within(screen.getByRole('dialog')).findByRole('alert')).toHaveTextContent('Reload the diff')
+    expect(screen.getByText('-server_name old.local;')).toBeInTheDocument()
+    expect(mockGetGitWorkspaceStatus).toHaveBeenCalledOnce()
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }))
+    mockGetGitWorkspaceDiff.mockResolvedValue({
+      ...gitDiff, restore_allowed: true, restore_state: 'fresh-token', restore_commit: 'abc1234567890',
+    })
+    fireEvent.click(screen.getByRole('button', { name: /app\.conf$/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Discard changes' }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Discard changes' }))
+    await waitFor(() => expect(mockRestoreGitWorkspaceFile).toHaveBeenLastCalledWith('config/demo/app.conf', 'fresh-token'))
+  })
+
+  it.each([
+    { restore_allowed: false },
+    { restore_allowed: true },
+    { restore_allowed: true, restore_state: 'token' },
+    { status: 'untracked' },
+    { status: 'renamed' },
+    { status: 'conflicted' },
+  ])('hides restoration without a complete supported review: %j', async (metadata) => {
+    mockGetGitWorkspaceDiff.mockResolvedValue({ ...gitDiff, ...metadata })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /^Changes/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /app\.conf$/ }))
+    expect(await screen.findByText('-server_name old.local;')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Discard changes' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Restore file' })).not.toBeInTheDocument()
   })
 
   it('keeps a changed file and its review visible when deletion fails', async () => {
