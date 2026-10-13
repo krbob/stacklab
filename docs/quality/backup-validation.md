@@ -64,6 +64,55 @@ discovery and restore with a fresh Stacklab database and independently retained
 credentials. Provider OAuth consent and real Google Drive/B2 connectivity need
 provider credentials; local transport fixtures do not establish those results.
 
+## Protection And Recovery Experience Checks
+
+The experience extension has deterministic tests for durable copy evidence after
+history cleanup, old capture retried later, retention failure, changed selections,
+disabled/manual assignments, DST/interval scheduling, future-first configuration,
+missed-occurrence coalescing, maintenance conflicts and repository read leases.
+Concurrent progress/overview tests run under the race detector. Restore review
+tests cover both stable IDs and legacy directories, including partial-file
+rejection and destination/snapshot mismatch.
+
+`TestNativeEncryptedCatalogComparePartialRestoreDownload` uses real encrypted
+snapshots to verify indexes, content/metadata comparison, selected-file recovery,
+library identity and exact downloaded bytes. Additional tests cover legacy
+catalogs, recursive comparisons, pagination, bounded indexes, staging accounting,
+cancelled reads, symlink/traversal rejection and unavailable registrations.
+HTTP tests enforce authentication, same-origin mutation checks, pagination
+bounds and safe attachment headers. Route and response tests use OpenAPI.
+
+Frontend tests cover protection/coverage errors, setup and immutable editing,
+history filters/paging, real writer preflight, interval preview and maintenance,
+file comparison, recovery completion, downloads and reviewed apply. Browser
+acceptance must exercise both desktop and narrow layouts on the built frontend;
+unit tests alone do not establish a usable continuous recovery flow.
+
+The extension was exercised on 2026-10-13/14 with Go 1.27.1, Node 24.21.0,
+Debian 13 arm64/restic 0.18.0, and Chromium at 1440×1000 and 390×844.
+
+| Exercise | Result |
+| --- | --- |
+| Canonical `make check`: Go tests/vet, generated API, frontend, build, docs and hygiene | Passed; 73 frontend files, 577 tests |
+| Backend package coverage gates | Passed; HTTP API 53.4%, global reported coverage 70.9% |
+| Backup/helper race tests, including simultaneous progress and overview reads | Passed |
+| Linux archive metadata, nested-directory merge, hardlink boundary and interruption-safe indexing | Passed |
+| Two native destination copies with shared writers, indexed snapshots and file comparison | Passed |
+| Partial restore, exact authenticated download, partial apply rejected through both ID and directory APIs | Passed |
+| ID-based reviewed volume apply, preserved ownership/mode and prior running states | Passed |
+| Replayed review rejected while repository availability remains accurate | Passed |
+| Repository check and prune jobs; deterministic independent scheduling tests | Passed |
+| Desktop browser: history filters, comparison, isolated restore, automatic result selection, download and reviewed apply | Passed |
+| Mobile browser: no horizontal overflow; guided destination creation, generated password, initialization, plan selection and first backup | Passed |
+| Immutable destination editing and partial-source apply scope in UI | Passed |
+| Linux arm64 release tarball build | Passed |
+
+The VM exercise found and fixed GNU tar's inability to merge existing nonempty
+directories with `--unlink-first`. The regression also verifies unrelated nested
+files remain and replacing an existing hardlink does not modify its external
+inode. Failed extraction correctly kept affected services stopped before the
+fix was applied and retested.
+
 ## Implementation Validation Record
 
 The initial implementation was validated on 2026-10-13 with Go 1.27.1 and

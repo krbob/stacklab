@@ -9,8 +9,9 @@ limited to work that is not already implemented.
 
 Status reviewed: 2026-07-12.
 
-Backup and recovery direction updated: 2026-10-13. Native backup orchestration
-has been implemented; the remaining baseline and goals retain their previous
+Backup and recovery direction updated: 2026-10-14. Native backup orchestration
+and the [protection/recovery experience](product/backup-experience.md)
+have been implemented; the remaining baseline and goals retain their previous
 review date.
 
 ## Current Baseline
@@ -21,6 +22,10 @@ Implemented and exercised on Linux staging hosts:
   destinations, explicit service data coverage, shared-volume stop/capture,
   independent copies and retry, schedules/retention, repository verification,
   isolated restore and reviewed online recovery, plus offline Stacklab state recovery;
+- [backup protection and recovery experience](product/backup-experience.md):
+  durable freshness evidence, source coverage, filtered execution history,
+  indexed file browsing/comparison/download, a registered restore library,
+  guided setup, interval schedules and independent repository maintenance;
 - single-user authentication, session revocation, and bounded retention;
 - filesystem and Docker runtime stack discovery, detail views, lifecycle jobs,
   audit history, live logs, stats, and container terminals;
@@ -69,9 +74,6 @@ of changed `main` revisions provide the soak channel between stable releases.
 
 ### 2. Operator Polish
 
-- implement the accepted [backup experience plan](product/backup-experience.md):
-  protection evidence, continuous recovery, file browsing, execution history,
-  guided setup and independent repository maintenance policies;
 - make progress, completion, partial-failure, and recovery language consistent
   across all remaining long-running workflows;
 - refine small-screen and keyboard operation for dense maintenance and Docker

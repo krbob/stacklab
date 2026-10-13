@@ -2,11 +2,19 @@
 
 ## Status And Intent
 
-Implementation plan accepted on 2026-10-13. Commit this plan before implementing
-the changes below; deliver subsequent work in coherent, tested commits.
+Implementation plan accepted on 2026-10-13 and committed before implementation.
+The six delivery steps below are implemented; validation evidence is recorded in
+[backup validation](../quality/backup-validation.md).
 The [native backup baseline](backup-and-recovery.md) remains the starting point.
 After delivery, executable tests and the updated architecture, API and operator
 documents define the implemented contracts.
+
+New or edited schedules start at their next future occurrence. Existing schedules
+still catch up one missed occurrence after downtime. Repository browsing uses
+temporary read reservations to pin credentials and exclude backup mutations;
+it does not create a persistent job for each directory listing. Recovery testing
+also added a regression for merging existing nonempty directories while retaining
+unrelated files and preventing writes through target links.
 
 The operator must be able to answer three questions without reading job logs:
 what is protected, what needs attention, and how to recover the required data.
