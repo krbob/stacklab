@@ -51,6 +51,8 @@ The complete operator map is in [Operations](ops/README.md).
 - [Product documentation](product/README.md) — scope, non-goals, and the
   implemented baseline.
 - [Product roadmap](roadmap.md) — current direction and prioritized follow-up.
+- [Native backup and recovery](product/backup-and-recovery.md) — accepted,
+  unimplemented plan for stack-aware backups and recovery across destinations.
 - [Information architecture](ui/information-architecture.md) — navigation,
   routes, and responsive policy.
 - [Screen states](ui/states-and-empty-cases.md) and

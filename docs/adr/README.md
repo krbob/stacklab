@@ -8,3 +8,5 @@ Current ADRs:
 - [0002: Compose-First Domain Model](0002-compose-first-model.md)
 - [0003: Hybrid Docker Integration](0003-hybrid-docker-integration.md)
 - [0004: Deployment-Aware Filesystem Layout](0004-deployment-aware-filesystem-layout.md)
+- [0005: Native Backup Orchestration](0005-native-backup-orchestration.md) —
+  accepted direction; implementation pending.

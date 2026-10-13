@@ -43,6 +43,17 @@ The `stacklab` Unix service account is only the host process identity.
 - keep local workspace changes reviewable and easy to commit back to Git
 - selectively commit only the files relevant to one stack when needed, without forcing unrelated changes into the same commit
 
+## Planned Backup And Recovery
+
+The [native backup and recovery plan](backup-and-recovery.md) extends the core
+jobs with selecting, protecting, and restoring Stacklab state and managed
+application data. It is accepted direction, not implemented functionality.
+Backup orchestration will run on the host, using restic and rclone, with
+per-stack and per-service selection and multiple storage destinations.
+Application recovery remains scoped to managed Compose workloads and
+Stacklab's own state; it does not expand the product into whole-host imaging
+or a general host backup console.
+
 ## Product Principles
 
 - Compose-first, not generic-Docker-first

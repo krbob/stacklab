@@ -11,6 +11,9 @@ the product is heading.
 - [MVP baseline](mvp.md) — implemented first-generation capability baseline
   and the work intentionally deferred beyond it.
 - [Roadmap](../roadmap.md) — current priorities after the MVP baseline.
+- [Native backup and recovery](backup-and-recovery.md) — accepted product plan
+  for source selection, multiple destinations, consistency, and restore;
+  implementation pending.
 
 For implementation boundaries, continue with the
 [domain model](../domain/README.md),
