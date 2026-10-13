@@ -1,0 +1,3 @@
+# Install root:root 0440 with visudo -cf validation. Only the service account
+# may use the helper; root-owned /etc/stacklab/stacklab.env controls data roots.
+stacklab ALL=(root) NOPASSWD: /usr/lib/stacklab/bin/stacklab-backup-helper archive *, /usr/lib/stacklab/bin/stacklab-backup-helper restore *, /usr/lib/stacklab/bin/stacklab-backup-helper check-target *, /usr/lib/stacklab/bin/stacklab-backup-helper service-config

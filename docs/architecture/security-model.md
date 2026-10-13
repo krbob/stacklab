@@ -438,3 +438,14 @@ Post-MVP hardening candidates:
 - optional TOTP or client-certificate access on LAN
 - encrypted secret references
 - stricter per-feature policy toggles
+
+## Native backup helper
+
+The optional `stacklab-backup-helper` archives/restores approved managed data
+paths and inspected plain local Docker volumes. Its root-owned
+`/etc/stacklab/stacklab.env` defines roots; browser input cannot select a generic
+root command. Archive extraction validates traversal, link and special-file
+metadata and seals privileged input before use. Repository credentials never
+reach the helper. Reviewed restoration can overwrite application data and has
+no automatic rollback; interruption after writes leaves affected services
+stopped. See [backup architecture](backup-and-recovery.md).

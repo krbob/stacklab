@@ -23,6 +23,7 @@ There is no deeper nesting. Every screen is reachable in at most two clicks from
 │  ◎ Docker                                   │
 │  ◎ Audit                                    │
 │  ◎ Settings                                 │
+│  ◎ Backups                                  │
 │      │                                      │
 └──────┴──────────────────────────────────────┘
 ```
@@ -38,6 +39,7 @@ There is no deeper nesting. Every screen is reachable in at most two clicks from
 | **Docker** | `/docker` | Docker daemon status, Engine metadata, and read-only `daemon.json` visibility |
 | **Audit** | `/audit` | Global audit log of all mutating actions |
 | **Settings** | `/settings/security` | Task-focused security, notifications, automation, updates, and system information. `/settings` redirects here. |
+| **Backups** | `/backups` | Destinations, plans, per-copy results, repository checks, and reviewed recovery |
 
 The sidebar is collapsible on tablet widths (below 1024px) to a narrow icon bar.
 
@@ -58,6 +60,7 @@ Entering a stack opens a detail view with tabbed sub-navigation:
 /stacks/:stackId/logs
 /stacks/:stackId/stats
 /stacks/:stackId/terminal
+/stacks/:stackId/backups
 /stacks/:stackId/audit
 ```
 
@@ -71,6 +74,7 @@ Entering a stack opens a detail view with tabbed sub-navigation:
 | **Logs** | `/stacks/:id/logs` | Live log streaming, filterable by service |
 | **Stats** | `/stacks/:id/stats` | CPU, memory, network per container and aggregated |
 | **Terminal** | `/stacks/:id/terminal` | Container shell sessions (host shell post-MVP) |
+| **Backups** | `/stacks/:id/backups` | Explicit data selection coverage, changed sources, exclusions, and plan management |
 | **History** | `/stacks/:id/audit` | Per-stack audit log |
 
 ## Settings Task Navigation
@@ -129,6 +133,7 @@ panel for Docker Compose stacks, host health, updates, and maintenance.
 | Docker Admin | Docker daemon status, Engine metadata, `daemon.json` visibility, and managed daemon settings apply where configured | Yes |
 | Config Workspace | Browse, edit, diff, commit, and push managed config files | Yes |
 | Maintenance | Bulk stack update, image inventory, and cleanup | Yes |
+| Backups | Destination configuration, plans and schedules, copy results, verification, isolated and reviewed recovery | Yes |
 | Global Audit | Chronological log of all mutating operations | Yes |
 | Settings | Task shell for security, notifications, automation, updates, and system information | Yes |
 | Login | Authentication screen | Yes |
@@ -143,6 +148,7 @@ panel for Docker Compose stacks, host health, updates, and maintenance.
 | Log Viewer | Live log stream with service filter and search | Yes |
 | Stats Dashboard | Real-time CPU/mem/net charts per container and aggregated | Yes |
 | Terminal | Container exec shell sessions via XTerm.js | Yes |
+| Stack Backups | Persistent source coverage and links to backup plans | Yes |
 | Stack History | Per-stack audit trail | Yes |
 | Create Stack | Form/editor to create a new stack with directory scaffolding | Yes |
 
@@ -201,6 +207,24 @@ Stacks → Docker → inspect daemon status → inspect daemon.json
 Settings → Security | Notifications | Automation | Updates | About
 ```
 
+### Backup and recovery flow
+
+```
+Backups → Destinations → Add → Initialize new repository / Test existing access
+        → Plans → Select sources and destinations → Schedule / Back up now
+        → Runs & recovery → Per-destination results → Retry failed copies
+        → Destinations → Browse & restore → Isolated restore / restore test
+                       → Apply recovered data → Load manifest → Map sources
+                         → Preview affected paths and writers → Confirm RESTORE
+Stack → Backups → Review unconfigured or changed sources → Manage backup plans
+```
+
+`/backups?view=destinations|plans|runs` preserves the active global view.
+`/backups?view=plans&stack=:stackId` preselects that stack in the new-plan source
+picker. Backup schedules belong to their destination assignments in this screen.
+The command palette includes Backups; its sidebar shortcut is `8`, preserving
+the existing section shortcuts. On mobile it is available through More.
+
 ## Responsive Breakpoints
 
 | Breakpoint | Name | Behavior |
@@ -214,7 +238,7 @@ Mobile navigation rules:
 - `/` canonicalizes to `/stacks`, so deep-link and refresh behavior use one
   landing URL;
 - Stacks, Host, Maintenance, and Audit stay in the bottom navigation;
-- Config, Docker, and Settings activate the `More` affordance and remain
+- Config, Docker, Settings, and Backups activate the `More` affordance and remain
   available in its drawer; Settings enters at `/settings/security`;
 - the Settings task-link grid remains visible above the active task content;
 - stack views use a single-line, horizontally scrollable sticky tab bar;
@@ -232,6 +256,7 @@ All routes are client-side (SPA with history mode):
 /docker
 /config
 /maintenance
+/backups
 /stacks/new
 /stacks/:stackId
 /stacks/:stackId/editor
@@ -239,6 +264,7 @@ All routes are client-side (SPA with history mode):
 /stacks/:stackId/logs
 /stacks/:stackId/stats
 /stacks/:stackId/terminal
+/stacks/:stackId/backups
 /stacks/:stackId/audit
 /audit
 /settings

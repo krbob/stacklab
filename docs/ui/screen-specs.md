@@ -100,6 +100,7 @@ Routes:
 - `/stacks/:stackId/logs`
 - `/stacks/:stackId/stats`
 - `/stacks/:stackId/terminal`
+- `/stacks/:stackId/backups`
 - `/stacks/:stackId/audit`
 
 The shared stack shell owns the stack heading, status, metadata links, and tab
@@ -355,6 +356,53 @@ while only the active task loads its resource. Dirty tasks guard navigation.
   starts; unsupported non-APT installs receive a direct explanation.
 - **About:** present application, build, Docker, Compose, and managed-environment
   information without edit affordances.
+
+## Backups And Recovery
+
+Routes: `/backups` and `/stacks/:stackId/backups`.
+
+The global screen has keyboard-operated Destinations, Plans, and Runs & recovery
+tabs. The URL retains the active tab. Failed refreshes preserve the previous
+response and offer retry; missing native tools are reported explicitly.
+
+- **Destinations:** configure local or mounted disk, S3-compatible storage,
+  SFTP, or an authorized rclone remote. Secret fields are write-only; empty
+  fields on edit retain saved credentials. Local filesystem detection shows
+  the current device number and asks the operator to verify the intended mount.
+  Saving, initializing a new repository, and testing access are distinct actions.
+- **Plans:** select sources explicitly by stack, service, and logical mount.
+  Stacklab recovery and managed configuration are separate scopes. Source
+  exclusions and narrower managed-config paths are reviewable. Stop-and-capture
+  is the initial consistency choice; live file capture explains database limits.
+  Each destination has its own manual/daily/weekly schedule, displayed timezone,
+  enabled state, and retention. Staging size, retry lifetime, and stop timeout
+  are configurable. Manual runs review destination selection and disruption.
+- **Runs:** show capture status/time separately from upload, verification and
+  retention per destination. A successful copy remains visible after another
+  copy fails. Retry targets failed copies; an expired or failed capture requires
+  a new run. The recovery manifest exposes source mappings, images and warnings.
+- **Verification:** repository checks explicitly select metadata, a data subset,
+  or all stored data. Last repository check and last isolated restore test are
+  separate timestamps; uploading does not imply recoverability.
+- **Isolated restore:** browse repository snapshots and restore to a new
+  directory. The default complete restore test verifies retrieved archives;
+  selecting snapshot paths disables that complete-test claim. Individual files
+  can be inspected in the retrieved source archives. Application startup is a
+  separate recovery exercise.
+- **Apply recovered data:** load the registered isolated directory, select
+  sources, and explicitly map directories or existing local volumes. No source
+  or original target is preselected. A server preview supplies affected writers,
+  overwrite scope and warnings. A separate `RESTORE` confirmation sends the
+  short-lived review token. Changing mappings discards the review. Recovery
+  merges selected files, preserves unrelated content, and leaves writers stopped
+  by default. Resuming previously running writers requires an explicit choice.
+  Recovery of Stacklab's own database remains an offline runbook operation.
+
+The stack tab shows configured, unconfigured, disabled and changed-source
+coverage, with exclusions and plan links. Coverage describes plan selection,
+not proof of a successful backup. New mounts never become selected implicitly.
+All execution opens the existing shared job drawer; completed isolated restore
+jobs identify the output directory used by the subsequent recovery review.
 
 ## Operation Progress And Job Detail
 

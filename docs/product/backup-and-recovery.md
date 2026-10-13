@@ -2,11 +2,13 @@
 
 ## Status And Purpose
 
-Accepted product direction, 2026-10-13; not implemented. The
-[roadmap](../roadmap.md#near-term-product-goals) gives this work near-term
-priority. [ADR 0005](../adr/0005-native-backup-orchestration.md) records the
-architectural decision. This document defines the intended product behavior,
-not currently available screens, API routes, or database schemas.
+Implemented native module, 2026-10-13. [ADR 0005](../adr/0005-native-backup-orchestration.md)
+records the architectural decision; the [architecture](../architecture/backup-and-recovery.md),
+[API semantics](../api/backup-and-recovery.md), and
+[operator procedure](../ops/backup-and-recovery.md) describe the delivered
+contracts and constraints. This document retains the product requirements.
+Cloud account authorization, provider-specific live validation and actual
+application recovery exercises remain deployment responsibilities.
 
 Stacklab will manage backup and recovery for its own configuration and the
 Compose workloads it manages. The operator should be able to select data by
@@ -180,10 +182,12 @@ notification channels for failures, missing scheduled copies, and recovery
 results. Show last successful capture per destination, pending or failed
 copies, repository size, and verification/restore-test age.
 
-The route map, API payloads, persistence model, permission helper contract,
-and dependency installation details must be designed with the implementation.
-Current UI, API, and installation references continue to describe shipped
-behavior until those changes land.
+The global `/backups` screen and each stack's Backups tab expose configuration,
+coverage and recovery. The implementation uses existing jobs and notifications,
+versioned SQLite application settings, private credential/staging files, and a
+narrow native archive helper. Online restore merges reviewed source archives;
+private Stacklab state recovery is deliberately offline. See the canonical
+implementation documents linked above for limitations and installation details.
 
 ## Delivery Boundaries
 

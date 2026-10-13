@@ -17,3 +17,5 @@ Start with:
 [Runtime Integration Plan](runtime-integration-plan.md) records the staged
 Docker integration direction. Architectural decisions and supersession notes
 live in the [ADR index](../adr/README.md).
+
+- [Backup And Recovery](backup-and-recovery.md) — native capture, repository orchestration, interruption recovery and privilege boundaries.

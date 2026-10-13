@@ -22,6 +22,7 @@ import (
 
 	"stacklab/internal/audit"
 	"stacklab/internal/auth"
+	"stacklab/internal/backup"
 	"stacklab/internal/config"
 	"stacklab/internal/configworkspace"
 	"stacklab/internal/dockeradmin"
@@ -1446,7 +1447,10 @@ func newTestHandler(t *testing.T) (*httpapi.Handler, config.Config) {
 		terminalService.CloseOwner(termination.SessionID, reason)
 	})
 	workspaceRepairer := workspacerepair.NewService(cfg)
+	backupCapture := backup.NewNativeCapture(cfg, stackReader, testStore.Snapshot)
 	handler, err := httpapi.NewHandler(cfg, logger, httpapi.Dependencies{
+		Backups:         backup.NewService(cfg, jobService, backupCapture),
+		BackupCapture:   backupCapture,
 		RuntimeContext:  workers.Context(),
 		Workers:         workerAdmitter,
 		Auth:            authService,

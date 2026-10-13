@@ -507,7 +507,7 @@ func (s *Service) buildJobPayload(ctx context.Context, job store.Job, settings S
 	eventType := ""
 	var postUpdate *PostUpdateSummary
 	switch {
-	case job.State == "failed" && settings.Events.JobFailed:
+	case (job.State == "failed" || strings.HasPrefix(job.Action, "backup_") && job.State == "timed_out") && settings.Events.JobFailed:
 		eventType = "job_failed"
 	case job.State == "succeeded":
 		if job.Action == "update_stacks" && settings.Events.PostUpdateRecoveryFailed {
@@ -698,7 +698,7 @@ func validateSettings(settings Settings) error {
 
 func isMaintenanceAction(action string) bool {
 	switch action {
-	case "update_stacks", "prune":
+	case "update_stacks", "prune", "backup_restore":
 		return true
 	default:
 		return false

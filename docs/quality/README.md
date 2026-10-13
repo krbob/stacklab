@@ -13,3 +13,4 @@ records.
 - [dependency-updates.md](dependency-updates.md) — current Renovate grouping, automerge window, risk classes, and review policy
 - [browser-e2e.md](browser-e2e.md) — Playwright harness, fixture root, failure artifacts, and release gate
 - [manual-test-plan.md](manual-test-plan.md) — current manual and exploratory scenarios for a Docker-capable Linux host
+- [backup-validation.md](backup-validation.md) — native backup, service compensation, metadata preservation and protected-state recovery checks

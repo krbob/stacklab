@@ -10,13 +10,17 @@ limited to work that is not already implemented.
 Status reviewed: 2026-07-12.
 
 Backup and recovery direction updated: 2026-10-13. Native backup orchestration
-is now a near-term priority; the remaining baseline and goals retain their
-previous review date.
+has been implemented; the remaining baseline and goals retain their previous
+review date.
 
 ## Current Baseline
 
 Implemented and exercised on Linux staging hosts:
 
+- [native backup and recovery](product/backup-and-recovery.md): native restic/rclone
+  destinations, explicit service data coverage, shared-volume stop/capture,
+  independent copies and retry, schedules/retention, repository verification,
+  isolated restore and reviewed online recovery, plus offline Stacklab state recovery;
 - single-user authentication, session revocation, and bounded retention;
 - filesystem and Docker runtime stack discovery, detail views, lifecycle jobs,
   audit history, live logs, stats, and container terminals;
@@ -56,30 +60,14 @@ of changed `main` revisions provide the soak channel between stable releases.
 
 ## Near-Term Product Goals
 
-### 1. Native Backup And Recovery
-
-- implement the [native backup and recovery plan](product/backup-and-recovery.md)
-  using host processes for restic and rclone, integrated with Stacklab jobs,
-  scheduling, audit, activity, and notifications;
-- support Google Drive through rclone, S3-compatible storage including
-  Backblaze B2, and local disks or NAS destinations in the first release;
-- select Stacklab recovery state, stack definitions, supporting configuration,
-  bind-mounted data, and named volumes per stack and Compose service;
-- support multiple destinations with separate schedules, retention, results,
-  and retries, and make uncovered persistent data visible;
-- ship the complete backup, verification, and restore workflow together,
-  including file recovery, stack recovery, and recovery on a fresh host;
-- follow [ADR 0005](adr/0005-native-backup-orchestration.md) for execution,
-  consistency, repository, and privilege boundaries.
-
-### 2. Template Library And Starter Catalog
+### 1. Template Library And Starter Catalog
 
 - collect operator feedback on the built-in starter catalog;
 - improve the existing templates without hiding their generated Compose;
 - keep variables small, explicit, and server-rendered;
 - avoid a remote catalog until the local workflow has stable usage data.
 
-### 3. Operator Polish
+### 2. Operator Polish
 
 - make progress, completion, partial-failure, and recovery language consistent
   across all remaining long-running workflows;
@@ -88,7 +76,7 @@ of changed `main` revisions provide the soak channel between stable releases.
 - add targeted diagnostics where an operator can act on the result rather than
   adding more passive dashboard metrics.
 
-### 4. Runtime Reliability
+### 3. Runtime Reliability
 
 - expand Compose and Docker diagnostics for restart policies, healthchecks,
   startup ordering, resource limits, log growth, and daemon configuration;
@@ -97,7 +85,7 @@ of changed `main` revisions provide the soak channel between stable releases.
 - smoke-test terminal and job WebSocket streams under the production CSP in
   Safari and explicitly extend `connect-src` only if the test proves necessary.
 
-### 5. Git Authentication In Stacklab
+### 4. Git Authentication In Stacklab
 
 - manage Git remote credentials from Settings, following the existing Docker
   registry login/logout workflow; start with HTTPS username and access token;

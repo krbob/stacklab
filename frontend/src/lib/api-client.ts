@@ -127,7 +127,7 @@ interface RequestPolicy {
   acceptedStatuses?: readonly number[]
 }
 
-async function request<T>(path: string, init?: RequestInit, policy?: RequestPolicy): Promise<T> {
+export async function request<T>(path: string, init?: RequestInit, policy?: RequestPolicy): Promise<T> {
   const method = (init?.method ?? 'GET').toUpperCase()
   const res = await fetch(path, {
     ...init,

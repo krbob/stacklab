@@ -133,3 +133,12 @@ state that must not be stored in the managed workspace:
   unless separately selected.
 - Atomic replacements follow the owner/group/mode, ACL/xattr, and durability
   rules in [Filesystem Metadata and Atomic Writes](filesystem-metadata-policy.md).
+
+## Native backup state
+
+`STACKLAB_DATA_DIR/backup` contains private `credentials`, bounded `staging`,
+`cache`, service-recovery `journals`, and isolated `restores` directories. The
+service creates private directories and credential files with modes `0700` and
+`0600`. Backup state is independent of workspace Git and honors custom data and
+SQLite paths. See [backup architecture](backup-and-recovery.md) and
+[operator setup](../ops/backup-and-recovery.md).

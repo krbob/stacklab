@@ -14,3 +14,5 @@ This section defines local development, deployment, and operational procedures.
 - [upgrade-validation-checklist.md](upgrade-validation-checklist.md) — operational checklist for validating both supported install modes on real Linux hosts
 - [debian-package.md](debian-package.md) — current Debian package and APT operating model, helper assumptions, and remaining gaps
 - [versioning-and-release-policy.md](versioning-and-release-policy.md) — active calendar versioning, nightly/stable/hotfix train, APT retention, and Renovate window
+
+- [Backup setup and recovery](backup-and-recovery.md) — repositories, credentials, consistency, isolated restore and recovery without the old host.

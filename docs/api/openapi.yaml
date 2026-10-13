@@ -8,6 +8,7 @@ servers:
 security:
   - sessionCookie: []
 tags:
+  - name: Backups
   - name: Health
   - name: Observability
   - name: Auth
@@ -1857,6 +1858,636 @@ paths:
           $ref: '#/components/responses/ErrorNotFound'
         '409':
           $ref: '#/components/responses/ErrorInvalidState'
+  /backups/destinations/{destinationId}/restore-preview:
+    post:
+      tags:
+      - Backups
+      operationId: previewBackupRestore
+      responses:
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorInvalidState'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+        '503':
+          $ref: '#/components/responses/ErrorInvalidState'
+        '200':
+          description: Short-lived review tied to manifest, archive bytes, targets and
+            current writers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupRestoreReview'
+      parameters:
+      - name: destinationId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupRestoreRequest'
+  /backups/restore-manifest:
+    get:
+      tags:
+      - Backups
+      operationId: getBackupRestoreManifest
+      parameters:
+      - in: query
+        name: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Manifest of a registered isolated restore.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupRestoreManifestResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+  /backups/filesystem:
+    get:
+      tags:
+      - Backups
+      operationId: getBackupFilesystem
+      parameters:
+      - in: query
+        name: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Device identity to review and pin when configuring a local repository.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - device
+                properties:
+                  device:
+                    type: string
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '503':
+          $ref: '#/components/responses/ErrorInvalidState'
+  /backups:
+    get:
+      tags:
+      - Backups
+      operationId: getBackups
+      responses:
+        '200':
+          description: Backup configuration or result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupOverview'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorInvalidState'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+        '503':
+          $ref: '#/components/responses/ErrorInvalidState'
+  /backups/sources:
+    get:
+      tags:
+      - Backups
+      operationId: getBackupSources
+      responses:
+        '200':
+          description: Backup configuration or result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupSourcesResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorInvalidState'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+        '503':
+          $ref: '#/components/responses/ErrorInvalidState'
+      parameters:
+      - name: stack_id
+        in: query
+        schema:
+          type: string
+  /stacks/{stackId}/backups:
+    get:
+      tags:
+      - Backups
+      operationId: getStackBackupCoverage
+      responses:
+        '200':
+          description: Backup configuration or result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupCoverageResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorInvalidState'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+        '503':
+          $ref: '#/components/responses/ErrorInvalidState'
+      parameters:
+      - name: stackId
+        in: path
+        required: true
+        schema:
+          type: string
+  /backups/destinations:
+    post:
+      tags:
+      - Backups
+      operationId: createBackupDestination
+      responses:
+        '200':
+          description: Backup configuration or result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupDestinationResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorInvalidState'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+        '503':
+          $ref: '#/components/responses/ErrorInvalidState'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupDestinationInput'
+  /backups/destinations/{destinationId}:
+    put:
+      tags:
+      - Backups
+      operationId: updateBackupDestination
+      responses:
+        '200':
+          description: Backup configuration or result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupDestinationResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorInvalidState'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+        '503':
+          $ref: '#/components/responses/ErrorInvalidState'
+      parameters:
+      - name: destinationId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupDestinationInput'
+    delete:
+      tags:
+      - Backups
+      operationId: deleteBackupDestination
+      responses:
+        '200':
+          description: Backup configuration or result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupDeleteResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorInvalidState'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+        '503':
+          $ref: '#/components/responses/ErrorInvalidState'
+      parameters:
+      - name: destinationId
+        in: path
+        required: true
+        schema:
+          type: string
+  /backups/plans:
+    post:
+      tags:
+      - Backups
+      operationId: createBackupPlan
+      responses:
+        '200':
+          description: Backup configuration or result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupPlanResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorInvalidState'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+        '503':
+          $ref: '#/components/responses/ErrorInvalidState'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupPlan'
+  /backups/plans/{planId}:
+    put:
+      tags:
+      - Backups
+      operationId: updateBackupPlan
+      responses:
+        '200':
+          description: Backup configuration or result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupPlanResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorInvalidState'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+        '503':
+          $ref: '#/components/responses/ErrorInvalidState'
+      parameters:
+      - name: planId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupPlan'
+    delete:
+      tags:
+      - Backups
+      operationId: deleteBackupPlan
+      responses:
+        '200':
+          description: Backup configuration or result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupDeleteResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorInvalidState'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+        '503':
+          $ref: '#/components/responses/ErrorInvalidState'
+      parameters:
+      - name: planId
+        in: path
+        required: true
+        schema:
+          type: string
+  /backups/destinations/{destinationId}/snapshots:
+    get:
+      tags:
+      - Backups
+      operationId: getBackupSnapshots
+      responses:
+        '200':
+          description: Backup configuration or result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupSnapshotsResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorInvalidState'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+        '503':
+          $ref: '#/components/responses/ErrorInvalidState'
+      parameters:
+      - name: destinationId
+        in: path
+        required: true
+        schema:
+          type: string
+  /backups/destinations/{destinationId}/test:
+    post:
+      tags:
+      - Backups
+      operationId: testBackupRepository
+      responses:
+        '202':
+          description: Backup operation accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupJobResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorInvalidState'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+        '503':
+          $ref: '#/components/responses/ErrorInvalidState'
+      parameters:
+      - name: destinationId
+        in: path
+        required: true
+        schema:
+          type: string
+  /backups/destinations/{destinationId}/initialize:
+    post:
+      tags:
+      - Backups
+      operationId: initializeBackupRepository
+      responses:
+        '202':
+          description: Backup operation accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupJobResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorInvalidState'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+        '503':
+          $ref: '#/components/responses/ErrorInvalidState'
+      parameters:
+      - name: destinationId
+        in: path
+        required: true
+        schema:
+          type: string
+  /backups/destinations/{destinationId}/check:
+    post:
+      tags:
+      - Backups
+      operationId: checkBackupRepository
+      responses:
+        '202':
+          description: Backup operation accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupJobResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorInvalidState'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+        '503':
+          $ref: '#/components/responses/ErrorInvalidState'
+      parameters:
+      - name: destinationId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupCheckRequest'
+  /backups/destinations/{destinationId}/restore:
+    post:
+      tags:
+      - Backups
+      operationId: restoreBackupRepository
+      responses:
+        '202':
+          description: Backup operation accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupJobResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorInvalidState'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+        '503':
+          $ref: '#/components/responses/ErrorInvalidState'
+      parameters:
+      - name: destinationId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupRestoreRequest'
+  /backups/plans/{planId}/run:
+    post:
+      tags:
+      - Backups
+      operationId: runBackupPlan
+      responses:
+        '202':
+          description: Backup operation accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupRunResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorInvalidState'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+        '503':
+          $ref: '#/components/responses/ErrorInvalidState'
+      parameters:
+      - name: planId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupRunRequest'
+  /backups/runs/{runId}/retry:
+    post:
+      tags:
+      - Backups
+      operationId: retryBackupRun
+      responses:
+        '202':
+          description: Backup operation accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupRunResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorInvalidState'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+        '503':
+          $ref: '#/components/responses/ErrorInvalidState'
+      parameters:
+      - name: runId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupRunRequest'
+
 components:
   securitySchemes:
     metricsBearer:
@@ -4959,3 +5590,607 @@ components:
     WorkflowStepState:
       type: string
       enum: [queued, running, succeeded, failed, skipped, cancel_requested, cancelled, timed_out]
+    BackupSecrets:
+      type: object
+      properties:
+        password:
+          type: string
+          writeOnly: true
+        access_key_id:
+          type: string
+          writeOnly: true
+        secret_access_key:
+          type: string
+          writeOnly: true
+        session_token:
+          type: string
+          writeOnly: true
+        ssh_private_key:
+          type: string
+          writeOnly: true
+        ssh_known_hosts:
+          type: string
+          writeOnly: true
+        rclone_config:
+          type: string
+          writeOnly: true
+    BackupDestination:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+          enum:
+          - local
+          - s3
+          - sftp
+          - rclone
+        repository:
+          type: string
+        expected_filesystem:
+          type: string
+        region:
+          type: string
+        repository_size_bytes:
+          type: integer
+          format: int64
+        credentials_configured:
+          type: boolean
+        last_check_at:
+          type: string
+          format: date-time
+        last_check_policy:
+          type: string
+        last_restore_test_at:
+          type: string
+          format: date-time
+        last_success_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+        error:
+          type: string
+      required:
+      - id
+      - name
+      - kind
+      - repository
+      - credentials_configured
+      - status
+    BackupDestinationInput:
+      type: object
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+          enum:
+          - local
+          - s3
+          - sftp
+          - rclone
+        repository:
+          type: string
+        expected_filesystem:
+          type: string
+        region:
+          type: string
+        secrets:
+          $ref: '#/components/schemas/BackupSecrets'
+      required:
+      - name
+      - kind
+      - repository
+    BackupSchedule:
+      type: object
+      properties:
+        frequency:
+          type: string
+          enum:
+          - manual
+          - daily
+          - weekly
+        time:
+          type: string
+        weekday:
+          type: integer
+          format: int32
+        timezone:
+          type: string
+      required:
+      - frequency
+    BackupRetention:
+      type: object
+      properties:
+        daily:
+          type: integer
+          format: int32
+        weekly:
+          type: integer
+          format: int32
+        monthly:
+          type: integer
+          format: int32
+      required:
+      - daily
+      - weekly
+      - monthly
+    BackupAssignment:
+      type: object
+      properties:
+        destination_id:
+          type: string
+        enabled:
+          type: boolean
+        schedule:
+          $ref: '#/components/schemas/BackupSchedule'
+        retention:
+          $ref: '#/components/schemas/BackupRetention'
+        last_scheduled_at:
+          type: string
+          format: date-time
+      required:
+      - destination_id
+      - enabled
+      - schedule
+      - retention
+    BackupPlan:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+        consistency:
+          type: string
+          enum:
+          - files
+          - stop
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupSource'
+        destinations:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupAssignment'
+        staging_max_bytes:
+          type: integer
+          format: int64
+        staging_ttl_hours:
+          type: integer
+          format: int32
+        stop_timeout_seconds:
+          type: integer
+          format: int32
+      required:
+      - id
+      - name
+      - enabled
+      - consistency
+      - sources
+      - destinations
+      - staging_max_bytes
+      - staging_ttl_hours
+      - stop_timeout_seconds
+    BackupCopyResult:
+      type: object
+      properties:
+        destination_id:
+          type: string
+        state:
+          type: string
+        snapshot_id:
+          type: string
+        uploaded_at:
+          type: string
+          format: date-time
+        verification:
+          type: string
+        retention:
+          type: string
+        error:
+          type: string
+      required:
+      - destination_id
+      - state
+      - verification
+      - retention
+    BackupRun:
+      type: object
+      properties:
+        id:
+          type: string
+        job_id:
+          type: string
+        plan_id:
+          type: string
+        plan_name:
+          type: string
+        state:
+          type: string
+        capture_state:
+          type: string
+        captured_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        copies:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupCopyResult'
+        manifest:
+          $ref: '#/components/schemas/BackupManifest'
+        error:
+          type: string
+      required:
+      - id
+      - job_id
+      - plan_id
+      - plan_name
+      - state
+      - capture_state
+      - created_at
+      - expires_at
+      - copies
+    BackupSnapshot:
+      type: object
+      properties:
+        id:
+          type: string
+        short_id:
+          type: string
+        time:
+          type: string
+          format: date-time
+        paths:
+          type: array
+          items:
+            type: string
+        tags:
+          type: array
+          items:
+            type: string
+        hostname:
+          type: string
+      required:
+      - id
+      - short_id
+      - time
+      - paths
+      - tags
+      - hostname
+    BackupOverview:
+      type: object
+      properties:
+        destinations:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupDestination'
+        plans:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupPlan'
+        runs:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupRun'
+        restic_available:
+          type: boolean
+        rclone_available:
+          type: boolean
+        staging_directory:
+          type: string
+      required:
+      - destinations
+      - plans
+      - runs
+      - restic_available
+      - rclone_available
+      - staging_directory
+    BackupRunRequest:
+      type: object
+      properties:
+        destination_ids:
+          type: array
+          items:
+            type: string
+    BackupCheckRequest:
+      type: object
+      properties:
+        read_data:
+          type: string
+          enum:
+          - metadata
+          - all
+          - subset
+      required:
+      - read_data
+    BackupRestoreRequest:
+      type: object
+      properties:
+        restored_directory:
+          type: string
+        mappings:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupRestoreMapping'
+        review_token:
+          type: string
+        resume_services:
+          type: boolean
+        snapshot_id:
+          type: string
+        target:
+          type: string
+        includes:
+          type: array
+          items:
+            type: string
+        test:
+          type: boolean
+    BackupRestoreResult:
+      type: object
+      properties:
+        destination_id:
+          type: string
+        snapshot_id:
+          type: string
+        target:
+          type: string
+        test:
+          type: boolean
+        manifest:
+          $ref: '#/components/schemas/BackupManifest'
+      required:
+      - destination_id
+      - snapshot_id
+      - target
+      - test
+    BackupSource:
+      type: object
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+        stack_id:
+          type: string
+        service:
+          type: string
+        mount:
+          type: string
+        path:
+          type: string
+        excludes:
+          type: array
+          items:
+            type: string
+      required:
+      - id
+      - kind
+    BackupWriter:
+      type: object
+      properties:
+        container_id:
+          type: string
+        stack_id:
+          type: string
+        service:
+          type: string
+        running:
+          type: boolean
+        read_only:
+          type: boolean
+      required:
+      - container_id
+      - running
+    BackupManifest:
+      type: object
+      properties:
+        version:
+          type: integer
+          format: int32
+        run_id:
+          type: string
+        plan_id:
+          type: string
+        captured_at:
+          type: string
+          format: date-time
+        consistency:
+          type: string
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupManifestSource'
+        warnings:
+          type: array
+          items:
+            type: string
+        stacklab_version:
+          type: string
+        images:
+          type: array
+          items:
+            type: string
+      required:
+      - version
+      - run_id
+      - plan_id
+      - captured_at
+      - consistency
+      - sources
+      - stacklab_version
+    BackupManifestSource:
+      type: object
+      properties:
+        source:
+          $ref: '#/components/schemas/BackupSource'
+        saved_path:
+          type: string
+        original_path:
+          type: string
+        writers:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupWriter'
+        consumers:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupWriter'
+        aliases:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupSource'
+        archive:
+          type: boolean
+        size_bytes:
+          type: integer
+          format: int64
+        volume_name:
+          type: string
+        file_name:
+          type: string
+      required:
+      - source
+      - saved_path
+      - original_path
+      - archive
+      - size_bytes
+    BackupRestoreMapping:
+      type: object
+      properties:
+        source_id:
+          type: string
+        target:
+          type: string
+        volume_name:
+          type: string
+      required:
+      - source_id
+      - target
+    BackupRestorePreview:
+      type: object
+      properties:
+        mappings:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupRestoreMapping'
+        writers:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupWriter'
+        warnings:
+          type: array
+          items:
+            type: string
+        overwrites:
+          type: boolean
+      required:
+      - mappings
+      - writers
+      - warnings
+      - overwrites
+    BackupRestoreReview:
+      type: object
+      properties:
+        review_token:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        preview:
+          $ref: '#/components/schemas/BackupRestorePreview'
+      required:
+      - review_token
+      - expires_at
+      - preview
+    BackupDestinationResponse:
+      type: object
+      required:
+      - destination
+      properties:
+        destination:
+          $ref: '#/components/schemas/BackupDestination'
+    BackupPlanResponse:
+      type: object
+      required:
+      - plan
+      properties:
+        plan:
+          $ref: '#/components/schemas/BackupPlan'
+    BackupRunResponse:
+      type: object
+      required:
+      - job
+      - run
+      properties:
+        job:
+          $ref: '#/components/schemas/Job'
+        run:
+          $ref: '#/components/schemas/BackupRun'
+    BackupJobResponse:
+      type: object
+      required:
+      - job
+      properties:
+        job:
+          $ref: '#/components/schemas/Job'
+    BackupSourcesResponse:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupSource'
+    BackupCoverageResponse:
+      type: object
+      required:
+      - sources
+      - plans
+      properties:
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupSource'
+        plans:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupPlan'
+    BackupSnapshotsResponse:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupSnapshot'
+    BackupDeleteResponse:
+      type: object
+      required:
+      - deleted
+      properties:
+        deleted:
+          type: boolean
+    BackupRestoreManifestResponse:
+      type: object
+      required:
+      - manifest
+      properties:
+        manifest:
+          $ref: '#/components/schemas/BackupManifest'

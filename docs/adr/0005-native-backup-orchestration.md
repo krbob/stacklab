@@ -2,8 +2,9 @@
 
 ## Status
 
-Accepted direction, 2026-10-13. Implementation pending; this ADR does not
-describe an already available backup module.
+Accepted and implemented, 2026-10-13. See the
+[implementation architecture](../architecture/backup-and-recovery.md) for capture,
+recovery and privilege contracts.
 
 ## Context
 
@@ -59,7 +60,7 @@ versions and systemd filesystem restrictions on both supported architectures.
 
 ## Follow-Up
 
-Define API, persistence, UI, dependency packaging, and narrowly scoped data
-access contracts during implementation. Validate the complete recovery path
-on both supported deployment profiles. Database-specific profiles, automatic
-pre-update backups, and scheduled restore exercises follow the first release.
+The implementation defines API, versioned persistence, UI, dependency packaging
+and a scoped native data helper. Continue provider/deployment validation and
+application-level restore exercises. Database-specific profiles, automatic
+pre-update backups, and scheduled restore exercises remain follow-up work.

@@ -18,6 +18,8 @@ maintenance without taking ownership of the stack model.
   permissions, review diffs, and make selective commits and pushes.
 - **Maintenance** — review images, networks, and volumes; preview cleanup;
   update stacks in bulk; and schedule selected maintenance workflows.
+- **Backup and recovery** — native restic/rclone copies, explicit service-data
+  selection, schedules, retention, repository checks and reviewed restores.
 - **Host operations** — inspect host health and Stacklab service logs, manage a
   constrained set of Docker daemon settings and registry credentials, and
   update APT-managed installations.

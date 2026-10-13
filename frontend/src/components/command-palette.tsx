@@ -19,6 +19,7 @@ const sectionEntries: PaletteEntry[] = [
   { kind: 'section', label: 'Config', hint: 'section', to: '/config' },
   { kind: 'section', label: 'Maintenance', hint: 'section', to: '/maintenance' },
   { kind: 'section', label: 'Docker', hint: 'section', to: '/docker' },
+  { kind: 'section', label: 'Backups', hint: 'section', to: '/backups', keywords: ['recovery', 'restore', 'destinations', 'plans'] },
   { kind: 'section', label: 'Audit', hint: 'section', to: '/audit' },
   { kind: 'section', label: 'Settings', hint: 'section', to: '/settings/security' },
   {

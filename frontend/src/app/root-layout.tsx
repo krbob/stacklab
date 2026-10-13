@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Activity, Container, Ellipsis, FolderCog, FolderKanban, LogOut, Monitor, Settings, Wrench, X } from 'lucide-react'
+import { Activity, Archive, Container, Ellipsis, FolderCog, FolderKanban, LogOut, Monitor, Settings, Wrench, X } from 'lucide-react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/use-auth'
 import { GlobalActivity } from '@/components/global-activity'
@@ -18,6 +18,7 @@ const links = [
   { to: '/docker', label: 'Docker', icon: Container },
   { to: '/audit', label: 'Audit', icon: Activity },
   { to: '/settings/security', label: 'Settings', icon: Settings },
+  { to: '/backups', label: 'Backups', icon: Archive },
 ]
 
 function SidebarContent({ onNavigate, onLogout, loggingOut, logoutError }: {
@@ -93,7 +94,7 @@ export function RootLayout() {
   const [logoutError, setLogoutError] = useState<string | null>(null)
   const moreActive = morePaths.some((path) => location.pathname === path || location.pathname.startsWith(`${path}/`))
 
-  // Nav hotkeys 1-7 (Z5); skipped while typing.
+  // Nav hotkeys follow sidebar order; skipped while typing.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.metaKey || e.ctrlKey || e.altKey) return
@@ -266,4 +267,4 @@ const bottomLinks = [
   { to: '/audit', label: 'Audit', icon: Activity },
 ]
 
-const morePaths = ['/config', '/docker', '/settings']
+const morePaths = ['/config', '/docker', '/settings', '/backups']

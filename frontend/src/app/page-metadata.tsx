@@ -13,6 +13,7 @@ const globalScreenTitles: Record<string, string> = {
   '/config': 'Config',
   '/maintenance': 'Maintenance',
   '/docker': 'Docker',
+  '/backups': 'Backups',
   '/audit': 'Audit log',
   '/login': 'Log in',
 }
@@ -51,6 +52,7 @@ const stackScreenTitles: Record<string, string> = {
   logs: 'Logs',
   stats: 'Stats',
   terminal: 'Terminal',
+  backups: 'Backups',
   audit: 'History',
 }
 

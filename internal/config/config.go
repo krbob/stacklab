@@ -11,6 +11,9 @@ import (
 )
 
 type Config struct {
+	BackupHelperPath             string
+	BackupUseSudo                bool
+	BackupAllowedPaths           []string
 	RootDir                      string
 	DataDir                      string
 	DatabasePath                 string
@@ -50,6 +53,9 @@ func Load() Config {
 	rootDir := getenv("STACKLAB_ROOT", defaultRootDir())
 	dataDir := getenv("STACKLAB_DATA_DIR", filepath.Join(".local", "var", "lib", "stacklab"))
 	return Config{
+		BackupHelperPath:             getenv("STACKLAB_BACKUP_HELPER_PATH", ""),
+		BackupUseSudo:                parseBool(getenv("STACKLAB_BACKUP_USE_SUDO", "false")),
+		BackupAllowedPaths:           parseBackupPaths(getenv("STACKLAB_BACKUP_ALLOWED_PATHS", "")),
 		RootDir:                      rootDir,
 		DataDir:                      dataDir,
 		DatabasePath:                 getenv("STACKLAB_DATABASE_PATH", filepath.Join(dataDir, "stacklab.db")),
@@ -84,6 +90,16 @@ func Load() Config {
 		StackActionTimeout:           parseDuration(getenv("STACKLAB_STACK_ACTION_TIMEOUT", "30m"), 30*time.Minute),
 		DockerRegistryAuthTimeout:    parseDuration(getenv("STACKLAB_DOCKER_REGISTRY_AUTH_TIMEOUT", "5m"), 5*time.Minute),
 	}
+}
+
+func parseBackupPaths(value string) []string {
+	paths := []string{}
+	for _, path := range strings.Split(value, ",") {
+		if path = strings.TrimSpace(path); path != "" {
+			paths = append(paths, path)
+		}
+	}
+	return paths
 }
 
 func defaultRootDir() string {

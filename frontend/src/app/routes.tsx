@@ -13,6 +13,8 @@ import { HostPage } from '@/pages/host-page'
 const ConfigPage = lazy(() => import('@/pages/config-page').then((m) => ({ default: m.ConfigPage })))
 const MaintenancePage = lazy(() => import('@/pages/maintenance-page').then((m) => ({ default: m.MaintenancePage })))
 const DockerAdminPage = lazy(() => import('@/pages/docker-admin-page').then((m) => ({ default: m.DockerAdminPage })))
+const BackupsPage = lazy(() => import('@/pages/backups-page').then((m) => ({ default: m.BackupsPage })))
+const StackBackupsPage = lazy(() => import('@/pages/stack-backups-page').then((m) => ({ default: m.StackBackupsPage })))
 import { GlobalAuditPage } from '@/pages/global-audit-page'
 import {
   SettingsAboutPage,
@@ -51,6 +53,7 @@ export function AppRoutes() {
           <Route path="config" element={<Suspense fallback={<PageLoading title="Config" />}><ConfigPage /></Suspense>} />
           <Route path="maintenance" element={<Suspense fallback={<PageLoading title="Maintenance" />}><MaintenancePage /></Suspense>} />
           <Route path="docker" element={<Suspense fallback={<PageLoading title="Docker" />}><DockerAdminPage /></Suspense>} />
+          <Route path="backups" element={<Suspense fallback={<PageLoading title="Backups" />}><BackupsPage /></Suspense>} />
           <Route path="audit" element={<GlobalAuditPage />} />
           <Route path="settings" element={<SettingsPage />}>
             <Route index element={<Navigate to="security" replace />} />
@@ -68,6 +71,7 @@ export function AppRoutes() {
             <Route path="stats" element={<Suspense fallback={<StackViewLoading title="Stats" />}><StackStatsPage /></Suspense>} />
             <Route path="terminal" element={<Suspense fallback={<StackViewLoading title="Terminal" />}><StackTerminalPage /></Suspense>} />
             <Route path="audit" element={<StackAuditPage />} />
+            <Route path="backups" element={<Suspense fallback={<StackViewLoading title="Backups" />}><StackBackupsPage /></Suspense>} />
           </Route>
         </Route>
         <Route path="*" element={<NotFoundPage />} />

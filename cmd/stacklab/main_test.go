@@ -229,8 +229,8 @@ func TestNewApplicationBuildsHandlerWithoutStartingRuntime(t *testing.T) {
 	if app.handler == nil || app.store == nil || app.workers == nil {
 		t.Fatalf("incomplete application composition: %#v", app)
 	}
-	if len(app.background) != 6 {
-		t.Fatalf("background worker count = %d, want 6", len(app.background))
+	if len(app.background) != 7 {
+		t.Fatalf("background worker count = %d, want 7", len(app.background))
 	}
 	select {
 	case <-app.workers.Context().Done():

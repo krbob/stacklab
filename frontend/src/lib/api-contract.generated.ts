@@ -19,6 +19,56 @@ export interface paths {
   "/auth/logout": {
     post: operations["logout"];
   };
+  "/backups": {
+    get: operations["getBackups"];
+  };
+  "/backups/destinations": {
+    post: operations["createBackupDestination"];
+  };
+  "/backups/destinations/{destinationId}": {
+    put: operations["updateBackupDestination"];
+    delete: operations["deleteBackupDestination"];
+  };
+  "/backups/destinations/{destinationId}/check": {
+    post: operations["checkBackupRepository"];
+  };
+  "/backups/destinations/{destinationId}/initialize": {
+    post: operations["initializeBackupRepository"];
+  };
+  "/backups/destinations/{destinationId}/restore": {
+    post: operations["restoreBackupRepository"];
+  };
+  "/backups/destinations/{destinationId}/restore-preview": {
+    post: operations["previewBackupRestore"];
+  };
+  "/backups/destinations/{destinationId}/snapshots": {
+    get: operations["getBackupSnapshots"];
+  };
+  "/backups/destinations/{destinationId}/test": {
+    post: operations["testBackupRepository"];
+  };
+  "/backups/filesystem": {
+    get: operations["getBackupFilesystem"];
+  };
+  "/backups/plans": {
+    post: operations["createBackupPlan"];
+  };
+  "/backups/plans/{planId}": {
+    put: operations["updateBackupPlan"];
+    delete: operations["deleteBackupPlan"];
+  };
+  "/backups/plans/{planId}/run": {
+    post: operations["runBackupPlan"];
+  };
+  "/backups/restore-manifest": {
+    get: operations["getBackupRestoreManifest"];
+  };
+  "/backups/runs/{runId}/retry": {
+    post: operations["retryBackupRun"];
+  };
+  "/backups/sources": {
+    get: operations["getBackupSources"];
+  };
   "/config/workspace/file": {
     get: operations["getConfigWorkspaceFile"];
     put: operations["saveConfigWorkspaceFile"];
@@ -222,6 +272,9 @@ export interface paths {
       };
     };
   };
+  "/stacks/{stackId}/backups": {
+    get: operations["getStackBackupCoverage"];
+  };
   "/stacks/{stackId}/definition": {
     get: operations["getStackDefinition"];
     put: operations["updateStackDefinition"];
@@ -350,6 +403,240 @@ export interface components {
      * @enum {string}
      */
     AvailableStackAction: "validate" | "up" | "down" | "stop" | "restart" | "pull" | "build" | "recreate" | "save_definition" | "remove_stack_definition";
+    BackupAssignment: {
+      destination_id: string;
+      enabled: boolean;
+      /** Format: date-time */
+      last_scheduled_at?: string;
+      retention: components["schemas"]["BackupRetention"];
+      schedule: components["schemas"]["BackupSchedule"];
+    };
+    BackupCheckRequest: {
+      /** @enum {string} */
+      read_data: "metadata" | "all" | "subset";
+    };
+    BackupCopyResult: {
+      destination_id: string;
+      error?: string;
+      retention: string;
+      snapshot_id?: string;
+      state: string;
+      /** Format: date-time */
+      uploaded_at?: string;
+      verification: string;
+    };
+    BackupCoverageResponse: {
+      plans: components["schemas"]["BackupPlan"][];
+      sources: components["schemas"]["BackupSource"][];
+    };
+    BackupDeleteResponse: {
+      deleted: boolean;
+    };
+    BackupDestination: {
+      credentials_configured: boolean;
+      error?: string;
+      expected_filesystem?: string;
+      id: string;
+      /** @enum {string} */
+      kind: "local" | "s3" | "sftp" | "rclone";
+      /** Format: date-time */
+      last_check_at?: string;
+      last_check_policy?: string;
+      /** Format: date-time */
+      last_restore_test_at?: string;
+      /** Format: date-time */
+      last_success_at?: string;
+      name: string;
+      region?: string;
+      repository: string;
+      /** Format: int64 */
+      repository_size_bytes?: number;
+      status: string;
+    };
+    BackupDestinationInput: {
+      expected_filesystem?: string;
+      /** @enum {string} */
+      kind: "local" | "s3" | "sftp" | "rclone";
+      name: string;
+      region?: string;
+      repository: string;
+      secrets?: components["schemas"]["BackupSecrets"];
+    };
+    BackupDestinationResponse: {
+      destination: components["schemas"]["BackupDestination"];
+    };
+    BackupJobResponse: {
+      job: components["schemas"]["Job"];
+    };
+    BackupManifest: {
+      /** Format: date-time */
+      captured_at: string;
+      consistency: string;
+      images?: string[];
+      plan_id: string;
+      run_id: string;
+      sources: components["schemas"]["BackupManifestSource"][];
+      stacklab_version: string;
+      /** Format: int32 */
+      version: number;
+      warnings?: string[];
+    };
+    BackupManifestSource: {
+      aliases?: components["schemas"]["BackupSource"][];
+      archive: boolean;
+      consumers?: components["schemas"]["BackupWriter"][];
+      file_name?: string;
+      original_path: string;
+      saved_path: string;
+      /** Format: int64 */
+      size_bytes: number;
+      source: components["schemas"]["BackupSource"];
+      volume_name?: string;
+      writers?: components["schemas"]["BackupWriter"][];
+    };
+    BackupOverview: {
+      destinations: components["schemas"]["BackupDestination"][];
+      plans: components["schemas"]["BackupPlan"][];
+      rclone_available: boolean;
+      restic_available: boolean;
+      runs: components["schemas"]["BackupRun"][];
+      staging_directory: string;
+    };
+    BackupPlan: {
+      /** @enum {string} */
+      consistency: "files" | "stop";
+      destinations: components["schemas"]["BackupAssignment"][];
+      enabled: boolean;
+      id: string;
+      name: string;
+      sources: components["schemas"]["BackupSource"][];
+      /** Format: int64 */
+      staging_max_bytes: number;
+      /** Format: int32 */
+      staging_ttl_hours: number;
+      /** Format: int32 */
+      stop_timeout_seconds: number;
+    };
+    BackupPlanResponse: {
+      plan: components["schemas"]["BackupPlan"];
+    };
+    BackupRestoreManifestResponse: {
+      manifest: components["schemas"]["BackupManifest"];
+    };
+    BackupRestoreMapping: {
+      source_id: string;
+      target: string;
+      volume_name?: string;
+    };
+    BackupRestorePreview: {
+      mappings: components["schemas"]["BackupRestoreMapping"][];
+      overwrites: boolean;
+      warnings: string[];
+      writers: components["schemas"]["BackupWriter"][];
+    };
+    BackupRestoreRequest: {
+      includes?: string[];
+      mappings?: components["schemas"]["BackupRestoreMapping"][];
+      restored_directory?: string;
+      resume_services?: boolean;
+      review_token?: string;
+      snapshot_id?: string;
+      target?: string;
+      test?: boolean;
+    };
+    BackupRestoreResult: {
+      destination_id: string;
+      manifest?: components["schemas"]["BackupManifest"];
+      snapshot_id: string;
+      target: string;
+      test: boolean;
+    };
+    BackupRestoreReview: {
+      /** Format: date-time */
+      expires_at: string;
+      preview: components["schemas"]["BackupRestorePreview"];
+      review_token: string;
+    };
+    BackupRetention: {
+      /** Format: int32 */
+      daily: number;
+      /** Format: int32 */
+      monthly: number;
+      /** Format: int32 */
+      weekly: number;
+    };
+    BackupRun: {
+      capture_state: string;
+      /** Format: date-time */
+      captured_at?: string;
+      copies: components["schemas"]["BackupCopyResult"][];
+      /** Format: date-time */
+      created_at: string;
+      error?: string;
+      /** Format: date-time */
+      expires_at: string;
+      id: string;
+      job_id: string;
+      manifest?: components["schemas"]["BackupManifest"];
+      plan_id: string;
+      plan_name: string;
+      state: string;
+    };
+    BackupRunRequest: {
+      destination_ids?: string[];
+    };
+    BackupRunResponse: {
+      job: components["schemas"]["Job"];
+      run: components["schemas"]["BackupRun"];
+    };
+    BackupSchedule: {
+      /** @enum {string} */
+      frequency: "manual" | "daily" | "weekly";
+      time?: string;
+      timezone?: string;
+      /** Format: int32 */
+      weekday?: number;
+    };
+    BackupSecrets: {
+      access_key_id?: string;
+      password?: string;
+      rclone_config?: string;
+      secret_access_key?: string;
+      session_token?: string;
+      ssh_known_hosts?: string;
+      ssh_private_key?: string;
+    };
+    BackupSnapshot: {
+      hostname: string;
+      id: string;
+      paths: string[];
+      short_id: string;
+      tags: string[];
+      /** Format: date-time */
+      time: string;
+    };
+    BackupSnapshotsResponse: {
+      items: components["schemas"]["BackupSnapshot"][];
+    };
+    BackupSource: {
+      excludes?: string[];
+      id: string;
+      kind: string;
+      mount?: string;
+      path?: string;
+      service?: string;
+      stack_id?: string;
+    };
+    BackupSourcesResponse: {
+      items: components["schemas"]["BackupSource"][];
+    };
+    BackupWriter: {
+      container_id: string;
+      read_only?: boolean;
+      running: boolean;
+      service?: string;
+      stack_id?: string;
+    };
     ComposeWarning: {
       code: string;
       message: string;
@@ -1859,6 +2146,425 @@ export interface operations {
       500: components["responses"]["ErrorInternal"];
     };
   };
+  getBackups: {
+    responses: {
+      /** @description Backup configuration or result. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BackupOverview"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      403: components["responses"]["ErrorInvalidState"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
+      500: components["responses"]["ErrorInternal"];
+      503: components["responses"]["ErrorInvalidState"];
+    };
+  };
+  createBackupDestination: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["BackupDestinationInput"];
+      };
+    };
+    responses: {
+      /** @description Backup configuration or result. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BackupDestinationResponse"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      403: components["responses"]["ErrorInvalidState"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
+      500: components["responses"]["ErrorInternal"];
+      503: components["responses"]["ErrorInvalidState"];
+    };
+  };
+  updateBackupDestination: {
+    parameters: {
+      path: {
+        destinationId: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["BackupDestinationInput"];
+      };
+    };
+    responses: {
+      /** @description Backup configuration or result. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BackupDestinationResponse"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      403: components["responses"]["ErrorInvalidState"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
+      500: components["responses"]["ErrorInternal"];
+      503: components["responses"]["ErrorInvalidState"];
+    };
+  };
+  deleteBackupDestination: {
+    parameters: {
+      path: {
+        destinationId: string;
+      };
+    };
+    responses: {
+      /** @description Backup configuration or result. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BackupDeleteResponse"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      403: components["responses"]["ErrorInvalidState"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
+      500: components["responses"]["ErrorInternal"];
+      503: components["responses"]["ErrorInvalidState"];
+    };
+  };
+  checkBackupRepository: {
+    parameters: {
+      path: {
+        destinationId: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["BackupCheckRequest"];
+      };
+    };
+    responses: {
+      /** @description Backup operation accepted. */
+      202: {
+        content: {
+          "application/json": components["schemas"]["BackupJobResponse"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      403: components["responses"]["ErrorInvalidState"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
+      500: components["responses"]["ErrorInternal"];
+      503: components["responses"]["ErrorInvalidState"];
+    };
+  };
+  initializeBackupRepository: {
+    parameters: {
+      path: {
+        destinationId: string;
+      };
+    };
+    responses: {
+      /** @description Backup operation accepted. */
+      202: {
+        content: {
+          "application/json": components["schemas"]["BackupJobResponse"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      403: components["responses"]["ErrorInvalidState"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
+      500: components["responses"]["ErrorInternal"];
+      503: components["responses"]["ErrorInvalidState"];
+    };
+  };
+  restoreBackupRepository: {
+    parameters: {
+      path: {
+        destinationId: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["BackupRestoreRequest"];
+      };
+    };
+    responses: {
+      /** @description Backup operation accepted. */
+      202: {
+        content: {
+          "application/json": components["schemas"]["BackupJobResponse"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      403: components["responses"]["ErrorInvalidState"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
+      500: components["responses"]["ErrorInternal"];
+      503: components["responses"]["ErrorInvalidState"];
+    };
+  };
+  previewBackupRestore: {
+    parameters: {
+      path: {
+        destinationId: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["BackupRestoreRequest"];
+      };
+    };
+    responses: {
+      /** @description Short-lived review tied to manifest, archive bytes, targets and current writers. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BackupRestoreReview"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      403: components["responses"]["ErrorInvalidState"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
+      500: components["responses"]["ErrorInternal"];
+      503: components["responses"]["ErrorInvalidState"];
+    };
+  };
+  getBackupSnapshots: {
+    parameters: {
+      path: {
+        destinationId: string;
+      };
+    };
+    responses: {
+      /** @description Backup configuration or result. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BackupSnapshotsResponse"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      403: components["responses"]["ErrorInvalidState"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
+      500: components["responses"]["ErrorInternal"];
+      503: components["responses"]["ErrorInvalidState"];
+    };
+  };
+  testBackupRepository: {
+    parameters: {
+      path: {
+        destinationId: string;
+      };
+    };
+    responses: {
+      /** @description Backup operation accepted. */
+      202: {
+        content: {
+          "application/json": components["schemas"]["BackupJobResponse"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      403: components["responses"]["ErrorInvalidState"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
+      500: components["responses"]["ErrorInternal"];
+      503: components["responses"]["ErrorInvalidState"];
+    };
+  };
+  getBackupFilesystem: {
+    parameters: {
+      query: {
+        path: string;
+      };
+    };
+    responses: {
+      /** @description Device identity to review and pin when configuring a local repository. */
+      200: {
+        content: {
+          "application/json": {
+            device: string;
+          };
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      503: components["responses"]["ErrorInvalidState"];
+    };
+  };
+  createBackupPlan: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["BackupPlan"];
+      };
+    };
+    responses: {
+      /** @description Backup configuration or result. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BackupPlanResponse"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      403: components["responses"]["ErrorInvalidState"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
+      500: components["responses"]["ErrorInternal"];
+      503: components["responses"]["ErrorInvalidState"];
+    };
+  };
+  updateBackupPlan: {
+    parameters: {
+      path: {
+        planId: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["BackupPlan"];
+      };
+    };
+    responses: {
+      /** @description Backup configuration or result. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BackupPlanResponse"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      403: components["responses"]["ErrorInvalidState"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
+      500: components["responses"]["ErrorInternal"];
+      503: components["responses"]["ErrorInvalidState"];
+    };
+  };
+  deleteBackupPlan: {
+    parameters: {
+      path: {
+        planId: string;
+      };
+    };
+    responses: {
+      /** @description Backup configuration or result. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BackupDeleteResponse"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      403: components["responses"]["ErrorInvalidState"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
+      500: components["responses"]["ErrorInternal"];
+      503: components["responses"]["ErrorInvalidState"];
+    };
+  };
+  runBackupPlan: {
+    parameters: {
+      path: {
+        planId: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["BackupRunRequest"];
+      };
+    };
+    responses: {
+      /** @description Backup operation accepted. */
+      202: {
+        content: {
+          "application/json": components["schemas"]["BackupRunResponse"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      403: components["responses"]["ErrorInvalidState"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
+      500: components["responses"]["ErrorInternal"];
+      503: components["responses"]["ErrorInvalidState"];
+    };
+  };
+  getBackupRestoreManifest: {
+    parameters: {
+      query: {
+        path: string;
+      };
+    };
+    responses: {
+      /** @description Manifest of a registered isolated restore. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BackupRestoreManifestResponse"];
+        };
+      };
+      401: components["responses"]["ErrorUnauthorized"];
+      404: components["responses"]["ErrorNotFound"];
+    };
+  };
+  retryBackupRun: {
+    parameters: {
+      path: {
+        runId: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["BackupRunRequest"];
+      };
+    };
+    responses: {
+      /** @description Backup operation accepted. */
+      202: {
+        content: {
+          "application/json": components["schemas"]["BackupRunResponse"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      403: components["responses"]["ErrorInvalidState"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
+      500: components["responses"]["ErrorInternal"];
+      503: components["responses"]["ErrorInvalidState"];
+    };
+  };
+  getBackupSources: {
+    parameters: {
+      query?: {
+        stack_id?: string;
+      };
+    };
+    responses: {
+      /** @description Backup configuration or result. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BackupSourcesResponse"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      403: components["responses"]["ErrorInvalidState"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
+      500: components["responses"]["ErrorInternal"];
+      503: components["responses"]["ErrorInvalidState"];
+    };
+  };
   getConfigWorkspaceFile: {
     parameters: {
       query: {
@@ -3120,6 +3826,28 @@ export interface operations {
       401: components["responses"]["ErrorUnauthorized"];
       404: components["responses"]["ErrorNotFound"];
       422: components["responses"]["ErrorValidationFailed"];
+    };
+  };
+  getStackBackupCoverage: {
+    parameters: {
+      path: {
+        stackId: string;
+      };
+    };
+    responses: {
+      /** @description Backup configuration or result. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BackupCoverageResponse"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      403: components["responses"]["ErrorInvalidState"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
+      500: components["responses"]["ErrorInternal"];
+      503: components["responses"]["ErrorInvalidState"];
     };
   };
   getStackDefinition: {

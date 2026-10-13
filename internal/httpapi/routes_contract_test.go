@@ -19,6 +19,25 @@ type domainRoute struct {
 
 func domainRouteContract() []domainRoute {
 	return []domainRoute{
+		{http.MethodGet, "/api/backups/restore-manifest", "GET /api/backups/restore-manifest"},
+		{http.MethodPost, "/api/backups/destinations/demo/restore-preview", "POST /api/backups/destinations/{destinationId}/restore-preview"},
+		{http.MethodGet, "/api/backups/filesystem", "GET /api/backups/filesystem"},
+		{http.MethodGet, "/api/backups", "GET /api/backups"},
+		{http.MethodGet, "/api/backups/sources", "GET /api/backups/sources"},
+		{http.MethodGet, "/api/stacks/demo/backups", "GET /api/stacks/{stackId}/backups"},
+		{http.MethodPost, "/api/backups/destinations", "POST /api/backups/destinations"},
+		{http.MethodPut, "/api/backups/destinations/demo", "PUT /api/backups/destinations/{destinationId}"},
+		{http.MethodDelete, "/api/backups/destinations/demo", "DELETE /api/backups/destinations/{destinationId}"},
+		{http.MethodPost, "/api/backups/plans", "POST /api/backups/plans"},
+		{http.MethodPut, "/api/backups/plans/demo", "PUT /api/backups/plans/{planId}"},
+		{http.MethodDelete, "/api/backups/plans/demo", "DELETE /api/backups/plans/{planId}"},
+		{http.MethodGet, "/api/backups/destinations/demo/snapshots", "GET /api/backups/destinations/{destinationId}/snapshots"},
+		{http.MethodPost, "/api/backups/destinations/demo/test", "POST /api/backups/destinations/{destinationId}/test"},
+		{http.MethodPost, "/api/backups/destinations/demo/initialize", "POST /api/backups/destinations/{destinationId}/initialize"},
+		{http.MethodPost, "/api/backups/destinations/demo/check", "POST /api/backups/destinations/{destinationId}/check"},
+		{http.MethodPost, "/api/backups/destinations/demo/restore", "POST /api/backups/destinations/{destinationId}/restore"},
+		{http.MethodPost, "/api/backups/plans/demo/run", "POST /api/backups/plans/{planId}/run"},
+		{http.MethodPost, "/api/backups/runs/demo/retry", "POST /api/backups/runs/{runId}/retry"},
 		{http.MethodGet, "/api/session", "GET /api/session"},
 		{http.MethodPost, "/api/auth/login", "POST /api/auth/login"},
 		{http.MethodPost, "/api/auth/logout", "POST /api/auth/logout"},
@@ -103,8 +122,8 @@ func TestHandlerRegistersDomainRouteContract(t *testing.T) {
 	handler.registerRoutes()
 	routes := domainRouteContract()
 
-	if len(routes) != 74 {
-		t.Fatalf("route contract contains %d operations, want 74", len(routes))
+	if len(routes) != 93 {
+		t.Fatalf("route contract contains %d operations, want 93", len(routes))
 	}
 	for _, route := range routes {
 		route := route
@@ -244,8 +263,8 @@ func TestDomainRoutesPreserveAuthenticationPolicy(t *testing.T) {
 			t.Errorf("protected route %s returned %d, want %d", route.pattern, response.Code, http.StatusUnauthorized)
 		}
 	}
-	if protectedCount != 67 {
-		t.Fatalf("protected route count = %d, want 67", protectedCount)
+	if protectedCount != 86 {
+		t.Fatalf("protected route count = %d, want 86", protectedCount)
 	}
 }
 

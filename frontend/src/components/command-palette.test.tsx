@@ -62,7 +62,7 @@ describe('CommandPalette', () => {
     fireEvent.keyDown(combobox, { key: 'ArrowDown' })
     expect(options[0]).toHaveAttribute('aria-selected', 'false')
     expect(options[1]).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('status')).toHaveTextContent('14 results available.')
+    expect(screen.getByRole('status')).toHaveTextContent('15 results available.')
 
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument()
@@ -105,7 +105,7 @@ describe('CommandPalette', () => {
 
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('Stack shortcuts are unavailable. Section shortcuts still work.')
-    expect(screen.getAllByRole('option')).toHaveLength(13)
+    expect(screen.getAllByRole('option')).toHaveLength(14)
 
     const combobox = screen.getByRole('combobox', { name: 'Search commands' })
     const retryButton = screen.getByRole('button', { name: 'Retry' })

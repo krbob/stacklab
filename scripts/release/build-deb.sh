@@ -73,6 +73,8 @@ install -m 0755 "${artifact_dir}/bin/stacklab" "${pkg_root}/usr/lib/stacklab/bin
 install -m 0755 "${artifact_dir}/bin/stacklab-docker-admin-helper" "${pkg_root}/usr/lib/stacklab/bin/stacklab-docker-admin-helper"
 install -m 0755 "${artifact_dir}/bin/stacklab-workspace-admin-helper" "${pkg_root}/usr/lib/stacklab/bin/stacklab-workspace-admin-helper"
 install -m 0755 "${artifact_dir}/bin/stacklab-self-update-helper" "${pkg_root}/usr/lib/stacklab/bin/stacklab-self-update-helper"
+install -m 0755 "${artifact_dir}/bin/stacklab-backup-helper" "${pkg_root}/usr/lib/stacklab/bin/stacklab-backup-helper"
+install -m 0644 "${repo_root}/packaging/systemd/stacklab-backup.sudoers.example" "${doc_dir}/examples/stacklab-backup.sudoers.example"
 cp -R "${artifact_dir}/frontend/dist" "${pkg_root}/usr/lib/stacklab/frontend/dist"
 cp -R "${artifact_dir}/metadata/." "${pkg_root}/usr/lib/stacklab/metadata/"
 cp -R "${artifact_dir}/monitoring" "${pkg_root}/usr/lib/stacklab/monitoring"
@@ -111,7 +113,7 @@ Priority: optional
 Architecture: ${deb_arch}
 Maintainer: Krzysztof Bobiński <krzysztof@bobinski.net>
 Homepage: https://github.com/krbob/stacklab
-Depends: acl, adduser, systemd, docker.io | docker-ce | moby-engine, docker-cli | docker-ce-cli | moby-cli | docker.io (<< 26.0), docker-compose | docker-compose-plugin, git
+Depends: restic (>= 0.14), rclone (>= 1.60), tar, openssh-client, acl, adduser, systemd, docker.io | docker-ce | moby-engine, docker-cli | docker-ce-cli | moby-cli | docker.io (<< 26.0), docker-compose | docker-compose-plugin, git
 Recommends: ca-certificates, python3 (>= 3.9), python3-yaml
 Description: Host-native web control panel for Docker Compose stacks
  Stacklab is a host-native web control panel for managing Docker Compose stacks

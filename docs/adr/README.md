@@ -9,4 +9,4 @@ Current ADRs:
 - [0003: Hybrid Docker Integration](0003-hybrid-docker-integration.md)
 - [0004: Deployment-Aware Filesystem Layout](0004-deployment-aware-filesystem-layout.md)
 - [0005: Native Backup Orchestration](0005-native-backup-orchestration.md) —
-  accepted direction; implementation pending.
+  accepted and implemented native backup/recovery orchestration.

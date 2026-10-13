@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
 	"stacklab/internal/audit"
 	"stacklab/internal/auth"
+	"stacklab/internal/backup"
 	"stacklab/internal/config"
 	"stacklab/internal/configworkspace"
 	"stacklab/internal/dockeradmin"
@@ -153,11 +155,22 @@ func newApplication(parent context.Context, cfg config.Config, logger *slog.Logg
 			return nil, fmt.Errorf("bootstrap authentication: %w", err)
 		}
 	}
+	backupCapture := backup.NewNativeCapture(cfg, stackReader, appStore.Snapshot)
+	backupService := backup.NewService(cfg, jobService, backupCapture)
+	recoveryCtx, recoveryCancel := context.WithTimeout(parent, 2*time.Minute)
+	recoveryErr := backupService.Reconcile(recoveryCtx)
+	recoveryCancel()
+	if recoveryErr != nil {
+		_ = authService.Shutdown(context.Background())
+		return nil, fmt.Errorf("recover services interrupted by backup: %w", recoveryErr)
+	}
 	reconcileInterruptedJobs(parent, jobService, auditService, logger)
 	jobService.SetMetricsObserver(serviceMetrics)
 	configureJobNotificationDispatch(jobService, workers, notificationService, logger)
 
 	handler, err := httpapi.NewHandler(cfg, logger, httpapi.Dependencies{
+		Backups:         backupService,
+		BackupCapture:   backupCapture,
 		RuntimeContext:  workers.Context(),
 		Workers:         workers,
 		Auth:            authService,
@@ -199,6 +212,7 @@ func newApplication(parent context.Context, cfg config.Config, logger *slog.Logg
 			{name: "scheduler", run: schedulerService.RunBackground},
 			{name: "self-update", run: selfUpdateService.RunBackground},
 			{name: "retention", run: retentionService.RunBackground},
+			{name: "backups", run: backupService.RunBackground},
 		},
 	}, nil
 }
@@ -208,6 +222,11 @@ func configureJobNotificationDispatch(jobService *jobs.Service, workers *lifecyc
 		dispatch := func(ctx context.Context) {
 			dispatchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 			defer cancel()
+			if strings.HasPrefix(job.Action, "backup_") {
+				if err := audit.NewService(jobService.Store()).RecordJob(dispatchCtx, job, nil); err != nil {
+					logger.Warn("record backup audit failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
+				}
+			}
 			if err := dispatcher.DispatchJob(dispatchCtx, job); err != nil {
 				logger.Warn("dispatch notification failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
 			}

@@ -541,3 +541,17 @@ func runGit(t *testing.T, dir string, args ...string) {
 		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(output))
 	}
 }
+
+func TestOpenAPIBackupConfiguration(t *testing.T) {
+	handler, _ := newTestHandler(t)
+	contract := loadOpenAPIContract(t)
+	login := performJSONRequest(t, handler, http.MethodPost, "/api/auth/login", map[string]any{"password": "test-password"}, nil)
+	cookies := login.Result().Cookies()
+	response := performJSONRequest(t, handler, http.MethodGet, "/api/backups", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/backups", nil, cookies, response)
+	input := map[string]any{"name": "Contract destination", "kind": "s3", "repository": "s3:https://storage.example.test/bucket", "secrets": map[string]any{"password": "contract-secret", "access_key_id": "test-key", "secret_access_key": "test-secret"}}
+	response = performJSONRequest(t, handler, http.MethodPost, "/api/backups/destinations", input, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodPost, "/api/backups/destinations", input, cookies, response)
+	response = performJSONRequest(t, handler, http.MethodGet, "/api/backups", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/backups", nil, cookies, response)
+}

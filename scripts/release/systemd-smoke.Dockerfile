@@ -15,6 +15,10 @@ RUN apt-get update \
       docker-compose \
       docker.io \
       git \
+      openssh-client \
+      restic \
+      rclone \
+      tar \
       procps \
       python3 \
       python3-yaml \

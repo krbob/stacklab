@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"stacklab/internal/audit"
 	"stacklab/internal/auth"
+	"stacklab/internal/backup"
 	"stacklab/internal/config"
 	"stacklab/internal/configworkspace"
 	"stacklab/internal/dockeradmin"
@@ -40,6 +41,8 @@ import (
 )
 
 type Handler struct {
+	backups         *backup.Service
+	backupCapture   *backup.NativeCapture
 	appCtx          context.Context
 	workers         WorkerAdmitter
 	cfg             config.Config
@@ -155,6 +158,8 @@ type SelfUpdateManager interface {
 // Dependencies contains process-owned services required by the HTTP transport.
 // NewHandler validates and stores them but never constructs or starts them.
 type Dependencies struct {
+	Backups         *backup.Service
+	BackupCapture   *backup.NativeCapture
 	RuntimeContext  context.Context
 	Workers         WorkerAdmitter
 	Auth            *auth.Service
@@ -183,6 +188,8 @@ func NewHandler(cfg config.Config, logger *slog.Logger, dependencies Dependencie
 		return nil, err
 	}
 	handler := &Handler{
+		backups:         dependencies.Backups,
+		backupCapture:   dependencies.BackupCapture,
 		appCtx:          dependencies.RuntimeContext,
 		workers:         dependencies.Workers,
 		cfg:             cfg,
@@ -276,6 +283,7 @@ func (h *Handler) registerRoutes() {
 		&stackController{Handler: h},
 		&operationsController{Handler: h},
 		&settingsController{Handler: h},
+		&backupController{Handler: h},
 	}
 	for _, controller := range controllers {
 		controller.registerRoutes(h.mux)

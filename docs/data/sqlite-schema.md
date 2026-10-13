@@ -377,3 +377,16 @@ If SQLite is lost, stack definitions remain on disk and runtime discovery still
 works. Settings, sessions, audit history, jobs, cached image status, and deploy
 baselines are lost. Drift detection falls back to `unknown` until a new
 successful deployment establishes a baseline.
+
+## Backup state
+
+The `backup.v1` entry in `app_settings` contains versioned installation ownership,
+destinations without secrets, plans, bounded run summaries with immutable plan
+revisions, and registered isolated restore directories. Repository passwords and
+transport secrets live in private files under `STACKLAB_DATA_DIR/backup`, never
+in this read model. Source manifests are also stored inside encrypted repository
+snapshots so recovery does not require the original SQLite database.
+
+`Store.Snapshot` uses SQLite `VACUUM INTO` to obtain a consistent standalone
+backup including committed WAL data. Do not copy the running database file as a
+substitute. See [backup architecture](../architecture/backup-and-recovery.md).

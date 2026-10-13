@@ -20,6 +20,7 @@ const tabs: Tab[] = [
   { to: 'logs', label: 'Logs', capability: 'can_view_logs' },
   { to: 'stats', label: 'Stats', capability: 'can_view_stats' },
   { to: 'terminal', label: 'Terminal', capability: 'can_open_terminal' },
+  { to: 'backups', label: 'Backups' },
   { to: 'audit', label: 'History' },
 ]
 

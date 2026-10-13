@@ -1,0 +1,442 @@
+package backup
+
+import (
+	"archive/tar"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"time"
+
+	"stacklab/internal/limitedio"
+)
+
+// ValidateArchive rejects extraction outside its target, link traversal and
+// devices/FIFOs. Validation applies to every header before extraction begins.
+func ValidateArchive(reader io.Reader, target string) error {
+	archive := tar.NewReader(reader)
+	links := map[string]bool{}
+	seen := map[string]bool{}
+	hasChildren := map[string]bool{}
+	entries := 0
+	for {
+		header, err := archive.Next()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		name := path.Clean(header.Name)
+		entries++
+		if entries > 1000000 || len(header.Name) > 4096 || len(header.Linkname) > 4096 {
+			return errors.New("archive metadata exceeds supported entry or path limits")
+		}
+		if header.Uid < 0 || header.Gid < 0 || header.Mode < 0 || header.Mode&^07777 != 0 {
+			return errors.New("archive contains invalid numeric ownership or permissions")
+		}
+		// Repository contents are untrusted. Root extraction may preserve ordinary
+		// ownership, permissions, ACLs and xattrs, but must not manufacture an
+		// executable that grants privileges to the unprivileged service identity.
+		if header.Mode&04000 != 0 || header.Mode&02000 != 0 && header.Typeflag != tar.TypeDir {
+			return errors.New("archive contains unsupported setuid or setgid file permissions")
+		}
+		if _, ok := header.Xattrs["security.capability"]; ok {
+			return errors.New("archive contains unsupported file capabilities")
+		}
+		for key := range header.PAXRecords {
+			if strings.HasSuffix(key, ".security.capability") {
+				return errors.New("archive contains unsupported file capabilities")
+			}
+		}
+		if strings.ContainsRune(name, 0) || strings.Contains(name, "\\") || path.IsAbs(name) || name == ".." || strings.HasPrefix(name, "../") {
+			return errors.New("archive contains an unsafe path")
+		}
+		if name == "." && header.Typeflag != tar.TypeDir {
+			return errors.New("archive root must be a directory")
+		}
+		for parent := path.Dir(name); parent != "."; parent = path.Dir(parent) {
+			hasChildren[parent] = true
+			if links[parent] {
+				return errors.New("archive writes through a link")
+			}
+		}
+		if links[name] {
+			return errors.New("archive replaces a link")
+		}
+		switch header.Typeflag {
+		case tar.TypeReg, tar.TypeRegA, tar.TypeDir:
+		case tar.TypeSymlink:
+			resolved := path.Clean(path.Join(path.Dir(name), header.Linkname))
+			if path.IsAbs(header.Linkname) || resolved == ".." || strings.HasPrefix(resolved, "../") {
+				return errors.New("archive symlink escapes destination")
+			}
+			if hasChildren[name] {
+				return errors.New("archive replaces a populated directory with a symlink")
+			}
+			links[name] = true
+		case tar.TypeLink:
+			link := path.Clean(header.Linkname)
+			if path.IsAbs(link) || link == ".." || strings.HasPrefix(link, "../") || !seen[link] || links[link] {
+				return errors.New("archive contains an unsafe hard link")
+			}
+			for parent := path.Dir(link); parent != "."; parent = path.Dir(parent) {
+				if links[parent] {
+					return errors.New("archive hard link traverses a symlink")
+				}
+			}
+			links[name] = true
+		default:
+			return errors.New("archive contains unsupported special file metadata")
+		}
+		if target != "" {
+			current := target
+			for _, part := range strings.Split(name, "/") {
+				if part == "." {
+					continue
+				}
+				current = filepath.Join(current, part)
+				info, statErr := os.Lstat(current)
+				if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+					return statErr
+				}
+				// GNU tar --unlink-first replaces this final link without following
+				// it. Permit restoring the same safe symlink repeatedly, while
+				// retaining the strict prohibition on traversing link ancestors.
+				replacingFinalSymlink := current == filepath.Join(target, filepath.FromSlash(name)) && header.Typeflag == tar.TypeSymlink
+				if statErr == nil && info.Mode()&os.ModeSymlink != 0 && !replacingFinalSymlink {
+					return fmt.Errorf("restore target contains a symlink: %s", name)
+				}
+				if statErr == nil && !info.IsDir() && !info.Mode().IsRegular() && !(replacingFinalSymlink && info.Mode()&os.ModeSymlink != 0) {
+					return errors.New("restore target contains a special file")
+				}
+			}
+		}
+		seen[name] = true
+	}
+}
+
+// ArchiveArguments is shared with the narrowly scoped native helper. It never
+// invokes a shell, dereferences symlinks or accepts raw command options.
+func ArchiveArguments(source string, excludes []string) ([]string, error) {
+	return archiveArgs(source, excludes)
+}
+
+func (c *NativeCapture) RestoreArchive(ctx context.Context, archivePath, targetPath string, privileged bool) error {
+	if !filepath.IsAbs(targetPath) {
+		return errors.New("restore target must be an absolute directory")
+	}
+	if privileged {
+		if c.cfg.BackupHelperPath == "" {
+			return errors.New("preserving ownership during in-place restore requires the backup helper")
+		}
+		args := []string{"restore", "--path", targetPath, "--archive", archivePath}
+		name := c.cfg.BackupHelperPath
+		if c.cfg.BackupUseSudo {
+			args = append([]string{"-n", name}, args...)
+			name = "sudo"
+		}
+		_, err := c.command(ctx, name, args...)
+		return err
+	}
+	return ExtractArchive(ctx, archivePath, targetPath, false)
+}
+
+// ExtractArchive validates the complete archive before invoking native tar.
+// Fresh targets are private. In-place extraction is reserved for helper calls
+// after its independent target authorization.
+func ExtractArchive(ctx context.Context, archivePath, targetPath string, preserveOwner bool) error {
+	current := filepath.Clean(targetPath)
+	for {
+		info, err := os.Lstat(current)
+		if err == nil && info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("restore target must not contain symlinks")
+		}
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			break
+		}
+		current = parent
+	}
+	if err := os.MkdirAll(targetPath, 0700); err != nil {
+		return err
+	}
+	resolved, err := filepath.EvalSymlinks(targetPath)
+	if err != nil {
+		return err
+	}
+	abs, err := filepath.Abs(targetPath)
+	if err != nil {
+		return err
+	}
+	if filepath.Clean(abs) != resolved {
+		return errors.New("restore target must not contain symlinks")
+	}
+	var pinnedDirectory *os.File
+	tarTarget := targetPath
+	if runtime.GOOS == "linux" {
+		pinnedDirectory, err = os.Open(targetPath)
+		if err != nil {
+			return err
+		}
+		defer pinnedDirectory.Close()
+		actual, linkErr := os.Readlink(fmt.Sprintf("/proc/self/fd/%d", pinnedDirectory.Fd()))
+		if linkErr != nil {
+			return linkErr
+		}
+		if actual != resolved {
+			return errors.New("restore directory changed during validation")
+		}
+		tarTarget = "/proc/self/fd/3"
+	}
+	file, err := os.Open(archivePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	if err = ValidateArchive(captureContextReader{ctx: ctx, reader: file}, targetPath); err != nil {
+		return err
+	}
+	if _, err = file.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	args := []string{"--extract", "--file=-", "--directory=" + tarTarget, "--acls", "--xattrs", "--xattrs-include=*", "--numeric-owner", "--same-permissions", "--delay-directory-restore", "--unlink-first"}
+	if preserveOwner {
+		args = append(args, "--same-owner")
+	} else {
+		args = append(args, "--no-same-owner")
+	}
+	cmd := exec.CommandContext(ctx, tarExecutable(), args...)
+	configureCaptureProcess(cmd)
+	if pinnedDirectory != nil {
+		cmd.ExtraFiles = []*os.File{pinnedDirectory}
+	}
+	cmd.Stdin = file
+	output := limitedio.NewBuffer(32 * 1024)
+	cmd.Stdout = output
+	cmd.Stderr = output
+	cmd.Env = []string{"PATH=/usr/bin:/bin", "LC_ALL=C"}
+	if err = cmd.Run(); err != nil {
+		return fmt.Errorf("native extraction failed: %s: %w", strings.TrimSpace(output.String()), err)
+	}
+	return nil
+}
+
+type RestoreMapping struct {
+	SourceID   string `json:"source_id"`
+	Target     string `json:"target"`
+	VolumeName string `json:"volume_name,omitempty"`
+}
+type RestorePreview struct {
+	Mappings   []RestoreMapping `json:"mappings"`
+	Writers    []Writer         `json:"writers"`
+	Warnings   []string         `json:"warnings"`
+	Overwrites bool             `json:"overwrites"`
+}
+
+// PreviewRestore requires a mapping for each selected source; Stacklab state
+// is recovered offline because replacing the running SQLite database is unsafe.
+func (c *NativeCapture) PreviewRestore(ctx context.Context, manifest Manifest, mappings []RestoreMapping) (RestorePreview, error) {
+	preview := RestorePreview{Mappings: append([]RestoreMapping{}, mappings...), Writers: []Writer{}, Warnings: []string{"Restore merges selected archive content; unrelated files are retained. Targets are extraction directories; file sources restore their original basename. Services remain stopped after an interrupted or failed write; starting previously running services requires explicit selection."}}
+	if manifest.Version != 1 {
+		return preview, errors.New("unsupported recovery manifest version")
+	}
+	if len(mappings) == 0 {
+		return preview, errors.New("restore requires explicit source mappings")
+	}
+	if c.cfg.BackupHelperPath == "" {
+		return preview, errors.New("in-place recovery requires the configured backup permission helper")
+	}
+	sourceByID := map[string]ManifestSource{}
+	for _, source := range manifest.Sources {
+		sourceByID[source.Source.ID] = source
+	}
+	containers, err := c.containers(ctx)
+	if err != nil {
+		return preview, err
+	}
+	seen := map[string]bool{}
+	for index, mapping := range mappings {
+		source, ok := sourceByID[mapping.SourceID]
+		if !ok {
+			return preview, errors.New("unknown restore source")
+		}
+		if source.Source.Kind == "stacklab" {
+			return preview, errors.New("Stacklab state must be recovered offline using the documented procedure")
+		}
+		if seen[mapping.SourceID] {
+			return preview, errors.New("duplicate restore mapping")
+		}
+		seen[mapping.SourceID] = true
+		if mapping.VolumeName != "" {
+			output, inspectErr := c.command(ctx, "docker", "volume", "inspect", mapping.VolumeName)
+			if inspectErr != nil {
+				return preview, errors.New("create and review the destination volume before restoring")
+			}
+			var volumes []captureVolume
+			if jsonErr := json.Unmarshal(output, &volumes); jsonErr != nil || len(volumes) != 1 || volumes[0].Driver != "local" || len(volumes[0].Options) > 0 {
+				return preview, errors.New("restore requires a local volume without driver options")
+			}
+			mapping.Target = volumes[0].Mountpoint
+			preview.Mappings[index].Target = mapping.Target
+			preview.Overwrites = true
+		}
+		if !filepath.IsAbs(mapping.Target) || filepath.Clean(mapping.Target) == "/" {
+			return preview, errors.New("invalid restore target")
+		}
+		allowed := mapping.VolumeName != ""
+		roots := append([]string{filepath.Join(c.cfg.RootDir, "stacks"), filepath.Join(c.cfg.RootDir, "config"), filepath.Join(c.cfg.RootDir, "data")}, c.cfg.BackupAllowedPaths...)
+		for _, root := range roots {
+			if filepath.IsAbs(root) && pathContains(normalizedDataPath(root), normalizedDataPath(mapping.Target)) {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return preview, errors.New("restore target must be a managed stacks/config/data directory, an inspected local volume, or a configured backup allowed path")
+		}
+		checkArgs := []string{"check-target", "--path", mapping.Target}
+		if mapping.VolumeName != "" {
+			checkArgs = []string{"check-target", "--volume", mapping.VolumeName}
+		}
+		name, args := c.helperInvocation(checkArgs...)
+		if _, checkErr := c.command(ctx, name, args...); checkErr != nil {
+			return preview, fmt.Errorf("restore helper rejected the target; check configured roots, symlinks and permissions: %w", checkErr)
+		}
+		if pathsOverlapData(mapping.Target, c.cfg.DataDir) {
+			return preview, errors.New("online restore cannot overwrite private Stacklab state")
+		}
+		if info, statErr := os.Lstat(mapping.Target); statErr == nil && !info.IsDir() {
+			return preview, errors.New("restore target must be a directory, not a file or symlink")
+		}
+		if _, err = os.Lstat(mapping.Target); err == nil || errors.Is(err, os.ErrPermission) {
+			preview.Overwrites = true
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return preview, err
+		}
+		for _, container := range containers {
+			for _, mount := range container.Mounts {
+				if mount.RW && pathsOverlapData(mapping.Target, mount.Source) {
+					if container.State.Paused {
+						return preview, errors.New("restore writer is paused")
+					}
+					preview.Writers = append(preview.Writers, Writer{ContainerID: container.ID, StackID: container.Config.Labels["com.docker.compose.project"], Service: container.Config.Labels["com.docker.compose.service"], Running: container.State.Running})
+					break
+				}
+			}
+		}
+	}
+	return preview, nil
+}
+
+func (c *NativeCapture) ApplyRestore(ctx context.Context, manifest Manifest, mappings []RestoreMapping, restoredDirectory, runID string, resumeServices bool) (err error) {
+	preview, err := c.PreviewRestore(ctx, manifest, mappings)
+	if err != nil {
+		return err
+	}
+	sources := map[string]ManifestSource{}
+	archives := map[string]string{}
+	for _, source := range manifest.Sources {
+		sources[source.Source.ID] = source
+	}
+	for _, mapping := range preview.Mappings {
+		archive, pathErr := ManifestArchivePath(restoredDirectory, sources[mapping.SourceID])
+		if pathErr != nil {
+			return pathErr
+		}
+		file, openErr := os.Open(archive)
+		if openErr != nil {
+			return openErr
+		}
+		validateErr := ValidateArchive(captureContextReader{ctx: ctx, reader: file}, "")
+		closeErr := file.Close()
+		if err = errors.Join(validateErr, closeErr); err != nil {
+			return err
+		}
+		archives[mapping.SourceID] = archive
+	}
+	writers := uniqueRunningWriters([]ManifestSource{{Writers: preview.Writers}})
+	if err = c.saveJournal(runID, writers); err != nil {
+		return err
+	}
+	writesStarted := false
+	defer func() {
+		if !writesStarted || err == nil && resumeServices {
+			resumeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			err = errors.Join(err, c.resume(resumeCtx, stopJournal{Version: 1, RunID: runID, Writers: writers}))
+		} else {
+			err = errors.Join(err, c.removeJournal(runID))
+			if err != nil {
+				err = fmt.Errorf("restore incomplete; affected services remain stopped for inspection: %w", err)
+			}
+		}
+	}()
+	for _, writer := range writers {
+		if err = c.stopWriter(ctx, writer); err != nil {
+			return err
+		}
+	}
+	if err = c.saveStopJournal(stopJournal{Version: 1, RunID: runID, Writers: writers, HoldStopped: true}); err != nil {
+		return err
+	}
+	writesStarted = true
+	for _, mapping := range preview.Mappings {
+		archive := archives[mapping.SourceID]
+		if err = c.RestoreArchive(ctx, archive, mapping.Target, true); err != nil {
+			return err
+		}
+	}
+	for _, mapping := range preview.Mappings {
+		if sources[mapping.SourceID].Source.Kind == "stack_definition" {
+			if _, err = c.command(ctx, "docker", "compose", "--project-directory", mapping.Target, "-f", filepath.Join(mapping.Target, "compose.yaml"), "config", "--quiet"); err != nil {
+				return errors.New("restored Compose definition failed validation")
+			}
+		}
+	}
+	return nil
+}
+
+// ManifestArchivePath treats repository metadata as untrusted input.
+func ManifestArchivePath(root string, source ManifestSource) (string, error) {
+	if !source.Archive || source.SavedPath == "" || filepath.IsAbs(source.SavedPath) {
+		return "", errors.New("invalid manifest archive path")
+	}
+	root, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", err
+	}
+	root, err = filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	archive := filepath.Join(root, filepath.FromSlash(source.SavedPath))
+	if archive == root || !pathContains(root, archive) {
+		return "", errors.New("manifest archive path escapes recovery directory")
+	}
+	resolved, err := filepath.EvalSymlinks(archive)
+	if err != nil {
+		return "", err
+	}
+	if resolved != archive {
+		return "", errors.New("manifest archive path contains symlinks")
+	}
+	info, err := os.Lstat(archive)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", errors.New("manifest archive must be a regular file")
+	}
+	return archive, nil
+}
