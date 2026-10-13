@@ -14,6 +14,9 @@ the product is heading.
 - [Native backup and recovery](backup-and-recovery.md) — implemented product direction
   for source selection, multiple destinations, consistency, and restore;
   native restic/rclone orchestration, reviewed restore and offline state recovery.
+- [Backup protection and recovery experience](backup-experience.md) — accepted
+  implementation plan for the protection dashboard, file browser, continuous
+  recovery, execution history, guided setup and maintenance schedules.
 
 For implementation boundaries, continue with the
 [domain model](../domain/README.md),

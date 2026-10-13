@@ -69,6 +69,9 @@ of changed `main` revisions provide the soak channel between stable releases.
 
 ### 2. Operator Polish
 
+- implement the accepted [backup experience plan](product/backup-experience.md):
+  protection evidence, continuous recovery, file browsing, execution history,
+  guided setup and independent repository maintenance policies;
 - make progress, completion, partial-failure, and recovery language consistent
   across all remaining long-running workflows;
 - refine small-screen and keyboard operation for dense maintenance and Docker
