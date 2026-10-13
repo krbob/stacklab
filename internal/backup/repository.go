@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"os/exec"
@@ -12,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -29,6 +31,9 @@ type CommandRunner interface {
 type nativeRunner struct{}
 
 func (nativeRunner) Run(ctx context.Context, name string, args, env []string, dir string) ([]byte, error) {
+	return nativeRunner{}.RunProgress(ctx, name, args, env, dir, nil)
+}
+func (nativeRunner) RunProgress(ctx context.Context, name string, args, env []string, dir string, callback progressCallback) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = env
 	cmd.Dir = dir
@@ -44,9 +49,9 @@ func (nativeRunner) Run(ctx context.Context, name string, args, env []string, di
 		}
 		return err
 	}
-	var output cappedBuffer
+	output := progressBuffer{callback: callback}
 	cmd.Stdout = &output
-	cmd.Stderr = &output
+	cmd.Stderr = io.Discard
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -55,10 +60,11 @@ func (nativeRunner) Run(ctx context.Context, name string, args, env []string, di
 		// Never include raw subprocess output in errors, events, or API responses.
 		return nil, fmt.Errorf("%s operation failed; verify repository access and credentials", filepath.Base(name))
 	}
-	if output.overflow {
+	output.finish()
+	if output.output.overflow {
 		return nil, fmt.Errorf("%s response exceeded 16 MiB", filepath.Base(name))
 	}
-	return output.Bytes(), nil
+	return output.output.Bytes(), nil
 }
 
 type cappedBuffer struct {
@@ -77,7 +83,28 @@ func (b *cappedBuffer) Write(p []byte) (int, error) {
 	return n, nil
 }
 
+func normalizeDestinationInput(in *DestinationInput) {
+	if in.CheckSchedule.Frequency == "" {
+		in.CheckSchedule.Frequency = "manual"
+	}
+	if in.PruneSchedule.Frequency == "" {
+		in.PruneSchedule.Frequency = "manual"
+	}
+	if in.CheckReadData == "" {
+		in.CheckReadData = "metadata"
+	}
+}
+
 func validateDestination(in DestinationInput) error {
+	if err := validateSchedule(in.CheckSchedule); err != nil {
+		return err
+	}
+	if err := validateSchedule(in.PruneSchedule); err != nil {
+		return err
+	}
+	if in.CheckReadData != "" && in.CheckReadData != "metadata" && in.CheckReadData != "all" && in.CheckReadData != "subset" {
+		return fmt.Errorf("%w: check_read_data must be metadata, all, or subset", ErrInvalid)
+	}
 	if len(strings.TrimSpace(in.Name)) == 0 || len(in.Name) > 200 {
 		return fmt.Errorf("%w: destination name is required (max 200 characters)", ErrInvalid)
 	}
@@ -203,6 +230,20 @@ func (s *Service) restic(ctx context.Context, d Destination, dir string, args ..
 		argv = append(argv, "-o", "sftp.command="+strings.Join(quoted, " "))
 	}
 	argv = append(argv, args...)
+	if callback, ok := ctx.Value(progressKey{}).(progressCallback); ok {
+		if runner, streaming := s.runner.(progressCommandRunner); streaming {
+			return runner.RunProgress(ctx, "restic", argv, env, dir, callback)
+		}
+		output, err := s.runner.Run(ctx, "restic", argv, env, dir)
+		if err == nil {
+			for _, line := range bytes.Split(output, []byte("\n")) {
+				if progress, recognized, _ := decodeTransferProgress(line); recognized {
+					callback(progress)
+				}
+			}
+		}
+		return output, err
+	}
 	return s.runner.Run(ctx, "restic", argv, env, dir)
 }
 
@@ -250,13 +291,44 @@ func FilesystemIdentity(path string) (string, error) {
 	return strconv.FormatUint(uint64(stat.Dev), 10), nil
 }
 
-func (s *Service) Snapshots(ctx context.Context, id string) ([]Snapshot, error) {
-	s.mu.Lock()
-	d, ok := s.state.Destinations[id]
-	s.mu.Unlock()
-	if !ok {
-		return nil, ErrNotFound
+// beginRepositoryRead pins credentials and configuration while a browser reads
+// immutable repository data. Reads may overlap each other, but mutations and
+// configuration changes cannot begin until all readers release their leases.
+func (s *Service) beginRepositoryRead(ctx context.Context, id string) (Destination, func(), error) {
+	if err := ctx.Err(); err != nil {
+		return Destination{}, nil, err
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.initErr != nil {
+		return Destination{}, nil, s.initErr
+	}
+	d, ok := s.state.Destinations[id]
+	if !ok {
+		return Destination{}, nil, ErrNotFound
+	}
+	if s.repositoryJob != "" {
+		return Destination{}, nil, ErrBusy
+	}
+	for _, run := range s.state.Runs {
+		if run.State == "running" || run.State == "queued" {
+			return Destination{}, nil, ErrBusy
+		}
+	}
+	s.activeRepositoryReads++
+	var once sync.Once
+	release := func() { once.Do(func() { s.mu.Lock(); s.activeRepositoryReads--; s.mu.Unlock() }) }
+	return d, release, nil
+}
+
+func (s *Service) Snapshots(ctx context.Context, id string) ([]Snapshot, error) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	d, release, err := s.beginRepositoryRead(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	output, err := s.restic(ctx, d, "", "snapshots", "--tag", "stacklab")
 	if err != nil {
 		return nil, err
@@ -304,7 +376,10 @@ func (s *Service) retain(ctx context.Context, d Destination, planID string, poli
 	}
 	// An AND tag list limits ownership to this plan. Stable host and group-by tags
 	// avoid each randomly named prepared directory forming a separate group.
-	args := []string{"forget", "--prune", "--tag", "stacklab,instance:" + s.state.InstanceID + ",plan:" + planID, "--group-by", "host", "--keep-daily", strconv.Itoa(policy.Daily), "--keep-weekly", strconv.Itoa(policy.Weekly), "--keep-monthly", strconv.Itoa(policy.Monthly)}
+	args := []string{"forget", "--tag", "stacklab,instance:" + s.state.InstanceID + ",plan:" + planID, "--group-by", "host", "--keep-daily", strconv.Itoa(policy.Daily), "--keep-weekly", strconv.Itoa(policy.Weekly), "--keep-monthly", strconv.Itoa(policy.Monthly)}
+	if d.PruneSchedule.Frequency == "" || d.PruneSchedule.Frequency == "manual" {
+		args = append(args, "--prune")
+	}
 	_, err := s.restic(ctx, d, "", args...)
 	return err
 }
@@ -323,5 +398,3 @@ func (s *Service) check(ctx context.Context, d Destination, policy string) error
 	_, err := s.restic(ctx, d, "", args...)
 	return err
 }
-
-func nowPointer() *time.Time { t := time.Now().UTC(); return &t }

@@ -22,6 +22,10 @@ export interface paths {
   "/backups": {
     get: operations["getBackups"];
   };
+  "/backups/coverage": {
+    /** @description Aggregate configured source coverage. Discovery failures are reported per stack; configuration coverage does not prove that a copy is current. */
+    get: operations["getBackupCoverage"];
+  };
   "/backups/destinations": {
     post: operations["createBackupDestination"];
   };
@@ -35,6 +39,10 @@ export interface paths {
   "/backups/destinations/{destinationId}/initialize": {
     post: operations["initializeBackupRepository"];
   };
+  "/backups/destinations/{destinationId}/prune": {
+    /** @description Queue repository prune under the existing repository and native restic locks. */
+    post: operations["pruneBackupDestination"];
+  };
   "/backups/destinations/{destinationId}/restore": {
     post: operations["restoreBackupRepository"];
   };
@@ -43,6 +51,14 @@ export interface paths {
   };
   "/backups/destinations/{destinationId}/snapshots": {
     get: operations["getBackupSnapshots"];
+  };
+  "/backups/destinations/{destinationId}/snapshots/{snapshotId}/compare": {
+    /** @description Compare captured file content and metadata against the baseline snapshot. No live source traversal is performed. */
+    get: operations["compareBackupSnapshotFiles"];
+  };
+  "/backups/destinations/{destinationId}/snapshots/{snapshotId}/files": {
+    /** @description Browse the bounded encrypted file index without downloading source archives. Older snapshots report index_available=false and need isolated restore for local browsing. */
+    get: operations["getBackupSnapshotFiles"];
   };
   "/backups/destinations/{destinationId}/test": {
     post: operations["testBackupRepository"];
@@ -57,14 +73,34 @@ export interface paths {
     put: operations["updateBackupPlan"];
     delete: operations["deleteBackupPlan"];
   };
+  "/backups/plans/{planId}/preflight": {
+    /** @description Resolve current sources, shared writers and warnings. Execution resolves them again; this read does not authorize or start a backup. */
+    get: operations["getBackupPreflight"];
+  };
   "/backups/plans/{planId}/run": {
     post: operations["runBackupPlan"];
   };
   "/backups/restore-manifest": {
     get: operations["getBackupRestoreManifest"];
   };
+  "/backups/restores": {
+    /** @description List successfully registered isolated recovery results, including availability and partial-file selection. Legacy entries receive stable IDs. */
+    get: operations["getBackupRestores"];
+  };
+  "/backups/restores/{restoreId}/download": {
+    /** @description Stream one regular file from a registered isolated recovery as a private attachment. Arbitrary host paths and symlinks are rejected. */
+    get: operations["downloadRestoredBackupFile"];
+  };
+  "/backups/restores/{restoreId}/files": {
+    /** @description Browse locally recovered archives, including snapshots without an index. Partial results expose only selected files. */
+    get: operations["getRestoredBackupFiles"];
+  };
   "/backups/runs/{runId}/retry": {
     post: operations["retryBackupRun"];
+  };
+  "/backups/schedule-preview": {
+    /** @description Preview future occurrences using the scheduler calendar and interval rules. Read-only computation protected by the normal same-origin policy. */
+    post: operations["previewBackupSchedule"];
   };
   "/backups/sources": {
     get: operations["getBackupSources"];
@@ -411,15 +447,61 @@ export interface components {
       retention: components["schemas"]["BackupRetention"];
       schedule: components["schemas"]["BackupSchedule"];
     };
+    BackupCatalogPage: {
+      index_available: boolean;
+      items: components["schemas"]["BackupFileEntry"][];
+      /** Format: int32 */
+      limit: number;
+      /** Format: int32 */
+      offset: number;
+      path: string;
+      source_id?: string;
+      sources: components["schemas"]["BackupManifestSource"][];
+      /** Format: int32 */
+      total: number;
+      /** Format: int64 */
+      transfer_bytes: number;
+    };
     BackupCheckRequest: {
       /** @enum {string} */
       read_data: "metadata" | "all" | "subset";
     };
-    BackupCopyResult: {
+    BackupCopyProtection: {
       destination_id: string;
+      /** Format: date-time */
+      due_at?: string;
+      /** Format: date-time */
+      last_capture_at?: string;
+      last_error?: string;
+      last_run_id?: string;
+      /** Format: date-time */
+      last_uploaded_at?: string;
+      /** Format: date-time */
+      next_run_at?: string;
+      snapshot_id?: string;
+      state: string;
+    };
+    BackupCopyResult: {
+      /** Format: int64 */
+      bytes_added?: number;
+      /** Format: int64 */
+      bytes_processed?: number;
+      /** Format: int64 */
+      bytes_total?: number;
+      /** Format: date-time */
+      completed_at?: string;
+      destination_id: string;
+      /** Format: double */
+      duration_seconds?: number;
       error?: string;
+      /** Format: int64 */
+      files_processed?: number;
+      /** Format: int64 */
+      files_total?: number;
       retention: string;
       snapshot_id?: string;
+      /** Format: date-time */
+      started_at?: string;
       state: string;
       /** Format: date-time */
       uploaded_at?: string;
@@ -433,6 +515,10 @@ export interface components {
       deleted: boolean;
     };
     BackupDestination: {
+      check_error?: string;
+      check_read_data: string;
+      check_schedule: components["schemas"]["BackupSchedule"];
+      check_status?: string;
       credentials_configured: boolean;
       error?: string;
       expected_filesystem?: string;
@@ -443,10 +529,22 @@ export interface components {
       last_check_at?: string;
       last_check_policy?: string;
       /** Format: date-time */
+      last_check_scheduled_at?: string;
+      last_operation?: string;
+      /** Format: date-time */
+      last_operation_at?: string;
+      last_operation_error?: string;
+      last_operation_status?: string;
+      /** Format: date-time */
+      last_prune_at?: string;
+      /** Format: date-time */
+      last_prune_scheduled_at?: string;
+      /** Format: date-time */
       last_restore_test_at?: string;
       /** Format: date-time */
       last_success_at?: string;
       name: string;
+      prune_schedule: components["schemas"]["BackupSchedule"];
       region?: string;
       repository: string;
       /** Format: int64 */
@@ -454,16 +552,75 @@ export interface components {
       status: string;
     };
     BackupDestinationInput: {
+      check_read_data?: string;
+      check_schedule?: components["schemas"]["BackupSchedule"];
       expected_filesystem?: string;
       /** @enum {string} */
       kind: "local" | "s3" | "sftp" | "rclone";
       name: string;
+      prune_schedule?: components["schemas"]["BackupSchedule"];
       region?: string;
       repository: string;
       secrets?: components["schemas"]["BackupSecrets"];
     };
     BackupDestinationResponse: {
       destination: components["schemas"]["BackupDestination"];
+    };
+    BackupFileChange: {
+      after?: components["schemas"]["BackupFileEntry"];
+      before?: components["schemas"]["BackupFileEntry"];
+      /** @enum {string} */
+      change: "added" | "removed" | "modified";
+      content_changed: boolean;
+      metadata_changed: boolean;
+      path: string;
+    };
+    BackupFileComparison: {
+      /** Format: int32 */
+      added: number;
+      index_available: boolean;
+      items: components["schemas"]["BackupFileChange"][];
+      /** Format: int32 */
+      limit: number;
+      /** Format: int32 */
+      modified: number;
+      /** Format: int32 */
+      offset: number;
+      /** Format: int32 */
+      removed: number;
+      /** Format: int32 */
+      total: number;
+    };
+    BackupFileEntry: {
+      /** Format: int32 */
+      gid: number;
+      link_target?: string;
+      metadata_sha256?: string;
+      /** Format: int64 */
+      mode: number;
+      /** Format: date-time */
+      modified_at: string;
+      path: string;
+      sha256?: string;
+      /** Format: int64 */
+      size_bytes: number;
+      /** @enum {string} */
+      type: "file" | "directory" | "symlink" | "hardlink";
+      /** Format: int32 */
+      uid: number;
+    };
+    BackupFileIndex: {
+      entries: components["schemas"]["BackupFileEntry"][];
+      source_id: string;
+      /** Format: int32 */
+      version: number;
+    };
+    BackupFileSelection: {
+      path: string;
+      source_id: string;
+    };
+    BackupGlobalCoverageResponse: {
+      stacks: components["schemas"]["BackupStackCoverage"][];
     };
     BackupJobResponse: {
       job: components["schemas"]["Job"];
@@ -475,6 +632,8 @@ export interface components {
       images?: string[];
       plan_id: string;
       run_id: string;
+      /** Format: int64 */
+      service_downtime_seconds?: number;
       sources: components["schemas"]["BackupManifestSource"][];
       stacklab_version: string;
       /** Format: int32 */
@@ -485,7 +644,12 @@ export interface components {
       aliases?: components["schemas"]["BackupSource"][];
       archive: boolean;
       consumers?: components["schemas"]["BackupWriter"][];
+      /** Format: int32 */
+      entry_count?: number;
       file_name?: string;
+      index_path?: string;
+      /** Format: int32 */
+      index_version?: number;
       original_path: string;
       saved_path: string;
       /** Format: int64 */
@@ -497,6 +661,7 @@ export interface components {
     BackupOverview: {
       destinations: components["schemas"]["BackupDestination"][];
       plans: components["schemas"]["BackupPlan"][];
+      protection: components["schemas"]["BackupPlanProtection"][];
       rclone_available: boolean;
       restic_available: boolean;
       runs: components["schemas"]["BackupRun"][];
@@ -517,8 +682,31 @@ export interface components {
       /** Format: int32 */
       stop_timeout_seconds: number;
     };
+    BackupPlanProtection: {
+      copies: components["schemas"]["BackupCopyProtection"][];
+      /** Format: int32 */
+      current_copies: number;
+      /** Format: int32 */
+      expected_copies: number;
+      /** Format: date-time */
+      last_capture_at?: string;
+      latest_run_id?: string;
+      /** Format: date-time */
+      next_run_at?: string;
+      plan_id: string;
+      plan_name: string;
+      state: string;
+    };
     BackupPlanResponse: {
       plan: components["schemas"]["BackupPlan"];
+    };
+    BackupPreflight: {
+      sources: components["schemas"]["BackupManifestSource"][];
+      warnings: string[];
+      writers: components["schemas"]["BackupWriter"][];
+    };
+    BackupRestoreLibraryResponse: {
+      items: components["schemas"]["BackupRestoreResult"][];
     };
     BackupRestoreManifestResponse: {
       manifest: components["schemas"]["BackupManifest"];
@@ -535,21 +723,32 @@ export interface components {
       writers: components["schemas"]["BackupWriter"][];
     };
     BackupRestoreRequest: {
+      files?: components["schemas"]["BackupFileSelection"][];
       includes?: string[];
       mappings?: components["schemas"]["BackupRestoreMapping"][];
+      restore_id?: string;
       restored_directory?: string;
       resume_services?: boolean;
       review_token?: string;
       snapshot_id?: string;
+      source_ids?: string[];
       target?: string;
       test?: boolean;
     };
     BackupRestoreResult: {
+      available: boolean;
+      /** Format: date-time */
+      created_at: string;
       destination_id: string;
+      id: string;
+      job_id?: string;
       manifest?: components["schemas"]["BackupManifest"];
+      selected_files?: components["schemas"]["BackupFileSelection"][];
       snapshot_id: string;
+      source_ids?: string[];
       target: string;
       test: boolean;
+      unavailable_reason?: string;
     };
     BackupRestoreReview: {
       /** Format: date-time */
@@ -566,18 +765,25 @@ export interface components {
       weekly: number;
     };
     BackupRun: {
+      /** Format: double */
+      capture_duration_seconds?: number;
       capture_state: string;
       /** Format: date-time */
       captured_at?: string;
+      /** Format: date-time */
+      completed_at?: string;
       copies: components["schemas"]["BackupCopyResult"][];
       /** Format: date-time */
       created_at: string;
+      /** Format: double */
+      duration_seconds?: number;
       error?: string;
       /** Format: date-time */
       expires_at: string;
       id: string;
       job_id: string;
       manifest?: components["schemas"]["BackupManifest"];
+      phase: string;
       plan_id: string;
       plan_name: string;
       state: string;
@@ -591,11 +797,22 @@ export interface components {
     };
     BackupSchedule: {
       /** @enum {string} */
-      frequency: "manual" | "daily" | "weekly";
+      frequency: "manual" | "interval" | "daily" | "weekly";
+      /** Format: int32 */
+      interval_hours?: number;
       time?: string;
       timezone?: string;
       /** Format: int32 */
       weekday?: number;
+    };
+    BackupSchedulePreview: {
+      next_occurrences: string[];
+      timezone: string;
+    };
+    BackupSchedulePreviewRequest: {
+      /** @default 5 */
+      count?: number;
+      schedule: components["schemas"]["BackupSchedule"];
     };
     BackupSecrets: {
       access_key_id?: string;
@@ -629,6 +846,13 @@ export interface components {
     };
     BackupSourcesResponse: {
       items: components["schemas"]["BackupSource"][];
+    };
+    BackupStackCoverage: {
+      error?: string;
+      plans: components["schemas"]["BackupPlan"][];
+      sources: components["schemas"]["BackupSource"][];
+      stack_id: string;
+      stack_name: string;
     };
     BackupWriter: {
       container_id: string;
@@ -2163,6 +2387,21 @@ export interface operations {
       503: components["responses"]["ErrorInvalidState"];
     };
   };
+  /** @description Aggregate configured source coverage. Discovery failures are reported per stack; configuration coverage does not prove that a copy is current. */
+  getBackupCoverage: {
+    responses: {
+      /** @description Successful response. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BackupGlobalCoverageResponse"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
+    };
+  };
   createBackupDestination: {
     requestBody: {
       content: {
@@ -2283,6 +2522,26 @@ export interface operations {
       503: components["responses"]["ErrorInvalidState"];
     };
   };
+  /** @description Queue repository prune under the existing repository and native restic locks. */
+  pruneBackupDestination: {
+    parameters: {
+      path: {
+        destinationId: string;
+      };
+    };
+    responses: {
+      /** @description Successful response. */
+      202: {
+        content: {
+          "application/json": components["schemas"]["BackupJobResponse"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
+    };
+  };
   restoreBackupRepository: {
     parameters: {
       path: {
@@ -2357,6 +2616,63 @@ export interface operations {
       409: components["responses"]["ErrorConflict"];
       500: components["responses"]["ErrorInternal"];
       503: components["responses"]["ErrorInvalidState"];
+    };
+  };
+  /** @description Compare captured file content and metadata against the baseline snapshot. No live source traversal is performed. */
+  compareBackupSnapshotFiles: {
+    parameters: {
+      query: {
+        base_snapshot_id: string;
+        source_id: string;
+        path?: string;
+        search?: string;
+        offset?: number;
+        limit?: number;
+      };
+      path: {
+        destinationId: string;
+        snapshotId: string;
+      };
+    };
+    responses: {
+      /** @description Successful response. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BackupFileComparison"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
+    };
+  };
+  /** @description Browse the bounded encrypted file index without downloading source archives. Older snapshots report index_available=false and need isolated restore for local browsing. */
+  getBackupSnapshotFiles: {
+    parameters: {
+      query?: {
+        source_id?: string;
+        path?: string;
+        search?: string;
+        offset?: number;
+        limit?: number;
+      };
+      path: {
+        destinationId: string;
+        snapshotId: string;
+      };
+    };
+    responses: {
+      /** @description Successful response. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BackupCatalogPage"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
     };
   };
   testBackupRepository: {
@@ -2472,6 +2788,26 @@ export interface operations {
       503: components["responses"]["ErrorInvalidState"];
     };
   };
+  /** @description Resolve current sources, shared writers and warnings. Execution resolves them again; this read does not authorize or start a backup. */
+  getBackupPreflight: {
+    parameters: {
+      path: {
+        planId: string;
+      };
+    };
+    responses: {
+      /** @description Successful response. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BackupPreflight"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
+    };
+  };
   runBackupPlan: {
     parameters: {
       path: {
@@ -2516,6 +2852,76 @@ export interface operations {
       404: components["responses"]["ErrorNotFound"];
     };
   };
+  /** @description List successfully registered isolated recovery results, including availability and partial-file selection. Legacy entries receive stable IDs. */
+  getBackupRestores: {
+    responses: {
+      /** @description Successful response. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BackupRestoreLibraryResponse"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
+    };
+  };
+  /** @description Stream one regular file from a registered isolated recovery as a private attachment. Arbitrary host paths and symlinks are rejected. */
+  downloadRestoredBackupFile: {
+    parameters: {
+      query: {
+        source_id: string;
+        path: string;
+      };
+      path: {
+        restoreId: string;
+      };
+    };
+    responses: {
+      /** @description Private attachment containing the exact recovered file bytes. */
+      200: {
+        headers: {
+          "Cache-Control"?: string;
+          "Content-Disposition"?: string;
+        };
+        content: {
+          "application/octet-stream": string;
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
+    };
+  };
+  /** @description Browse locally recovered archives, including snapshots without an index. Partial results expose only selected files. */
+  getRestoredBackupFiles: {
+    parameters: {
+      query?: {
+        source_id?: string;
+        path?: string;
+        search?: string;
+        offset?: number;
+        limit?: number;
+      };
+      path: {
+        restoreId: string;
+      };
+    };
+    responses: {
+      /** @description Successful response. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BackupCatalogPage"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
+    };
+  };
   retryBackupRun: {
     parameters: {
       path: {
@@ -2541,6 +2947,26 @@ export interface operations {
       409: components["responses"]["ErrorConflict"];
       500: components["responses"]["ErrorInternal"];
       503: components["responses"]["ErrorInvalidState"];
+    };
+  };
+  /** @description Preview future occurrences using the scheduler calendar and interval rules. Read-only computation protected by the normal same-origin policy. */
+  previewBackupSchedule: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["BackupSchedulePreviewRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful response. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BackupSchedulePreview"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
     };
   };
   getBackupSources: {

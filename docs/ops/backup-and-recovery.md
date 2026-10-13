@@ -31,7 +31,8 @@ capture, retained retries and a recovery exercise.
 
 ## Configure Copies
 
-Open **Backups**, add a destination and store its repository password in a
+Open **Backups → Destinations**, follow connection, credentials and verification,
+and store the repository password in a
 password manager independent of this host. Also retain endpoint/bucket/path,
 transport credentials, SSH host keys, or the authorized Drive configuration.
 The repository cannot unlock itself using a password stored only inside it.
@@ -64,6 +65,29 @@ writers. Review newly added service mounts in the stack's **Backups** tab.
 Assign destinations with independent schedules and retention. Run the plan
 manually before relying on its schedule and perform an isolated restore test.
 
+**Protection** is the default view. Check expected versus current copies and
+last capture time, then inspect uncovered sources separately. A configured plan
+alone does not establish protection. Manual plans show age; scheduled plans
+show the next occurrence and overdue copies. Changing the selected data requires
+a fresh capture. Use **History** to filter by plan, destination, outcome or date
+and inspect capture, upload, verification and retention separately. Before a
+manual run, review the current affected services, including shared consumers.
+Stop-mode services resume after capture and archive validation; file indexing
+and uploads then continue against the prepared bytes. Upload file counters count
+recovery objects, while the file browser describes application data.
+
+Choose every N hours (1–168), daily or weekly schedules. Hourly intervals are
+anchored in UTC; calendar schedules use the chosen timezone. The editor previews
+actual upcoming times. Configure repository integrity checks separately from
+backup cadence and choose metadata, 10% sample or full data read. Data reads can
+incur provider transfer charges. Independent prune schedules move pack cleanup
+out of the backup job; without one, retention keeps the existing immediate
+forget-and-prune behavior. Automatic isolated restore tests remain future work
+until their disk quota and cleanup policy are defined.
+Saving a new or changed schedule waits for its next future occurrence; use
+**Run now** for an immediate backup. An existing unchanged schedule catches up
+one missed occurrence after restart.
+
 ## Failures And Retrying
 
 Review the parent job and each destination result. Upload, verification and
@@ -86,8 +110,19 @@ repository, not the local staging directories.
 
 ## Reviewed Online Recovery
 
-Use isolated restore first, then **Review stack recovery**. Load that registered
-restore directory, select source archives and map them to explicit directories
+Open **Recovery**, select a destination and snapshot, and browse its sources and
+files. Compare snapshots when investigating a changed file. Restore the whole
+set, selected sources or selected regular files into an isolated result. The
+current format downloads each containing source archive; review the displayed
+transfer estimate even when selecting one small file. Older snapshots without
+indexes become browsable after isolated restore. Indexes support up to 100,000
+entries and 12 MiB of metadata per source; an oversized new source index fails
+capture explicitly. Search includes descendants, and snapshot comparison covers
+the complete source or chosen subtree, including content and metadata changes.
+
+The completed job opens its registered result in Recovery. Download individual
+files directly or choose **Review stack recovery** for complete source restores;
+partial-file results are inspection only. Select source archives and map them to explicit directories
 or existing local Docker volumes. Review affected services and overwritten
 content. Confirm by typing `RESTORE`; the confirmation is single-use and expires
 after ten minutes. Services remain stopped by default. Resume them only after

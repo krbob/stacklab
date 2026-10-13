@@ -19,6 +19,15 @@ type domainRoute struct {
 
 func domainRouteContract() []domainRoute {
 	return []domainRoute{
+		{http.MethodGet, "/api/backups/coverage", "GET /api/backups/coverage"},
+		{http.MethodPost, "/api/backups/schedule-preview", "POST /api/backups/schedule-preview"},
+		{http.MethodGet, "/api/backups/plans/demo/preflight", "GET /api/backups/plans/{planId}/preflight"},
+		{http.MethodPost, "/api/backups/destinations/demo/prune", "POST /api/backups/destinations/{destinationId}/prune"},
+		{http.MethodGet, "/api/backups/destinations/demo/snapshots/demo/files", "GET /api/backups/destinations/{destinationId}/snapshots/{snapshotId}/files"},
+		{http.MethodGet, "/api/backups/destinations/demo/snapshots/demo/compare", "GET /api/backups/destinations/{destinationId}/snapshots/{snapshotId}/compare"},
+		{http.MethodGet, "/api/backups/restores", "GET /api/backups/restores"},
+		{http.MethodGet, "/api/backups/restores/demo/files", "GET /api/backups/restores/{restoreId}/files"},
+		{http.MethodGet, "/api/backups/restores/demo/download", "GET /api/backups/restores/{restoreId}/download"},
 		{http.MethodGet, "/api/backups/restore-manifest", "GET /api/backups/restore-manifest"},
 		{http.MethodPost, "/api/backups/destinations/demo/restore-preview", "POST /api/backups/destinations/{destinationId}/restore-preview"},
 		{http.MethodGet, "/api/backups/filesystem", "GET /api/backups/filesystem"},
@@ -122,8 +131,8 @@ func TestHandlerRegistersDomainRouteContract(t *testing.T) {
 	handler.registerRoutes()
 	routes := domainRouteContract()
 
-	if len(routes) != 93 {
-		t.Fatalf("route contract contains %d operations, want 93", len(routes))
+	if len(routes) != 102 {
+		t.Fatalf("route contract contains %d operations, want 102", len(routes))
 	}
 	for _, route := range routes {
 		route := route
@@ -263,8 +272,8 @@ func TestDomainRoutesPreserveAuthenticationPolicy(t *testing.T) {
 			t.Errorf("protected route %s returned %d, want %d", route.pattern, response.Code, http.StatusUnauthorized)
 		}
 	}
-	if protectedCount != 86 {
-		t.Fatalf("protected route count = %d, want 86", protectedCount)
+	if protectedCount != 95 {
+		t.Fatalf("protected route count = %d, want 95", protectedCount)
 	}
 }
 

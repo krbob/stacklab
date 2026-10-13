@@ -36,6 +36,18 @@ type Destination struct {
 	CredentialsConfigured bool       `json:"credentials_configured"`
 	LastCheckAt           *time.Time `json:"last_check_at,omitempty"`
 	LastCheckPolicy       string     `json:"last_check_policy,omitempty"`
+	CheckSchedule         Schedule   `json:"check_schedule"`
+	CheckReadData         string     `json:"check_read_data"`
+	PruneSchedule         Schedule   `json:"prune_schedule"`
+	LastCheckScheduledAt  *time.Time `json:"last_check_scheduled_at,omitempty"`
+	LastPruneScheduledAt  *time.Time `json:"last_prune_scheduled_at,omitempty"`
+	LastPruneAt           *time.Time `json:"last_prune_at,omitempty"`
+	CheckStatus           string     `json:"check_status,omitempty"`
+	CheckError            string     `json:"check_error,omitempty"`
+	LastOperation         string     `json:"last_operation,omitempty"`
+	LastOperationStatus   string     `json:"last_operation_status,omitempty"`
+	LastOperationError    string     `json:"last_operation_error,omitempty"`
+	LastOperationAt       *time.Time `json:"last_operation_at,omitempty"`
 	LastRestoreTestAt     *time.Time `json:"last_restore_test_at,omitempty"`
 	LastSuccessAt         *time.Time `json:"last_success_at,omitempty"`
 	Status                string     `json:"status"`
@@ -49,13 +61,17 @@ type DestinationInput struct {
 	ExpectedFilesystem string   `json:"expected_filesystem,omitempty"`
 	Region             string   `json:"region,omitempty"`
 	Secrets            *Secrets `json:"secrets,omitempty"`
+	CheckSchedule      Schedule `json:"check_schedule"`
+	CheckReadData      string   `json:"check_read_data"`
+	PruneSchedule      Schedule `json:"prune_schedule"`
 }
 
 type Schedule struct {
-	Frequency string `json:"frequency"`          // manual, daily, weekly
-	Time      string `json:"time,omitempty"`     // HH:MM
-	Weekday   int    `json:"weekday,omitempty"`  // Sunday = 0
-	Timezone  string `json:"timezone,omitempty"` // IANA zone, defaults host local
+	Frequency     string `json:"frequency"`          // manual, interval, daily, weekly
+	Time          string `json:"time,omitempty"`     // HH:MM
+	Weekday       int    `json:"weekday,omitempty"`  // Sunday = 0
+	Timezone      string `json:"timezone,omitempty"` // IANA zone, defaults host local
+	IntervalHours int    `json:"interval_hours,omitempty"`
 }
 
 type Retention struct {
@@ -85,28 +101,40 @@ type Plan struct {
 }
 
 type CopyResult struct {
-	DestinationID string     `json:"destination_id"`
-	State         string     `json:"state"`
-	SnapshotID    string     `json:"snapshot_id,omitempty"`
-	UploadedAt    *time.Time `json:"uploaded_at,omitempty"`
-	Verification  string     `json:"verification"`
-	Retention     string     `json:"retention"`
-	Error         string     `json:"error,omitempty"`
+	DestinationID   string     `json:"destination_id"`
+	State           string     `json:"state"`
+	SnapshotID      string     `json:"snapshot_id,omitempty"`
+	UploadedAt      *time.Time `json:"uploaded_at,omitempty"`
+	Verification    string     `json:"verification"`
+	Retention       string     `json:"retention"`
+	Error           string     `json:"error,omitempty"`
+	StartedAt       *time.Time `json:"started_at,omitempty"`
+	CompletedAt     *time.Time `json:"completed_at,omitempty"`
+	DurationSeconds float64    `json:"duration_seconds,omitempty"`
+	BytesProcessed  int64      `json:"bytes_processed,omitempty"`
+	BytesTotal      int64      `json:"bytes_total,omitempty"`
+	FilesProcessed  int64      `json:"files_processed,omitempty"`
+	FilesTotal      int64      `json:"files_total,omitempty"`
+	BytesAdded      int64      `json:"bytes_added,omitempty"`
 }
 
 type Run struct {
-	ID           string       `json:"id"`
-	JobID        string       `json:"job_id"`
-	PlanID       string       `json:"plan_id"`
-	PlanName     string       `json:"plan_name"`
-	State        string       `json:"state"`
-	CaptureState string       `json:"capture_state"`
-	CapturedAt   *time.Time   `json:"captured_at,omitempty"`
-	CreatedAt    time.Time    `json:"created_at"`
-	ExpiresAt    time.Time    `json:"expires_at"`
-	Copies       []CopyResult `json:"copies"`
-	Manifest     *Manifest    `json:"manifest,omitempty"`
-	Error        string       `json:"error,omitempty"`
+	ID                     string       `json:"id"`
+	JobID                  string       `json:"job_id"`
+	PlanID                 string       `json:"plan_id"`
+	PlanName               string       `json:"plan_name"`
+	State                  string       `json:"state"`
+	CaptureState           string       `json:"capture_state"`
+	Phase                  string       `json:"phase"`
+	CompletedAt            *time.Time   `json:"completed_at,omitempty"`
+	CaptureDurationSeconds float64      `json:"capture_duration_seconds,omitempty"`
+	DurationSeconds        float64      `json:"duration_seconds,omitempty"`
+	CapturedAt             *time.Time   `json:"captured_at,omitempty"`
+	CreatedAt              time.Time    `json:"created_at"`
+	ExpiresAt              time.Time    `json:"expires_at"`
+	Copies                 []CopyResult `json:"copies"`
+	Manifest               *Manifest    `json:"manifest,omitempty"`
+	Error                  string       `json:"error,omitempty"`
 	// Plan preserves selection and retention when the operator edits a plan later.
 	Plan Plan `json:"-"`
 }
@@ -121,12 +149,13 @@ type Snapshot struct {
 }
 
 type Overview struct {
-	Destinations     []Destination `json:"destinations"`
-	Plans            []Plan        `json:"plans"`
-	Runs             []Run         `json:"runs"`
-	ResticAvailable  bool          `json:"restic_available"`
-	RcloneAvailable  bool          `json:"rclone_available"`
-	StagingDirectory string        `json:"staging_directory"`
+	Destinations     []Destination    `json:"destinations"`
+	Plans            []Plan           `json:"plans"`
+	Runs             []Run            `json:"runs"`
+	Protection       []PlanProtection `json:"protection"`
+	ResticAvailable  bool             `json:"restic_available"`
+	RcloneAvailable  bool             `json:"rclone_available"`
+	StagingDirectory string           `json:"staging_directory"`
 }
 
 type Capturer interface {
@@ -142,7 +171,11 @@ type CheckRequest struct {
 } // metadata, all, subset
 
 type RestoreRequest struct {
-	RestoredDirectory string           `json:"restored_directory,omitempty"`
+	RestoredDirectory string          `json:"restored_directory,omitempty"`
+	RestoreID         string          `json:"restore_id,omitempty"`
+	SourceIDs         []string        `json:"source_ids,omitempty"`
+	Files             []FileSelection `json:"files,omitempty"`
+	jobID             string
 	Mappings          []RestoreMapping `json:"mappings,omitempty"`
 	ReviewToken       string           `json:"review_token,omitempty"`
 	ResumeServices    bool             `json:"resume_services,omitempty"`
@@ -153,9 +186,16 @@ type RestoreRequest struct {
 }
 
 type RestoreResult struct {
-	DestinationID string    `json:"destination_id"`
-	SnapshotID    string    `json:"snapshot_id"`
-	Target        string    `json:"target"`
-	Test          bool      `json:"test"`
-	Manifest      *Manifest `json:"manifest,omitempty"`
+	Available         bool            `json:"available"`
+	UnavailableReason string          `json:"unavailable_reason,omitempty"`
+	ID                string          `json:"id"`
+	JobID             string          `json:"job_id,omitempty"`
+	CreatedAt         time.Time       `json:"created_at"`
+	SelectedFiles     []FileSelection `json:"selected_files,omitempty"`
+	SourceIDs         []string        `json:"source_ids,omitempty"`
+	DestinationID     string          `json:"destination_id"`
+	SnapshotID        string          `json:"snapshot_id"`
+	Target            string          `json:"target"`
+	Test              bool            `json:"test"`
+	Manifest          *Manifest       `json:"manifest,omitempty"`
 }

@@ -19,11 +19,14 @@ func (s *Service) StartRepositoryJob(ctx context.Context, id, action, requestedB
 	if s.initErr != nil {
 		return store.Job{}, s.initErr
 	}
+	if s.activeRepositoryReads > 0 {
+		return store.Job{}, ErrBusy
+	}
 	if _, ok := s.state.Destinations[id]; !ok {
 		return store.Job{}, ErrNotFound
 	}
 	switch action {
-	case "backup_destination_test", "backup_repository_init", "backup_check", "backup_restore":
+	case "backup_destination_test", "backup_repository_init", "backup_check", "backup_restore", "backup_prune":
 	default:
 		return store.Job{}, fmt.Errorf("%w: unsupported repository operation", ErrInvalid)
 	}
@@ -45,12 +48,33 @@ func (s *Service) ExecuteRepositoryJob(ctx context.Context, job store.Job, id, a
 	defer func() {
 		s.mu.Lock()
 		if ok {
+			d.LastOperation = action
+			d.LastOperationAt = s.timePointer()
+			d.LastOperationStatus, d.LastOperationError = "succeeded", ""
 			if operationErr != nil {
-				d.Status = "error"
-				d.Error = operationErr.Error()
-			} else {
-				d.Status = "available"
-				d.Error = ""
+				d.LastOperationStatus = "failed"
+				d.LastOperationError = operationErr.Error()
+			}
+			// Validation/review/extraction errors do not establish repository
+			// unavailability. Integrity and the last operation are independent.
+			if action == "backup_destination_test" || action == "backup_repository_init" {
+				if operationErr != nil {
+					d.Status = "error"
+					d.Error = operationErr.Error()
+				} else {
+					d.Status = "available"
+					d.Error = ""
+				}
+			}
+			if action == "backup_check" {
+				d.CheckStatus, d.CheckError = "verified", ""
+				if operationErr != nil {
+					d.CheckStatus = "failed"
+					d.CheckError = operationErr.Error()
+				} else {
+					d.Status = "available"
+					d.Error = ""
+				}
 			}
 			s.state.Destinations[id] = d
 			if err := s.persist(context.Background()); err != nil && operationErr == nil {
@@ -73,20 +97,30 @@ func (s *Service) ExecuteRepositoryJob(ctx context.Context, job store.Job, id, a
 	case "backup_check":
 		operationErr = s.check(ctx, d, check.ReadData)
 		if operationErr == nil {
-			d.LastCheckAt = nowPointer()
+			d.LastCheckAt = s.timePointer()
 			d.LastCheckPolicy = check.ReadData
 			if d.LastCheckPolicy == "" {
 				d.LastCheckPolicy = "metadata"
 			}
 		}
+	case "backup_prune":
+		_, operationErr = s.restic(ctx, d, "", "prune")
+		if operationErr == nil {
+			d.LastPruneAt = s.timePointer()
+		}
 	case "backup_restore":
-		if restore.RestoredDirectory != "" || len(restore.Mappings) > 0 {
-			result, operationErr = s.applyReviewedRestore(ctx, d, restore)
+		restore.jobID = job.ID
+		if restore.RestoredDirectory != "" || restore.RestoreID != "" || len(restore.Mappings) > 0 {
+			if restore.Test {
+				operationErr = fmt.Errorf("%w: restore tests require a complete isolated recovery", ErrInvalid)
+			} else {
+				result, operationErr = s.applyReviewedRestore(ctx, d, restore)
+			}
 		} else {
 			result, operationErr = s.restore(ctx, d, restore)
 		}
 		if operationErr == nil && restore.Test {
-			d.LastRestoreTestAt = nowPointer()
+			d.LastRestoreTestAt = s.timePointer()
 		}
 		if operationErr == nil {
 			s.event(ctx, job, "Recovered files are available in "+result.Target+".")
@@ -94,7 +128,7 @@ func (s *Service) ExecuteRepositoryJob(ctx context.Context, job store.Job, id, a
 	default:
 		operationErr = fmt.Errorf("%w: unsupported repository operation", ErrInvalid)
 	}
-	if operationErr == nil && (action == "backup_check" || action == "backup_destination_test") {
+	if operationErr == nil && (action == "backup_check" || action == "backup_destination_test" || action == "backup_prune") {
 		if output, statsErr := s.restic(ctx, d, "", "stats", "--mode", "raw-data"); statsErr == nil {
 			var stats struct {
 				TotalSize int64 `json:"total_size"`
@@ -108,12 +142,51 @@ func (s *Service) ExecuteRepositoryJob(ctx context.Context, job store.Job, id, a
 }
 
 func (s *Service) restore(ctx context.Context, d Destination, request RestoreRequest) (RestoreResult, error) {
-	result := RestoreResult{DestinationID: d.ID, SnapshotID: request.SnapshotID, Test: request.Test}
+	result := RestoreResult{ID: newID("restore_"), JobID: request.jobID, CreatedAt: s.now(), Available: true, DestinationID: d.ID, SnapshotID: request.SnapshotID, Test: request.Test}
 	if !snapshotID.MatchString(request.SnapshotID) {
 		return result, fmt.Errorf("%w: snapshot_id must be a hexadecimal snapshot ID", ErrInvalid)
 	}
-	if request.Test && len(request.Includes) > 0 {
+	if request.Test && (len(request.Includes) > 0 || len(request.SourceIDs) > 0 || len(request.Files) > 0) {
 		return result, fmt.Errorf("%w: restore tests require the full recovery set", ErrInvalid)
+	}
+	if len(request.SourceIDs) > 1000 || len(request.Files) > 100 || len(request.Includes) > 1000 {
+		return result, fmt.Errorf("%w: restore selection is too large", ErrInvalid)
+	}
+	if len(request.Includes) > 0 && (len(request.SourceIDs) > 0 || len(request.Files) > 0) || len(request.SourceIDs) > 0 && len(request.Files) > 0 {
+		return result, fmt.Errorf("%w: choose sources, files, or legacy paths, not multiple selection modes", ErrInvalid)
+	}
+	exactSelection := []string{}
+	if len(request.SourceIDs) > 0 || len(request.Files) > 0 {
+		manifest, selectionErr := s.snapshotManifest(ctx, d, request.SnapshotID)
+		if selectionErr != nil {
+			return result, selectionErr
+		}
+		chosen := map[string]bool{}
+		for _, id := range request.SourceIDs {
+			chosen[id] = true
+		}
+		for index := range request.Files {
+			selected := &request.Files[index]
+			normalized, pathErr := catalogPath(selected.Path, false)
+			if pathErr != nil {
+				return result, pathErr
+			}
+			selected.Path = normalized
+			chosen[selected.SourceID] = true
+		}
+		for id := range chosen {
+			source, sourceErr := catalogSource(manifest, id)
+			if sourceErr != nil || !source.Archive || strings.ContainsAny(source.SavedPath, "*?[\\") {
+				return result, fmt.Errorf("%w: unknown or unsupported selected source", ErrInvalid)
+			}
+			request.Includes = append(request.Includes, "/"+source.SavedPath)
+			if source.IndexPath != "" {
+				request.Includes = append(request.Includes, "/"+source.IndexPath)
+			}
+		}
+		exactSelection = append(exactSelection, request.Includes...)
+		exactSelection = append(exactSelection, "/manifest.json")
+		result.SelectedFiles = append([]FileSelection(nil), request.Files...)
 	}
 	target := request.Target
 	if target == "" {
@@ -154,17 +227,11 @@ func (s *Service) restore(ctx context.Context, d Destination, request RestoreReq
 	}
 	// Reserve enough room for the downloaded archives and their extracted
 	// content. Repository snapshots stay untouched if local capacity is too low.
-	statsOutput, statsErr := s.restic(ctx, d, "", "stats", "--mode", "restore-size", request.SnapshotID)
-	if statsErr != nil {
-		return result, statsErr
+	restoreBytes, sizeErr := s.restoreSize(ctx, d, request.SnapshotID, exactSelection)
+	if sizeErr != nil {
+		return result, sizeErr
 	}
-	var restoreStats struct {
-		TotalSize int64 `json:"total_size"`
-	}
-	if json.Unmarshal(statsOutput, &restoreStats) != nil || restoreStats.TotalSize < 0 || restoreStats.TotalSize > 1<<60 {
-		return result, fmt.Errorf("invalid restore size estimate")
-	}
-	if err = checkCaptureSpace(parent, restoreStats.TotalSize*2); err != nil {
+	if err = checkCaptureSpace(parent, restoreBytes*2); err != nil {
 		return result, fmt.Errorf("insufficient space for isolated restore: %w", err)
 	}
 	if err = os.Mkdir(target, 0o700); err != nil {
@@ -217,8 +284,23 @@ func (s *Service) restore(ctx context.Context, d Destination, request RestoreReq
 			return result, fmt.Errorf("insufficient space to extract recovery source: %w", err)
 		}
 		extractedSources++
+		result.SourceIDs = append(result.SourceIDs, source.Source.ID)
 		filesTarget := filepath.Join(target, "files", source.Source.ID)
-		if err = ExtractArchive(ctx, archive, filesTarget, false); err != nil {
+		if len(request.Files) > 0 {
+			paths := []string{}
+			for _, selected := range request.Files {
+				if selected.SourceID == source.Source.ID {
+					paths = append(paths, selected.Path)
+				}
+			}
+			if len(paths) == 0 {
+				continue
+			}
+			err = ExtractSelectedFiles(ctx, archive, filesTarget, paths)
+		} else {
+			err = ExtractArchive(ctx, archive, filesTarget, false)
+		}
+		if err != nil {
 			return result, fmt.Errorf("isolated source extraction failed: %w", err)
 		}
 	}
@@ -226,16 +308,8 @@ func (s *Service) restore(ctx context.Context, d Destination, request RestoreReq
 	if len(manifest.Sources) > 0 && extractedSources == 0 {
 		return result, fmt.Errorf("%w: restore selection contains no recovery archives", ErrInvalid)
 	}
-	s.mu.Lock()
-	if s.state.Restores == nil {
-		s.state.Restores = map[string]RestoreResult{}
-	}
-	s.state.Restores[target] = result
-	s.state.RestoreOrder = append(s.state.RestoreOrder, target)
-	persistErr := s.persist(context.Background())
-	s.mu.Unlock()
-	if persistErr != nil {
-		return result, persistErr
+	if err = s.registerRestoreResult(context.Background(), result); err != nil {
+		return result, err
 	}
 	return result, nil
 }
@@ -276,59 +350,6 @@ func isWithin(root, path string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-func validateSchedule(schedule Schedule) error {
-	switch schedule.Frequency {
-	case "manual":
-		return nil
-	case "daily", "weekly":
-	default:
-		return fmt.Errorf("%w: schedule frequency must be manual, daily, or weekly", ErrInvalid)
-	}
-	if _, err := time.Parse("15:04", schedule.Time); err != nil {
-		return fmt.Errorf("%w: schedule time must be HH:MM", ErrInvalid)
-	}
-	if schedule.Weekday < 0 || schedule.Weekday > 6 {
-		return fmt.Errorf("%w: schedule weekday must be 0 to 6", ErrInvalid)
-	}
-	if schedule.Timezone != "" {
-		if _, err := time.LoadLocation(schedule.Timezone); err != nil {
-			return fmt.Errorf("%w: unknown schedule timezone", ErrInvalid)
-		}
-	}
-	return nil
-}
-
-// latestDue uses calendar dates instead of 24-hour arithmetic, so daily and
-// weekly schedules remain at the requested local wall time across DST changes.
-func latestDue(schedule Schedule, now time.Time) (time.Time, bool) {
-	if schedule.Frequency == "manual" || schedule.Frequency == "" {
-		return time.Time{}, false
-	}
-	location := time.Local
-	if schedule.Timezone != "" {
-		loaded, err := time.LoadLocation(schedule.Timezone)
-		if err != nil {
-			return time.Time{}, false
-		}
-		location = loaded
-	}
-	parsed, err := time.Parse("15:04", schedule.Time)
-	if err != nil {
-		return time.Time{}, false
-	}
-	local := now.In(location)
-	candidate := time.Date(local.Year(), local.Month(), local.Day(), parsed.Hour(), parsed.Minute(), 0, 0, location)
-	if candidate.After(now) {
-		candidate = candidate.AddDate(0, 0, -1)
-	}
-	if schedule.Frequency == "weekly" {
-		for int(candidate.Weekday()) != schedule.Weekday {
-			candidate = candidate.AddDate(0, 0, -1)
-		}
-	}
-	return candidate, true
-}
-
 // RunBackground executes at most one missed occurrence per assignment, then
 // records the next due time. A scheduler resource conflict remains due for the
 // next tick. Runs are synchronous here so shutdown waits for capture recovery.
@@ -340,6 +361,7 @@ func (s *Service) RunBackground(ctx context.Context) {
 			return
 		}
 		s.runScheduled(ctx)
+		s.runMaintenance(ctx)
 		s.cleanupExpired()
 		select {
 		case <-ctx.Done():

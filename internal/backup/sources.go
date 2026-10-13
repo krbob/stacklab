@@ -42,15 +42,16 @@ type Writer struct {
 }
 
 type Manifest struct {
-	Version         int              `json:"version"`
-	RunID           string           `json:"run_id"`
-	PlanID          string           `json:"plan_id"`
-	CapturedAt      time.Time        `json:"captured_at"`
-	Consistency     string           `json:"consistency"`
-	Sources         []ManifestSource `json:"sources"`
-	Warnings        []string         `json:"warnings,omitempty"`
-	StacklabVersion string           `json:"stacklab_version"`
-	Images          []string         `json:"images,omitempty"`
+	Version                int              `json:"version"`
+	RunID                  string           `json:"run_id"`
+	PlanID                 string           `json:"plan_id"`
+	CapturedAt             time.Time        `json:"captured_at"`
+	Consistency            string           `json:"consistency"`
+	Sources                []ManifestSource `json:"sources"`
+	Warnings               []string         `json:"warnings,omitempty"`
+	StacklabVersion        string           `json:"stacklab_version"`
+	Images                 []string         `json:"images,omitempty"`
+	ServiceDowntimeSeconds int64            `json:"service_downtime_seconds,omitempty"`
 }
 
 type ManifestSource struct {
@@ -64,6 +65,9 @@ type ManifestSource struct {
 	SizeBytes    int64    `json:"size_bytes"`
 	VolumeName   string   `json:"volume_name,omitempty"`
 	FileName     string   `json:"file_name,omitempty"`
+	IndexPath    string   `json:"index_path,omitempty"`
+	IndexVersion int      `json:"index_version,omitempty"`
+	EntryCount   int      `json:"entry_count,omitempty"`
 }
 
 type captureStackReader interface {

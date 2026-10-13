@@ -107,8 +107,8 @@ func ValidateArchive(reader io.Reader, target string) error {
 				if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
 					return statErr
 				}
-				// GNU tar --unlink-first replaces this final link without following
-				// it. Permit restoring the same safe symlink repeatedly, while
+				// The non-directory tar pass uses --unlink-first to replace this
+				// final link without following it. Permit repeated recovery, while
 				// retaining the strict prohibition on traversing link ancestors.
 				replacingFinalSymlink := current == filepath.Join(target, filepath.FromSlash(name)) && header.Typeflag == tar.TypeSymlink
 				if statErr == nil && info.Mode()&os.ModeSymlink != 0 && !replacingFinalSymlink {
@@ -210,26 +210,93 @@ func ExtractArchive(ctx context.Context, archivePath, targetPath string, preserv
 	if _, err = file.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
-	args := []string{"--extract", "--file=-", "--directory=" + tarTarget, "--acls", "--xattrs", "--xattrs-include=*", "--numeric-owner", "--same-permissions", "--delay-directory-restore", "--unlink-first"}
+	members, directories, cleanup, err := archiveMemberLists(ctx, file)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	args := []string{"--extract", "--file=-", "--directory=" + tarTarget, "--acls", "--xattrs", "--xattrs-include=*", "--numeric-owner", "--same-permissions", "--delay-directory-restore", "--no-recursion", "--no-wildcards", "--anchored", "--null", "--verbatim-files-from"}
 	if preserveOwner {
 		args = append(args, "--same-owner")
 	} else {
 		args = append(args, "--no-same-owner")
 	}
-	cmd := exec.CommandContext(ctx, tarExecutable(), args...)
-	configureCaptureProcess(cmd)
-	if pinnedDirectory != nil {
-		cmd.ExtraFiles = []*os.File{pinnedDirectory}
-	}
-	cmd.Stdin = file
-	output := limitedio.NewBuffer(32 * 1024)
-	cmd.Stdout = output
-	cmd.Stderr = output
-	cmd.Env = []string{"PATH=/usr/bin:/bin", "LC_ALL=C"}
-	if err = cmd.Run(); err != nil {
-		return fmt.Errorf("native extraction failed: %s: %w", strings.TrimSpace(output.String()), err)
+	// GNU tar --unlink-first also tries to unlink existing directories, which
+	// breaks merges into non-empty directories. Retain its safe replacement of
+	// file/hardlink inodes in the first pass, then apply directory metadata only.
+	// --no-recursion is essential: a named directory must not select its files
+	// again without --unlink-first, including existing links outside the target.
+	for index, selection := range []string{members, directories} {
+		if _, err = file.Seek(0, io.SeekStart); err != nil {
+			return err
+		}
+		passArgs := append(append([]string{}, args...), "--files-from="+selection)
+		if index == 0 {
+			passArgs = append(passArgs, "--unlink-first")
+		}
+		cmd := exec.CommandContext(ctx, tarExecutable(), passArgs...)
+		configureCaptureProcess(cmd)
+		if pinnedDirectory != nil {
+			cmd.ExtraFiles = []*os.File{pinnedDirectory}
+		}
+		cmd.Stdin = file
+		output := limitedio.NewBuffer(32 * 1024)
+		cmd.Stdout = output
+		cmd.Stderr = output
+		cmd.Env = []string{"PATH=/usr/bin:/bin", "LC_ALL=C"}
+		if err = cmd.Run(); err != nil {
+			return fmt.Errorf("native extraction failed: %s: %w", strings.TrimSpace(output.String()), err)
+		}
 	}
 	return nil
+}
+
+// Lists are private, NUL-delimited and passed as verbatim members. This preserves
+// native GNU tar sparse/ACL/xattr handling without rebuilding the archive or
+// accepting member names as command options. The complete archive is validated
+// before this helper is reached and before any target data is touched.
+func archiveMemberLists(ctx context.Context, archive *os.File) (string, string, func(), error) {
+	files := []*os.File{}
+	cleanup := func() {
+		for _, file := range files {
+			_ = file.Close()
+			_ = os.Remove(file.Name())
+		}
+	}
+	for range 2 {
+		file, err := os.CreateTemp("", ".stacklab-recovery-members-*")
+		if err != nil {
+			cleanup()
+			return "", "", nil, err
+		}
+		files = append(files, file)
+	}
+	reader := tar.NewReader(contextReader{ctx: ctx, reader: archive})
+	for {
+		header, err := reader.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			cleanup()
+			return "", "", nil, err
+		}
+		index := 0
+		if header.Typeflag == tar.TypeDir {
+			index = 1
+		}
+		if _, err = io.WriteString(files[index], header.Name+"\x00"); err != nil {
+			cleanup()
+			return "", "", nil, err
+		}
+	}
+	for _, file := range files {
+		if err := file.Close(); err != nil {
+			cleanup()
+			return "", "", nil, err
+		}
+	}
+	return files[0].Name(), files[1].Name(), cleanup, nil
 }
 
 type RestoreMapping struct {

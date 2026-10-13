@@ -196,6 +196,7 @@ func (c *NativeCapture) Prepare(ctx context.Context, plan Plan, runID, stagingDi
 		return manifest, err
 	}
 	captureCtx := ctx
+	var resumeCapturedWriters func() error
 	if plan.Consistency == "stop" {
 		seconds := plan.StopTimeoutSeconds
 		if seconds <= 0 {
@@ -209,10 +210,21 @@ func (c *NativeCapture) Prepare(ctx context.Context, plan Plan, runID, stagingDi
 			if err = c.saveJournal(runID, writers); err != nil {
 				return manifest, err
 			}
-			defer func() {
+			stoppedAt := time.Now()
+			resumed := false
+			resumeCapturedWriters = func() error {
+				if resumed {
+					return nil
+				}
 				resumeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 				defer cancel()
-				err = errors.Join(err, c.resume(resumeCtx, stopJournal{Version: 1, RunID: runID, Writers: writers}))
+				resumeErr := c.resume(resumeCtx, stopJournal{Version: 1, RunID: runID, Writers: writers})
+				manifest.ServiceDowntimeSeconds = int64(time.Since(stoppedAt).Seconds())
+				resumed = resumeErr == nil
+				return resumeErr
+			}
+			defer func() {
+				err = errors.Join(err, resumeCapturedWriters())
 			}()
 			for _, writer := range writers {
 				if stopErr := c.stopWriter(captureCtx, writer); stopErr != nil {
@@ -250,18 +262,32 @@ func (c *NativeCapture) Prepare(ctx context.Context, plan Plan, runID, stagingDi
 			return manifest, openErr
 		}
 		validationErr := ValidateArchive(captureContextReader{ctx: captureCtx, reader: file}, "")
-		closeErr := file.Close()
-		if err = errors.Join(validationErr, closeErr); err != nil {
+		if err = errors.Join(validationErr, file.Close()); err != nil {
 			return manifest, fmt.Errorf("captured source uses unsupported recovery metadata: %w", err)
 		}
 		used += size
 	}
-	manifest.Sources = sources
 	manifest.CapturedAt = time.Now().UTC()
+	// Hashing the captured bytes does not require live writers to stay stopped.
+	// Keep their downtime bounded by capture and archive validation only.
+	if resumeCapturedWriters != nil {
+		if err = resumeCapturedWriters(); err != nil {
+			return manifest, err
+		}
+	}
+	for index := range sources {
+		archive := filepath.Join(stagingDir, filepath.FromSlash(sources[index].SavedPath))
+		indexSize, indexErr := writeSourceIndex(ctx, archive, stagingDir, &sources[index], maxBytes-used)
+		if indexErr != nil {
+			return manifest, fmt.Errorf("index captured source: %w", indexErr)
+		}
+		used += indexSize
+	}
+	manifest.Sources = sources
 	images := map[string]struct{}{}
 	for _, source := range plan.Sources {
 		if source.StackID != "" {
-			compose, composeErr := c.compose(captureCtx, source.StackID)
+			compose, composeErr := c.compose(ctx, source.StackID)
 			if composeErr == nil {
 				for _, service := range compose.Services {
 					if service.Image != "" {

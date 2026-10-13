@@ -26,6 +26,46 @@ type recoveryCapturer interface {
 	ApplyRestore(context.Context, Manifest, []RestoreMapping, string, string, bool) error
 }
 
+// Both the stable-ID workflow and the legacy directory workflow must resolve
+// the same registered recovery result before any live target is reviewed.
+func (s *Service) normalizeRecoveryRequest(ctx context.Context, destinationID string, request RestoreRequest) (RestoreRequest, error) {
+	if request.Test || request.Target != "" || len(request.Includes) > 0 {
+		return request, fmt.Errorf("%w: reviewed recovery accepts source mappings; isolated restore options are not allowed", ErrInvalid)
+	}
+	var result RestoreResult
+	var err error
+	if request.RestoreID != "" {
+		result, err = s.ResolveRestore(ctx, request.RestoreID)
+		if err != nil {
+			return request, err
+		}
+		if request.RestoredDirectory != "" && filepath.Clean(request.RestoredDirectory) != filepath.Clean(result.Target) {
+			return request, fmt.Errorf("%w: recovery result and directory do not match", ErrInvalid)
+		}
+	} else {
+		if !filepath.IsAbs(request.RestoredDirectory) {
+			return request, fmt.Errorf("%w: a registered restore_id or restored_directory is required", ErrInvalid)
+		}
+		s.mu.Lock()
+		registered, ok := s.state.Restores[filepath.Clean(request.RestoredDirectory)]
+		result = clone(registered)
+		s.mu.Unlock()
+		if !ok {
+			return request, ErrNotFound
+		}
+	}
+	if result.DestinationID != destinationID || request.SnapshotID != "" && request.SnapshotID != result.SnapshotID {
+		return request, fmt.Errorf("%w: recovery result belongs to a different destination or snapshot", ErrInvalid)
+	}
+	if len(result.SelectedFiles) != 0 || len(request.Files) != 0 || len(request.SourceIDs) != 0 {
+		return request, fmt.Errorf("%w: partial file recoveries cannot be applied to live sources; restore complete sources first", ErrInvalid)
+	}
+	request.RestoreID = restoreIdentity(result)
+	request.RestoredDirectory = result.Target
+	request.SnapshotID = result.SnapshotID
+	return request, nil
+}
+
 func recoveryFingerprint(ctx context.Context, destinationID string, request RestoreRequest, manifest Manifest, preview RestorePreview) string {
 	request.ReviewToken = ""
 	data, _ := json.Marshal(struct {
@@ -110,7 +150,7 @@ func (s *Service) recoveryPreview(ctx context.Context, destinationID string, req
 			if openErr != nil {
 				return manifest, preview, openErr
 			}
-			validateErr := ValidateArchive(file, "")
+			validateErr := ValidateArchive(contextReader{ctx: ctx, reader: file}, "")
 			_ = file.Close()
 			if validateErr != nil {
 				return manifest, preview, fmt.Errorf("unsafe recovery archive: %w", validateErr)
@@ -120,6 +160,10 @@ func (s *Service) recoveryPreview(ctx context.Context, destinationID string, req
 	return manifest, preview, nil
 }
 func (s *Service) PreviewRestore(ctx context.Context, destinationID string, request RestoreRequest) (RestoreReview, error) {
+	request, err := s.normalizeRecoveryRequest(ctx, destinationID, request)
+	if err != nil {
+		return RestoreReview{}, err
+	}
 	manifest, preview, err := s.recoveryPreview(ctx, destinationID, request)
 	if err != nil {
 		return RestoreReview{}, err
@@ -147,6 +191,10 @@ func (s *Service) PreviewRestore(ctx context.Context, destinationID string, requ
 	return RestoreReview{ReviewToken: token, ExpiresAt: expires, Preview: preview}, nil
 }
 func (s *Service) applyReviewedRestore(ctx context.Context, d Destination, request RestoreRequest) (RestoreResult, error) {
+	request, err := s.normalizeRecoveryRequest(ctx, d.ID, request)
+	if err != nil {
+		return RestoreResult{}, err
+	}
 	result := RestoreResult{DestinationID: d.ID, SnapshotID: request.SnapshotID, Target: request.RestoredDirectory}
 	manifest, preview, err := s.recoveryPreview(ctx, d.ID, request)
 	if err != nil {

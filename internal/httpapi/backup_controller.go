@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"path/filepath"
@@ -16,25 +17,34 @@ type backupController struct{ *Handler }
 
 func (c *backupController) registerRoutes(mux *http.ServeMux) {
 	routes := map[string]http.HandlerFunc{
-		"GET /api/backups/restore-manifest":                              c.restoreManifest,
-		"POST /api/backups/destinations/{destinationId}/restore-preview": c.restorePreview,
-		"GET /api/backups/filesystem":                                    c.filesystem,
-		"GET /api/backups":                                               c.overview,
-		"GET /api/backups/sources":                                       c.sources,
-		"GET /api/stacks/{stackId}/backups":                              c.stackCoverage,
-		"POST /api/backups/destinations":                                 c.saveDestination,
-		"PUT /api/backups/destinations/{destinationId}":                  c.saveDestination,
-		"DELETE /api/backups/destinations/{destinationId}":               c.deleteDestination,
-		"GET /api/backups/destinations/{destinationId}/snapshots":        c.snapshots,
-		"POST /api/backups/destinations/{destinationId}/test":            c.repositoryJob,
-		"POST /api/backups/destinations/{destinationId}/initialize":      c.repositoryJob,
-		"POST /api/backups/destinations/{destinationId}/check":           c.repositoryJob,
-		"POST /api/backups/destinations/{destinationId}/restore":         c.repositoryJob,
-		"POST /api/backups/plans":                                        c.savePlan,
-		"PUT /api/backups/plans/{planId}":                                c.savePlan,
-		"DELETE /api/backups/plans/{planId}":                             c.deletePlan,
-		"POST /api/backups/plans/{planId}/run":                           c.run,
-		"POST /api/backups/runs/{runId}/retry":                           c.run,
+		"GET /api/backups/coverage":                                                    c.coverage,
+		"POST /api/backups/schedule-preview":                                           c.schedulePreview,
+		"GET /api/backups/plans/{planId}/preflight":                                    c.preflight,
+		"POST /api/backups/destinations/{destinationId}/prune":                         c.repositoryJob,
+		"GET /api/backups/destinations/{destinationId}/snapshots/{snapshotId}/files":   c.snapshotCatalog,
+		"GET /api/backups/destinations/{destinationId}/snapshots/{snapshotId}/compare": c.compareSnapshots,
+		"GET /api/backups/restores":                                                    c.restoreLibrary,
+		"GET /api/backups/restores/{restoreId}/files":                                  c.restoredCatalog,
+		"GET /api/backups/restores/{restoreId}/download":                               c.downloadRestoredFile,
+		"GET /api/backups/restore-manifest":                                            c.restoreManifest,
+		"POST /api/backups/destinations/{destinationId}/restore-preview":               c.restorePreview,
+		"GET /api/backups/filesystem":                                                  c.filesystem,
+		"GET /api/backups":                                                             c.overview,
+		"GET /api/backups/sources":                                                     c.sources,
+		"GET /api/stacks/{stackId}/backups":                                            c.stackCoverage,
+		"POST /api/backups/destinations":                                               c.saveDestination,
+		"PUT /api/backups/destinations/{destinationId}":                                c.saveDestination,
+		"DELETE /api/backups/destinations/{destinationId}":                             c.deleteDestination,
+		"GET /api/backups/destinations/{destinationId}/snapshots":                      c.snapshots,
+		"POST /api/backups/destinations/{destinationId}/test":                          c.repositoryJob,
+		"POST /api/backups/destinations/{destinationId}/initialize":                    c.repositoryJob,
+		"POST /api/backups/destinations/{destinationId}/check":                         c.repositoryJob,
+		"POST /api/backups/destinations/{destinationId}/restore":                       c.repositoryJob,
+		"POST /api/backups/plans":                                                      c.savePlan,
+		"PUT /api/backups/plans/{planId}":                                              c.savePlan,
+		"DELETE /api/backups/plans/{planId}":                                           c.deletePlan,
+		"POST /api/backups/plans/{planId}/run":                                         c.run,
+		"POST /api/backups/runs/{runId}/retry":                                         c.run,
 	}
 	for pattern, handler := range routes {
 		mux.HandleFunc(pattern, c.withAuth(c.guard(handler)))
@@ -193,6 +203,8 @@ func (c *backupController) repositoryJob(w http.ResponseWriter, r *http.Request)
 	var restore backup.RestoreRequest
 	action := "backup_destination_test"
 	switch r.Pattern {
+	case "POST /api/backups/destinations/{destinationId}/prune":
+		action = "backup_prune"
 	case "POST /api/backups/destinations/{destinationId}/initialize":
 		action = "backup_repository_init"
 	case "POST /api/backups/destinations/{destinationId}/check":
@@ -248,7 +260,9 @@ func (c *backupController) restorePreview(w http.ResponseWriter, r *http.Request
 		writeDecodeJSONError(w, err)
 		return
 	}
-	preview, err := c.backups.PreviewRestore(r.Context(), r.PathValue("destinationId"), input)
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+	preview, err := c.backups.PreviewRestore(ctx, r.PathValue("destinationId"), input)
 	if err != nil {
 		c.fail(w, err)
 		return

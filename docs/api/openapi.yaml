@@ -23,6 +23,321 @@ tags:
   - name: Jobs
   - name: Settings
 paths:
+  /backups/coverage:
+    get:
+      tags:
+      - Backups
+      operationId: getBackupCoverage
+      description: Aggregate configured source coverage. Discovery failures are reported per stack; configuration
+        coverage does not prove that a copy is current.
+      responses:
+        '200':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupGlobalCoverageResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+  /backups/schedule-preview:
+    post:
+      tags:
+      - Backups
+      operationId: previewBackupSchedule
+      description: Preview future occurrences using the scheduler calendar and interval rules. Read-only computation
+        protected by the normal same-origin policy.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupSchedulePreviewRequest'
+      responses:
+        '200':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupSchedulePreview'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+  /backups/plans/{planId}/preflight:
+    get:
+      tags:
+      - Backups
+      operationId: getBackupPreflight
+      description: Resolve current sources, shared writers and warnings. Execution resolves them again; this read
+        does not authorize or start a backup.
+      parameters:
+      - name: planId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupPreflight'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+  /backups/destinations/{destinationId}/prune:
+    post:
+      tags:
+      - Backups
+      operationId: pruneBackupDestination
+      description: Queue repository prune under the existing repository and native restic locks.
+      parameters:
+      - name: destinationId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '202':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupJobResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+  /backups/destinations/{destinationId}/snapshots/{snapshotId}/files:
+    get:
+      tags:
+      - Backups
+      operationId: getBackupSnapshotFiles
+      description: Browse the bounded encrypted file index without downloading source archives. Older snapshots report
+        index_available=false and need isolated restore for local browsing.
+      parameters:
+      - &id001
+        name: destinationId
+        in: path
+        required: true
+        schema:
+          type: string
+      - &id002
+        name: snapshotId
+        in: path
+        required: true
+        schema:
+          type: string
+      - &id003
+        name: source_id
+        in: query
+        required: false
+        schema:
+          type: string
+      - &id004
+        name: path
+        in: query
+        required: false
+        schema:
+          type: string
+      - &id005
+        name: search
+        in: query
+        required: false
+        schema:
+          type: string
+      - &id006
+        name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      - &id007
+        name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 500
+          default: 100
+      responses:
+        '200':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupCatalogPage'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+  /backups/destinations/{destinationId}/snapshots/{snapshotId}/compare:
+    get:
+      tags:
+      - Backups
+      operationId: compareBackupSnapshotFiles
+      description: Compare captured file content and metadata against the baseline snapshot. No live source traversal
+        is performed.
+      parameters:
+      - *id001
+      - *id002
+      - name: base_snapshot_id
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: source_id
+        in: query
+        required: true
+        schema:
+          type: string
+      - *id004
+      - *id005
+      - *id006
+      - *id007
+      responses:
+        '200':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupFileComparison'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+  /backups/restores:
+    get:
+      tags:
+      - Backups
+      operationId: getBackupRestores
+      description: List successfully registered isolated recovery results, including availability and partial-file
+        selection. Legacy entries receive stable IDs.
+      responses:
+        '200':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupRestoreLibraryResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+  /backups/restores/{restoreId}/files:
+    get:
+      tags:
+      - Backups
+      operationId: getRestoredBackupFiles
+      description: Browse locally recovered archives, including snapshots without an index. Partial results expose
+        only selected files.
+      parameters:
+      - name: restoreId
+        in: path
+        required: true
+        schema:
+          type: string
+      - *id003
+      - *id004
+      - *id005
+      - *id006
+      - *id007
+      responses:
+        '200':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupCatalogPage'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+  /backups/restores/{restoreId}/download:
+    get:
+      tags:
+      - Backups
+      operationId: downloadRestoredBackupFile
+      description: Stream one regular file from a registered isolated recovery as a private attachment. Arbitrary
+        host paths and symlinks are rejected.
+      parameters:
+      - name: restoreId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: source_id
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: path
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Private attachment containing the exact recovered file bytes.
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
   /metrics:
     servers:
       - url: /
@@ -5644,6 +5959,34 @@ components:
           format: date-time
         last_check_policy:
           type: string
+        check_schedule:
+          $ref: '#/components/schemas/BackupSchedule'
+        check_read_data:
+          type: string
+        prune_schedule:
+          $ref: '#/components/schemas/BackupSchedule'
+        last_check_scheduled_at:
+          type: string
+          format: date-time
+        last_prune_scheduled_at:
+          type: string
+          format: date-time
+        last_prune_at:
+          type: string
+          format: date-time
+        check_status:
+          type: string
+        check_error:
+          type: string
+        last_operation:
+          type: string
+        last_operation_status:
+          type: string
+        last_operation_error:
+          type: string
+        last_operation_at:
+          type: string
+          format: date-time
         last_restore_test_at:
           type: string
           format: date-time
@@ -5660,6 +6003,9 @@ components:
       - kind
       - repository
       - credentials_configured
+      - check_schedule
+      - check_read_data
+      - prune_schedule
       - status
     BackupDestinationInput:
       type: object
@@ -5681,6 +6027,12 @@ components:
           type: string
         secrets:
           $ref: '#/components/schemas/BackupSecrets'
+        check_schedule:
+          $ref: '#/components/schemas/BackupSchedule'
+        check_read_data:
+          type: string
+        prune_schedule:
+          $ref: '#/components/schemas/BackupSchedule'
       required:
       - name
       - kind
@@ -5692,6 +6044,7 @@ components:
           type: string
           enum:
           - manual
+          - interval
           - daily
           - weekly
         time:
@@ -5701,6 +6054,9 @@ components:
           format: int32
         timezone:
           type: string
+        interval_hours:
+          type: integer
+          format: int32
       required:
       - frequency
     BackupRetention:
@@ -5797,6 +6153,30 @@ components:
           type: string
         error:
           type: string
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        duration_seconds:
+          type: number
+          format: double
+        bytes_processed:
+          type: integer
+          format: int64
+        bytes_total:
+          type: integer
+          format: int64
+        files_processed:
+          type: integer
+          format: int64
+        files_total:
+          type: integer
+          format: int64
+        bytes_added:
+          type: integer
+          format: int64
       required:
       - destination_id
       - state
@@ -5817,6 +6197,17 @@ components:
           type: string
         capture_state:
           type: string
+        phase:
+          type: string
+        completed_at:
+          type: string
+          format: date-time
+        capture_duration_seconds:
+          type: number
+          format: double
+        duration_seconds:
+          type: number
+          format: double
         captured_at:
           type: string
           format: date-time
@@ -5841,6 +6232,7 @@ components:
       - plan_name
       - state
       - capture_state
+      - phase
       - created_at
       - expires_at
       - copies
@@ -5886,6 +6278,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/BackupRun'
+        protection:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupPlanProtection'
         restic_available:
           type: boolean
         rclone_available:
@@ -5896,6 +6292,7 @@ components:
       - destinations
       - plans
       - runs
+      - protection
       - restic_available
       - rclone_available
       - staging_directory
@@ -5922,6 +6319,16 @@ components:
       properties:
         restored_directory:
           type: string
+        restore_id:
+          type: string
+        source_ids:
+          type: array
+          items:
+            type: string
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupFileSelection'
         mappings:
           type: array
           items:
@@ -5943,6 +6350,25 @@ components:
     BackupRestoreResult:
       type: object
       properties:
+        available:
+          type: boolean
+        unavailable_reason:
+          type: string
+        id:
+          type: string
+        job_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        selected_files:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupFileSelection'
+        source_ids:
+          type: array
+          items:
+            type: string
         destination_id:
           type: string
         snapshot_id:
@@ -5954,6 +6380,9 @@ components:
         manifest:
           $ref: '#/components/schemas/BackupManifest'
       required:
+      - available
+      - id
+      - created_at
       - destination_id
       - snapshot_id
       - target
@@ -6025,6 +6454,9 @@ components:
           type: array
           items:
             type: string
+        service_downtime_seconds:
+          type: integer
+          format: int64
       required:
       - version
       - run_id
@@ -6063,6 +6495,14 @@ components:
           type: string
         file_name:
           type: string
+        index_path:
+          type: string
+        index_version:
+          type: integer
+          format: int32
+        entry_count:
+          type: integer
+          format: int32
       required:
       - source
       - saved_path
@@ -6117,6 +6557,268 @@ components:
       - review_token
       - expires_at
       - preview
+    BackupPlanProtection:
+      type: object
+      properties:
+        plan_id:
+          type: string
+        plan_name:
+          type: string
+        state:
+          type: string
+        expected_copies:
+          type: integer
+          format: int32
+        current_copies:
+          type: integer
+          format: int32
+        last_capture_at:
+          type: string
+          format: date-time
+        next_run_at:
+          type: string
+          format: date-time
+        latest_run_id:
+          type: string
+        copies:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupCopyProtection'
+      required:
+      - plan_id
+      - plan_name
+      - state
+      - expected_copies
+      - current_copies
+      - copies
+    BackupCopyProtection:
+      type: object
+      properties:
+        destination_id:
+          type: string
+        state:
+          type: string
+        last_capture_at:
+          type: string
+          format: date-time
+        last_uploaded_at:
+          type: string
+          format: date-time
+        snapshot_id:
+          type: string
+        next_run_at:
+          type: string
+          format: date-time
+        due_at:
+          type: string
+          format: date-time
+        last_run_id:
+          type: string
+        last_error:
+          type: string
+      required:
+      - destination_id
+      - state
+    BackupPreflight:
+      type: object
+      properties:
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupManifestSource'
+        writers:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupWriter'
+        warnings:
+          type: array
+          items:
+            type: string
+      required:
+      - sources
+      - writers
+      - warnings
+    BackupSchedulePreview:
+      type: object
+      properties:
+        next_occurrences:
+          type: array
+          items:
+            type: string
+            format: date-time
+        timezone:
+          type: string
+      required:
+      - next_occurrences
+      - timezone
+    BackupFileIndex:
+      type: object
+      properties:
+        version:
+          type: integer
+          format: int32
+        source_id:
+          type: string
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupFileEntry'
+      required:
+      - version
+      - source_id
+      - entries
+    BackupFileEntry:
+      type: object
+      properties:
+        path:
+          type: string
+        type:
+          type: string
+          enum:
+          - file
+          - directory
+          - symlink
+          - hardlink
+        size_bytes:
+          type: integer
+          format: int64
+        modified_at:
+          type: string
+          format: date-time
+        sha256:
+          type: string
+        metadata_sha256:
+          type: string
+        link_target:
+          type: string
+        mode:
+          type: integer
+          format: int64
+        uid:
+          type: integer
+          format: int32
+        gid:
+          type: integer
+          format: int32
+      required:
+      - path
+      - type
+      - size_bytes
+      - modified_at
+      - mode
+      - uid
+      - gid
+    BackupFileSelection:
+      type: object
+      properties:
+        source_id:
+          type: string
+        path:
+          type: string
+      required:
+      - source_id
+      - path
+    BackupCatalogPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupFileEntry'
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupManifestSource'
+        source_id:
+          type: string
+        path:
+          type: string
+        total:
+          type: integer
+          format: int32
+        offset:
+          type: integer
+          format: int32
+          minimum: 0
+        limit:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 500
+        index_available:
+          type: boolean
+        transfer_bytes:
+          type: integer
+          format: int64
+      required:
+      - items
+      - sources
+      - path
+      - total
+      - offset
+      - limit
+      - index_available
+      - transfer_bytes
+    BackupFileChange:
+      type: object
+      properties:
+        path:
+          type: string
+        change:
+          type: string
+          enum:
+          - added
+          - removed
+          - modified
+        before:
+          $ref: '#/components/schemas/BackupFileEntry'
+        after:
+          $ref: '#/components/schemas/BackupFileEntry'
+        content_changed:
+          type: boolean
+        metadata_changed:
+          type: boolean
+      required:
+      - path
+      - change
+      - content_changed
+      - metadata_changed
+    BackupFileComparison:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupFileChange'
+        total:
+          type: integer
+          format: int32
+        offset:
+          type: integer
+          format: int32
+        limit:
+          type: integer
+          format: int32
+        index_available:
+          type: boolean
+        added:
+          type: integer
+          format: int32
+        removed:
+          type: integer
+          format: int32
+        modified:
+          type: integer
+          format: int32
+      required:
+      - items
+      - total
+      - offset
+      - limit
+      - index_available
+      - added
+      - removed
+      - modified
     BackupDestinationResponse:
       type: object
       required:
@@ -6194,3 +6896,55 @@ components:
       properties:
         manifest:
           $ref: '#/components/schemas/BackupManifest'
+    BackupGlobalCoverageResponse:
+      type: object
+      required:
+      - stacks
+      properties:
+        stacks:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupStackCoverage'
+    BackupStackCoverage:
+      type: object
+      required:
+      - stack_id
+      - stack_name
+      - sources
+      - plans
+      properties:
+        stack_id:
+          type: string
+        stack_name:
+          type: string
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupSource'
+        plans:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupPlan'
+        error:
+          type: string
+    BackupRestoreLibraryResponse:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupRestoreResult'
+    BackupSchedulePreviewRequest:
+      type: object
+      required:
+      - schedule
+      properties:
+        schedule:
+          $ref: '#/components/schemas/BackupSchedule'
+        count:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 5

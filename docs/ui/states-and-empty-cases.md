@@ -355,3 +355,23 @@ What to remove:
 ```
 
 Only "runtime" is checked by default. Each additional checkbox adds a stronger visual warning.
+
+
+## Backup Protection And Recovery
+
+Configured source selection is neutral, not proof of a recoverable copy. A
+verified scheduled copy can be current; manual copies show availability without
+an automatic freshness claim. Unprotected, overdue, changed-source and failed
+operation states call for attention. Discovery errors explicitly make the source
+gap inventory incomplete instead of silently reducing its apparent scope.
+
+Repository availability, integrity-check results and the most recent operation
+have separate presentation. A rejected restore review does not imply that a
+repository is inaccessible. Missing file indexes offer isolated restore and local
+browsing. Unavailable registered restore directories remain visible with their
+reason, with download and apply actions unavailable.
+
+Recovery retains selected snapshot and job progress during execution, then
+selects the matching registered result. Partial file recovery cannot receive a
+complete-test label. Preflight errors disable backup confirmation, and failed
+scheduled-copy retries preserve the last successful copies.

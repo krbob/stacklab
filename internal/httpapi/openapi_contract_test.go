@@ -549,6 +549,13 @@ func TestOpenAPIBackupConfiguration(t *testing.T) {
 	cookies := login.Result().Cookies()
 	response := performJSONRequest(t, handler, http.MethodGet, "/api/backups", nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/backups", nil, cookies, response)
+	for _, path := range []string{"/api/backups/coverage", "/api/backups/restores"} {
+		response = performJSONRequest(t, handler, http.MethodGet, path, nil, cookies)
+		assertResponseMatchesOpenAPI(t, contract, http.MethodGet, path, nil, cookies, response)
+	}
+	previewInput := map[string]any{"schedule": map[string]any{"frequency": "interval", "interval_hours": 6}, "count": 3}
+	response = performJSONRequest(t, handler, http.MethodPost, "/api/backups/schedule-preview", previewInput, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodPost, "/api/backups/schedule-preview", previewInput, cookies, response)
 	input := map[string]any{"name": "Contract destination", "kind": "s3", "repository": "s3:https://storage.example.test/bucket", "secrets": map[string]any{"password": "contract-secret", "access_key_id": "test-key", "secret_access_key": "test-secret"}}
 	response = performJSONRequest(t, handler, http.MethodPost, "/api/backups/destinations", input, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodPost, "/api/backups/destinations", input, cookies, response)

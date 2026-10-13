@@ -39,7 +39,7 @@ There is no deeper nesting. Every screen is reachable in at most two clicks from
 | **Docker** | `/docker` | Docker daemon status, Engine metadata, and read-only `daemon.json` visibility |
 | **Audit** | `/audit` | Global audit log of all mutating actions |
 | **Settings** | `/settings/security` | Task-focused security, notifications, automation, updates, and system information. `/settings` redirects here. |
-| **Backups** | `/backups` | Destinations, plans, per-copy results, repository checks, and reviewed recovery |
+| **Backups** | `/backups` | Protection, continuous recovery, history, plans, and destinations |
 
 The sidebar is collapsible on tablet widths (below 1024px) to a narrow icon bar.
 
@@ -133,7 +133,7 @@ panel for Docker Compose stacks, host health, updates, and maintenance.
 | Docker Admin | Docker daemon status, Engine metadata, `daemon.json` visibility, and managed daemon settings apply where configured | Yes |
 | Config Workspace | Browse, edit, diff, commit, and push managed config files | Yes |
 | Maintenance | Bulk stack update, image inventory, and cleanup | Yes |
-| Backups | Destination configuration, plans and schedules, copy results, verification, isolated and reviewed recovery | Yes |
+| Backups | Protection and source gaps, continuous file recovery, filtered history, plans, and destination setup | Yes |
 | Global Audit | Chronological log of all mutating operations | Yes |
 | Settings | Task shell for security, notifications, automation, updates, and system information | Yes |
 | Login | Authentication screen | Yes |
@@ -210,18 +210,20 @@ Settings → Security | Notifications | Automation | Updates | About
 ### Backup and recovery flow
 
 ```
-Backups → Destinations → Add → Initialize new repository / Test existing access
-        → Plans → Select sources and destinations → Schedule / Back up now
-        → Runs & recovery → Per-destination results → Retry failed copies
-        → Destinations → Browse & restore → Isolated restore / restore test
-                       → Apply recovered data → Load manifest → Map sources
-                         → Preview affected paths and writers → Confirm RESTORE
-Stack → Backups → Review unconfigured or changed sources → Manage backup plans
+Backups → Protection → Add destination → Location → Credentials → Verify
+  → Create plan → Select sources and schedules → Review writers → First backup
+Backups → Recovery → Destination and snapshot → Browse / compare source files
+  → Isolated restore → Automatically selected result → Download files
+  → Optional map targets → Server preview → RESTORE confirmation → Apply
+Stack → Backups → Review selection gaps → Manage backup plans
 ```
 
-`/backups?view=destinations|plans|runs` preserves the active global view.
+`/backups?view=protection|recovery|history|plans|destinations` preserves the active
+view; Protection is the default and the legacy `view=runs` opens History.
+`/backups?view=recovery&destination=:id` opens a repository in Recovery.
 `/backups?view=plans&stack=:stackId` preselects that stack in the new-plan source
-picker. Backup schedules belong to their destination assignments in this screen.
+scope. Completed restores are persistent registrations, so recovery does not
+depend on retaining a log message or copying a host path.
 The command palette includes Backups; its sidebar shortcut is `8`, preserving
 the existing section shortcuts. On mobile it is available through More.
 

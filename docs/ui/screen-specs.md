@@ -361,48 +361,77 @@ while only the active task loads its resource. Dirty tasks guard navigation.
 
 Routes: `/backups` and `/stacks/:stackId/backups`.
 
-The global screen has keyboard-operated Destinations, Plans, and Runs & recovery
-tabs. The URL retains the active tab. Failed refreshes preserve the previous
-response and offer retry; missing native tools are reported explicitly.
+The global screen opens on **Protection**. Its keyboard-operated tabs are
+Protection, Recovery, History, Plans, and Destinations. The URL retains the tab;
+old `view=runs` links open History. Refresh errors preserve the previous response
+and missing native tools are reported explicitly.
 
-- **Destinations:** configure local or mounted disk, S3-compatible storage,
-  SFTP, or an authorized rclone remote. Secret fields are write-only; empty
-  fields on edit retain saved credentials. Local filesystem detection shows
-  the current device number and asks the operator to verify the intended mount.
-  Saving, initializing a new repository, and testing access are distinct actions.
-- **Plans:** select sources explicitly by stack, service, and logical mount.
-  Stacklab recovery and managed configuration are separate scopes. Source
-  exclusions and narrower managed-config paths are reviewable. Stop-and-capture
-  is the initial consistency choice; live file capture explains database limits.
-  Each destination has its own manual/daily/weekly schedule, displayed timezone,
-  enabled state, and retention. Staging size, retry lifetime, and stop timeout
-  are configurable. Manual runs review destination selection and disruption.
-- **Runs:** show capture status/time separately from upload, verification and
-  retention per destination. A successful copy remains visible after another
-  copy fails. Retry targets failed copies; an expired or failed capture requires
-  a new run. The recovery manifest exposes source mappings, images and warnings.
-- **Verification:** repository checks explicitly select metadata, a data subset,
-  or all stored data. Last repository check and last isolated restore test are
-  separate timestamps; uploading does not imply recoverability.
-- **Isolated restore:** browse repository snapshots and restore to a new
-  directory. The default complete restore test verifies retrieved archives;
-  selecting snapshot paths disables that complete-test claim. Individual files
-  can be inspected in the retrieved source archives. Application startup is a
-  separate recovery exercise.
-- **Apply recovered data:** load the registered isolated directory, select
-  sources, and explicitly map directories or existing local volumes. No source
-  or original target is preselected. A server preview supplies affected writers,
-  overwrite scope and warnings. A separate `RESTORE` confirmation sends the
-  short-lived review token. Changing mappings discards the review. Recovery
-  merges selected files, preserves unrelated content, and leaves writers stopped
-  by default. Resuming previously running writers requires an explicit choice.
+- **Protection:** show verified copies and their schedule compliance separately
+  from configured source selection. Each plan lists destination-specific last
+  capture, next occurrence, errors, and last recovery test. A manual copy has a
+  neutral badge and no automatic freshness claim. Changed selections require a
+  fresh capture; a failed newer copy remains visible beside an older usable copy.
+  Fleet source discovery identifies missing, disabled, narrowed and changed
+  selections. Discovery failures make that inventory incomplete; they never
+  produce an all-covered message.
+- **Destinations:** the new-destination flow has Location, Credentials & policy,
+  and Verify steps. Typed S3/SFTP/rclone fields assemble the repository address;
+  an advanced address input remains available. Local filesystem detection checks
+  the intended mount. Repository passwords can be generated, shown, and copied;
+  recovery credentials must also be saved independently of this host. Secret
+  fields are write-only, and empty edit fields retain credentials. Repository
+  type and address are immutable during editing. Save, test existing access, and
+  initialize a new repository remain separate actions. Verification retains its
+  job result in the wizard; successful verification leads into plan creation.
+- **Plans:** select sources explicitly by stack, service and mount, with source
+  search and an explicit select-visible action. Review exclusions across scopes.
+  Stop-and-capture is the initial consistency choice; live capture explains
+  active-database limits. Each destination has independent retention and a
+  manual, interval, daily or weekly schedule. Interval cadence is fixed in UTC;
+  wall-clock schedules show their timezone and authoritative next occurrences.
+  New or changed schedules start at the next future occurrence; existing missed
+  schedules catch up once.
+  New plan creation leads into the first-run review. Manual runs load concrete
+  running writers, including shared data, before enabling confirmation. Failed
+  preflight blocks the action; execution resolves service state again.
+- **History:** search retained history and filter by plan, result, destination and
+  UTC date range. Ten runs per page expose capture/upload/verification/retention
+  stages, capture time, service downtime, processed bytes, added data and
+  repository-item counts. Repository items are staged artifacts, not original
+  application file counts. Successful copies remain visible after another copy
+  fails; retry targets failed copies until the staging deadline.
+- **Repository maintenance:** checks choose metadata, a data subset or all stored
+  data and have their own schedule. Retention cleanup can run independently on a
+  schedule. Access, integrity-check and last-operation results remain distinct.
+  Repository checking never implies a successful application recovery test.
+- **Recovery:** one workspace connects destination and snapshot selection to
+  source browsing, recursive search, paged file metadata and snapshot comparison.
+  Comparison distinguishes content and metadata changes. File indexes are inside
+  encrypted snapshots. Older snapshots without an index offer isolated restore
+  followed by local browsing. Selected regular files (up to 100), a complete
+  source, or the whole recovery set can be restored. Partial restores cannot be
+  labelled complete tests. The interface explains that selected files require
+  retrieval of complete source archives and displays estimated transfer size.
+- **Completed restores:** registered results remain selectable after navigation.
+  The result matching a just-completed job is selected automatically; directory
+  paths never need to be copied from logs. Browse restored files and download
+  regular files through registered identities. Missing directories remain visible
+  as unavailable and cannot be applied. File-only restores are for download;
+  applying to a stack requires a complete recovered source.
+- **Apply recovered data:** the selected registration supplies its manifest.
+  Choose only sources actually present in that restore and explicitly map
+  directories or existing local volumes; no target or source is preselected.
+  Server preview supplies affected writers, overwrite scope and warnings. A
+  separate `RESTORE` confirmation sends a short-lived token. Changing mappings
+  discards review. Recovery merges files, preserves unrelated content and leaves
+  writers stopped by default. Resuming previously running writers is explicit.
   Recovery of Stacklab's own database remains an offline runbook operation.
 
 The stack tab shows configured, unconfigured, disabled and changed-source
-coverage, with exclusions and plan links. Coverage describes plan selection,
-not proof of a successful backup. New mounts never become selected implicitly.
-All execution opens the existing shared job drawer; completed isolated restore
-jobs identify the output directory used by the subsequent recovery review.
+coverage, with exclusions and plan links. Configured selection uses a neutral
+badge; verified protection is assessed in the global Protection view. New mounts
+never become selected implicitly. Operations remain connected to the shared job
+drawer and the Recovery workspace also keeps its local restore progress.
 
 ## Operation Progress And Job Detail
 

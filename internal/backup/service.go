@@ -28,27 +28,29 @@ type persistedRun struct {
 	PlanSnapshot Plan `json:"plan_snapshot"`
 }
 type state struct {
-	RestoreOrder []string                 `json:"restore_order,omitempty"`
-	Restores     map[string]RestoreResult `json:"restores"`
-	InstanceID   string                   `json:"instance_id"`
-	Version      int                      `json:"version"`
-	Destinations map[string]Destination   `json:"destinations"`
-	Plans        map[string]Plan          `json:"plans"`
-	Runs         map[string]persistedRun  `json:"runs"`
+	CopyCheckpoints map[string]copyCheckpoint `json:"copy_checkpoints,omitempty"`
+	RestoreOrder    []string                  `json:"restore_order,omitempty"`
+	Restores        map[string]RestoreResult  `json:"restores"`
+	InstanceID      string                    `json:"instance_id"`
+	Version         int                       `json:"version"`
+	Destinations    map[string]Destination    `json:"destinations"`
+	Plans           map[string]Plan           `json:"plans"`
+	Runs            map[string]persistedRun   `json:"runs"`
 }
 
 type Service struct {
-	mu            sync.Mutex
-	cfg           config.Config
-	jobs          *jobs.Service
-	capture       Capturer
-	runner        CommandRunner
-	directory     string
-	state         state
-	reviews       map[string]restoreChallenge
-	repositoryJob string
-	initErr       error
-	now           func() time.Time
+	mu                    sync.Mutex
+	cfg                   config.Config
+	jobs                  *jobs.Service
+	capture               Capturer
+	runner                CommandRunner
+	directory             string
+	state                 state
+	reviews               map[string]restoreChallenge
+	repositoryJob         string
+	activeRepositoryReads int
+	initErr               error
+	now                   func() time.Time
 }
 
 func NewService(cfg config.Config, jobService *jobs.Service, capture Capturer) *Service {
@@ -108,6 +110,32 @@ func NewService(cfg config.Config, jobService *jobs.Service, capture Capturer) *
 	if s.state.Runs == nil {
 		s.state.Runs = map[string]persistedRun{}
 	}
+	for id, destination := range s.state.Destinations {
+		if destination.CheckSchedule.Frequency == "" {
+			destination.CheckSchedule.Frequency = "manual"
+		}
+		if destination.PruneSchedule.Frequency == "" {
+			destination.PruneSchedule.Frequency = "manual"
+		}
+		if destination.CheckReadData == "" {
+			destination.CheckReadData = "metadata"
+		}
+		s.state.Destinations[id] = destination
+	}
+	for id, plan := range s.state.Plans {
+		for index := range plan.Destinations {
+			if plan.Destinations[index].Schedule.Frequency == "" {
+				plan.Destinations[index].Schedule.Frequency = "manual"
+			}
+		}
+		s.state.Plans[id] = plan
+	}
+	if s.state.CopyCheckpoints == nil {
+		s.state.CopyCheckpoints = map[string]copyCheckpoint{}
+	}
+	for _, run := range s.state.Runs {
+		s.recordCheckpointsLocked(run.Run, run.PlanSnapshot)
+	}
 	return s
 }
 
@@ -142,7 +170,7 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	if s.initErr != nil {
 		return Overview{}, s.initErr
 	}
-	result := Overview{Destinations: []Destination{}, Plans: []Plan{}, Runs: []Run{}, StagingDirectory: filepath.Join(s.directory, "staging")}
+	result := Overview{Destinations: []Destination{}, Plans: []Plan{}, Runs: []Run{}, Protection: []PlanProtection{}, StagingDirectory: filepath.Join(s.directory, "staging")}
 	_, err := exec.LookPath("restic")
 	result.ResticAvailable = err == nil
 	_, err = exec.LookPath("rclone")
@@ -152,18 +180,20 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	}
 	for _, p := range s.state.Plans {
 		result.Plans = append(result.Plans, p)
+		result.Protection = append(result.Protection, s.protectionLocked(p))
 	}
 	for _, r := range s.state.Runs {
 		result.Runs = append(result.Runs, r.Run)
 	}
 	sort.Slice(result.Destinations, func(i, j int) bool { return result.Destinations[i].Name < result.Destinations[j].Name })
 	sort.Slice(result.Plans, func(i, j int) bool { return result.Plans[i].Name < result.Plans[j].Name })
+	sort.Slice(result.Protection, func(i, j int) bool { return result.Protection[i].PlanName < result.Protection[j].PlanName })
 	sort.Slice(result.Runs, func(i, j int) bool { return result.Runs[i].CreatedAt.After(result.Runs[j].CreatedAt) })
 	return clone(result), nil
 }
 
 func (s *Service) configurationBusyLocked() bool {
-	if s.repositoryJob != "" {
+	if s.repositoryJob != "" || s.activeRepositoryReads > 0 {
 		return true
 	}
 	for _, r := range s.state.Runs {
@@ -174,6 +204,7 @@ func (s *Service) configurationBusyLocked() bool {
 	return false
 }
 func (s *Service) SaveDestination(ctx context.Context, id string, input DestinationInput) (Destination, error) {
+	normalizeDestinationInput(&input)
 	if err := validateDestination(input); err != nil {
 		return Destination{}, err
 	}
@@ -218,20 +249,28 @@ func (s *Service) SaveDestination(ctx context.Context, id string, input Destinat
 	if input.Secrets == nil && !exists {
 		return Destination{}, fmt.Errorf("%w: credentials and repository password are required", ErrInvalid)
 	}
-	d := Destination{ID: id, Name: strings.TrimSpace(input.Name), Kind: input.Kind, Repository: input.Repository, ExpectedFilesystem: input.ExpectedFilesystem, Region: input.Region, CredentialsConfigured: true, Status: "untested"}
-	if input.Kind == "local" {
-		repo := filepath.Clean(input.Repository)
-		if overlaps(repo, s.directory) {
-			return Destination{}, fmt.Errorf("%w: repositories cannot overlap private backup state", ErrInvalid)
+	d := previous
+	d.ID, d.Name, d.Kind, d.Repository = id, strings.TrimSpace(input.Name), input.Kind, input.Repository
+	d.ExpectedFilesystem, d.Region, d.CredentialsConfigured = input.ExpectedFilesystem, input.Region, true
+	d.CheckSchedule, d.CheckReadData, d.PruneSchedule = input.CheckSchedule, input.CheckReadData, input.PruneSchedule
+	if !exists || input.Secrets != nil {
+		d.Status = "untested"
+		d.Error = ""
+	}
+	if previous.CheckSchedule != d.CheckSchedule {
+		d.LastCheckScheduledAt = nil
+		if due, ok := latestDue(d.CheckSchedule, s.now()); ok {
+			d.LastCheckScheduledAt = &due
 		}
 	}
-	if exists && previous.Kind == d.Kind && previous.Repository == d.Repository && input.Secrets == nil {
-		d.LastCheckAt = previous.LastCheckAt
-		d.LastCheckPolicy = previous.LastCheckPolicy
-		d.LastSuccessAt = previous.LastSuccessAt
-		d.LastRestoreTestAt = previous.LastRestoreTestAt
-		d.RepositorySizeBytes = previous.RepositorySizeBytes
-		d.Status = previous.Status
+	if previous.PruneSchedule != d.PruneSchedule {
+		d.LastPruneScheduledAt = nil
+		if due, ok := latestDue(d.PruneSchedule, s.now()); ok {
+			d.LastPruneScheduledAt = &due
+		}
+	}
+	if input.Kind == "local" && overlaps(filepath.Clean(input.Repository), s.directory) {
+		return Destination{}, fmt.Errorf("%w: repositories cannot overlap private backup state", ErrInvalid)
 	}
 	if input.Secrets != nil {
 		secret := *input.Secrets
@@ -289,8 +328,18 @@ func (s *Service) DeleteDestination(ctx context.Context, id string) error {
 		}
 	}
 	delete(s.state.Destinations, id)
+	removedCheckpoints := map[string]copyCheckpoint{}
+	for key, checkpoint := range s.state.CopyCheckpoints {
+		if strings.HasSuffix(key, "/"+id) {
+			removedCheckpoints[key] = checkpoint
+			delete(s.state.CopyCheckpoints, key)
+		}
+	}
 	if err := s.persist(ctx); err != nil {
 		s.state.Destinations[id] = d
+		for key, checkpoint := range removedCheckpoints {
+			s.state.CopyCheckpoints[key] = checkpoint
+		}
 		return err
 	}
 	return os.RemoveAll(s.secretDirectory(id))
@@ -386,9 +435,16 @@ func (s *Service) SavePlan(ctx context.Context, id string, p Plan) (Plan, error)
 			return Plan{}, fmt.Errorf("%w: unknown destination", ErrInvalid)
 		}
 		a.LastScheduledAt = nil
+		preserveOccurrence := false
 		for _, old := range previous.Destinations {
-			if old.DestinationID == a.DestinationID {
+			if old.DestinationID == a.DestinationID && old.Schedule == a.Schedule {
 				a.LastScheduledAt = old.LastScheduledAt
+				preserveOccurrence = true
+			}
+		}
+		if !preserveOccurrence {
+			if due, ok := latestDue(a.Schedule, s.now()); ok {
+				a.LastScheduledAt = &due
 			}
 		}
 	}
@@ -435,8 +491,18 @@ func (s *Service) DeletePlan(ctx context.Context, id string) error {
 		return ErrNotFound
 	}
 	delete(s.state.Plans, id)
+	removedCheckpoints := map[string]copyCheckpoint{}
+	for key, checkpoint := range s.state.CopyCheckpoints {
+		if strings.HasPrefix(key, id+"/") {
+			removedCheckpoints[key] = checkpoint
+			delete(s.state.CopyCheckpoints, key)
+		}
+	}
 	if err := s.persist(ctx); err != nil {
 		s.state.Plans[id] = p
+		for key, checkpoint := range removedCheckpoints {
+			s.state.CopyCheckpoints[key] = checkpoint
+		}
 		return err
 	}
 	return nil
@@ -447,6 +513,9 @@ func (s *Service) StartRun(ctx context.Context, planID string, request RunReques
 	defer s.mu.Unlock()
 	if s.initErr != nil {
 		return store.Job{}, Run{}, s.initErr
+	}
+	if s.activeRepositoryReads > 0 {
+		return store.Job{}, Run{}, ErrBusy
 	}
 	p, ok := s.state.Plans[planID]
 	if !ok {
@@ -471,7 +540,7 @@ func (s *Service) StartRun(ctx context.Context, planID string, request RunReques
 		return store.Job{}, Run{}, err
 	}
 	now := s.now()
-	run := Run{ID: newID("run_"), JobID: job.ID, PlanID: p.ID, PlanName: p.Name, State: "running", CaptureState: "pending", CreatedAt: now, ExpiresAt: now.Add(time.Duration(p.StagingTTLHours) * time.Hour), Copies: copies, Plan: clone(p)}
+	run := Run{ID: newID("run_"), JobID: job.ID, PlanID: p.ID, PlanName: p.Name, State: "running", CaptureState: "pending", Phase: "capture", CreatedAt: now, ExpiresAt: now.Add(time.Duration(p.StagingTTLHours) * time.Hour), Copies: copies, Plan: clone(p)}
 	s.state.Runs[run.ID] = persistedRun{Run: run, PlanSnapshot: clone(p)}
 	if err := s.persist(ctx); err != nil {
 		delete(s.state.Runs, run.ID)
@@ -484,11 +553,14 @@ func (s *Service) StartRun(ctx context.Context, planID string, request RunReques
 func (s *Service) StartRetry(ctx context.Context, runID string, request RunRequest, requestedBy string) (store.Job, Run, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.activeRepositoryReads > 0 {
+		return store.Job{}, Run{}, ErrBusy
+	}
 	stored, ok := s.state.Runs[runID]
 	if !ok {
 		return store.Job{}, Run{}, ErrNotFound
 	}
-	run := stored.Run
+	run := clone(stored.Run)
 	if run.State == "running" {
 		return store.Job{}, Run{}, ErrBusy
 	}
@@ -521,6 +593,8 @@ func (s *Service) StartRetry(ctx context.Context, runID string, request RunReque
 	}
 	run.JobID = job.ID
 	run.State = "running"
+	run.Phase = "upload"
+	run.CompletedAt = nil
 	run.Error = ""
 	s.state.Runs[runID] = persistedRun{Run: run, PlanSnapshot: stored.PlanSnapshot}
 	if err := s.persist(ctx); err != nil {
@@ -534,7 +608,8 @@ func (s *Service) StartRetry(ctx context.Context, runID string, request RunReque
 func (s *Service) saveRun(run Run, p Plan) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.state.Runs[run.ID] = persistedRun{Run: run, PlanSnapshot: p}
+	s.state.Runs[run.ID] = persistedRun{Run: clone(run), PlanSnapshot: clone(p)}
+	s.recordCheckpointsLocked(run, p)
 	return s.persist(context.Background())
 }
 func (s *Service) event(ctx context.Context, job store.Job, message string) {
@@ -565,13 +640,17 @@ func (s *Service) ExecuteRun(ctx context.Context, job store.Job, runID string) {
 		s.finish(ctx, job, ErrNotFound)
 		return
 	}
-	run := stored.Run
+	run := clone(stored.Run)
 	ctx, expireCancel := context.WithDeadline(ctx, run.ExpiresAt)
 	defer expireCancel()
-	p := stored.PlanSnapshot
+	p := clone(stored.PlanSnapshot)
 	stage := filepath.Join(s.directory, "staging", run.ID)
 	var operationErr error
+	startedAt := time.Now()
 	defer func() {
+		run.Phase = "finished"
+		run.CompletedAt = s.timePointer()
+		run.DurationSeconds += time.Since(startedAt).Seconds()
 		if operationErr != nil {
 			run.State = "failed"
 			run.Error = operationErr.Error()
@@ -613,7 +692,9 @@ func (s *Service) ExecuteRun(ctx context.Context, job store.Job, runID string) {
 				return
 			}
 		}
+		captureStarted := time.Now()
 		manifest, err := s.capture.Prepare(ctx, p, run.ID, stage)
+		run.CaptureDurationSeconds = time.Since(captureStarted).Seconds()
 		if err != nil {
 			run.CaptureState = "failed"
 			operationErr = err
@@ -688,17 +769,31 @@ func (s *Service) ExecuteRun(ctx context.Context, job store.Job, runID string) {
 			continue
 		}
 		copy.State = "running"
+		copy.StartedAt = s.timePointer()
+		copy.CompletedAt = nil
+		run.Phase = "upload"
+		copyStarted := time.Now()
 		_ = s.saveRun(run, p)
 		s.event(ctx, job, "Uploading recovery set to "+d.Name+".")
 		var err error
 		if copy.SnapshotID == "" {
-			copy.SnapshotID, err = s.upload(ctx, d, p, run, stage)
+			uploadCtx := withTransferProgress(ctx, func(progress transferProgress) {
+				copy.BytesProcessed, copy.BytesTotal = progress.BytesProcessed, progress.BytesTotal
+				copy.FilesProcessed, copy.FilesTotal = progress.FilesProcessed, progress.FilesTotal
+				copy.BytesAdded = progress.BytesAdded
+				_ = s.saveRun(run, p)
+				_ = s.jobs.PublishEventWithProgress(ctx, job, "job_progress", "Uploading recovery set to "+d.Name+".", "", nil, &store.JobProgress{Phase: "backup_upload", Completed: int(progress.BytesProcessed), Total: int(progress.BytesTotal), Unit: "bytes", Detail: d.Name})
+			})
+			copy.SnapshotID, err = s.upload(uploadCtx, d, p, run, stage)
 			if err == nil {
-				copy.UploadedAt = nowPointer()
+				copy.UploadedAt = s.timePointer()
 				_ = s.saveRun(run, p)
 			}
 		}
 		if err == nil {
+			run.Phase = "verify"
+			_ = s.saveRun(run, p)
+			s.event(ctx, job, "Verifying snapshot metadata in "+d.Name+".")
 			_, err = s.restic(ctx, d, "", "cat", "snapshot", copy.SnapshotID)
 			if err == nil {
 				copy.Verification = "snapshot_metadata_verified"
@@ -707,6 +802,9 @@ func (s *Service) ExecuteRun(ctx context.Context, job store.Job, runID string) {
 			}
 		}
 		if err == nil {
+			run.Phase = "retention"
+			_ = s.saveRun(run, p)
+			s.event(ctx, job, "Applying retention in "+d.Name+".")
 			for _, a := range p.Destinations {
 				if a.DestinationID == d.ID {
 					err = s.retain(ctx, d, p.ID, a.Retention)
@@ -719,6 +817,8 @@ func (s *Service) ExecuteRun(ctx context.Context, job store.Job, runID string) {
 				copy.Retention = "failed"
 			}
 		}
+		copy.CompletedAt = s.timePointer()
+		copy.DurationSeconds += time.Since(copyStarted).Seconds()
 		if err != nil {
 			copy.State = "failed"
 			copy.Error = err.Error()
@@ -766,6 +866,8 @@ func (s *Service) Reconcile(ctx context.Context) error {
 			continue
 		}
 		stored.State = "failed"
+		stored.Phase = "finished"
+		stored.CompletedAt = s.timePointer()
 		stored.Error = "Operation interrupted by service restart."
 		if stored.CaptureState != "succeeded" {
 			stored.CaptureState = "failed"
