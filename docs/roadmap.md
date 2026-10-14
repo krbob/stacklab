@@ -14,6 +14,10 @@ and the [protection/recovery experience](product/backup-experience.md)
 have been implemented; the remaining baseline and goals retain their previous
 review date.
 
+Second-round review reopened backup release blockers. Completing the
+[reliability acceptance contract](product/backup-reliability-completion.md)
+takes priority over additional backup features and the goals below.
+
 ## Current Baseline
 
 Implemented and exercised on Linux staging hosts:

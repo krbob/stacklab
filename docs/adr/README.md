@@ -12,3 +12,5 @@ Current ADRs:
   accepted and implemented native backup/recovery orchestration.
 - [0006: Backup Representation And Reliability Boundaries](0006-backup-reliability-boundaries.md) —
   capture, inspection, copy verification, service recovery and extraction contracts.
+- [0007: Backup Completion And Recovery Scope](0007-backup-completion-and-recovery-scope.md) —
+  safe replacement scope, verified retention and observable operational recovery.

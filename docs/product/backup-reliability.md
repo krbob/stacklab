@@ -2,8 +2,11 @@
 
 ## Status And Scope
 
-Implemented and exercised on 2026-10-14. The accepted plan was committed before
-implementation. Measured results and remaining validation limits are recorded in
+The first implementation was exercised on 2026-10-14. Independent second-round
+review reopened release blockers in replacement scope, retention and operational
+recovery. Their accepted implementation and validation contract is the
+[reliability completion plan](backup-reliability-completion.md). The original
+plan was committed before implementation. Measured results and remaining validation limits are recorded in
 [backup validation](../quality/backup-validation.md). The requirements below
 remain the acceptance contract for subsequent changes.
 
