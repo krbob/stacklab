@@ -245,6 +245,16 @@ func extractArchivePinned(ctx context.Context, archivePath, targetPath, tarTarge
 	// --no-recursion is essential: a named directory must not select its files
 	// again without --unlink-first, including existing links outside the target.
 	for index, selection := range []string{members, directories} {
+		selectionInfo, statErr := os.Stat(selection)
+		if statErr != nil {
+			return statErr
+		}
+		// Some GNU tar builds interpret an empty --files-from as selecting the
+		// entire archive. Never run an empty pass: --unlink-first must not receive
+		// directory entries, including the extraction root ".".
+		if selectionInfo.Size() == 0 {
+			continue
+		}
 		if _, err = file.Seek(0, io.SeekStart); err != nil {
 			return err
 		}

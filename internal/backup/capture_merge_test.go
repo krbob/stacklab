@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func requireGNUTar(t *testing.T) {
@@ -142,5 +143,73 @@ func TestCaptureResumesWritersBeforeIndexingImmutableBytes(t *testing.T) {
 	}
 	if starts != 2 {
 		t.Fatalf("writers resumed %d times, want exactly two running writers", starts)
+	}
+}
+
+func TestNativeRootMetadataRecoveryPreservesDirectoryAndUnselectedFiles(t *testing.T) {
+	requireGNUTar(t)
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(base, "target")
+	if err = os.Mkdir(target, 0700); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(base, "outside")
+	if err = os.WriteFile(outside, []byte("retain existing inode and content"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	existing := filepath.Join(target, "unselected")
+	if err = os.Link(outside, existing); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, err := os.Stat(existing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archivePath := filepath.Join(base, "root-only.tar")
+	file, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := tar.NewWriter(file)
+	stamp := time.Unix(1700000000, 0)
+	if err = archive.WriteHeader(&tar.Header{Name: ".", Typeflag: tar.TypeDir, Mode: 0750, ModTime: stamp}); err != nil {
+		t.Fatal(err)
+	}
+	if err = archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = ExtractArchive(context.Background(), archivePath, target, false); err != nil {
+		t.Fatalf("directory-only recovery attempted to unlink its root: %v", err)
+	}
+	after, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(before, after) || after.Mode().Perm() != 0750 || !after.ModTime().Equal(stamp) {
+		t.Fatalf("directory identity or metadata changed unexpectedly: %v", after)
+	}
+	current, err := os.Stat(existing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	external, err := os.Stat(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(original, current) || !os.SameFile(current, external) {
+		t.Fatal("metadata-only recovery unlinked an unselected file")
+	}
+	if content, readErr := os.ReadFile(existing); readErr != nil || string(content) != "retain existing inode and content" {
+		t.Fatalf("unselected file changed: %q %v", content, readErr)
 	}
 }

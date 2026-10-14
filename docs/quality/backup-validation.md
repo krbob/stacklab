@@ -74,6 +74,12 @@ downloads for sources that cannot be extracted automatically.
 | Backend coverage gates | Passed; HTTP API 53.2%, global reported coverage 70.0% |
 | Linux arm64 release artifact and generated dependency notices | Passed; stale dependency notices regenerated from the existing lockfiles |
 | Debian 12 arm64 real-systemd package install, A-to-B upgrade and repeated configuration | Passed; helper ownership/mode, sudoers and service write paths verified, spool permissions repaired without deleting recovery evidence |
+| Ubuntu 24.04 and Debian 13, root and non-root helper/native extraction | Passed after reproducing and fixing GNU tar's empty-selection behavior; directory-only extraction preserves the target inode, metadata and unrelated files |
+
+The first CI run exposed Ubuntu GNU tar treating an empty `--files-from` as the
+whole archive. Extraction now skips empty passes, preventing `--unlink-first`
+from touching directory-only metadata archives. CI also exposed a focus assertion
+that ran before React's focus effect; it now waits for the observable focus state.
 
 The SFTP/S3 native tests remain opt-in and were not rerun in this repair batch.
 This does not establish real-provider throughput, multi-terabyte capture time,
