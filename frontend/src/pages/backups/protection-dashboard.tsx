@@ -201,9 +201,9 @@ export function ProtectionDashboard({
                             Copy available. Manual schedule has no freshness guarantee.
                           </p>
                         )}
-                        {copy.state === 'overdue' && (
+                        {(copy.overdue_since || copy.state === 'overdue') && (
                           <p className="mt-2 text-xs text-[var(--warning)]">
-                            Scheduled copy missing since <BackupDate value={copy.due_at} />.
+                            Scheduled copy missing since <BackupDate value={copy.first_outstanding_due ?? copy.due_at} />.{copy.overdue_since && <> Overdue since <BackupDate value={copy.overdue_since} />.</>}
                           </p>
                         )}
                         {copy.state === 'outdated' && (

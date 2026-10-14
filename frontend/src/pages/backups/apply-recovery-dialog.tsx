@@ -13,7 +13,7 @@ import {
   type BackupRestoreReview,
   type BackupRestoreResult,
 } from '@/lib/backup-api'
-import { BackupDate, BackupError, buttonClass, Field, inputClass, primaryClass } from './backup-primitives'
+import { BackupDate, BackupError, RecoveryEvidence, buttonClass, Field, inputClass, primaryClass } from './backup-primitives'
 import { SourceLabel } from './source-label'
 import { formatBackupDate } from './backup-formatters'
 
@@ -100,6 +100,7 @@ export function ApplyRecoveryDialog({
     >
       <div className="mt-4 space-y-4">
         <BackupError error={error} />
+        <RecoveryEvidence status={restored.recovery_status} classifiedAt={restored.classified_at} />
         {blockedReason && <p role="status" className="text-sm text-[var(--warning)]">Applying data is blocked: {blockedReason}</p>}
         {!manifest && manifestState.loading && (
           <p role="status" className="text-sm text-[var(--muted)]">

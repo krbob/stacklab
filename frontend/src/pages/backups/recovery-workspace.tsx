@@ -32,10 +32,12 @@ import {
   Field,
   inputClass,
   primaryClass,
+  RecoveryEvidence,
 } from './backup-primitives'
 import { ApplyRecoveryDialog } from './apply-recovery-dialog'
 import { SourceLabel } from './source-label'
 import { formatBackupDate } from './backup-formatters'
+import { useVisibleRefresh } from './use-visible-refresh'
 
 type SelectedFile = { source_id: string; path: string }
 const terminal = ['succeeded', 'failed', 'cancelled', 'timed_out']
@@ -160,22 +162,11 @@ function DestinationRecovery({
   const snapshots = useApi(
     (signal) => (toolsAvailable ? getBackupSnapshots(destination.id, signal) : Promise.resolve({ items: [] })),
     [destination.id, toolsAvailable, refreshKey, snapshotRevision],
-    { enabled: active, staleTime: 60000, resourceKey: destination.id },
+    { enabled: active, staleTime: 60000, resourceKey: destination.id, backgroundRefresh: true },
   )
-  const restores = useApi((signal) => getBackupRestores(signal), [refreshKey, restoreRevision], { enabled: active, staleTime: 30000, resourceKey: 'backup-restores' })
-  const { refetch: refreshRestores } = restores
-  useEffect(() => {
-    if (!active) return
-    const refresh = () => { if (document.visibilityState !== 'hidden') refreshRestores() }
-    const timer = window.setInterval(refresh, 30000)
-    window.addEventListener('focus', refresh)
-    document.addEventListener('visibilitychange', refresh)
-    return () => {
-      window.clearInterval(timer)
-      window.removeEventListener('focus', refresh)
-      document.removeEventListener('visibilitychange', refresh)
-    }
-  }, [active, refreshRestores])
+  const restores = useApi((signal) => getBackupRestores(signal), [refreshKey, restoreRevision], { enabled: active, staleTime: 30000, resourceKey: 'backup-restores', backgroundRefresh: true })
+  const { refetch: refreshRestores, backgroundRefetch: pollRestores } = restores
+  useVisibleRefresh(pollRestores, 30000, active)
   const { openJob } = useJobDrawer()
   const [snapshotId, setSnapshotId] = useState('')
   const [restoreId, setRestoreId] = useState<string | null>(null)
@@ -195,12 +186,12 @@ function DestinationRecovery({
   const selectedSnapshot = snapshots.data?.items.find((item) => item.id === snapshotId)
   useEffect(() => {
     if (!jobId) return
-    if (terminal.includes(jobState ?? '')) refreshRestores()
+    if (terminal.includes(jobState ?? '')) pollRestores()
     if (running) {
-      const timer = window.setInterval(refreshRestores, 3000)
+      const timer = window.setInterval(pollRestores, 3000)
       return () => window.clearInterval(timer)
     }
-  }, [jobId, jobState, running, refreshRestores])
+  }, [jobId, jobState, running, pollRestores])
 
   async function restore(files?: SelectedFile[], sourceIds?: string[], test = true) {
     if (!snapshotId || pending || running || !toolsAvailable) return
@@ -279,6 +270,7 @@ function DestinationRecovery({
               Captured <BackupDate value={selectedSnapshot.time} /> · {(selectedSnapshot.tags ?? []).join(', ')}
             </p>
             <p className="text-xs text-[var(--muted)]">Recovery objects: <BackupStatus value={selectedSnapshot.recovery_status ?? 'unknown'} />{selectedSnapshot.classified_at && <> · Classified <BackupDate value={selectedSnapshot.classified_at} /></>}</p>
+            {(!selectedSnapshot.recovery_status || selectedSnapshot.recovery_status === 'unknown') && <p className="text-xs text-[var(--muted)]">Not classified yet; unknown is not proof of completeness.</p>}
             {selectedSnapshot.recovery_status && !['complete', 'unknown'].includes(selectedSnapshot.recovery_status) && <p className="text-sm text-[var(--warning)]">This snapshot is {selectedSnapshot.recovery_status}. It is preserved by automatic retention and is not evidence of a complete recovery set.</p>}
             {selectedSnapshot.restore_tested_at && (
               <p className="text-xs text-[var(--muted)]">Complete retrieval test of this snapshot: <BackupDate value={selectedSnapshot.restore_tested_at} /></p>
@@ -348,7 +340,7 @@ function DestinationRecovery({
       <BackupPanel
         title="2. Browse completed restores and apply data"
         actions={
-          <button className={buttonClass} onClick={refreshRestores}>
+          <button className={buttonClass} disabled={restores.loading} onClick={refreshRestores}>
             Refresh restored data
           </button>
         }
@@ -371,6 +363,7 @@ function DestinationRecovery({
                 <option key={item.id} value={item.id}>
                   {formatBackupDate(item.created_at)} · {item.snapshot_id.slice(0, 8)} ·{' '}
                   {item.test ? 'complete test' : item.selected_files?.length ? 'selected files' : item.manifest && (!item.source_ids?.length || item.source_ids.length === item.manifest.sources.length) ? 'complete set (offline retrieval)' : 'selected sources'}
+                  {` · snapshot ${item.recovery_status || 'unknown'}`}
                   {item.available === false ? ' · unavailable' : ''}
                 </option>
               ))}
@@ -386,6 +379,7 @@ function DestinationRecovery({
             <p className="break-all text-xs text-[var(--muted)]">
               Restored <BackupDate value={chosen.created_at} /> · {chosen.target}
             </p>
+            <RecoveryEvidence status={chosen.recovery_status} classifiedAt={chosen.classified_at} />
             {chosen.available === false ? (
               <p role="alert" className="text-sm text-[var(--warning)]">
                 {chosen.unavailable_reason ||
@@ -402,7 +396,7 @@ function DestinationRecovery({
                 />
                 {!chosen.selected_files?.length ? (
                   <div className="space-y-2">
-                    <button className={primaryClass} disabled={helperReady === false || !!applyBlocked} aria-describedby={`apply-readiness-${destination.id}`} onClick={() => setApply(chosen)}>
+                    <button className={primaryClass} disabled={helperReady === false || !!applyBlocked} aria-describedby={helperReady === false || applyBlocked ? `apply-readiness-${destination.id}` : undefined} onClick={() => setApply(chosen)}>
                       Review applying recovered data
                     </button>
                     {(helperReady === false || applyBlocked) && <p id={`apply-readiness-${destination.id}`} className="text-sm text-[var(--warning)]">
@@ -708,6 +702,7 @@ function FileBrowser({
                           {file.type} · <BackupSize value={file.size_bytes} /> · <BackupDate value={file.modified_at} />
                           {file.link_target && ` → ${file.link_target}`}
                         </p>
+                        {file.type === 'hardlink' && <p className="mt-1 break-all text-xs text-[var(--warning)]">This hardlink cannot be retrieved as an individual file. Restore the whole source to preserve its links{file.link_target ? `, or select the regular file at ${file.link_target}` : ''}.</p>}
                         <details className="mt-1 text-xs text-[var(--muted)]">
                           <summary className="cursor-pointer">File metadata</summary>
                           <p className="mt-1 break-all">

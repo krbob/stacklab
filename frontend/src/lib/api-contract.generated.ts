@@ -40,7 +40,7 @@ export interface paths {
     post: operations["initializeBackupRepository"];
   };
   "/backups/destinations/{destinationId}/prune": {
-    /** @description Queue repository prune under the existing repository and native restic locks. */
+    /** @description Queue repository prune under the existing repository and native restic locks. Known integrity failure requires explicit acknowledgement; scheduled prune remains blocked. */
     post: operations["pruneBackupDestination"];
   };
   "/backups/destinations/{destinationId}/restore": {
@@ -62,6 +62,10 @@ export interface paths {
   };
   "/backups/destinations/{destinationId}/test": {
     post: operations["testBackupRepository"];
+  };
+  "/backups/destinations/{destinationId}/unlock": {
+    /** @description Queue ordinary restic unlock under Stacklab repository admission. Removes only locks restic considers stale, never forces active locks or clears integrity evidence. A live owner's lock may remain. */
+    post: operations["unlockBackupDestination"];
   };
   "/backups/filesystem": {
     get: operations["getBackupFilesystem"];
@@ -502,11 +506,23 @@ export interface components {
       activity: "idle" | "queued" | "running";
       availability_status?: string;
       destination_id: string;
-      /** Format: date-time */
+      /**
+       * Format: date-time
+       * @description Latest scheduled occurrence, retained for compatibility; first_outstanding_due identifies the oldest unmet deadline.
+       */
       due_at?: string;
       /** @description Snapshot presence and verification evidence remain usable independently of transfer activity or schedule freshness. */
       evidence_usable?: boolean;
-      integrity_status?: string;
+      /**
+       * Format: date-time
+       * @description First unsatisfied scheduled deadline, independent of availability and integrity evidence.
+       */
+      first_outstanding_due?: string;
+      /**
+       * @description Compatibility aggregate; verified can mean only metadata or a sampled read. Inspect destination metadata_check and data_check for actual scope and time.
+       * @enum {string}
+       */
+      integrity_status?: "unknown" | "verified" | "failed";
       /** Format: date-time */
       last_capture_at?: string;
       last_error?: string;
@@ -520,6 +536,11 @@ export interface components {
       last_uploaded_at?: string;
       /** Format: date-time */
       next_run_at?: string;
+      /**
+       * Format: date-time
+       * @description First outstanding deadline plus configured grace, emitted once grace has elapsed. Missing/unverified evidence does not hide this deadline.
+       */
+      overdue_since?: string;
       /** Format: date-time */
       snapshot_checked_at?: string;
       snapshot_id?: string;
@@ -545,9 +566,17 @@ export interface components {
       files_processed?: number;
       /** Format: int64 */
       files_total?: number;
-      retention: string;
+      /**
+       * @description Maintenance outcome independent of the verified copy. Maintenance-only retry does not require retained staging.
+       * @enum {string}
+       */
+      retention: "pending" | "running" | "succeeded" | "failed" | "skipped";
+      /** Format: date-time */
+      retention_completed_at?: string;
       /** @description Cleanup failure after a verified copy; retry reuses the existing snapshot without uploading again. */
       retention_error?: string;
+      /** Format: date-time */
+      retention_started_at?: string;
       snapshot_id?: string;
       /** Format: date-time */
       started_at?: string;
@@ -573,7 +602,11 @@ export interface components {
       check_error?: string;
       check_read_data: string;
       check_schedule: components["schemas"]["BackupSchedule"];
-      check_status?: string;
+      /**
+       * @description Conservative compatibility aggregate of metadata_check and data_check; verified does not imply a full data read.
+       * @enum {string}
+       */
+      check_status?: "unknown" | "verified" | "failed";
       credentials_configured: boolean;
       data_check: components["schemas"]["BackupIntegrityEvidence"];
       error?: string;
@@ -591,8 +624,9 @@ export interface components {
       last_check_attempt_at?: string;
       last_check_attempt_error?: string;
       /** @enum {string} */
-      last_check_attempt_policy?: "metadata" | "subset" | "all";
-      last_check_attempt_status?: string;
+      last_check_attempt_policy?: "metadata" | "subset" | "all" | "unknown";
+      /** @enum {string} */
+      last_check_attempt_status?: "succeeded" | "failed";
       last_check_policy?: string;
       /** Format: date-time */
       last_check_scheduled_at?: string;
@@ -812,7 +846,7 @@ export interface components {
     };
     BackupPolicy: {
       /** @description Effective scheduling pause including automatic safety blocks; paused reflects the user setting only. */
-      effective_paused?: boolean;
+      effective_paused: boolean;
       error?: string;
       heartbeat_configured: boolean;
       heartbeat_error?: string;
@@ -821,7 +855,7 @@ export interface components {
       last_heartbeat_at?: string;
       /** @default 60 */
       overdue_grace_minutes: number;
-      pause_reasons?: ({
+      pause_reasons: ({
           /** @enum {string} */
           code: "user_paused" | "host_review_required" | "policy_error" | "initialization_error" | "service_recovery_required";
           message: string;
@@ -842,11 +876,18 @@ export interface components {
       warnings: string[];
       writers: components["schemas"]["BackupWriter"][];
     };
+    BackupPruneRequest: {
+      /**
+       * @description Explicitly accept pruning despite known repository integrity failure. This does not repair the repository or clear its evidence.
+       * @default false
+       */
+      acknowledge_integrity_failure?: boolean;
+    };
     BackupRecoveryJournal: {
-      can_acknowledge_missing?: boolean;
+      can_acknowledge_missing: boolean;
       error?: string;
       /** @description Private prepared recovery material exists; its tokens are never returned. */
-      has_prepared_restore?: boolean;
+      has_prepared_restore: boolean;
       hold_stopped: boolean;
       observations?: {
         [key: string]: {
@@ -900,8 +941,15 @@ export interface components {
       volume_name?: string;
     };
     BackupRestorePreview: {
+      /** Format: date-time */
+      classified_at?: string;
       mappings: components["schemas"]["BackupRestoreMapping"][];
       overwrites: boolean;
+      /**
+       * @description Frozen provenance from the registered recovery result. Each selected source is separately validated before apply.
+       * @enum {string}
+       */
+      recovery_status: "unknown" | "complete" | "incomplete" | "legacy" | "unsupported" | "invalid";
       warnings: string[];
       writers: components["schemas"]["BackupWriter"][];
     };
@@ -920,6 +968,11 @@ export interface components {
     };
     BackupRestoreResult: {
       available: boolean;
+      /**
+       * Format: date-time
+       * @description Timestamp of the original snapshot classification, when known.
+       */
+      classified_at?: string;
       /** Format: date-time */
       created_at: string;
       destination_id: string;
@@ -928,6 +981,11 @@ export interface components {
       /** @description Stacklab owns this directory and permits explicit removal. Custom targets are operator-owned. */
       managed?: boolean;
       manifest?: components["schemas"]["BackupManifest"];
+      /**
+       * @description Snapshot completeness classification frozen when the isolated result was registered; independent of selected-source validation. Legacy results are unknown.
+       * @enum {string}
+       */
+      recovery_status: "unknown" | "complete" | "incomplete" | "legacy" | "unsupported" | "invalid";
       selected_files?: components["schemas"]["BackupFileSelection"][];
       snapshot_id: string;
       source_ids?: string[];
@@ -2721,11 +2779,16 @@ export interface operations {
       503: components["responses"]["ErrorInvalidState"];
     };
   };
-  /** @description Queue repository prune under the existing repository and native restic locks. */
+  /** @description Queue repository prune under the existing repository and native restic locks. Known integrity failure requires explicit acknowledgement; scheduled prune remains blocked. */
   pruneBackupDestination: {
     parameters: {
       path: {
         destinationId: string;
+      };
+    };
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["BackupPruneRequest"];
       };
     };
     responses: {
@@ -2894,6 +2957,26 @@ export interface operations {
       409: components["responses"]["ErrorConflict"];
       500: components["responses"]["ErrorInternal"];
       503: components["responses"]["ErrorInvalidState"];
+    };
+  };
+  /** @description Queue ordinary restic unlock under Stacklab repository admission. Removes only locks restic considers stale, never forces active locks or clears integrity evidence. A live owner's lock may remain. */
+  unlockBackupDestination: {
+    parameters: {
+      path: {
+        destinationId: string;
+      };
+    };
+    responses: {
+      /** @description Stale-lock removal job accepted. */
+      202: {
+        content: {
+          "application/json": components["schemas"]["BackupJobResponse"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
     };
   };
   getBackupFilesystem: {
@@ -3175,6 +3258,7 @@ export interface operations {
       400: components["responses"]["ErrorValidationFailed"];
       401: components["responses"]["ErrorUnauthorized"];
       404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
     };
   };
   /** @description Stream one regular file from a registered isolated recovery as a private attachment. Arbitrary host paths and symlinks are rejected. */

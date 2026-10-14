@@ -4,15 +4,16 @@ interface UseApiState<T> {
   data: T | null
   error: Error | null
   loading: boolean
+  backgroundLoading: boolean
   updatedAt: number | null
 }
 
 export function useApi<T>(
   fetcher: (signal?: AbortSignal) => Promise<T>,
   deps: unknown[] = [],
-  { enabled = true, staleTime = 0, resourceKey }: { enabled?: boolean; staleTime?: number; resourceKey?: unknown } = {},
-): UseApiState<T> & { refetch: () => void } {
-  const [state, setState] = useState<UseApiState<T>>({ data: null, error: null, loading: true, updatedAt: null })
+  { enabled = true, staleTime = 0, resourceKey, backgroundRefresh = false }: { enabled?: boolean; staleTime?: number; resourceKey?: unknown; backgroundRefresh?: boolean } = {},
+): UseApiState<T> & { refetch: () => void; backgroundRefetch: (force?: boolean) => void } {
+  const [state, setState] = useState<UseApiState<T>>({ data: null, error: null, loading: true, backgroundLoading: false, updatedAt: null })
   const requestIDRef = useRef(0)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -21,7 +22,9 @@ export function useApi<T>(
   const settledAtRef = useRef(0)
   const pendingRef = useRef(false)
 
-  const load = useCallback((resetError = false) => {
+  const load = useCallback((resetError = false, background = false, force = false) => {
+    // Background refreshes share an in-flight request; a manual retry can supersede it.
+    if (background && !force && pendingRef.current && !abortRef.current?.signal.aborted) return
     const requestID = requestIDRef.current + 1
     requestIDRef.current = requestID
     abortRef.current?.abort()
@@ -29,18 +32,18 @@ export function useApi<T>(
     abortRef.current = controller
 
     pendingRef.current = true
-    setState((s) => ({ ...s, loading: true, ...(resetError ? { error: null } : {}) }))
+    setState((s) => ({ ...s, loading: !background, backgroundLoading: background, ...(resetError ? { error: null } : {}) }))
     fetcher(controller.signal)
       .then((data) => {
         if (controller.signal.aborted || requestIDRef.current !== requestID) return
         pendingRef.current = false
         settledAtRef.current = Date.now()
-        setState({ data, error: null, loading: false, updatedAt: settledAtRef.current })
+        setState({ data, error: null, loading: false, backgroundLoading: false, updatedAt: settledAtRef.current })
       })
       .catch((error) => {
         if (controller.signal.aborted || requestIDRef.current !== requestID) return
         pendingRef.current = false
-        setState((s) => ({ ...s, error, loading: false }))
+        setState((s) => ({ ...s, error, loading: false, backgroundLoading: false }))
       })
     // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/use-memo
   }, deps)
@@ -52,11 +55,12 @@ export function useApi<T>(
       const resetError = resourceKey === undefined ? resourceChanged : identityChanged
       lastLoadRef.current = load
       resourceKeyRef.current = resourceKey
-      load(resetError)
+      load(resetError, backgroundRefresh && !resetError && !!settledAtRef.current)
     }
     return () => abortRef.current?.abort()
-  }, [load, enabled, staleTime, resourceKey])
+  }, [load, enabled, staleTime, resourceKey, backgroundRefresh])
 
   const refetch = useCallback(() => load(), [load])
-  return { ...state, refetch }
+  const backgroundRefetch = useCallback((force = false) => load(false, true, force), [load])
+  return { ...state, refetch, backgroundRefetch }
 }

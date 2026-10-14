@@ -17,6 +17,7 @@ import {
   retryBackupRun,
   runBackupPlan,
   testBackupDestination,
+  unlockBackupDestination,
   type BackupDestination,
   type BackupJobResponse,
   type BackupPlan,
@@ -44,17 +45,20 @@ import { scheduleDescription } from './backups/schedule-utils'
 import { SourceLabel } from './backups/source-label'
 import { BackupOperations } from './backups/backup-operations'
 import { useBackupRefresh, type BackupJobEffects } from './backups/use-backup-refresh'
+import { useVisibleRefresh } from './backups/use-visible-refresh'
 
 type Editor =
   | { kind: 'destination'; value?: BackupDestination }
   | { kind: 'plan'; value?: BackupPlan; destinationId?: string }
   | null
 type Review =
-  | { kind: 'initialize' | 'prune' | 'deleteDestination'; destination: BackupDestination }
+  | { kind: 'initialize' | 'prune' | 'unlock' | 'deleteDestination'; destination: BackupDestination }
   | { kind: 'deletePlan'; plan: BackupPlan }
   | null
 const tabs = ['protection', 'recovery', 'history', 'plans', 'destinations'] as const
 type Tab = (typeof tabs)[number]
+const checkScopeLabel = (scope?: string) => ({ metadata: 'Metadata', subset: 'Sampled data read', all: 'Full data read' } as Record<string, string>)[scope ?? ''] ?? 'Scope not recorded'
+const hasIntegrityFailure = (destination: BackupDestination) => destination.metadata_check?.status === 'failed' || destination.data_check?.status === 'failed'
 
 export function BackupsPage() {
   const [search, setSearch] = useSearchParams()
@@ -65,7 +69,7 @@ export function BackupsPage() {
     setMountedTabs((previous) => (previous.has(tab) ? previous : new Set([...previous, tab])))
   }, [tab])
   const state = useApi((signal) => getBackups(signal), [])
-  const { refetch } = state
+  const { refetch, backgroundRefetch } = state
   const { openJob } = useJobDrawer()
   const [editor, setEditor] = useState<Editor>(null)
   const [review, setReview] = useState<Review>(null)
@@ -85,43 +89,22 @@ export function BackupsPage() {
   const openedPlanRef = useRef<string | null>(null)
   const [clock, setClock] = useState(() => Date.now())
   const data = state.data
-  const { jobIds, track, finished, snapshotRevisions, restoreRevisions, policyRevision, refreshPolicy } = useBackupRefresh(data, refetch)
-  const captureBlocked = data?.recovery_error
-    ? `Service recovery needs attention: ${data.recovery_error}`
-    : policy?.pause_reasons?.filter((reason) => reason.code !== 'user_paused').map((reason) => reason.message).join(' ')
-      || (policy?.host_review_required ? 'Review this host in Backup settings before capturing new data.' : policy?.error)
-  const recoveryReason = data?.recovery_error || policy?.pause_reasons?.find((reason) => reason.code === 'service_recovery_required')?.message
-  const applyBlocked = recoveryReason ? `Resolve Service recovery before applying data: ${recoveryReason}` : undefined
+  const refreshAfterJob = useCallback(() => backgroundRefetch(true), [backgroundRefetch])
+  const { jobIds, track, finished, snapshotRevisions, restoreRevisions, policyRevision, refreshPolicy } = useBackupRefresh(data, refreshAfterJob)
+  const systemPause = policy?.pause_reasons?.filter((reason) => reason.code !== 'user_paused') ?? []
+  const captureBlocked = systemPause.map((reason) => reason.message).join(' ') || data?.recovery_error
+    || (policy?.host_review_required ? 'Review this host in Backup settings before capturing new data.' : policy?.error)
+  const applyBlocked = policy?.pause_reasons?.find((reason) => ['service_recovery_required', 'initialization_error'].includes(reason.code))?.message || data?.recovery_error
   const destinations = data?.destinations ?? []
   const plans = data?.plans ?? []
   const runs = data?.runs ?? []
   const hasRunning = jobIds.length > 0 || runs.some((run) => ['queued', 'running'].includes(run.state))
-
-  useEffect(() => {
-    const timer = window.setInterval(
-      () => {
-        if (document.visibilityState === 'hidden') return
-        setClock(Date.now())
-        refetch()
-        if (!hasRunning) refreshPolicy()
-      },
-      hasRunning ? 5000 : 60000,
-    )
-    return () => window.clearInterval(timer)
-  }, [hasRunning, refetch, refreshPolicy])
-  useEffect(() => {
-    const refresh = () => {
-      if (document.visibilityState === 'hidden') return
-      refetch()
-      refreshPolicy()
-    }
-    window.addEventListener('focus', refresh)
-    document.addEventListener('visibilitychange', refresh)
-    return () => {
-      window.removeEventListener('focus', refresh)
-      document.removeEventListener('visibilitychange', refresh)
-    }
-  }, [refetch, refreshPolicy])
+  const poll = useCallback(() => {
+    setClock(Date.now())
+    backgroundRefetch()
+    if (!hasRunning) refreshPolicy()
+  }, [backgroundRefetch, hasRunning, refreshPolicy])
+  useVisibleRefresh(poll, hasRunning ? 5000 : 60000)
 
   function started(result: BackupJobResponse, reveal = true, effects: BackupJobEffects = {}) {
     track(result.job.id, effects)
@@ -287,7 +270,7 @@ export function BackupsPage() {
               onPolicyChange={setPolicy}
               onStarted={(result) => started(result, true, { policy: true })}
             />
-            {captureBlocked && <p id="backup-capture-block" className="text-sm text-[var(--warning)]">New captures are blocked. {captureBlocked} Open Backup settings or Service recovery above to resolve the cause.</p>}
+            {captureBlocked && <p id="backup-capture-block" className="text-sm text-[var(--warning)]">New captures are blocked until the causes above are resolved.<span className="sr-only"> {captureBlocked}</span></p>}
             <div className="space-y-4">
               <div
                 role="tabpanel"
@@ -392,7 +375,7 @@ export function BackupsPage() {
                             <div>
                               <dt className="text-[var(--muted)]">
                                 Last successful repository check{' '}
-                                {destination.last_check_policy ? `(${destination.last_check_policy})` : ''}
+                                {destination.last_check_policy ? `(${checkScopeLabel(destination.last_check_policy)})` : ''}
                               </dt>
                               <dd className="mt-1 text-[var(--text)]">
                                 <BackupDate value={destination.last_check_at} />
@@ -416,25 +399,25 @@ export function BackupsPage() {
                             </div>
                             <div>
                               <dt className="text-[var(--muted)]">Latest check attempt</dt>
-                              <dd className="mt-1"><BackupDate value={destination.last_check_attempt_at} /> · {destination.last_check_attempt_policy || 'unknown scope'} · {destination.last_check_attempt_status || 'not checked'}</dd>
+                              <dd className="mt-1">{destination.last_check_attempt_at ? <><BackupDate value={destination.last_check_attempt_at} /> · {checkScopeLabel(destination.last_check_attempt_policy)}{destination.last_check_attempt_status && <> · <BackupStatus value={destination.last_check_attempt_status} /></>}</> : 'Not recorded'}</dd>
                             </div>
                           </dl>
                           <dl className="grid gap-2 text-xs sm:grid-cols-2">
                             {([['Repository metadata evidence', destination.metadata_check], ['Stored data evidence', destination.data_check]] as const).map(([label, evidence]) => <div key={label}>
                               <dt className="text-[var(--muted)]">{label}</dt>
-                              <dd className="mt-1"><BackupStatus value={evidence?.status ?? 'unknown'} /> · {evidence?.scope ?? 'unknown'} · <BackupDate value={evidence?.checked_at} /></dd>
+                              <dd className="mt-1"><BackupStatus value={evidence?.status ?? 'unknown'} />{evidence?.checked_at && <> · {checkScopeLabel(evidence.scope)} · <BackupDate value={evidence.checked_at} /></>}</dd>
                               {evidence?.error && <dd className="mt-1 text-[var(--warning)]">{evidence.error}</dd>}
                             </div>)}
                           </dl>
                           {destination.data_check?.status === 'failed' && <p className="text-xs text-[var(--warning)]">Stored data has a known failure. A metadata or sampled check cannot resolve it; repair the repository and run a full data check.</p>}
-                          {destination.last_check_attempt_error && <p className="text-xs text-[var(--warning)]">Latest check attempt: {destination.last_check_attempt_error}</p>}
+                          {destination.last_check_attempt_error && ![destination.metadata_check?.error, destination.data_check?.error].includes(destination.last_check_attempt_error) && <p className="text-xs text-[var(--warning)]">Latest check attempt: {destination.last_check_attempt_error}</p>}
                           {destination.inventory_error && (
                             <p className="text-sm text-[var(--warning)]">Snapshot inventory: {destination.inventory_error}</p>
                           )}
-                          {destination.check_error && (
+                          {destination.check_error && !destination.metadata_check && !destination.data_check && (
                             <p className="text-sm text-[var(--warning)]">Integrity check: {destination.check_error}</p>
                           )}
-                          {destination.last_operation_error && (
+                          {destination.last_operation_error && ![destination.error, destination.last_check_attempt_error, destination.metadata_check?.error, destination.data_check?.error].includes(destination.last_operation_error) && (
                             <p className="text-xs text-[var(--warning)]">
                               Last {destination.last_operation?.replaceAll('_', ' ')} operation:{' '}
                               {destination.last_operation_error}
@@ -483,7 +466,7 @@ export function BackupsPage() {
                               }
                               onClick={() => {
                                 reportError(null)
-                                setReadData(destination.check_read_data === 'all' || destination.check_read_data === 'subset' ? destination.check_read_data : 'metadata')
+                                setReadData(destination.data_check?.status === 'failed' ? 'all' : destination.check_read_data === 'all' || destination.check_read_data === 'subset' ? destination.check_read_data : 'metadata')
                                 setCheck(destination)
                               }}
                             >
@@ -504,6 +487,9 @@ export function BackupsPage() {
                               }}
                             >
                               Run retention cleanup
+                            </button>
+                            <button className={buttonClass} disabled={pending || !data.restic_available || (destination.kind === 'rclone' && !data.rclone_available)} onClick={() => openReview({ kind: 'unlock', destination })}>
+                              Remove stale locks
                             </button>
                             <button
                               className={buttonClass}
@@ -697,6 +683,7 @@ export function BackupsPage() {
         >
           <div className="mt-4 space-y-4">
             <BackupError error={error} />
+            {check.data_check?.status === 'failed' && <p className="text-sm text-[var(--warning)]">Stored data has a known failure. Only a successful full data read can clear it after the repository is repaired.{readData !== 'all' && ' A metadata or sampled check leaves this data-failure evidence unchanged.'}</p>}
             <Field label="Data-read policy">
               <select
                 className={inputClass}
@@ -710,8 +697,7 @@ export function BackupsPage() {
               </select>
             </Field>
             <p className="text-sm text-[var(--muted)]">
-              Reading stored data can incur provider download charges. A repository check is separate from an actual
-              restore test.
+              A full data read downloads and verifies all stored data and may take a long time or incur provider download charges. A sampled read checks only part of that data. A repository check is separate from an actual restore test.
             </p>
             <div className="flex justify-end gap-2">
               <button
@@ -746,6 +732,8 @@ export function BackupsPage() {
               ? 'Initialize new repository'
               : review.kind === 'prune'
                 ? 'Run retention cleanup'
+                : review.kind === 'unlock'
+                  ? 'Remove stale repository locks'
                 : review.kind === 'deletePlan'
                   ? 'Remove backup plan'
                   : 'Remove destination'
@@ -754,7 +742,9 @@ export function BackupsPage() {
             review.kind === 'initialize'
               ? 'Create an encrypted restic repository at the configured location. Only initialize a new repository; test access to an existing one.'
               : review.kind === 'prune'
-                ? 'Reclaim storage no longer referenced by retained snapshots. Cleanup locks this repository and may take time or incur provider transfer charges.'
+                ? `Reclaim storage no longer referenced by retained snapshots. Cleanup locks this repository and may take time or incur provider transfer charges.${hasIntegrityFailure(review.destination) ? ' This repository has an unresolved integrity failure. Cleanup can remove recovery material needed for repair. Inspect the failure and keep an independent repository copy before continuing. Type the destination name to acknowledge this risk.' : ''}`
+                : review.kind === 'unlock'
+                  ? 'Remove only locks that restic identifies as stale. Active locks remain in place. Stacklab reserves this destination while the operation runs. Check that other repository clients are not recovering from an interruption before continuing.'
                 : 'Remove this configuration from Stacklab. Existing repository snapshots remain available with independently saved credentials.'
           }
           error={error}
@@ -763,11 +753,13 @@ export function BackupsPage() {
               ? 'Initialize repository'
               : review.kind === 'prune'
                 ? 'Start cleanup'
+                : review.kind === 'unlock'
+                  ? 'Remove stale locks'
                 : 'Remove configuration'
           }
           confirming={pending}
           requireText={
-            review.kind === 'initialize' || review.kind === 'prune'
+            review.kind === 'initialize' || review.kind === 'unlock' || (review.kind === 'prune' && !hasIntegrityFailure(review.destination))
               ? undefined
               : review.kind === 'deletePlan'
                 ? review.plan.name
@@ -785,7 +777,9 @@ export function BackupsPage() {
               review.kind === 'initialize'
                 ? () => initializeBackupDestination(review.destination.id)
                 : review.kind === 'prune'
-                  ? () => pruneBackupDestination(review.destination.id)
+                  ? () => hasIntegrityFailure(review.destination) ? pruneBackupDestination(review.destination.id, true) : pruneBackupDestination(review.destination.id)
+                  : review.kind === 'unlock'
+                    ? () => unlockBackupDestination(review.destination.id)
                   : review.kind === 'deletePlan'
                     ? () => deleteBackupPlan(review.plan.id)
                     : () => deleteBackupDestination(review.destination.id)

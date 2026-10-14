@@ -112,6 +112,7 @@ const catalog: api.BackupCatalog = {
   transfer_bytes: 1048576,
 }
 const result: api.BackupRestoreResult = {
+  recovery_status: 'complete',
   id: 'restore',
   job_id: 'job',
   destination_id: 'nas',
@@ -384,7 +385,7 @@ describe('Continuous recovery workspace', () => {
     vi.mocked(api.previewBackupRestore).mockResolvedValue({
       review_token: 'review',
       expires_at: '2099-01-01T00:00:00Z',
-      preview: { mappings: [], writers: [], warnings: [], overwrites: true },
+      preview: { recovery_status: 'complete', mappings: [], writers: [], warnings: [], overwrites: true },
     })
     render(<ApplyRecoveryDialog destination={destination} restored={result} onStarted={vi.fn()} onClose={vi.fn()} />)
     fireEvent.click(screen.getByRole('checkbox', { name: /db → \/data/ }))
@@ -429,7 +430,7 @@ describe('Restore selection boundaries', () => {
     expect(screen.getByText(/Select up to 100 files per restore/)).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: 'Select file-100' })).not.toBeChecked()
     expect(screen.getByRole('button', { name: 'Restore 100 selected files for download' })).toBeEnabled()
-  })
+  }, 15_000) // 101 deliberate interactions need headroom on loaded test runners.
 })
 
 describe('Destination onboarding and schedules', () => {
@@ -807,7 +808,7 @@ describe('Round two evidence and recovery flows', () => {
 
   it('requires an explicit merge decision for an excluded source and invalidates the previous review', async () => {
     const excluded = { ...manifest, sources: [{ ...manifestSource, source: { ...source, excludes: ['uploads/private'] } }] }
-    vi.mocked(api.previewBackupRestore).mockResolvedValue({ review_token: 'review', expires_at: '2099-01-01T00:00:00Z', preview: { mappings: [{ source_id: source.id, target: '/data', mode: 'merge' }], writers: [], warnings: [], overwrites: true } })
+    vi.mocked(api.previewBackupRestore).mockResolvedValue({ review_token: 'review', expires_at: '2099-01-01T00:00:00Z', preview: { recovery_status: 'complete', mappings: [{ source_id: source.id, target: '/data', mode: 'merge' }], writers: [], warnings: [], overwrites: true } })
     render(<ApplyRecoveryDialog destination={destination} restored={{ ...result, manifest: excluded }} onStarted={vi.fn()} onClose={vi.fn()} />)
     fireEvent.click(await screen.findByRole('checkbox', { name: /db → \/data/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Use original location' }))
@@ -822,5 +823,58 @@ describe('Round two evidence and recovery flows', () => {
     fireEvent.change(screen.getByLabelText('Target directory for db'), { target: { value: '/other' } })
     expect(screen.queryByRole('button', { name: 'Apply recovered data' })).not.toBeInTheDocument()
     expect(api.restoreBackupSnapshot).not.toHaveBeenCalled()
+  })
+})
+
+describe('Round four recovery evidence and maintenance', () => {
+  it('retains retrieval provenance after its snapshot is absent and repeats it in apply review', async () => {
+    vi.mocked(api.getBackupRestores).mockResolvedValue({ items: [{ ...result, snapshot_id: 'no-longer-listed', recovery_status: 'incomplete', classified_at: '2026-10-13T12:00:00Z' }] })
+    workspace()
+    fireEvent.change(await screen.findByLabelText('Completed isolated restore'), { target: { value: result.id } })
+    expect(await screen.findByText(/This restore came from a snapshot classified as incomplete/)).toBeVisible()
+    const button = screen.getByRole('button', { name: 'Review applying recovered data' })
+    expect(button).not.toHaveAttribute('aria-describedby')
+    fireEvent.click(button)
+    expect(screen.getByRole('dialog')).toHaveTextContent('This restore came from a snapshot classified as incomplete')
+    expect(screen.getByRole('dialog')).toHaveTextContent('intact sources may still be recovered')
+  })
+
+  it('explains hardlink recovery and offers the regular member without permitting individual hardlink selection', async () => {
+    vi.mocked(api.getBackupCatalog).mockResolvedValue({ ...catalog, items: [{ ...file, path: 'alias.txt', type: 'hardlink', link_target: 'record.txt' }, file] })
+    workspace()
+    await chooseSnapshotSource()
+    expect(screen.queryByRole('checkbox', { name: 'Select alias.txt' })).not.toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Select record.txt' })).toBeEnabled()
+    expect(screen.getByText(/This hardlink cannot be retrieved/)).toHaveTextContent('select the regular file at record.txt')
+  })
+
+  it('shows overdue timing even when repository evidence is unavailable', async () => {
+    const copy: api.BackupProtection['copies'][number] = { destination_id: 'nas', state: 'unverified', activity: 'idle', due_at: '2026-10-14T14:00:00Z', first_outstanding_due: '2026-10-14T11:00:00Z', overdue_since: '2026-10-14T12:00:00Z' }
+    render(<MemoryRouter><ProtectionDashboard data={{ ...overview, protection: [{ plan_id: 'plan', plan_name: 'Database', state: 'attention', activity: 'idle', expected_copies: 1, current_copies: 0, copies: [copy] }] }} onCreatePlan={vi.fn()} onAddDestination={vi.fn()} onRun={vi.fn()} onRecovery={vi.fn()} /></MemoryRouter>)
+    const warning = await screen.findByText(/Scheduled copy missing since/)
+    expect(warning.querySelectorAll('time')[0]).toHaveAttribute('dateTime', copy.first_outstanding_due)
+    expect(warning.querySelectorAll('time')[1]).toHaveAttribute('dateTime', copy.overdue_since)
+    expect(screen.getByText(/complete recovery objects have not been verified/)).toBeVisible()
+  })
+
+  it('keeps transfer retry wording for legacy copies without full verification evidence', () => {
+    const run: api.BackupRun = { id: 'legacy', job_id: 'job', plan_id: 'plan', plan_name: 'Database', state: 'failed', capture_state: 'succeeded', phase: 'finished', created_at: '2026-10-01T00:00:00Z', expires_at: '2026-10-02T00:00:00Z', copies: [{ destination_id: 'nas', state: 'succeeded', verification: 'snapshot_metadata_verified', snapshot_id: 'snap', retention: 'failed' }] }
+    render(<RunHistory runs={[run]} plans={[plan]} destinations={[destination]} clock={0} pending={false} onJob={vi.fn()} onRetry={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'Retry failed copies' })).toBeEnabled()
+    expect(screen.queryByText(/do not require retained staging/)).not.toBeInTheDocument()
+    expect(screen.getByText(/Prepared data available for retries until/)).toBeVisible()
+  })
+
+  it.each([false, true])('retries verified retention after staging expires (mixed run: %s)', (mixed) => {
+    const onRetry = vi.fn()
+    const good: api.BackupCopy = { destination_id: 'nas', state: 'succeeded', verification: 'recovery_objects_verified', verified_at: '2026-10-01T00:00:00Z', snapshot_id: 'snap', retention: 'failed', retention_error: 'Repository unavailable' }
+    const run: api.BackupRun = { id: 'expired', job_id: 'job', plan_id: 'plan', plan_name: 'Database', state: 'failed', capture_state: 'succeeded', phase: 'finished', created_at: '2026-10-01T00:00:00Z', expires_at: '2026-10-02T00:00:00Z', copies: [good, ...(mixed ? [{ ...good, destination_id: 'cloud', state: 'failed', verification: 'unavailable' as const, retention: 'pending' as const }] : [])] }
+    render(<RunHistory runs={[run]} plans={[plan]} destinations={[destination]} clock={Date.parse('2026-10-14T00:00:00Z')} pending={false} onJob={vi.fn()} onRetry={onRetry} />)
+    expect(screen.getByRole('button', { name: 'Retry retention cleanup' })).toBeEnabled()
+    expect(screen.getByText(/do not require retained staging/)).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry retention cleanup' }))
+    expect(onRetry).toHaveBeenCalledWith(run, ['nas'])
+    if (mixed) expect(screen.getByText(/Other failed copies need a new capture/)).toBeVisible()
+    else expect(screen.getByText('attention')).toBeVisible()
   })
 })

@@ -72,7 +72,7 @@ async function mockBackupUI(page: Page, waitForSearch?: () => Promise<void>) {
         }
         break
       case '/api/backups/policy':
-        body = { paused: false, host_review_required: false, overdue_grace_minutes: 60, heartbeat_configured: false }
+        body = { paused: false, effective_paused: false, pause_reasons: [], host_review_required: false, overdue_grace_minutes: 60, heartbeat_configured: false }
         break
       case '/api/backups/coverage':
         body = { stacks: [] }
@@ -187,7 +187,7 @@ test.describe('Backup round two recovery boundaries', () => {
     test(`requires an explicit safe recovery choice for exclusions on ${viewport.name}`, async ({ page }) => {
       await page.setViewportSize(viewport)
       await mockBackupUI(page)
-      await page.route('**/api/backups/restores', (route) => route.fulfill({ json: { items: [{ id: 'restore', destination_id: 'nas', snapshot_id: 'snapshot', target: '/private/restore', available: true, test: false, created_at: '2026-10-01T12:00:00Z', source_ids: ['database'], manifest: { version: 1, run_id: 'run', plan_id: 'plan', consistency: 'stop', captured_at: '2026-10-01T00:00:00Z', stacklab_version: 'test', sources: [{ ...catalog.sources[0], source: { ...source, excludes: ['private-uploads'] } }] } }] } }))
+      await page.route('**/api/backups/restores', (route) => route.fulfill({ json: { items: [{ id: 'restore', recovery_status: 'complete', destination_id: 'nas', snapshot_id: 'snapshot', target: '/private/restore', available: true, test: false, created_at: '2026-10-01T12:00:00Z', source_ids: ['database'], manifest: { version: 1, run_id: 'run', plan_id: 'plan', consistency: 'stop', captured_at: '2026-10-01T00:00:00Z', stacklab_version: 'test', sources: [{ ...catalog.sources[0], source: { ...source, excludes: ['private-uploads'] } }] } }] } }))
       await page.route('**/api/backups/restores/restore/files?**', (route) => route.fulfill({ json: catalog }))
       await page.goto('/backups?view=recovery')
       await page.getByLabel('Completed isolated restore').selectOption('restore')
@@ -253,18 +253,42 @@ test.describe('Backup round three freshness and action boundaries', () => {
       await page.route('**/api/backups', (route) => route.fulfill({ json: {
         destinations: [destination], plans: [{ id: 'plan', name: 'Database', enabled: true, consistency: 'stop', sources: [source], destinations: [], staging_max_bytes: 1024 ** 3, staging_ttl_hours: 24, stop_timeout_seconds: 300 }], runs: [], protection: [], helper_ready: true, helper_configured: true, recovery_error: 'Interrupted service recovery', restic_available: true, rclone_available: true, staging_directory: '/staging',
       } }))
-      await page.route('**/api/backups/restores', (route) => route.fulfill({ json: { items: [{ id: 'restore', destination_id: 'nas', snapshot_id: 'snapshot', target: '/private/restore', available: true, test: true, created_at: '2026-10-01T12:00:00Z', source_ids: ['database'], manifest: { version: 1, run_id: 'run', plan_id: 'plan', consistency: 'stop', captured_at: '2026-10-01T00:00:00Z', stacklab_version: 'test', sources: catalog.sources } }] } }))
+      await page.route('**/api/backups/restores', (route) => route.fulfill({ json: { items: [{ id: 'restore', recovery_status: 'complete', destination_id: 'nas', snapshot_id: 'snapshot', target: '/private/restore', available: true, test: true, created_at: '2026-10-01T12:00:00Z', source_ids: ['database'], manifest: { version: 1, run_id: 'run', plan_id: 'plan', consistency: 'stop', captured_at: '2026-10-01T00:00:00Z', stacklab_version: 'test', sources: catalog.sources } }] } }))
       await page.route('**/api/backups/restores/restore/files?**', (route) => route.fulfill({ json: catalog }))
       await page.goto('/backups?view=plans')
       await expect(page.getByRole('button', { name: 'Back up now', exact: true })).toBeDisabled()
-      await expect(page.getByText('New captures are blocked.', { exact: false })).toBeVisible()
+      await expect(page.getByText('New captures are blocked until', { exact: false })).toBeVisible()
       await page.getByRole('tab', { name: 'Recovery', exact: true }).click()
       await page.getByLabel('Recovery set', { exact: true }).selectOption('snapshot')
       await expect(page.getByRole('button', { name: 'Retrieve complete set for offline recovery' })).toBeEnabled()
       await page.getByLabel('Completed isolated restore').selectOption('restore')
       await expect(page.getByRole('button', { name: 'Review applying recovered data' })).toBeDisabled()
-      await expect(page.getByText('Resolve Service recovery before applying data', { exact: false })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Review applying recovered data' })).toHaveAccessibleDescription('Interrupted service recovery')
       expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false)
     })
   }
+})
+
+
+test.describe('Backup round four repository decisions', () => {
+  test('requires cleanup risk acknowledgment and defaults recovery checks to all data', async ({ page }) => {
+    await mockBackupUI(page)
+    await page.route('**/api/backups', route => route.fulfill({ json: {
+      destinations: [{ ...destination, data_check: { status: 'failed', scope: 'all', error: 'Damaged pack' }, last_check_attempt_error: 'Damaged pack', check_error: 'Damaged pack' }], plans: [], runs: [], protection: [], helper_ready: true, helper_configured: true, restic_available: true, rclone_available: true, staging_directory: '/staging',
+    } }))
+    await page.goto('/backups?view=destinations')
+    await expect(page.getByText('Damaged pack', { exact: true })).toHaveCount(1)
+    await page.getByRole('button', { name: 'Check repository', exact: true }).click()
+    await expect(page.getByLabel('Data-read policy')).toHaveValue('all')
+    await page.getByLabel('Data-read policy').selectOption('metadata')
+    await expect(page.getByRole('dialog')).toContainText('data-failure evidence unchanged')
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await page.getByRole('button', { name: 'Run retention cleanup', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Start cleanup', exact: true })).toBeDisabled()
+    await page.getByRole('textbox').fill('NAS')
+    await expect(page.getByRole('button', { name: 'Start cleanup', exact: true })).toBeEnabled()
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await page.getByRole('button', { name: 'Remove stale locks', exact: true }).click()
+    await expect(page.getByRole('dialog')).toContainText('Active locks remain in place')
+  })
 })

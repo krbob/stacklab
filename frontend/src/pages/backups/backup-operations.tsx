@@ -37,7 +37,7 @@ export function BackupOperations({
   onPolicyChange?: (policy: BackupPolicy) => void
   onStarted: (result: BackupJobResponse) => void
 }) {
-  const policy = useApi((signal) => getBackupPolicy(signal), [refreshKey], { resourceKey: 'backup-policy' })
+  const policy = useApi((signal) => getBackupPolicy(signal), [refreshKey], { resourceKey: 'backup-policy', backgroundRefresh: true })
   useEffect(() => { if (policy.data) onPolicyChange?.(policy.data) }, [policy.data, onPolicyChange])
   const [settings, setSettings] = useState(false)
   const [recovery, setRecovery] = useState(false)
@@ -65,9 +65,8 @@ export function BackupOperations({
             mappings, then acknowledge this host in Backup settings.
           </p>}
           {policy.data?.pause_reasons?.map((reason) => <p key={reason.code}>{reason.message}</p>)}
-          {recoveryError && !policy.data?.pause_reasons?.some((reason) => reason.code === 'service_recovery_required') && <p>
-            Service recovery needs attention: {recoveryError} Open Service recovery to inspect recorded operations.
-            New captures remain blocked until the affected services and shared mounts are reviewed.
+          {recoveryError && !policy.data?.pause_reasons?.some((reason) => ['service_recovery_required', 'initialization_error'].includes(reason.code)) && <p>
+            {recoveryError}
           </p>}
           {!policy.data?.pause_reasons?.length && policy.data?.paused && !policy.data.host_review_required && <p>The automatic scheduling pause is enabled in Backup settings.</p>}
         </div>

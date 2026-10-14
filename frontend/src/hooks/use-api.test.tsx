@@ -123,3 +123,31 @@ describe('useApi', () => {
   })
 
 })
+
+
+describe('Background API refreshes', () => {
+  it('keeps an error visible without manual loading feedback and lets Retry supersede polling', async () => {
+    const background = deferred<string>()
+    const manual = deferred<string>()
+    const signals: AbortSignal[] = []
+    const fetcher = vi.fn((signal?: AbortSignal): Promise<string> => { if (signal) signals.push(signal); return Promise.reject(new Error('Offline')) })
+    const { result } = renderHook(() => useApi(fetcher, []))
+    await waitFor(() => expect(result.current.error?.message).toBe('Offline'))
+    fetcher.mockImplementationOnce((signal) => { if (signal) signals.push(signal); return background.promise })
+    act(() => result.current.backgroundRefetch())
+    expect(result.current.loading).toBe(false)
+    expect(result.current.backgroundLoading).toBe(true)
+    expect(result.current.error?.message).toBe('Offline')
+    act(() => result.current.backgroundRefetch())
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    fetcher.mockImplementationOnce((signal) => { if (signal) signals.push(signal); return manual.promise })
+    act(() => result.current.refetch())
+    expect(signals[1].aborted).toBe(true)
+    expect(result.current.loading).toBe(true)
+    await act(async () => { manual.resolve('Recovered'); await manual.promise })
+    expect(result.current.data).toBe('Recovered')
+    expect(result.current.backgroundLoading).toBe(false)
+    await act(async () => { background.resolve('Stale'); await background.promise })
+    expect(result.current.data).toBe('Recovered')
+  })
+})

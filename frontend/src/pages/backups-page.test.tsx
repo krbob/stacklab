@@ -69,9 +69,11 @@ const jobResponse = { job: { id: 'job-1' } } as api.BackupJobResponse
 beforeEach(() => {
   vi.resetAllMocks()
   vi.mocked(useJobStream).mockReturnValue({ state: null, events: [], clear: vi.fn() })
-  vi.mocked(api.getBackups).mockResolvedValue(overview)
+  vi.mocked(api.getBackups).mockImplementation(async () => ({ ...overview }))
   vi.mocked(api.getBackupPolicy).mockResolvedValue({
     paused: false,
+    effective_paused: false,
+    pause_reasons: [],
     host_review_required: false,
     overdue_grace_minutes: 60,
     heartbeat_configured: false,
@@ -324,6 +326,7 @@ describe('Backup configuration and recovery', () => {
       review_token: 'bound-review',
       expires_at: '2099-10-13T12:00:00Z',
       preview: {
+        recovery_status: 'complete',
         mappings: [{ source_id: 'data', target: '/recovered/data', mode: 'replace' }],
         writers: [{ container_id: 'container', stack_id: 'demo', service: 'db', running: true }],
         warnings: ['Unrelated files remain.'],
@@ -336,6 +339,7 @@ describe('Backup configuration and recovery', () => {
         destination={destination}
         restored={{
           id: 'restore',
+          recovery_status: 'complete',
           destination_id: 'nas',
           snapshot_id: 'snap',
           target: '/restore/run-1',
@@ -551,4 +555,72 @@ describe('Backup workflow round three regressions', () => {
     expect(await screen.findByText(/The linked backup plan no longer exists/)).toBeVisible()
   })
 
+})
+
+
+describe('Backup workflow round four regressions', () => {
+  it('defaults a known data failure to a full read and explains lighter checks', async () => {
+    vi.mocked(api.getBackups).mockResolvedValue({ ...overview, destinations: [{ ...destination, data_check: { status: 'failed', scope: 'all', error: 'Damaged pack' } }] })
+    renderPage('destinations')
+    fireEvent.click(await screen.findByRole('button', { name: 'Check repository' }))
+    expect(screen.getByLabelText('Data-read policy')).toHaveValue('all')
+    expect(screen.getByRole('dialog')).toHaveTextContent('Only a successful full data read can clear it')
+    expect(screen.getByRole('dialog')).toHaveTextContent('downloads and verifies all stored data')
+    fireEvent.change(screen.getByLabelText('Data-read policy'), { target: { value: 'metadata' } })
+    expect(screen.getByRole('dialog')).toHaveTextContent('leaves this data-failure evidence unchanged')
+  })
+
+  it('requires explicit integrity acknowledgment before cleanup', async () => {
+    vi.mocked(api.getBackups).mockResolvedValue({ ...overview, destinations: [{ ...destination, data_check: { status: 'failed', scope: 'all', error: 'Damaged pack' } }] })
+    vi.mocked(api.pruneBackupDestination).mockResolvedValue(jobResponse)
+    renderPage('destinations')
+    fireEvent.click(await screen.findByRole('button', { name: 'Run retention cleanup' }))
+    expect(screen.getByRole('button', { name: 'Start cleanup' })).toBeDisabled()
+    expect(screen.getByRole('dialog')).toHaveTextContent('remove recovery material needed for repair')
+    fireEvent.change(within(screen.getByRole('dialog')).getByRole('textbox'), { target: { value: 'NAS' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Start cleanup' }))
+    await waitFor(() => expect(api.pruneBackupDestination).toHaveBeenCalledWith('nas', true))
+  })
+
+  it('offers an explicit stale-lock operation without force-unlock semantics', async () => {
+    vi.mocked(api.unlockBackupDestination).mockResolvedValue(jobResponse)
+    renderPage('destinations')
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Remove stale locks' }))[0])
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toHaveTextContent('Active locks remain in place')
+    expect(api.unlockBackupDestination).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Remove stale locks' }))
+    await waitFor(() => expect(api.unlockBackupDestination).toHaveBeenCalledWith('nas'))
+  })
+
+  it('coalesces focus and visibility and keeps Refresh enabled during background polling', async () => {
+    vi.useFakeTimers()
+    try {
+      await act(async () => { renderPage('plans') })
+      vi.mocked(api.getBackups).mockImplementation(() => new Promise(() => {}))
+      fireEvent(window, new Event('focus'))
+      fireEvent(document, new Event('visibilitychange'))
+      await act(async () => { await vi.advanceTimersByTimeAsync(100) })
+      expect(api.getBackups).toHaveBeenCalledTimes(2)
+      expect(api.getBackupPolicy).toHaveBeenCalledTimes(2)
+      expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled()
+    } finally { vi.useRealTimers() }
+  })
+
+  it('does not repeat stored-data errors or invent a check-attempt scope', async () => {
+    vi.mocked(api.getBackups).mockResolvedValue({ ...overview, destinations: [{ ...destination, data_check: { status: 'failed', scope: 'all', error: 'Damaged pack' }, check_error: 'Damaged pack', last_check_attempt_error: 'Damaged pack', last_operation_error: 'Damaged pack' }] })
+    renderPage('destinations')
+    expect(await screen.findAllByText('Damaged pack')).toHaveLength(1)
+    expect(screen.queryByText(/unknown scope/)).not.toBeInTheDocument()
+  })
+
+  it('shows initialization failures once without a misleading service-recovery prefix', async () => {
+    const message = 'Backup module is unavailable: configuration cannot be read.'
+    vi.mocked(api.getBackups).mockResolvedValue({ ...overview, recovery_error: message })
+    vi.mocked(api.getBackupPolicy).mockResolvedValue({ paused: false, host_review_required: false, effective_paused: true, pause_reasons: [{ code: 'initialization_error', message }], overdue_grace_minutes: 60, heartbeat_configured: false })
+    renderPage('plans')
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Back up now' })).toBeDisabled())
+    expect(screen.getByRole('alert')).toHaveTextContent(message)
+    expect(screen.queryByText(/Service recovery needs attention/)).not.toBeInTheDocument()
+  })
 })

@@ -96,8 +96,10 @@ export const previewBackupSchedule = (schedule: BackupSchedule, signal?: AbortSi
     ...post({ schedule, count: 3 }),
     signal,
   })
-export const pruneBackupDestination = (id: string) =>
-  request<BackupJobResponse>(`${base}/destinations/${encode(id)}/prune`, post())
+export const pruneBackupDestination = (id: string, acknowledgeIntegrityFailure = false) =>
+  request<BackupJobResponse>(`${base}/destinations/${encode(id)}/prune`, post(acknowledgeIntegrityFailure ? { acknowledge_integrity_failure: true } : {}))
+export const unlockBackupDestination = (id: string) =>
+  request<BackupJobResponse>(`${base}/destinations/${encode(id)}/unlock`, post())
 export const getBackupRestores = (signal?: AbortSignal) =>
   request<components['schemas']['BackupRestoreLibraryResponse']>(`${base}/restores`, { signal })
 export const deleteBackupRestore = (id: string) => request<void>(`${base}/restores/${encode(id)}`, { method: 'DELETE' })

@@ -43,7 +43,7 @@ export function BackupStatus({ value }: { value: string }) {
     <span
       className={cn(
         'rounded border px-2 py-0.5 text-xs',
-        ['succeeded', 'covered', 'healthy', 'current', 'ready', 'available'].includes(value)
+        ['succeeded', 'covered', 'healthy', 'current', 'ready', 'available', 'verified', 'complete', 'sampled'].includes(value)
           ? 'border-[var(--ok)]/30 text-[var(--ok)]'
           : [
                 'failed',
@@ -61,6 +61,10 @@ export function BackupStatus({ value }: { value: string }) {
                 'unavailable',
                 'clock_skew',
                 'unverified',
+                'incomplete',
+                'invalid',
+                'unsupported',
+                'legacy',
               ].includes(value)
             ? 'border-[var(--warning)]/30 text-[var(--warning)]'
             : 'border-[var(--panel-border)] text-[var(--muted)]',
@@ -96,4 +100,11 @@ export function BackupSize({ value }: { value?: number | null }) {
       {['B', 'KiB', 'MiB', 'GiB', 'TiB'][unit]}
     </>
   )
+}
+
+export function RecoveryEvidence({ status, classifiedAt }: { status?: string; classifiedAt?: string }) {
+  return <div className="space-y-1 text-xs">
+    <p className="text-[var(--muted)]">Snapshot evidence at retrieval: <BackupStatus value={status || 'unknown'} />{classifiedAt && <> · Classified <BackupDate value={classifiedAt} /></>}</p>
+    {(!status || status === 'unknown') ? <p className="text-[var(--warning)]">Snapshot completeness was not recorded. Applying data validates each selected source; an unclassified snapshot is not proof of a complete recovery set.</p> : status !== 'complete' && <p className="text-[var(--warning)]">This restore came from a snapshot classified as {status}. Applying data validates each selected source; intact sources may still be recovered even if other sources are missing.</p>}
+  </div>
 }

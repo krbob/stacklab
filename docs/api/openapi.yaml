@@ -164,6 +164,8 @@ paths:
           $ref: '#/components/responses/ErrorUnauthorized'
         '404':
           $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
   /backups/coverage:
     get:
       tags:
@@ -247,7 +249,13 @@ paths:
       tags:
       - Backups
       operationId: pruneBackupDestination
-      description: Queue repository prune under the existing repository and native restic locks.
+      description: Queue repository prune under the existing repository and native restic locks. Known integrity failure requires explicit acknowledgement; scheduled prune remains blocked.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupPruneRequest'
       parameters:
       - name: destinationId
         in: path
@@ -257,6 +265,33 @@ paths:
       responses:
         '202':
           description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupJobResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+  /backups/destinations/{destinationId}/unlock:
+    post:
+      tags:
+      - Backups
+      operationId: unlockBackupDestination
+      description: Queue ordinary restic unlock under Stacklab repository admission. Removes only locks restic considers stale, never forces active locks or clears integrity evidence. A live owner's lock may remain.
+      parameters:
+      - name: destinationId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '202':
+          description: Stale-lock removal job accepted.
           content:
             application/json:
               schema:
@@ -6079,9 +6114,10 @@ components:
           $ref: '#/components/schemas/BackupIntegrityEvidence'
         last_check_attempt_policy:
           type: string
-          enum: [metadata, subset, all]
+          enum: [metadata, subset, all, unknown]
         last_check_attempt_status:
           type: string
+          enum: [succeeded, failed]
         last_check_attempt_error:
           type: string
         last_check_attempt_at:
@@ -6142,6 +6178,8 @@ components:
           format: date-time
         check_status:
           type: string
+          enum: [unknown, verified, failed]
+          description: Conservative compatibility aggregate of metadata_check and data_check; verified does not imply a full data read.
         check_error:
           type: string
         last_operation:
@@ -6343,9 +6381,22 @@ components:
       - staging_max_bytes
       - staging_ttl_hours
       - stop_timeout_seconds
+    BackupPruneRequest:
+      type: object
+      properties:
+        acknowledge_integrity_failure:
+          type: boolean
+          default: false
+          description: Explicitly accept pruning despite known repository integrity failure. This does not repair the repository or clear its evidence.
     BackupCopyResult:
       type: object
       properties:
+        retention_started_at:
+          type: string
+          format: date-time
+        retention_completed_at:
+          type: string
+          format: date-time
         retention_error:
           type: string
           description: Cleanup failure after a verified copy; retry reuses the existing snapshot without uploading again.
@@ -6367,6 +6418,8 @@ components:
           enum: [pending, failed, unavailable, snapshot_metadata_verified, recovery_objects_verified]
         retention:
           type: string
+          enum: [pending, running, succeeded, failed, skipped]
+          description: Maintenance outcome independent of the verified copy. Maintenance-only retry does not require retained staging.
         error:
           type: string
         started_at:
@@ -6526,7 +6579,7 @@ components:
           type: string
         error:
           type: string
-      required: [paused, host_review_required, overdue_grace_minutes, heartbeat_configured]
+      required: [paused, effective_paused, pause_reasons, host_review_required, overdue_grace_minutes, heartbeat_configured]
     BackupPolicyInput:
       type: object
       properties:
@@ -6594,7 +6647,7 @@ components:
             type: string
         error:
           type: string
-      required: [run_id, hold_stopped, writers]
+      required: [run_id, hold_stopped, writers, can_acknowledge_missing, has_prepared_restore]
     BackupRecoveryJournals:
       type: object
       properties:
@@ -6693,6 +6746,7 @@ components:
           type: string
         source_ids:
           type: array
+          maxItems: 1000
           items:
             type: string
         files:
@@ -6714,6 +6768,7 @@ components:
           type: string
         includes:
           type: array
+          maxItems: 1000
           items:
             type: string
         test:
@@ -6721,6 +6776,14 @@ components:
     BackupRestoreResult:
       type: object
       properties:
+        recovery_status:
+          type: string
+          enum: [unknown, complete, incomplete, legacy, unsupported, invalid]
+          description: Snapshot completeness classification frozen when the isolated result was registered; independent of selected-source validation. Legacy results are unknown.
+        classified_at:
+          type: string
+          format: date-time
+          description: Timestamp of the original snapshot classification, when known.
         managed:
           type: boolean
           description: Stacklab owns this directory and permits explicit removal. Custom targets are operator-owned.
@@ -6754,6 +6817,7 @@ components:
         manifest:
           $ref: '#/components/schemas/BackupManifest'
       required:
+      - recovery_status
       - available
       - id
       - created_at
@@ -6914,6 +6978,13 @@ components:
     BackupRestorePreview:
       type: object
       properties:
+        recovery_status:
+          type: string
+          enum: [unknown, complete, incomplete, legacy, unsupported, invalid]
+          description: Frozen provenance from the registered recovery result. Each selected source is separately validated before apply.
+        classified_at:
+          type: string
+          format: date-time
         mappings:
           type: array
           items:
@@ -6929,6 +7000,7 @@ components:
         overwrites:
           type: boolean
       required:
+      - recovery_status
       - mappings
       - writers
       - warnings
@@ -7005,6 +7077,8 @@ components:
           format: date-time
         integrity_status:
           type: string
+          enum: [unknown, verified, failed]
+          description: Compatibility aggregate; verified can mean only metadata or a sampled read. Inspect destination metadata_check and data_check for actual scope and time.
         availability_status:
           type: string
         last_restore_test_at:
@@ -7030,6 +7104,15 @@ components:
         due_at:
           type: string
           format: date-time
+          description: Latest scheduled occurrence, retained for compatibility; first_outstanding_due identifies the oldest unmet deadline.
+        first_outstanding_due:
+          type: string
+          format: date-time
+          description: First unsatisfied scheduled deadline, independent of availability and integrity evidence.
+        overdue_since:
+          type: string
+          format: date-time
+          description: First outstanding deadline plus configured grace, emitted once grace has elapsed. Missing/unverified evidence does not hide this deadline.
         last_run_id:
           type: string
         last_error:

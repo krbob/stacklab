@@ -8,6 +8,8 @@ vi.mock('@/hooks/use-job-stream', () => ({ useJobStream: () => ({ state: null, e
 
 const policy: api.BackupPolicy = {
   paused: false,
+  effective_paused: false,
+  pause_reasons: [],
   host_review_required: false,
   overdue_grace_minutes: 60,
   heartbeat_configured: true,
@@ -91,6 +93,7 @@ describe('Backup operational controls', () => {
       items: [
         {
           run_id: 'held-run',
+          can_acknowledge_missing: false,
           hold_stopped: true,
           writers: [{ container_id: 'db-container', stack_id: 'demo', service: 'db', running: true }],
           phases: { 'db-container': 'stopped' },
@@ -116,6 +119,8 @@ describe('Backup operational controls', () => {
       items: [
         {
           run_id: 'broken.json',
+          can_acknowledge_missing: false,
+          has_prepared_restore: false,
           hold_stopped: false,
           writers: [],
           error: 'Invalid journal requires manual inspection',
@@ -138,7 +143,7 @@ describe('Round two effective pause and journal resolution', () => {
   })
 
   it('shows observed replacements separately from historical phases and requires an audited inspection note', async () => {
-    vi.mocked(api.getBackupRecoveryJournals).mockResolvedValue({ items: [{ run_id: 'missing-run', hold_stopped: false, writers: [{ container_id: 'old-id', stack_id: 'demo', service: 'db', running: true }], phases: { 'old-id': 'stopped' }, can_acknowledge_missing: true, observations: { 'old-id': { state: 'missing', replacements: [{ container_id: 'new-id', stack_id: 'demo', service: 'db', state: 'running' }] } } }] })
+    vi.mocked(api.getBackupRecoveryJournals).mockResolvedValue({ items: [{ run_id: 'missing-run', has_prepared_restore: false, hold_stopped: false, writers: [{ container_id: 'old-id', stack_id: 'demo', service: 'db', running: true }], phases: { 'old-id': 'stopped' }, can_acknowledge_missing: true, observations: { 'old-id': { state: 'missing', replacements: [{ container_id: 'new-id', stack_id: 'demo', service: 'db', state: 'running' }] } } }] })
     render(<ServiceRecoveryDialog onClose={vi.fn()} onChanged={vi.fn()} onStarted={vi.fn()} />)
     expect(await screen.findByText('Observed container state: missing')).toBeVisible()
     expect(screen.getByText(/Possible replacement: demo \/ db · new-id · running/)).toBeVisible()

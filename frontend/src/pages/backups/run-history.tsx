@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { backupDuration as duration } from './backup-formatters'
-import type { BackupDestination, BackupPlan, BackupRun } from '@/lib/backup-api'
+import type { BackupCopy, BackupDestination, BackupPlan, BackupRun } from '@/lib/backup-api'
 import { BackupDate, BackupError, BackupPanel, BackupSize, BackupStatus, buttonClass, Field, inputClass } from './backup-primitives'
 
 const pageSize = 10
+const verifiedCopy = (copy: BackupCopy) => copy.state === 'succeeded' && copy.verification === 'recovery_objects_verified' && !!copy.verified_at && !!copy.snapshot_id
 
 export function RunHistory({
   runs,
@@ -138,12 +139,14 @@ export function RunHistory({
           const expired = new Date(run.expires_at).getTime() <= clock
           const failed = run.copies.filter((copy) => copy.state !== 'succeeded' || copy.retention === 'failed')
           const active = ['running', 'queued'].includes(run.state)
-          const maintenanceOnly = failed.length > 0 && failed.every((copy) => copy.state === 'succeeded')
+          const retryable = failed.filter((copy) => run.capture_state === 'succeeded' && (verifiedCopy(copy) || !expired))
+          const maintenanceOnly = failed.length > 0 && failed.every(verifiedCopy)
+          const retryMaintenanceOnly = retryable.length > 0 && retryable.every(verifiedCopy)
           return (
             <article key={run.id} className="space-y-3 rounded-md border border-[var(--panel-border)] p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="font-medium text-[var(--text)]">{run.plan_name}</h3>
-                <BackupStatus value={run.state} />
+                <BackupStatus value={maintenanceOnly && !active ? 'attention' : run.state} />
               </div>
               <p className="text-xs text-[var(--muted)]">
                 Created <BackupDate value={run.created_at} /> · Capture: {run.capture_state}
@@ -207,7 +210,7 @@ export function RunHistory({
                     {copy.snapshot_id && (
                       <p className="mt-1 break-all font-mono text-xs text-[var(--muted)]">{copy.snapshot_id}</p>
                     )}
-                    {copy.retention_error && <p className="mt-1 text-sm text-[var(--warning)]">Copy verified; retention cleanup failed: {copy.retention_error}. Retry reuses this snapshot.</p>}
+                    {copy.retention_error && <p className="mt-1 text-sm text-[var(--warning)]">Copy verified; retention cleanup failed: {copy.retention_error}.</p>}
                     {copy.error && <p className="mt-1 text-sm text-[var(--danger)]">{copy.error}</p>}
                   </div>
                 ))}
@@ -256,27 +259,26 @@ export function RunHistory({
                 {failed.length > 0 && !active && (
                   <button
                     className={buttonClass}
-                    disabled={pending || expired || run.capture_state !== 'succeeded'}
+                    disabled={pending || retryable.length === 0}
                     onClick={() =>
                       onRetry(
                         run,
-                        failed.map((copy) => copy.destination_id),
+                        retryable.map((copy) => copy.destination_id),
                       )
                     }
                   >
-                    {maintenanceOnly ? 'Retry retention cleanup' : 'Retry failed copies'}
+                    {maintenanceOnly || retryMaintenanceOnly ? 'Retry retention cleanup' : 'Retry failed copies'}
                   </button>
                 )}
               </div>
               {failed.length > 0 && !active && (
                 <p className="text-xs text-[var(--muted)]">
-                  {expired || run.capture_state !== 'succeeded' ? (
-                    maintenanceOnly ? 'The verified copy remains usable. Retry requires retained staging; run the plan again to retry its retention policy.' : 'A new capture is required; start the plan again.'
+                  {retryMaintenanceOnly ? (
+                    <>Retention retries use the verified repository snapshot and do not require retained staging.{retryable.length < failed.length && ' Other failed copies need a new capture.'}</>
+                  ) : expired || run.capture_state !== 'succeeded' ? (
+                    'A new capture is required; start the plan again.'
                   ) : (
-                    <>
-                      Prepared data available for retries until <BackupDate value={run.expires_at} />. Successful copies
-                      are preserved.
-                    </>
+                    <>Prepared data available for retries until <BackupDate value={run.expires_at} />. Successful copies are preserved.</>
                   )}
                 </p>
               )}
