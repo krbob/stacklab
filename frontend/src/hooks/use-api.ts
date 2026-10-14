@@ -10,36 +10,49 @@ interface UseApiState<T> {
 export function useApi<T>(
   fetcher: (signal?: AbortSignal) => Promise<T>,
   deps: unknown[] = [],
-  { enabled = true }: { enabled?: boolean } = {},
+  { enabled = true, staleTime = 0 }: { enabled?: boolean; staleTime?: number } = {},
 ): UseApiState<T> & { refetch: () => void } {
   const [state, setState] = useState<UseApiState<T>>({ data: null, error: null, loading: true, updatedAt: null })
   const requestIDRef = useRef(0)
   const abortRef = useRef<AbortController | null>(null)
 
-  const load = useCallback(() => {
+  const lastLoadRef = useRef<(() => void) | null>(null)
+  const settledAtRef = useRef(0)
+  const pendingRef = useRef(false)
+
+  const load = useCallback((resetError = false) => {
     const requestID = requestIDRef.current + 1
     requestIDRef.current = requestID
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
 
-    setState((s) => ({ ...s, loading: true }))
+    pendingRef.current = true
+    setState((s) => ({ ...s, loading: true, ...(resetError ? { error: null } : {}) }))
     fetcher(controller.signal)
       .then((data) => {
         if (controller.signal.aborted || requestIDRef.current !== requestID) return
-        setState({ data, error: null, loading: false, updatedAt: Date.now() })
+        pendingRef.current = false
+        settledAtRef.current = Date.now()
+        setState({ data, error: null, loading: false, updatedAt: settledAtRef.current })
       })
       .catch((error) => {
         if (controller.signal.aborted || requestIDRef.current !== requestID) return
+        pendingRef.current = false
         setState((s) => ({ ...s, error, loading: false }))
       })
     // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/use-memo
   }, deps)
 
   useEffect(() => {
-    if (enabled) load()
+    const resourceChanged = lastLoadRef.current !== load
+    if (enabled && (resourceChanged || pendingRef.current || !settledAtRef.current || Date.now() - settledAtRef.current >= staleTime)) {
+      lastLoadRef.current = load
+      load(resourceChanged)
+    }
     return () => abortRef.current?.abort()
-  }, [load, enabled])
+  }, [load, enabled, staleTime])
 
-  return { ...state, refetch: load }
+  const refetch = useCallback(() => load(), [load])
+  return { ...state, refetch }
 }

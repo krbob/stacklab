@@ -20,6 +20,7 @@ import {
   type BackupDestination,
   type BackupJobResponse,
   type BackupPlan,
+  type BackupPolicy,
 } from '@/lib/backup-api'
 import { cn } from '@/lib/cn'
 import {
@@ -42,6 +43,7 @@ import { RunPlanDialog } from './backups/run-plan-dialog'
 import { scheduleDescription } from './backups/schedule-utils'
 import { SourceLabel } from './backups/source-label'
 import { BackupOperations } from './backups/backup-operations'
+import { useBackupRefresh, type BackupJobEffects } from './backups/use-backup-refresh'
 
 type Editor =
   | { kind: 'destination'; value?: BackupDestination }
@@ -71,59 +73,73 @@ export function BackupsPage() {
   const [check, setCheck] = useState<BackupDestination | null>(null)
   const [readData, setReadData] = useState<'metadata' | 'subset' | 'all'>('metadata')
   const [pending, setPending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [errorScope, setErrorScope] = useState<string | null>(null)
-  const [jobIds, setJobIds] = useState<string[]>([])
+  const [reportedError, setReportedError] = useState<{ message: string; scope: string | null } | null>(null)
+  const error = reportedError?.message ?? null
+  const errorScope = reportedError?.scope ?? null
+  const reportError = useCallback((message: string | null, scope: string | null = null) => {
+    setReportedError(message ? { message, scope } : null)
+  }, [])
+  const [policy, setPolicy] = useState<BackupPolicy | null>(null)
   const [configurationRevision, setConfigurationRevision] = useState(0)
   const [recoveryRevision, setRecoveryRevision] = useState(0)
-  const [policyRevision, setPolicyRevision] = useState(0)
   const openedPlanRef = useRef<string | null>(null)
   const [clock, setClock] = useState(() => Date.now())
   const data = state.data
+  const { jobIds, track, finished, snapshotRevisions, restoreRevisions, policyRevision, refreshPolicy } = useBackupRefresh(data, refetch)
+  const captureBlocked = data?.recovery_error
+    ? `Service recovery needs attention: ${data.recovery_error}`
+    : policy?.pause_reasons?.filter((reason) => reason.code !== 'user_paused').map((reason) => reason.message).join(' ')
+      || (policy?.host_review_required ? 'Review this host in Backup settings before capturing new data.' : policy?.error)
+  const recoveryReason = data?.recovery_error || policy?.pause_reasons?.find((reason) => reason.code === 'service_recovery_required')?.message
+  const applyBlocked = recoveryReason ? `Resolve Service recovery before applying data: ${recoveryReason}` : undefined
   const destinations = data?.destinations ?? []
   const plans = data?.plans ?? []
   const runs = data?.runs ?? []
   const hasRunning = jobIds.length > 0 || runs.some((run) => ['queued', 'running'].includes(run.state))
 
-  const finished = useCallback(
-    (id: string) => {
-      setJobIds((previous) => previous.filter((jobId) => jobId !== id))
-      refetch()
-      setRecoveryRevision((value) => value + 1)
-      setPolicyRevision((value) => value + 1)
-    },
-    [refetch],
-  )
   useEffect(() => {
     const timer = window.setInterval(
       () => {
         if (document.visibilityState === 'hidden') return
         setClock(Date.now())
-        if (hasRunning) refetch()
+        refetch()
+        if (!hasRunning) refreshPolicy()
       },
       hasRunning ? 5000 : 60000,
     )
     return () => window.clearInterval(timer)
-  }, [hasRunning, refetch])
+  }, [hasRunning, refetch, refreshPolicy])
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === 'hidden') return
+      refetch()
+      refreshPolicy()
+    }
+    window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', refresh)
+    return () => {
+      window.removeEventListener('focus', refresh)
+      document.removeEventListener('visibilitychange', refresh)
+    }
+  }, [refetch, refreshPolicy])
 
-  function started(result: BackupJobResponse, reveal = true) {
-    setJobIds((previous) => (previous.includes(result.job.id) ? previous : [...previous, result.job.id]))
+  function started(result: BackupJobResponse, reveal = true, effects: BackupJobEffects = {}) {
+    track(result.job.id, effects)
     if (reveal) openJob(result.job.id)
     state.refetch()
   }
 
-  async function command(action: () => Promise<unknown>, scope: string | null = null): Promise<boolean> {
+  async function command(action: () => Promise<unknown>, scope: string | null = null, effects: BackupJobEffects = {}): Promise<boolean> {
     if (pending) return false
     setPending(true)
-    setError(null)
-    setErrorScope(scope)
+    reportError(null)
     try {
       const result = await action()
-      if (result && typeof result === 'object' && 'job' in result) started(result as BackupJobResponse)
+      if (result && typeof result === 'object' && 'job' in result) started(result as BackupJobResponse, true, effects)
       else state.refetch()
       return true
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Backup operation failed')
+      reportError(cause instanceof Error ? cause.message : 'Backup operation failed', scope)
       return false
     } finally {
       setPending(false)
@@ -149,18 +165,19 @@ export function BackupsPage() {
   const refreshAll = useCallback(() => {
     configurationChanged()
     setRecoveryRevision((value) => value + 1)
-    setPolicyRevision((value) => value + 1)
-  }, [configurationChanged])
+    refreshPolicy()
+  }, [configurationChanged, refreshPolicy])
+  const policyChanged = useCallback(() => { refetch(); refreshPolicy() }, [refetch, refreshPolicy])
   const finishEditor = () => {
     closeEditor()
     configurationChanged()
   }
   const openRun = (plan: BackupPlan) => {
-    setError(null)
+    reportError(null)
     setRunPlan(plan)
   }
   const openReview = (value: Exclude<Review, null>) => {
-    setError(null)
+    reportError(null)
     setReview(value)
   }
   const hasDialog = !!runPlan || !!check || !!review || !!editor
@@ -171,10 +188,9 @@ export function BackupsPage() {
     if (openedPlanRef.current === id || !data) return
     openedPlanRef.current = id
     if (plan) setEditor({ kind: 'plan', value: plan })
-    else setError('The linked backup plan no longer exists. Select an existing plan or create one.')
-  }, [search, data])
+    else reportError('The linked backup plan no longer exists. Select an existing plan or create one.')
+  }, [search, data, reportError])
   const recover = (id: string) => {
-    setRecoveryRevision((value) => value + 1)
     setSearch((previous) => {
       previous.set('view', 'recovery')
       previous.set('destination', id)
@@ -237,7 +253,7 @@ export function BackupsPage() {
         ))}
       </div>
       <AsyncState
-        loading={state.loading && !data}
+        loading={state.loading && (!data || !!state.error)}
         error={state.error}
         hasData={data !== null}
         isEmpty={false}
@@ -257,17 +273,21 @@ export function BackupsPage() {
               </p>
             )}
             {data.helper_ready === false && (
-              <p role="alert" className="rounded-md border border-[var(--warning)]/30 p-3 text-sm text-[var(--warning)]">
-                In-place recovery is unavailable: {data.helper_error || 'The backup helper is not ready.'}
-                {' '}Update the backup helper and its narrowly scoped sudoers permissions, then verify recovery readiness.
+              <p role={data.helper_configured === false ? 'status' : 'alert'} className="rounded-md border border-[var(--warning)]/30 p-3 text-sm text-[var(--warning)]">
+                {data.helper_configured === false
+                  ? 'In-place recovery is not configured. Isolated retrieval is available. Configure the backup helper when you need to apply recovered data to a stack.'
+                  : <>In-place recovery is unavailable: {data.helper_error || 'The backup helper is not ready.'}
+                    {' '}Update the backup helper and its narrowly scoped sudoers permissions, then verify recovery readiness.</>}
               </p>
             )}
             <BackupOperations
               refreshKey={policyRevision}
               recoveryError={data.recovery_error}
-              onChanged={refreshAll}
-              onStarted={started}
+              onChanged={policyChanged}
+              onPolicyChange={setPolicy}
+              onStarted={(result) => started(result, true, { policy: true })}
             />
+            {captureBlocked && <p id="backup-capture-block" className="text-sm text-[var(--warning)]">New captures are blocked. {captureBlocked} Open Backup settings or Service recovery above to resolve the cause.</p>}
             <div className="space-y-4">
               <div
                 role="tabpanel"
@@ -281,6 +301,7 @@ export function BackupsPage() {
                     refreshKey={configurationRevision}
                     active={tab === 'protection'}
                     pending={pending}
+                    captureBlocked={captureBlocked}
                     onCreatePlan={() => setEditor({ kind: 'plan' })}
                     onAddDestination={() => setEditor({ kind: 'destination' })}
                     onRun={openRun}
@@ -298,6 +319,9 @@ export function BackupsPage() {
                   <RecoveryWorkspace
                     destinations={destinations}
                     refreshKey={recoveryRevision}
+                    snapshotRevisions={snapshotRevisions}
+                    restoreRevisions={restoreRevisions}
+                    applyBlocked={applyBlocked}
                     active={tab === 'recovery'}
                     helperReady={data.helper_ready}
                     helperError={data.helper_error}
@@ -314,7 +338,7 @@ export function BackupsPage() {
                         { replace: true },
                       )
                     }
-                    onStarted={started}
+                    onStarted={(result, id, test) => started(result, true, { destinationIds: [id], snapshots: test, restores: true })}
                   />
                 )}
               </div>
@@ -392,9 +416,18 @@ export function BackupsPage() {
                             </div>
                             <div>
                               <dt className="text-[var(--muted)]">Latest check attempt</dt>
-                              <dd className="mt-1"><BackupDate value={destination.last_check_attempt_at} /> · {destination.check_status || 'not checked'}</dd>
+                              <dd className="mt-1"><BackupDate value={destination.last_check_attempt_at} /> · {destination.last_check_attempt_policy || 'unknown scope'} · {destination.last_check_attempt_status || 'not checked'}</dd>
                             </div>
                           </dl>
+                          <dl className="grid gap-2 text-xs sm:grid-cols-2">
+                            {([['Repository metadata evidence', destination.metadata_check], ['Stored data evidence', destination.data_check]] as const).map(([label, evidence]) => <div key={label}>
+                              <dt className="text-[var(--muted)]">{label}</dt>
+                              <dd className="mt-1"><BackupStatus value={evidence?.status ?? 'unknown'} /> · {evidence?.scope ?? 'unknown'} · <BackupDate value={evidence?.checked_at} /></dd>
+                              {evidence?.error && <dd className="mt-1 text-[var(--warning)]">{evidence.error}</dd>}
+                            </div>)}
+                          </dl>
+                          {destination.data_check?.status === 'failed' && <p className="text-xs text-[var(--warning)]">Stored data has a known failure. A metadata or sampled check cannot resolve it; repair the repository and run a full data check.</p>}
+                          {destination.last_check_attempt_error && <p className="text-xs text-[var(--warning)]">Latest check attempt: {destination.last_check_attempt_error}</p>}
                           {destination.inventory_error && (
                             <p className="text-sm text-[var(--warning)]">Snapshot inventory: {destination.inventory_error}</p>
                           )}
@@ -413,6 +446,7 @@ export function BackupsPage() {
                           </p>
                           <BackupError error={errorScope === destination.id ? error : null} />
                           {destination.error && <p className="text-sm text-[var(--danger)]">{destination.error}</p>}
+                          {destination.status === 'available' && <p id={`repository-initialized-${destination.id}`} className="text-xs text-[var(--muted)]">This repository is already initialized. Use Test access to verify availability.</p>}
                           <div className="flex flex-wrap gap-2">
                             <button
                               className={buttonClass}
@@ -429,7 +463,7 @@ export function BackupsPage() {
                             </button>
                             <button
                               className={buttonClass}
-                              title={destination.status === 'available' ? 'This repository is already available; use Test access to verify it.' : undefined}
+                              aria-describedby={destination.status === 'available' ? `repository-initialized-${destination.id}` : undefined}
                               disabled={
                                 pending ||
                                 destination.status === 'available' ||
@@ -448,7 +482,7 @@ export function BackupsPage() {
                                 (destination.kind === 'rclone' && !data.rclone_available)
                               }
                               onClick={() => {
-                                setError(null)
+                                reportError(null)
                                 setReadData(destination.check_read_data === 'all' || destination.check_read_data === 'subset' ? destination.check_read_data : 'metadata')
                                 setCheck(destination)
                               }}
@@ -551,7 +585,8 @@ export function BackupsPage() {
                           <div className="flex flex-wrap gap-2">
                             <button
                               className={primaryClass}
-                              disabled={pending || !data.restic_available}
+                              disabled={pending || !data.restic_available || !!captureBlocked}
+                              aria-describedby={captureBlocked ? 'backup-capture-block' : undefined}
                               onClick={() => openRun(plan)}
                             >
                               Back up now
@@ -593,7 +628,7 @@ export function BackupsPage() {
                     pending={pending}
                     onJob={openJob}
                     onRetry={(run, ids) => {
-                      void command(() => retryBackupRun(run.id, ids), 'history')
+                      void command(() => retryBackupRun(run.id, ids), 'history', { destinationIds: ids, snapshots: true })
                     }}
                   />
                 )}
@@ -637,13 +672,14 @@ export function BackupsPage() {
           plan={runPlan}
           destinations={destinations}
           pending={pending}
+          blockedReason={captureBlocked}
           error={error}
           onClose={() => {
             setRunPlan(null)
-            setError(null)
+            reportError(null)
           }}
           onRun={async (ids) => {
-            if (await command(() => runBackupPlan(runPlan.id, ids))) setRunPlan(null)
+            if (!captureBlocked && await command(() => runBackupPlan(runPlan.id, ids), null, { destinationIds: ids, snapshots: true })) setRunPlan(null)
           }}
         />
       )}
@@ -653,7 +689,7 @@ export function BackupsPage() {
           onClose={() => {
             if (!pending) {
               setCheck(null)
-              setError(null)
+              reportError(null)
             }
           }}
           preventClose={pending}
@@ -683,7 +719,7 @@ export function BackupsPage() {
                 disabled={pending}
                 onClick={() => {
                   setCheck(null)
-                  setError(null)
+                  reportError(null)
                 }}
               >
                 Cancel
@@ -741,7 +777,7 @@ export function BackupsPage() {
           onCancel={() => {
             if (!pending) {
               setReview(null)
-              setError(null)
+              reportError(null)
             }
           }}
           onConfirm={() => {
@@ -753,7 +789,7 @@ export function BackupsPage() {
                   : review.kind === 'deletePlan'
                     ? () => deleteBackupPlan(review.plan.id)
                     : () => deleteBackupDestination(review.destination.id)
-            void command(action).then((ok) => {
+            void command(action, null, review.kind === 'prune' || review.kind === 'initialize' ? { destinationIds: [review.destination.id], snapshots: true } : {}).then((ok) => {
               if (ok) { setReview(null); configurationChanged() }
             })
           }}

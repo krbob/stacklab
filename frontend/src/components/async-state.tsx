@@ -29,7 +29,7 @@ export function AsyncState({
 }: AsyncStateProps) {
   if (!hasData) {
     if (error) {
-      return <LoadError error={error} onRetry={onRetry} retryLabel={retryLabel} stale={false} />
+      return <LoadError error={error} onRetry={onRetry} retryLabel={retryLabel} loading={loading} stale={false} />
     }
 
     return (
@@ -42,10 +42,10 @@ export function AsyncState({
 
   return (
     <>
-      {loading && (
+      {loading && !error && (
         <p className="text-xs text-[var(--muted)]" role="status" aria-live="polite">Refreshing…</p>
       )}
-      {error && <LoadError error={error} onRetry={onRetry} retryLabel={retryLabel} stale />}
+      {error && <LoadError error={error} onRetry={onRetry} retryLabel={retryLabel} loading={loading} stale />}
       {isEmpty
         ? emptyFallback ?? <p className="py-6 text-center text-sm text-[var(--muted)]">{emptyMessage}</p>
         : children}
@@ -53,19 +53,22 @@ export function AsyncState({
   )
 }
 
-function LoadError({ error, onRetry, retryLabel, stale }: {
+function LoadError({ error, onRetry, retryLabel, stale, loading }: {
   error: Error
   onRetry: () => void
   retryLabel: string
   stale: boolean
+  loading: boolean
 }) {
   return (
     <div
       role="alert"
+      aria-busy={loading}
       className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-sm text-[var(--danger)]"
     >
       <div>
         <p>{error.message}</p>
+        {loading && <p role="status" className="mt-1 text-xs text-[var(--muted)]">Retrying…</p>}
         {stale && (
           <p className="mt-1 text-xs text-[var(--muted)]">Showing the last successfully loaded data.</p>
         )}
@@ -73,9 +76,10 @@ function LoadError({ error, onRetry, retryLabel, stale }: {
       <button
         type="button"
         onClick={onRetry}
+        disabled={loading}
         className="rounded-md border border-[var(--danger)]/30 px-3 py-1.5 text-xs text-[var(--danger)] hover:bg-[var(--danger)]/10"
       >
-        {retryLabel}
+        {loading ? 'Retrying…' : retryLabel}
       </button>
     </div>
   )

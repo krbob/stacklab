@@ -48,6 +48,9 @@ export function RecoveryWorkspace({
   toolsAvailable = true,
   rcloneAvailable = true,
   refreshKey = 0,
+  snapshotRevisions = {},
+  restoreRevisions = {},
+  applyBlocked,
   active = true,
   helperReady,
   helperError,
@@ -60,10 +63,13 @@ export function RecoveryWorkspace({
   toolsAvailable?: boolean
   rcloneAvailable?: boolean
   refreshKey?: number
+  snapshotRevisions?: Record<string, number>
+  restoreRevisions?: Record<string, number>
+  applyBlocked?: string
   active?: boolean
   helperReady?: boolean
   helperError?: string
-  onStarted: (result: BackupJobResponse) => void
+  onStarted: (result: BackupJobResponse, destinationId: string, test: boolean) => void
 }) {
   const [destinationId, setDestinationId] = useState(
     initialDestinationId ?? destinations.find((item) => item.kind === 'local')?.id ?? '',
@@ -112,10 +118,13 @@ export function RecoveryWorkspace({
             plans={plans}
             active={active && destination.id === destinationId}
             refreshKey={refreshKey}
+            snapshotRevision={snapshotRevisions[destination.id] ?? 0}
+            restoreRevision={restoreRevisions[destination.id] ?? 0}
+            applyBlocked={applyBlocked}
             helperReady={helperReady}
             helperError={helperError}
             toolsAvailable={toolsAvailable && (destination.kind !== 'rclone' || rcloneAvailable)}
-            onStarted={onStarted}
+            onStarted={(result, test) => onStarted(result, destination.id, test)}
           />
         </div>
       ))}
@@ -129,6 +138,9 @@ function DestinationRecovery({
   toolsAvailable,
   active,
   refreshKey,
+  snapshotRevision,
+  restoreRevision,
+  applyBlocked,
   helperReady,
   helperError,
   onStarted,
@@ -138,17 +150,32 @@ function DestinationRecovery({
   toolsAvailable: boolean
   active: boolean
   refreshKey: number
+  snapshotRevision: number
+  restoreRevision: number
+  applyBlocked?: string
   helperReady?: boolean
   helperError?: string
-  onStarted: (result: BackupJobResponse) => void
+  onStarted: (result: BackupJobResponse, test: boolean) => void
 }) {
   const snapshots = useApi(
     (signal) => (toolsAvailable ? getBackupSnapshots(destination.id, signal) : Promise.resolve({ items: [] })),
-    [destination.id, toolsAvailable, refreshKey],
-    { enabled: active },
+    [destination.id, toolsAvailable, refreshKey, snapshotRevision],
+    { enabled: active, staleTime: 60000 },
   )
-  const restores = useApi((signal) => getBackupRestores(signal), [refreshKey], { enabled: active })
+  const restores = useApi((signal) => getBackupRestores(signal), [refreshKey, restoreRevision], { enabled: active, staleTime: 30000 })
   const { refetch: refreshRestores } = restores
+  useEffect(() => {
+    if (!active) return
+    const refresh = () => { if (document.visibilityState !== 'hidden') refreshRestores() }
+    const timer = window.setInterval(refresh, 30000)
+    window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', refresh)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('focus', refresh)
+      document.removeEventListener('visibilitychange', refresh)
+    }
+  }, [active, refreshRestores])
   const { openJob } = useJobDrawer()
   const [snapshotId, setSnapshotId] = useState('')
   const [restoreId, setRestoreId] = useState<string | null>(null)
@@ -189,7 +216,7 @@ function DestinationRecovery({
       setRestoreId(null)
       setSelectionReset((value) => value + 1)
       setJobId(result.job.id)
-      onStarted(result)
+      onStarted(result, test && !files?.length && !sourceIds?.length)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to start recovery')
     } finally {
@@ -227,9 +254,10 @@ function DestinationRecovery({
               onChange={(event) => setSnapshotId(event.target.value)}
             >
               <option value="">Select a snapshot</option>
+              {snapshotId && !selectedSnapshot && <option value={snapshotId} disabled>Unavailable snapshot {snapshotId.slice(0, 8)}</option>}
               {(snapshots.data.items ?? []).map((snapshot) => (
                 <option key={snapshot.id} value={snapshot.id}>
-                  {formatBackupDate(snapshot.time)} · {snapshot.short_id || snapshot.id.slice(0, 8)} ·{' '}
+                  {formatBackupDate(snapshot.time)} · {snapshot.short_id || snapshot.id.slice(0, 8)} · {snapshot.recovery_status ?? 'unknown'} ·{' '}
                   {plans.find((plan) => snapshot.tags?.includes(`plan:${plan.id}`))?.name ??
                     snapshot.tags?.find((tag) => tag.startsWith('plan:'))?.slice(5) ??
                     snapshot.hostname}
@@ -238,6 +266,10 @@ function DestinationRecovery({
             </select>
           </Field>
         )}
+        {snapshotId && snapshots.data && !selectedSnapshot && <p role="status" className="mt-3 text-sm text-[var(--warning)]">
+          The selected snapshot {snapshotId.slice(0, 8)} is no longer in this repository. It may have been removed by
+          retention or cleanup. Select another recovery set to continue.
+        </p>}
         {toolsAvailable && snapshots.data && !snapshots.data.items?.length && (
           <p className="mt-3 text-sm text-[var(--muted)]">No snapshots found in this repository.</p>
         )}
@@ -246,6 +278,8 @@ function DestinationRecovery({
             <p className="break-all text-xs text-[var(--muted)]">
               Captured <BackupDate value={selectedSnapshot.time} /> · {(selectedSnapshot.tags ?? []).join(', ')}
             </p>
+            <p className="text-xs text-[var(--muted)]">Recovery objects: <BackupStatus value={selectedSnapshot.recovery_status ?? 'unknown'} />{selectedSnapshot.classified_at && <> · Classified <BackupDate value={selectedSnapshot.classified_at} /></>}</p>
+            {selectedSnapshot.recovery_status && !['complete', 'unknown'].includes(selectedSnapshot.recovery_status) && <p className="text-sm text-[var(--warning)]">This snapshot is {selectedSnapshot.recovery_status}. It is preserved by automatic retention and is not evidence of a complete recovery set.</p>}
             {selectedSnapshot.restore_tested_at && (
               <p className="text-xs text-[var(--muted)]">Complete retrieval test of this snapshot: <BackupDate value={selectedSnapshot.restore_tested_at} /></p>
             )}
@@ -368,11 +402,11 @@ function DestinationRecovery({
                 />
                 {!chosen.selected_files?.length ? (
                   <div className="space-y-2">
-                    <button className={primaryClass} disabled={helperReady === false} onClick={() => setApply(chosen)}>
+                    <button className={primaryClass} disabled={helperReady === false || !!applyBlocked} aria-describedby={`apply-readiness-${destination.id}`} onClick={() => setApply(chosen)}>
                       Review applying recovered data
                     </button>
-                    {helperReady === false && <p role="alert" className="text-sm text-[var(--warning)]">
-                      In-place recovery is unavailable: {helperError || 'The backup helper must pass its compatibility and permission checks.'}
+                    {(helperReady === false || applyBlocked) && <p id={`apply-readiness-${destination.id}`} className="text-sm text-[var(--warning)]">
+                      {applyBlocked || `In-place recovery is unavailable: ${helperError || 'The backup helper must pass its compatibility and permission checks.'}`}
                     </p>}
                   </div>
                 ) : (
@@ -406,9 +440,10 @@ function DestinationRecovery({
         <ApplyRecoveryDialog
           destination={destination}
           restored={apply}
+          blockedReason={applyBlocked || (helperReady === false ? helperError || 'The backup helper is unavailable.' : undefined)}
           onClose={() => setApply(null)}
           onStarted={(result) => {
-            onStarted(result)
+            onStarted(result, false)
             setApply(null)
           }}
         />

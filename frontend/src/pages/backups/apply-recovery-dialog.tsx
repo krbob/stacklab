@@ -20,11 +20,13 @@ import { formatBackupDate } from './backup-formatters'
 export function ApplyRecoveryDialog({
   destination,
   restored,
+  blockedReason,
   onStarted,
   onClose,
 }: {
   destination: BackupDestination
   restored: BackupRestoreResult
+  blockedReason?: string
   onStarted: (result: BackupJobResponse) => void
   onClose: () => void
 }) {
@@ -53,6 +55,7 @@ export function ApplyRecoveryDialog({
   }
 
   async function preview() {
+    if (blockedReason) return
     setPending(true)
     setError(null)
     setConfirmation('')
@@ -66,7 +69,7 @@ export function ApplyRecoveryDialog({
   }
 
   async function apply() {
-    if (!review || confirmation !== 'RESTORE' || pending) return
+    if (!review || confirmation !== 'RESTORE' || pending || blockedReason) return
     setPending(true)
     setError(null)
     try {
@@ -97,6 +100,7 @@ export function ApplyRecoveryDialog({
     >
       <div className="mt-4 space-y-4">
         <BackupError error={error} />
+        {blockedReason && <p role="status" className="text-sm text-[var(--warning)]">Applying data is blocked: {blockedReason}</p>}
         {!manifest && manifestState.loading && (
           <p role="status" className="text-sm text-[var(--muted)]">
             Loading recovery manifest…
@@ -164,7 +168,7 @@ export function ApplyRecoveryDialog({
                           {!!item.source.excludes?.length && <p className="text-xs text-[var(--warning)]">
                             Excluded from this source: {item.source.excludes.join(', ')}. Replacement is blocked because
                             those live paths are absent from the backup. Inspect the original archive for offline recovery
-                            or explicitly choose merge when that meets your application’s recovery requirements.
+                            or explicitly choose merge when that meets your application’s recovery requirements. A fresh empty target cannot restore excluded database files.
                           </p>}
                           {mapping && (
                             <div className="grid gap-3 sm:grid-cols-2">
@@ -346,7 +350,7 @@ export function ApplyRecoveryDialog({
               </button>
               <button
                 className="rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-2 text-sm text-[var(--danger)] disabled:opacity-50"
-                disabled={pending || confirmation !== 'RESTORE'}
+                disabled={pending || !!blockedReason || confirmation !== 'RESTORE'}
                 onClick={() => {
                   void apply()
                 }}
@@ -359,6 +363,7 @@ export function ApplyRecoveryDialog({
               className={primaryClass}
               disabled={
                 pending ||
+                !!blockedReason ||
                 unsafeReplacement ||
                 !manifest ||
                 mappings.length === 0 ||

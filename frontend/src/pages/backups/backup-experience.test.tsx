@@ -16,6 +16,8 @@ vi.mock('@/lib/backup-api')
 vi.mock('@/hooks/use-job-stream', () => ({ useJobStream: vi.fn(() => ({ state: null, events: [], clear: vi.fn() })) }))
 
 const destination: api.BackupDestination = {
+  metadata_check: { status: 'unknown', scope: 'unknown' },
+  data_check: { status: 'unknown', scope: 'unknown' },
   id: 'nas',
   name: 'NAS',
   kind: 'local',
@@ -70,6 +72,8 @@ const plan: api.BackupPlan = {
   stop_timeout_seconds: 60,
 }
 const overview: api.BackupOverview = {
+  helper_ready: true,
+  helper_configured: true,
   destinations: [destination],
   plans: [plan],
   runs: [],
@@ -79,6 +83,7 @@ const overview: api.BackupOverview = {
   staging_directory: '/staging',
 }
 const snapshot: api.BackupSnapshot = {
+  recovery_status: 'unknown',
   id: 'snap',
   short_id: 'snap',
   time: '2026-10-01T00:00:00Z',
@@ -157,9 +162,10 @@ describe('Protection and operations', () => {
                 plan_id: 'plan',
                 plan_name: 'Database',
                 state: 'manual',
+                activity: 'idle',
                 current_copies: 1,
                 expected_copies: 1,
-                copies: [{ destination_id: 'nas', state: 'manual', snapshot_id: 'snap' }],
+                copies: [{ destination_id: 'nas', activity: 'idle', state: 'manual', snapshot_id: 'snap' }],
               },
             ],
           }}
@@ -418,11 +424,12 @@ describe('Restore selection boundaries', () => {
     fireEvent.change(await screen.findByLabelText('Snapshot source'), { target: { value: 'database' } })
     await screen.findByRole('checkbox', { name: 'Select file-0' })
     const checkboxes = screen.getAllByRole('checkbox', { name: /^Select file-/ })
-    for (const checkbox of checkboxes) fireEvent.click(checkbox)
+    act(() => { for (const checkbox of checkboxes.slice(0, 100)) fireEvent.click(checkbox) })
+    fireEvent.click(checkboxes[100])
     expect(screen.getByText(/Select up to 100 files per restore/)).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: 'Select file-100' })).not.toBeChecked()
     expect(screen.getByRole('button', { name: 'Restore 100 selected files for download' })).toBeEnabled()
-  }, 15_000) // 101 deliberate interactions exercise the boundary on slower CI runners.
+  })
 })
 
 describe('Destination onboarding and schedules', () => {
@@ -495,11 +502,13 @@ describe('Backup review regressions', () => {
                 plan_id: 'plan',
                 plan_name: 'Database',
                 state: 'attention',
+                activity: 'idle',
                 current_copies: 0,
                 expected_copies: 1,
                 copies: [
                   {
                     destination_id: 'nas',
+                    activity: 'idle',
                     state: 'integrity_failed',
                     snapshot_id: 'snap',
                     snapshot_status: 'present',

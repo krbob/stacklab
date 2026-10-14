@@ -389,16 +389,21 @@ export function DestinationEditor({
                         className={inputClass}
                         required
                         pattern="[A-Za-z0-9][A-Za-z0-9._-]*"
-                        title="Use a bucket name without slashes or spaces."
+                        title="Use the existing provider bucket name without slashes or spaces; naming rules vary by provider."
                         value={location.bucket}
                         onChange={(event) => changeLocation('bucket', event.target.value)}
                       />
                     </Field>
-                    <Field label="Repository prefix">
+                    <Field label="Repository prefix" hint="Optional relative path inside the bucket; use ordinary path segments without . or .., query strings or fragments.">
                       <input
                         className={inputClass}
                         value={location.prefix}
-                        onChange={(event) => changeLocation('prefix', event.target.value)}
+                        onChange={(event) => {
+                          const value = event.target.value
+                          const valid = !/[?#\\]/.test(value) && !value.split('/').some((part) => part === '.' || part === '..')
+                          event.target.setCustomValidity(valid ? '' : 'Use a relative prefix without dot segments, backslashes, query strings or fragments.')
+                          changeLocation('prefix', value)
+                        }}
                       />
                     </Field>
                   </>

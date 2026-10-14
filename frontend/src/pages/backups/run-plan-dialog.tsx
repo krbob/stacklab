@@ -9,6 +9,7 @@ export function RunPlanDialog({
   destinations,
   pending,
   error,
+  blockedReason,
   onClose,
   onRun,
 }: {
@@ -16,6 +17,7 @@ export function RunPlanDialog({
   destinations: BackupDestination[]
   pending: boolean
   error: string | null
+  blockedReason?: string
   onClose: () => void
   onRun: (ids: string[]) => Promise<void>
 }) {
@@ -29,9 +31,14 @@ export function RunPlanDialog({
     <Dialog title={`Back up ${plan.name}`} onClose={onClose} preventClose={pending} busy={pending}>
       <div className="mt-4 space-y-4">
         <BackupError error={error ?? preflight.error?.message ?? null} />
+        {blockedReason && <p role="status" className="text-sm text-[var(--warning)]">New capture is blocked: {blockedReason}</p>}
         <p className="text-sm text-[var(--muted)]">
           Capture {plan.sources.length} selected sources once and deliver to the selected repositories.
         </p>
+        {plan.sources.some((source) => source.excludes?.some((pattern) => pattern.trim())) && <p className="text-sm text-[var(--warning)]">
+          This plan excludes files. Exact replacement is unavailable for those sources. Database recovery needs every
+          required file; merging preserves newer files, and an empty target cannot recover excluded database files.
+        </p>}
         {preflight.loading && (
           <p role="status" className="text-sm text-[var(--muted)]">
             Checking source paths and affected services…
@@ -113,10 +120,10 @@ export function RunPlanDialog({
           <button
             className={primaryClass}
             disabled={
-              pending || !preflight.data || preflight.loading || !!preflight.error || !reviewed || selected.length === 0
+              pending || !!blockedReason || !preflight.data || preflight.loading || !!preflight.error || !reviewed || selected.length === 0
             }
             onClick={() => {
-              void onRun(selected)
+              if (!blockedReason) void onRun(selected)
             }}
           >
             {pending ? 'Starting…' : 'Start backup'}

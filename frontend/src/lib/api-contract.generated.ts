@@ -499,7 +499,7 @@ export interface components {
        * @description Current operation activity, independent of recovery evidence and protection severity.
        * @enum {string}
        */
-      activity?: "idle" | "queued" | "running";
+      activity: "idle" | "queued" | "running";
       availability_status?: string;
       destination_id: string;
       /** Format: date-time */
@@ -546,6 +546,8 @@ export interface components {
       /** Format: int64 */
       files_total?: number;
       retention: string;
+      /** @description Cleanup failure after a verified copy; retry reuses the existing snapshot without uploading again. */
+      retention_error?: string;
       snapshot_id?: string;
       /** Format: date-time */
       started_at?: string;
@@ -573,6 +575,7 @@ export interface components {
       check_schedule: components["schemas"]["BackupSchedule"];
       check_status?: string;
       credentials_configured: boolean;
+      data_check: components["schemas"]["BackupIntegrityEvidence"];
       error?: string;
       expected_filesystem?: string;
       id: string;
@@ -586,6 +589,10 @@ export interface components {
        * @description Most recent integrity check attempt, including failures; last_check_at remains the last successful check.
        */
       last_check_attempt_at?: string;
+      last_check_attempt_error?: string;
+      /** @enum {string} */
+      last_check_attempt_policy?: "metadata" | "subset" | "all";
+      last_check_attempt_status?: string;
       last_check_policy?: string;
       /** Format: date-time */
       last_check_scheduled_at?: string;
@@ -607,6 +614,7 @@ export interface components {
       last_restore_test_snapshot_id?: string;
       /** Format: date-time */
       last_success_at?: string;
+      metadata_check: components["schemas"]["BackupIntegrityEvidence"];
       name: string;
       prune_schedule: components["schemas"]["BackupSchedule"];
       region?: string;
@@ -687,6 +695,16 @@ export interface components {
     BackupGlobalCoverageResponse: {
       stacks: components["schemas"]["BackupStackCoverage"][];
     };
+    /** @description Evidence at one check depth. A metadata or sampled success cannot clear a known data failure; only a successful full data check resolves it. */
+    BackupIntegrityEvidence: {
+      /** Format: date-time */
+      checked_at?: string;
+      error?: string;
+      /** @enum {string} */
+      scope: "metadata" | "subset" | "all" | "unknown";
+      /** @enum {string} */
+      status: "unknown" | "verified" | "sampled" | "failed";
+    };
     BackupJobResponse: {
       job: components["schemas"]["Job"];
     };
@@ -729,10 +747,12 @@ export interface components {
     };
     BackupOverview: {
       destinations: components["schemas"]["BackupDestination"][];
+      /** @description A native privileged recovery helper is configured; false is an optional capability that has not been set up. */
+      helper_configured: boolean;
       /** @description Actionable helper readiness problem; isolated retrieval remains available. */
       helper_error?: string;
       /** @description Privileged recovery helper passed compatibility, ownership, spool and non-interactive permission checks. */
-      helper_ready?: boolean;
+      helper_ready: boolean;
       plans: components["schemas"]["BackupPlan"][];
       protection: components["schemas"]["BackupPlanProtection"][];
       rclone_available: boolean;
@@ -771,7 +791,7 @@ export interface components {
        * @description Current operation activity, independent of recovery evidence and protection severity.
        * @enum {string}
        */
-      activity?: "idle" | "queued" | "running";
+      activity: "idle" | "queued" | "running";
       copies: components["schemas"]["BackupCopyProtection"][];
       /** Format: int32 */
       current_copies: number;
@@ -859,7 +879,7 @@ export interface components {
       action: "retry" | "acknowledge_hold" | "acknowledge_missing";
       /** @description Must be true for acknowledge_missing after inspecting affected data and replacements. */
       inspected?: boolean;
-      /** @description Required inspection note for acknowledge_missing; retained in an audit record. */
+      /** @description Required inspection note for acknowledge_missing; trimmed and measured in Unicode code points, retained in an audit record. */
       reason?: string;
     };
     BackupRestoreLibraryResponse: {
@@ -989,9 +1009,16 @@ export interface components {
       ssh_private_key?: string;
     };
     BackupSnapshot: {
+      /** Format: date-time */
+      classified_at?: string;
       hostname: string;
       id: string;
       paths: string[];
+      /**
+       * @description Cached recovery-object classification. Unknown is not proof that the snapshot is complete; classification does not trigger an eager repository read.
+       * @enum {string}
+       */
+      recovery_status: "unknown" | "complete" | "incomplete" | "legacy" | "unsupported" | "invalid";
       /**
        * Format: date-time
        * @description Successful complete retrieval test of this exact snapshot; application startup is a separate exercise.

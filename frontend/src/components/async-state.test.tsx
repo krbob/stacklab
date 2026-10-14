@@ -44,6 +44,16 @@ describe('AsyncState', () => {
     expect(onRetry).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps the error visible and disables repeated retries while a retry is pending', () => {
+    const onRetry = vi.fn()
+    renderState({ loading: true, error: new Error('Offline'), hasData: false, onRetry })
+    expect(screen.getByRole('alert')).toHaveTextContent('Offline')
+    expect(screen.getByRole('status')).toHaveTextContent('Retrying…')
+    expect(screen.getByRole('button', { name: 'Retrying…' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Retrying…' }))
+    expect(onRetry).not.toHaveBeenCalled()
+  })
+
   it('keeps loaded content visible while refreshing', () => {
     renderState({ loading: true })
 

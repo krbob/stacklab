@@ -15,6 +15,8 @@ const destination = {
   repository: '/mnt/backup',
   expected_filesystem: '2',
   status: 'available',
+  metadata_check: { status: 'unknown', scope: 'unknown' },
+  data_check: { status: 'unknown', scope: 'unknown' },
   credentials_configured: true,
   check_schedule: { frequency: 'manual' },
   prune_schedule: { frequency: 'manual' },
@@ -62,6 +64,8 @@ async function mockBackupUI(page: Page, waitForSearch?: () => Promise<void>) {
           plans: [],
           runs: [],
           protection: [],
+          helper_ready: true,
+          helper_configured: true,
           restic_available: true,
           rclone_available: true,
           staging_directory: '/staging',
@@ -195,6 +199,69 @@ test.describe('Backup round two recovery boundaries', () => {
       await expect(page.getByText('Replacement is blocked', { exact: false })).toBeVisible()
       await page.getByLabel('Recovery mode for db').selectOption('merge')
       await expect(page.getByRole('button', { name: 'Preview recovery' })).toBeEnabled()
+      expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false)
+    })
+  }
+})
+
+
+test.describe('Backup round three freshness and action boundaries', () => {
+  test.use({ timezoneId: 'Europe/Warsaw', locale: 'en-US', serviceWorkers: 'block' })
+
+  test('discovers scheduled copies while idle and explains a removed selection', async ({ page }) => {
+    await mockBackupUI(page)
+    await page.clock.install()
+    let finished = false
+    let removed = false
+    let listings = 0
+    await page.route('**/api/backups', (route) => route.fulfill({ json: {
+      destinations: [destination], plans: [], runs: finished ? [{ id: 'scheduled', job_id: 'scheduled-job', plan_id: 'plan', plan_name: 'Database', state: 'running', capture_state: 'succeeded', phase: 'upload', created_at: '2026-10-01T00:00:00Z', expires_at: '2026-10-02T00:00:00Z', copies: [
+        { destination_id: 'nas', state: 'succeeded', snapshot_id: 'new', verification: 'recovery_objects_verified', retention: 'succeeded' },
+        { destination_id: 'cloud', state: 'running', verification: 'pending', retention: 'pending' },
+      ] }] : [], protection: [], helper_ready: true, helper_configured: true, restic_available: true, rclone_available: true, staging_directory: '/staging',
+    } }))
+    await page.route('**/api/backups/destinations/nas/snapshots', (route) => {
+      listings += 1
+      return route.fulfill({ json: { items: [
+        ...(!removed ? [{ id: 'snapshot', short_id: 'snapshot', time: '2026-10-01T00:00:00Z', hostname: 'host', tags: [], paths: [], recovery_status: 'complete' }] : []),
+        ...(finished ? [{ id: 'new', short_id: 'new', time: '2026-10-02T00:00:00Z', hostname: 'host', tags: [], paths: [], recovery_status: 'complete' }] : []),
+      ] } })
+    })
+    await page.goto('/backups?view=recovery')
+    await page.getByLabel('Recovery set', { exact: true }).selectOption('snapshot')
+    finished = true
+    await page.clock.fastForward(60000)
+    await expect(page.getByRole('option', { name: /new/ })).toHaveCount(1)
+    expect(listings).toBe(2)
+    await expect(page.getByLabel('Recovery set', { exact: true })).toHaveValue('snapshot')
+    removed = true
+    await page.getByRole('button', { name: 'Refresh snapshots', exact: true }).click()
+    await expect(page.getByRole('status').filter({ hasText: 'The selected snapshot snapshot is no longer' })).toBeVisible()
+    await expect(page.getByLabel('Recovery set', { exact: true })).toHaveValue('snapshot')
+    await page.getByRole('tab', { name: 'Destinations', exact: true }).click()
+    await page.getByRole('tab', { name: 'Recovery', exact: true }).click()
+    expect(listings).toBe(3)
+    await expect(page.getByText('The selected snapshot snapshot is no longer', { exact: false })).toBeVisible()
+  })
+
+  for (const viewport of [{ name: 'desktop', width: 1440, height: 1000 }, { name: 'mobile', width: 390, height: 844 }]) {
+    test(`blocks capture and apply but keeps isolated retrieval on ${viewport.name}`, async ({ page }) => {
+      await page.setViewportSize(viewport)
+      await mockBackupUI(page)
+      await page.route('**/api/backups', (route) => route.fulfill({ json: {
+        destinations: [destination], plans: [{ id: 'plan', name: 'Database', enabled: true, consistency: 'stop', sources: [source], destinations: [], staging_max_bytes: 1024 ** 3, staging_ttl_hours: 24, stop_timeout_seconds: 300 }], runs: [], protection: [], helper_ready: true, helper_configured: true, recovery_error: 'Interrupted service recovery', restic_available: true, rclone_available: true, staging_directory: '/staging',
+      } }))
+      await page.route('**/api/backups/restores', (route) => route.fulfill({ json: { items: [{ id: 'restore', destination_id: 'nas', snapshot_id: 'snapshot', target: '/private/restore', available: true, test: true, created_at: '2026-10-01T12:00:00Z', source_ids: ['database'], manifest: { version: 1, run_id: 'run', plan_id: 'plan', consistency: 'stop', captured_at: '2026-10-01T00:00:00Z', stacklab_version: 'test', sources: catalog.sources } }] } }))
+      await page.route('**/api/backups/restores/restore/files?**', (route) => route.fulfill({ json: catalog }))
+      await page.goto('/backups?view=plans')
+      await expect(page.getByRole('button', { name: 'Back up now', exact: true })).toBeDisabled()
+      await expect(page.getByText('New captures are blocked.', { exact: false })).toBeVisible()
+      await page.getByRole('tab', { name: 'Recovery', exact: true }).click()
+      await page.getByLabel('Recovery set', { exact: true }).selectOption('snapshot')
+      await expect(page.getByRole('button', { name: 'Retrieve complete set for offline recovery' })).toBeEnabled()
+      await page.getByLabel('Completed isolated restore').selectOption('restore')
+      await expect(page.getByRole('button', { name: 'Review applying recovered data' })).toBeDisabled()
+      await expect(page.getByText('Resolve Service recovery before applying data', { exact: false })).toBeVisible()
       expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false)
     })
   }

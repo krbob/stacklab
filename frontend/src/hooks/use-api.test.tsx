@@ -84,4 +84,29 @@ describe('useApi', () => {
     expect(result.current.data).toBe('online')
   })
 
+  it('clears another resource error immediately while the new resource is pending', async () => {
+    const next = deferred<string>()
+    const fetcher = vi.fn().mockRejectedValueOnce(new Error('NAS unavailable')).mockReturnValueOnce(next.promise)
+    const { result, rerender } = renderHook(({ id }) => useApi(fetcher, [id]), { initialProps: { id: 'nas' } })
+    await waitFor(() => expect(result.current.error?.message).toBe('NAS unavailable'))
+    rerender({ id: 'cloud' })
+    expect(result.current.error).toBeNull()
+    expect(result.current.loading).toBe(true)
+    await act(async () => { next.resolve('Cloud'); await next.promise })
+    expect(result.current.data).toBe('Cloud')
+  })
+
+  it('reuses a fresh resource on reactivation but always loads an invalidated resource', async () => {
+    const fetcher = vi.fn().mockResolvedValue('snapshots')
+    const { rerender } = renderHook(({ enabled, revision }) => useApi(fetcher, [revision], { enabled, staleTime: 60000 }), { initialProps: { enabled: true, revision: 0 } })
+    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1))
+    rerender({ enabled: false, revision: 0 })
+    rerender({ enabled: true, revision: 0 })
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    rerender({ enabled: false, revision: 1 })
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    rerender({ enabled: true, revision: 1 })
+    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2))
+  })
+
 })

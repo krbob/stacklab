@@ -44,6 +44,7 @@ export function RunHistory({
           run.error,
           ...run.copies.flatMap((copy) => [
             copy.error,
+            copy.retention_error,
             copy.snapshot_id,
             destinations.find((item) => item.id === copy.destination_id)?.name,
           ]),
@@ -135,8 +136,9 @@ export function RunHistory({
       <div className="space-y-3">
         {filtered.slice(currentPage * pageSize, (currentPage + 1) * pageSize).map((run) => {
           const expired = new Date(run.expires_at).getTime() <= clock
-          const failed = run.copies.filter((copy) => copy.state !== 'succeeded')
+          const failed = run.copies.filter((copy) => copy.state !== 'succeeded' || copy.retention === 'failed')
           const active = ['running', 'queued'].includes(run.state)
+          const maintenanceOnly = failed.length > 0 && failed.every((copy) => copy.state === 'succeeded')
           return (
             <article key={run.id} className="space-y-3 rounded-md border border-[var(--panel-border)] p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -205,6 +207,7 @@ export function RunHistory({
                     {copy.snapshot_id && (
                       <p className="mt-1 break-all font-mono text-xs text-[var(--muted)]">{copy.snapshot_id}</p>
                     )}
+                    {copy.retention_error && <p className="mt-1 text-sm text-[var(--warning)]">Copy verified; retention cleanup failed: {copy.retention_error}. Retry reuses this snapshot.</p>}
                     {copy.error && <p className="mt-1 text-sm text-[var(--danger)]">{copy.error}</p>}
                   </div>
                 ))}
@@ -261,14 +264,14 @@ export function RunHistory({
                       )
                     }
                   >
-                    Retry failed copies
+                    {maintenanceOnly ? 'Retry retention cleanup' : 'Retry failed copies'}
                   </button>
                 )}
               </div>
               {failed.length > 0 && !active && (
                 <p className="text-xs text-[var(--muted)]">
                   {expired || run.capture_state !== 'succeeded' ? (
-                    'A new capture is required; start the plan again.'
+                    maintenanceOnly ? 'The verified copy remains usable. Retry requires retained staging; run the plan again to retry its retention policy.' : 'A new capture is required; start the plan again.'
                   ) : (
                     <>
                       Prepared data available for retries until <BackupDate value={run.expires_at} />. Successful copies

@@ -304,6 +304,11 @@ export function PlanEditor({
                           }
                         />
                       </Field>
+                      {source.excludes?.some((pattern) => pattern.trim()) && <p className="text-xs leading-5 text-[var(--warning)]">
+                        Exclusions prevent exact replacement during recovery. For databases, keep every required file;
+                        merging into existing data can leave newer files and corrupt recovery. A fresh empty target cannot
+                        restore files excluded from the backup. Prefer a complete stopped database or a prepared dump.
+                      </p>}
                     </div>
                   ))}
                 </div>

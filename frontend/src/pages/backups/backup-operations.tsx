@@ -28,14 +28,17 @@ export function BackupOperations({
   refreshKey,
   recoveryError,
   onChanged,
+  onPolicyChange,
   onStarted,
 }: {
   refreshKey: number | null
   recoveryError?: string
   onChanged: () => void
+  onPolicyChange?: (policy: BackupPolicy) => void
   onStarted: (result: BackupJobResponse) => void
 }) {
   const policy = useApi((signal) => getBackupPolicy(signal), [refreshKey])
+  useEffect(() => { if (policy.data) onPolicyChange?.(policy.data) }, [policy.data, onPolicyChange])
   const [settings, setSettings] = useState(false)
   const [recovery, setRecovery] = useState(false)
   return (
@@ -57,16 +60,16 @@ export function BackupOperations({
       {(policy.data?.effective_paused || policy.data?.paused || policy.data?.host_review_required || recoveryError) && (
         <div role="alert" className="space-y-2 rounded-md border border-[var(--warning)]/30 p-3 text-sm text-[var(--warning)]">
           <p>Automatic backups, integrity checks and retention cleanup are paused. Protection monitoring remains active.</p>
-          {policy.data?.host_review_required && <p>
+          {!policy.data?.pause_reasons?.length && policy.data?.host_review_required && <p>
             Backup state needs review on this host after recovery or upgrade. Review sources, destinations and service
             mappings, then acknowledge this host in Backup settings.
           </p>}
           {policy.data?.pause_reasons?.map((reason) => <p key={reason.code}>{reason.message}</p>)}
-          {recoveryError && <p>
+          {recoveryError && !policy.data?.pause_reasons?.some((reason) => reason.code === 'service_recovery_required') && <p>
             Service recovery needs attention: {recoveryError} Open Service recovery to inspect recorded operations.
             New captures remain blocked until the affected services and shared mounts are reviewed.
           </p>}
-          {policy.data?.paused && !policy.data.host_review_required && <p>The automatic scheduling pause is enabled in Backup settings.</p>}
+          {!policy.data?.pause_reasons?.length && policy.data?.paused && !policy.data.host_review_required && <p>The automatic scheduling pause is enabled in Backup settings.</p>}
         </div>
       )}
       {policy.data?.heartbeat_configured && <p className="text-xs text-[var(--muted)]">
@@ -162,8 +165,7 @@ export function BackupPolicyDialog({
             Pause automatic backups and repository maintenance
           </label>
           <p className="text-xs leading-5 text-[var(--muted)]">
-            Pausing stops scheduled copies, integrity checks and retention cleanup. Manual recovery and backup actions
-            remain available unless service recovery is unresolved. Protection monitoring continues; success heartbeats stop while paused.
+            Pausing stops scheduled copies, integrity checks and retention cleanup. User pause allows manual backups and recovery. Host review and system errors block new captures; unresolved service recovery also blocks applying data. Isolated retrieval remains available. Protection monitoring continues; success heartbeats stop while paused.
           </p>
           {policy.host_review_required && (
             <label className="flex items-start gap-2 text-sm text-[var(--warning)]">
@@ -262,6 +264,7 @@ export function ServiceRecoveryDialog({
   const [error, setError] = useState<string | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
   const [inspectionNote, setInspectionNote] = useState('')
+  const inspectionLength = Array.from(inspectionNote.trim()).length
   const [inspectionConfirmation, setInspectionConfirmation] = useState('')
   const { state: jobState } = useJobStream({ jobId })
   const { refetch } = state
@@ -377,15 +380,15 @@ export function ServiceRecoveryDialog({
             </p>
             <ul className="text-xs font-mono">{(review.journal.writers ?? []).map((writer) => <li key={writer.container_id}>{writer.container_id}</li>)}</ul>
             <BackupError error={error} />
-            <Field label="Inspection note" hint="Describe what replaced the missing containers and how you checked the affected data (8–1000 characters).">
-              <textarea className={inputClass} minLength={8} maxLength={1000} value={inspectionNote} disabled={pending} onChange={(event) => setInspectionNote(event.target.value)} />
+            <Field label="Inspection note" hint={`Describe what replaced the missing containers and how you checked the affected data (8–1000 characters). ${inspectionLength} / 1000 characters.`}>
+              <textarea className={inputClass} value={inspectionNote} aria-invalid={inspectionLength > 1000 || undefined} disabled={pending} onChange={(event) => setInspectionNote(event.target.value)} />
             </Field>
             <Field label="Type INSPECTED to resolve missing containers">
               <input className={inputClass} value={inspectionConfirmation} disabled={pending} onChange={(event) => setInspectionConfirmation(event.target.value)} />
             </Field>
             <div className="flex justify-end gap-2">
               <button className={buttonClass} disabled={pending} onClick={() => setReview(null)}>Cancel</button>
-              <button className={primaryClass} disabled={pending || inspectionConfirmation !== 'INSPECTED' || inspectionNote.trim().length < 8} onClick={() => { void resolve() }}>
+              <button className={primaryClass} disabled={pending || inspectionConfirmation !== 'INSPECTED' || inspectionLength < 8 || inspectionLength > 1000} onClick={() => { void resolve() }}>
                 {pending ? 'Resolving…' : 'Resolve inspected record'}
               </button>
             </div>

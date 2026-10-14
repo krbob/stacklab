@@ -11,6 +11,7 @@ export function ProtectionDashboard({
   refreshKey,
   active = true,
   pending = false,
+  captureBlocked,
   onCreatePlan,
   onAddDestination,
   onRun,
@@ -20,6 +21,7 @@ export function ProtectionDashboard({
   refreshKey?: number | null
   active?: boolean
   pending?: boolean
+  captureBlocked?: string
   onCreatePlan: () => void
   onAddDestination: () => void
   onRun: (plan: BackupPlan) => void
@@ -219,7 +221,7 @@ export function ProtectionDashboard({
                     )
                   })}
                 </div>
-                <button className={buttonClass} disabled={pending || !data.restic_available} onClick={() => onRun(plan)}>
+                <button className={buttonClass} disabled={pending || !data.restic_available || !!captureBlocked} aria-describedby={captureBlocked ? 'backup-capture-block' : undefined} onClick={() => onRun(plan)}>
                   Back up now
                 </button>
               </article>

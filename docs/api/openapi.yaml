@@ -6073,6 +6073,17 @@ components:
     BackupDestination:
       type: object
       properties:
+        metadata_check:
+          $ref: '#/components/schemas/BackupIntegrityEvidence'
+        data_check:
+          $ref: '#/components/schemas/BackupIntegrityEvidence'
+        last_check_attempt_policy:
+          type: string
+          enum: [metadata, subset, all]
+        last_check_attempt_status:
+          type: string
+        last_check_attempt_error:
+          type: string
         last_check_attempt_at:
           type: string
           format: date-time
@@ -6153,6 +6164,8 @@ components:
         error:
           type: string
       required:
+      - metadata_check
+      - data_check
       - id
       - name
       - kind
@@ -6162,6 +6175,22 @@ components:
       - check_read_data
       - prune_schedule
       - status
+    BackupIntegrityEvidence:
+      type: object
+      description: Evidence at one check depth. A metadata or sampled success cannot clear a known data failure; only a successful full data check resolves it.
+      required: [status, scope]
+      properties:
+        status:
+          type: string
+          enum: [unknown, verified, sampled, failed]
+        scope:
+          type: string
+          enum: [metadata, subset, all, unknown]
+        checked_at:
+          type: string
+          format: date-time
+        error:
+          type: string
     BackupDestinationInput:
       type: object
       properties:
@@ -6317,6 +6346,9 @@ components:
     BackupCopyResult:
       type: object
       properties:
+        retention_error:
+          type: string
+          description: Cleanup failure after a verified copy; retry reuses the existing snapshot without uploading again.
         verified_at:
           type: string
           format: date-time
@@ -6423,6 +6455,13 @@ components:
     BackupSnapshot:
       type: object
       properties:
+        recovery_status:
+          type: string
+          enum: [unknown, complete, incomplete, legacy, unsupported, invalid]
+          description: Cached recovery-object classification. Unknown is not proof that the snapshot is complete; classification does not trigger an eager repository read.
+        classified_at:
+          type: string
+          format: date-time
         restore_tested_at:
           type: string
           format: date-time
@@ -6445,6 +6484,7 @@ components:
         hostname:
           type: string
       required:
+      - recovery_status
       - id
       - short_id
       - time
@@ -6573,7 +6613,7 @@ components:
           type: string
           minLength: 8
           maxLength: 1000
-          description: Required inspection note for acknowledge_missing; retained in an audit record.
+          description: Required inspection note for acknowledge_missing; trimmed and measured in Unicode code points, retained in an audit record.
         action:
           type: string
           enum: [retry, acknowledge_hold, acknowledge_missing]
@@ -6582,6 +6622,9 @@ components:
     BackupOverview:
       type: object
       properties:
+        helper_configured:
+          type: boolean
+          description: A native privileged recovery helper is configured; false is an optional capability that has not been set up.
         helper_ready:
           type: boolean
           description: Privileged recovery helper passed compatibility, ownership, spool and non-interactive permission checks.
@@ -6614,6 +6657,8 @@ components:
         staging_directory:
           type: string
       required:
+      - helper_ready
+      - helper_configured
       - destinations
       - plans
       - runs
@@ -6935,6 +6980,7 @@ components:
           items:
             $ref: '#/components/schemas/BackupCopyProtection'
       required:
+      - activity
       - plan_id
       - plan_name
       - state
@@ -6989,6 +7035,7 @@ components:
         last_error:
           type: string
       required:
+      - activity
       - destination_id
       - state
     BackupPreflight:
