@@ -673,7 +673,8 @@ describe('Backup review regressions', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: /Replace stored password/ }))
     fireEvent.change(screen.getByLabelText('Repository password'), { target: { value: 'existing-key' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save destination' }))
-    expect(await screen.findByRole('button', { name: 'Test existing repository' })).toHaveFocus()
+    const verify = await screen.findByRole('button', { name: 'Test existing repository' })
+    await waitFor(() => expect(verify).toHaveFocus())
     expect(screen.queryByRole('button', { name: 'Initialize new repository' })).not.toBeInTheDocument()
     expect(api.saveBackupDestination).toHaveBeenCalledWith(
       expect.objectContaining({ secrets: { password: 'existing-key' } }),
