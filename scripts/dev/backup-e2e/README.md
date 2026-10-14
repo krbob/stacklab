@@ -66,3 +66,75 @@ Do not treat these fixture helper tests as evidence that an installed sudoers
 policy was upgraded. Preserve the old installed helper/configuration/state before
 an additional in-place VM upgrade exercise, and record package versions and
 whether the old sudoers policy was detected by helper readiness.
+
+## Installed package upgrade
+
+`upgrade-installed.py` is a separate, intentionally invasive exercise for a
+disposable VM with an existing Stacklab package. It stops and upgrades the
+application and briefly replaces its backup sudoers policy with a narrow legacy
+fixture. It does not reset authentication or change existing source data. Before
+mutation it archives `/etc/stacklab`, `/var/lib/stacklab`, the complete helper
+spool, backup sudoers and `/usr/lib/stacklab` into a new root-only backup directory.
+Allow enough disk space for that uncompressed copy.
+
+Run as root, supplying an absolute `.deb` path and the clean revision's Linux
+backup test binary:
+
+```sh
+python3 scripts/dev/backup-e2e/upgrade-installed.py \
+  --deb /tmp/stacklab_candidate_arm64.deb \
+  --backup-dir /root/stacklab-backup-upgrade-unique-run-id \
+  --backup-test /tmp/backup.test \
+  --browser-host test-vm
+```
+
+The existing `STACKLAB_BOOTSTRAP_PASSWORD` must still authenticate; the script
+uses it only in memory and refuses to reset the installed password. If invoking
+through a Docker/chroot administration shell, add `--network host` so the local
+API URL reaches the VM rather than the container's loopback interface. The API
+URL can be changed using `--base-url`.
+
+The exercise verifies that legacy permissions produce `helper_ready=false`,
+installs and validates the current packaged narrow sudoers example, and waits
+for the periodic probe to report ready without another application restart. It
+checks preserved configuration bytes, plan/destination IDs, pause and host-review
+state, then runs the protected-configuration integration test as `stacklab`.
+The result and package hash are recorded in `result.json`; package output and
+test output remain in the root-only backup directory. Its `browser-auth.json` is
+private session material for an optional live browser check: never commit it or
+include it in public evidence bundles. The upgraded package and corrected
+sudoers remain installed. The previous state archive is retained for recovery.
+
+## Real transfer watchdog
+
+The opt-in Go fixture runs real restic against temporary encrypted repositories
+served by rclone through a localhost proxy. Install `restic` and `rclone` on a
+Linux or macOS host, then run:
+
+```sh
+STACKLAB_TEST_SLOW_BACKUP=1 go test ./internal/backup \
+  -run '^TestNativeTransferWatchdogControlledTransport$' \
+  -parallel=2 -count=1 -v -timeout=9m
+```
+
+The two cases run in parallel and normally finish in about five and a half
+minutes. One stalls pack uploads and requires the production watchdog to cancel
+after five minutes without measured progress. The other holds final index
+completion while byte and file counters remain complete and unchanged for five
+minutes and twenty seconds. It then releases the request and requires successful
+completion, `check --read-data`, `restore --verify` and an identical payload
+SHA256. The canceled-upload repository must also pass `check --read-data`.
+
+The fixture uses approximately 264 MiB of random source data plus temporary
+repository/restored data, starts only its own rclone processes, listens on
+loopback and Unix sockets, and removes its temporary directories and processes.
+Each case has an eight-minute context deadline. It does not use Docker or change
+installed Stacklab configuration. Restic must support `--stuck-request-timeout`;
+the fixture sets this to ten minutes so restic's own backend deadline does not
+mask Stacklab's watchdog. The initial successful run used restic 0.19.1 and
+rclone 1.75.2 on macOS arm64.
+
+This demonstrates bounded cancellation during a real stalled upload and survival
+of delayed finalization beyond the old five-minute deadline. It does not measure
+a general WAN transfer rate or wait for the thirty-minute finalization deadline;
+deterministic watchdog tests cover that upper bound.

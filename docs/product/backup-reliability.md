@@ -4,7 +4,7 @@
 
 The first implementation was exercised on 2026-10-14. Independent second-round
 review reopened release blockers in replacement scope, retention and operational
-recovery. Their accepted implementation and validation contract is the
+recovery; their repairs and validation are recorded in the implemented
 [reliability completion plan](backup-reliability-completion.md). The original
 plan was committed before implementation. Measured results and remaining validation limits are recorded in
 [backup validation](../quality/backup-validation.md). The requirements below

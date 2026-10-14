@@ -14,9 +14,9 @@ and the [protection/recovery experience](product/backup-experience.md)
 have been implemented; the remaining baseline and goals retain their previous
 review date.
 
-Second-round review reopened backup release blockers. Completing the
-[reliability acceptance contract](product/backup-reliability-completion.md)
-takes priority over additional backup features and the goals below.
+Second-round backup review repairs are implemented and exercised under the
+[reliability acceptance contract](product/backup-reliability-completion.md).
+Its retained limits and regression requirements apply to further backup work.
 
 ## Current Baseline
 

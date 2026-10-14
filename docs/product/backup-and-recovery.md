@@ -131,7 +131,7 @@ Two explicit capture modes are available:
 Source preparation must coordinate with every service writing a selected
 shared volume. Stacklab's own SQLite state requires a SQLite-aware online
 backup while Stacklab is running. Database-specific dump/restore profiles are
-a follow-up; the first release can include existing prepared dumps or use the
+a follow-up; the implementation accepts existing prepared dumps or uses the
 stop-and-capture mode.
 
 Extend job resource coordination to cover affected stacks, shared data,
@@ -164,12 +164,12 @@ allow reviewed path and volume remapping. Missing external networks, image
 registries, build inputs, secrets, or other dependencies must be visible; the
 product must not imply that a saved image digest makes an image available.
 
-Repository verification and an actual restore test are distinct results. Ship
-repository integrity checks with an explicit data-read policy and a manual
-isolated restore-test workflow. Show when each last succeeded; an uploaded
-snapshot alone does not prove that the application can recover. Document a
-restic-based recovery procedure alongside the Stacklab workflow, and keep the
-minimum access and decryption material outside the repository it unlocks.
+Repository verification and an actual restore test are distinct results. The
+implementation provides integrity checks with an explicit data-read policy and a
+manual isolated restore-test workflow, with snapshot-scoped success evidence.
+An uploaded snapshot alone does not prove that the application can recover. The
+operator guide includes a restic-based recovery procedure; minimum access and
+decryption material must remain outside the repository it unlocks.
 
 ## Product Integration
 
@@ -194,9 +194,10 @@ The first release includes native execution; all destination types above;
 per-stack and per-service selection; multiple destinations; scheduling and
 retention; file and stop-and-capture modes; consistent Stacklab state capture;
 repository checks; manual restore testing; and file, stack, and fresh-host
-recovery. Exercise partial cloud failure, absent NAS mounts, shared volumes,
-interrupted capture, permission preservation, and recovery without the original
-host before calling that release complete.
+recovery. The [validation record](../quality/backup-validation.md) distinguishes
+executed partial-failure, mount, shared-volume, interruption, permission and
+fresh-host exercises from provider-specific and workload-size limits that remain
+untested. These scenarios remain regression requirements for subsequent releases.
 
 Follow-up work includes database-specific profiles, optional pre-update
 backups, scheduled isolated restore tests, and migration of existing Backrest

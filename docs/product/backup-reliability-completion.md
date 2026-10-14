@@ -2,12 +2,13 @@
 
 ## Status And Scope
 
-Accepted for implementation, 2026-10-14, following the second independent review.
+Implemented and exercised on 2026-10-14, following the second independent review.
 This plan supplements [the original reliability contract](backup-reliability.md)
 and [ADR 0007](../adr/0007-backup-completion-and-recovery-scope.md). Existing
 snapshots, archive representation and additive `backup.v1` state remain supported.
-Implementation is not complete until the scenarios below are exercised and
-recorded with commands, source revision and environment in the validation record.
+The [validation record](../quality/backup-validation.md) records commands, source
+revision, environment, executed scenarios and remaining measurement limits. The
+acceptance scenarios below remain regression requirements for subsequent releases.
 
 ## Delivery Order And Acceptance
 
@@ -123,3 +124,22 @@ exercise privileged helper paths on Linux. Synchronize cancellation tests on
 process readiness. Keep reproducible scenario scripts and logs for destructive
 VM tests; distinguish executed results from inspection and untested conditions.
 Commit coherent steps, push the final tested revision and check its CI result.
+
+## Retained Limits
+
+- Filtered sources support explicit merge, not exact replacement. Interrupted
+  replacement preserves rollback data and stopped writers; restoration of that
+  rollback remains an operator procedure, not an automatic multi-source transaction.
+- Prepared archives still receive repeated validation during apply. Large-dataset
+  downtime optimization, parallel service stops, and moving startup reconciliation
+  behind the HTTP listener remain separate work; recovery fencing can exceed the
+  plan's soft disruption budget and long stop grace can require a manual retry.
+- Protection notifications use the existing **Job failed** channel selection.
+  Delivery is bounded and retried with fair rotation, but a dedicated event
+  preference, configurable heartbeat interval and delivery backoff are deferred.
+- Expired staging is cleaned by the background admission loop; a manual request
+  does not synchronously run that cleanup. Metadata verification and time budgets
+  do not establish performance on a very large repository with a cold cache.
+- Native transport and recovery evidence is recorded per test environment.
+  Successful local fixtures do not certify every NAS or cloud provider, and
+  archive staging remains a full unencrypted local copy.

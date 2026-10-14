@@ -48,8 +48,8 @@ The `stacklab` Unix service account is only the host process identity.
 The [native backup and recovery plan](backup-and-recovery.md) extends the core
 jobs with selecting, protecting, and restoring Stacklab state and managed
 application data. Native orchestration and the protection/recovery UI are
-implemented; [reliability hardening](backup-reliability.md) addresses the
-remaining release blockers found during review.
+implemented. The [reliability completion](backup-reliability-completion.md)
+records the implemented review repairs, acceptance scenarios and retained limits.
 Backup orchestration runs on the host, using restic and rclone, with
 per-stack and per-service selection and multiple storage destinations.
 Application recovery remains scoped to managed Compose workloads and

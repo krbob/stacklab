@@ -81,10 +81,16 @@ def exercise(args):
         run(["docker", "start", container])
         deadline = time.monotonic() + 60
         while time.monotonic() < deadline:
-            ready = subprocess.run(["docker", "exec", container, "pg_isready", "-U", "postgres"],
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            if ready.returncode == 0:
-                return
+            # The image starts a temporary server during initdb. It can answer
+            # pg_isready immediately before the entrypoint shuts it down; wait
+            # until the entrypoint has exec'd the final server as PID 1.
+            identity = subprocess.run(["docker", "exec", container, "cat", "/proc/1/comm"],
+                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            if identity.returncode == 0 and identity.stdout.strip() == b"postgres":
+                ready = subprocess.run(["docker", "exec", container, "pg_isready", "-U", "postgres"],
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if ready.returncode == 0:
+                    return
             time.sleep(0.2)
         raise RuntimeError("fixture PostgreSQL did not become ready")
 

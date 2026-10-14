@@ -28,59 +28,100 @@ roots before stopping any service.
 
 ## Round-Two Repair Validation — 2026-10-14
 
-The round-two repair has a [maintained Linux integration runner](../../scripts/dev/backup-e2e/README.md).
-It creates isolated helper configuration, spool, data and PostgreSQL fixtures;
-it does not replace the installed application or modify existing backup state.
-The reproduction command is:
+The round-two repair has a [maintained Linux integration runner](../../scripts/dev/backup-e2e/README.md)
+and a separate installed-package upgrade exercise. The isolated runner creates
+its own helper configuration, spool, data and PostgreSQL fixtures. Reproduce it
+with the pinned toolchain:
 
 ```sh
-scripts/dev/backup-e2e/run-linux.sh \
+GOTOOLCHAIN=go1.27.1 scripts/dev/backup-e2e/run-linux.sh \
   test-user@test-vm unique-run-id /tmp/backup-evidence-unique-run-id arm64
 ```
 
-The initial run `r2-20261014b` used Debian 13 arm64, GNU tar 1.35, restic 0.18.0,
-Docker 26.1.5 and PostgreSQL 17 Alpine. Its source was `8f729e4` plus the repair
-working tree; `revision.txt`, `working-tree.patch`, `source.tar.gz`, binary hashes,
-host versions and raw logs were retained in the local artifact directory
-`/tmp/stacklab-backup-e2e-r2-20261014b`. This explicitly identifies a working-tree
-validation, not a test of the previously installed `2026.10.0~review2` package.
+Run `r2-20261014c` built clean production revision
+`552abacc3c8c4ec7dab886151ccada53963be379` with Go 1.27.1 and ran on Debian 13 arm64,
+GNU tar 1.35, restic 0.18.0, Docker 26.1.5 and PostgreSQL 17 Alpine.
+`revision.txt`, an empty production working-tree patch, `source.tar.gz`, toolchain
+and host versions, binary hashes and raw logs are retained in the local artifact
+directory `/tmp/stacklab-backup-e2e-r2-20261014c`.
+
+The first PostgreSQL fixture attempt exposed a harness readiness race: the image's
+temporary initialization server answered `pg_isready` just before shutting down.
+The maintained harness now waits for the final PostgreSQL daemon as PID 1. Only
+the integration fixture was repeated with the same clean production binaries;
+all assertions passed. The initial failure log and corrected harness are retained
+alongside `integration-rerun.log` and `integration.json`. The earlier working-tree
+run `r2-20261014b` remains historical evidence, superseded by this clean build.
 
 | Exercise | Result |
 | --- | --- |
-| Full backup test binary as the non-root service identity | 106 top-level tests passed; 3 explicit opt-in skips |
+| Pinned full portable Go suite (`./cmd/... ./internal/...`) | Passed |
+| Pinned race suites: backup, jobs, helper, notifications | Passed |
+| Go vet, repository hygiene, docs, generated API checks | Passed |
+| Coverage gates | Passed; backup 75.9%, HTTP API 53.6%; global 70.8% reported, without a global floor |
+| Frontend on pinned Node 24.21.0 | 620 tests passed |
+| Maintained Playwright desktop/mobile scenarios | 5 passed |
+| Live installed-package browser smoke | Desktop and mobile passed against the upgraded VM with real authenticated API responses |
+| Full backup test binary as the non-root service identity | 112 top-level tests passed; 3 explicit opt-in skips |
 | Root helper test binary | 15 top-level tests passed; no skips |
 | Real restic partial/incomplete snapshot retry and retention | Passed, including the non-root exit-code-3 permission fixture |
+| Controlled delayed storage with real restic | Reading stalled at 44,910,454 / 268,435,456 bytes and was cancelled after 5m1.869s; an unchanged finalization phase survived 5m20s and completed after storage release at 5m22.192s |
+| Managed restore cleanup with inaccessible (`000`) directory | Passed on Linux |
 | Every required helper action's protocol probe | Passed |
 | PostgreSQL stopped capture and populated exact replacement | Original 1,000 rows and checksum recovered; 500 later rows, later table and marker removed; target inode preserved |
 | Filtered or unknown-scope exact replacement | Refused; excluded live file preserved |
 | Explicit filtered merge | Passed; excluded live file remained identical |
 | Managed root exact replacement | Refused before mutation |
 | Actual SIGKILL during helper extraction | Killed the process group only after phase `writing` and a newly extracted nonempty file existed; rollback and partial target remained, release refused the interrupted record, fixture service stayed stopped |
-| Existing VM application and fixtures | Remained running; isolated test container and successful run directories were removed |
+| Actual installed package upgrade | `2026.10.0~review2` → `2026.10.0~review2fix`, built from `552abac` |
+| Legacy and current sudoers | Legacy permissions produced `helper_ready=false`; installing the current validated narrow example restored readiness through the periodic probe, without another application restart |
+| Existing state through upgrade | Configuration bytes, six plan IDs, six destination IDs, operator pause and host-review state preserved |
+| Installed protected service configuration recovery | Passed as `stacklab`; configuration remained unreadable directly and recovered privately with a consistent SQLite snapshot |
+| Existing VM application and containers | Running after validation; isolated test containers removed |
 
-The three skipped tests were native SFTP, native S3 and recovery of the installed
-protected service configuration. They require separately configured transports
-or the installed helper; this run does not claim that they executed. The kill
-exercise validates privileged extraction interruption, while maintained Go
-regressions cover application stop journals, daemon-side fencing, missing writer
-inspection, explicit acknowledgement and durable audit before journal removal.
+The three initial native-suite skips were SFTP, S3 and protected configuration.
+The protected-configuration test subsequently passed against the newly installed
+package; SFTP and S3 were not repeated in this repair batch. The kill exercise
+validates privileged extraction interruption, while maintained Go regressions
+cover application stop journals, daemon-side fencing, missing writer inspection,
+explicit acknowledgement and durable audit before journal removal.
 
-Artifact SHA-256 values for the initial run:
+The installed upgrade used `scripts/dev/backup-e2e/upgrade-installed.py` with the
+candidate `.deb`, clean backup test binary and a fresh root-only backup directory.
+The complete previous configuration, application state, helper spool, sudoers
+and installed application were archived before mutation at
+`/root/stacklab-backup-upgrade-r2-20261014/before.tar`. Upgrade results and the
+protected-configuration log are copied into the local artifact directory.
+Authentication was preserved; private browser session material is excluded from
+public evidence and repository files.
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `backup.test` | `64846f98bc65ba55c5bce8a189830736bf73083a335080dec93dd21306dddbba` |
-| `helper.test` | `28be9bbe98fdf5c62ae5a47a697f78264bc93976831839a680c3fd110832e229` |
-| Fixture helper | `174b8d3f4368450fccefad576f31b266187e6ee3a3ca9f1d4ed1f18280135ce7` |
+| Clean `backup.test` | `a58b91a7d6b1aced24e16dd6f5b7794c6acb413e7b7c092a378ae9fe3b9e7dce` |
+| Clean `helper.test` | `f7af023f7ee4e59942e2c9271a2fcf5dc6fe4e5422d26c8f7881867b23e167ec` |
+| Isolated fixture helper | `d4f043b1f006c786f50546b403d103f17f3ab7bd3cc9281933abbeaf6ab1b47c` |
+| Installed `.deb` | `19bd361326f29484b5b4ccff45bd4869e7abdc1e8d397be472a76e5b6d33c1c3` |
 
-Additional portable race regressions passed after this initial run for bounded
-notification batches, fair retries across failed channels, malformed policy
-preservation, valid grace fallback, pause/overdue/resolved delivery across
-restart and missing-writer acknowledgement without starting replacements.
-Notification delivery is at least once: a crash or storage failure after delivery
-can cause a repeat. Each observation attempts at most 16 transitions within a
-20-second delivery budget, with a persisted cursor and priority for pause
-transitions; a healthy external heartbeat is attempted before channel delivery.
+The controlled-storage watchdog experiment used clean production revision
+`552abac`, Go **1.27.2** on macOS arm64, restic 0.19.1 and rclone 1.75.2; it is
+separate from the pinned Go 1.27.1 gates above. Both the cancelled reading case
+and completed finalization case passed encrypted repository checks. The completed
+8 MiB backup additionally passed `restore --verify` and a SHA-256 comparison.
+The original experiment log is `/tmp/stacklab-watchdog-validation/result.log`;
+the fixture is retained as opt-in
+`TestNativeTransferWatchdogControlledTransport`, documented with its invocation
+in the integration runner README. This is evidence for deliberately delayed
+storage, not general WAN throughput or a live exercise of the 30-minute maximum
+finalization deadline.
+
+Policy race regressions cover bounded notification batches, fair retries across
+failed channels, malformed policy preservation, valid grace fallback,
+pause/overdue/resolved delivery across restart and missing-writer acknowledgement
+without starting replacements. Notification delivery is at least once: a crash
+or storage failure after delivery can cause a repeat. Each observation attempts
+at most 16 transitions within a 20-second delivery budget, with a persisted
+cursor and priority for pause transitions; a healthy external heartbeat is
+attempted before channel delivery.
 
 ## Reliability Repair Validation — 2026-10-14
 
