@@ -160,9 +160,9 @@ function DestinationRecovery({
   const snapshots = useApi(
     (signal) => (toolsAvailable ? getBackupSnapshots(destination.id, signal) : Promise.resolve({ items: [] })),
     [destination.id, toolsAvailable, refreshKey, snapshotRevision],
-    { enabled: active, staleTime: 60000 },
+    { enabled: active, staleTime: 60000, resourceKey: destination.id },
   )
-  const restores = useApi((signal) => getBackupRestores(signal), [refreshKey, restoreRevision], { enabled: active, staleTime: 30000 })
+  const restores = useApi((signal) => getBackupRestores(signal), [refreshKey, restoreRevision], { enabled: active, staleTime: 30000, resourceKey: 'backup-restores' })
   const { refetch: refreshRestores } = restores
   useEffect(() => {
     if (!active) return

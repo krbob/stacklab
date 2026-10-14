@@ -10,13 +10,14 @@ interface UseApiState<T> {
 export function useApi<T>(
   fetcher: (signal?: AbortSignal) => Promise<T>,
   deps: unknown[] = [],
-  { enabled = true, staleTime = 0 }: { enabled?: boolean; staleTime?: number } = {},
+  { enabled = true, staleTime = 0, resourceKey }: { enabled?: boolean; staleTime?: number; resourceKey?: unknown } = {},
 ): UseApiState<T> & { refetch: () => void } {
   const [state, setState] = useState<UseApiState<T>>({ data: null, error: null, loading: true, updatedAt: null })
   const requestIDRef = useRef(0)
   const abortRef = useRef<AbortController | null>(null)
 
   const lastLoadRef = useRef<(() => void) | null>(null)
+  const resourceKeyRef = useRef(resourceKey)
   const settledAtRef = useRef(0)
   const pendingRef = useRef(false)
 
@@ -46,12 +47,15 @@ export function useApi<T>(
 
   useEffect(() => {
     const resourceChanged = lastLoadRef.current !== load
-    if (enabled && (resourceChanged || pendingRef.current || !settledAtRef.current || Date.now() - settledAtRef.current >= staleTime)) {
+    const identityChanged = resourceKey !== undefined && !Object.is(resourceKeyRef.current, resourceKey)
+    if (enabled && (resourceChanged || identityChanged || pendingRef.current || !settledAtRef.current || Date.now() - settledAtRef.current >= staleTime)) {
+      const resetError = resourceKey === undefined ? resourceChanged : identityChanged
       lastLoadRef.current = load
-      load(resourceChanged)
+      resourceKeyRef.current = resourceKey
+      load(resetError)
     }
     return () => abortRef.current?.abort()
-  }, [load, enabled, staleTime])
+  }, [load, enabled, staleTime, resourceKey])
 
   const refetch = useCallback(() => load(), [load])
   return { ...state, refetch }

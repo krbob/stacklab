@@ -31,7 +31,7 @@ export function ProtectionDashboard({
   useEffect(() => {
     if (active) setCoverageRevision(refreshKey)
   }, [active, refreshKey])
-  const coverage = useApi((signal) => getBackupCoverage(signal), [coverageRevision])
+  const coverage = useApi((signal) => getBackupCoverage(signal), [coverageRevision], { resourceKey: 'backup-coverage' })
   const protection = data.protection ?? []
   const copies = protection.flatMap((plan) => plan.copies)
   const current = copies.filter((copy) => copy.state === 'current').length

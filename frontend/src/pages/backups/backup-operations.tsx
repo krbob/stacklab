@@ -37,7 +37,7 @@ export function BackupOperations({
   onPolicyChange?: (policy: BackupPolicy) => void
   onStarted: (result: BackupJobResponse) => void
 }) {
-  const policy = useApi((signal) => getBackupPolicy(signal), [refreshKey])
+  const policy = useApi((signal) => getBackupPolicy(signal), [refreshKey], { resourceKey: 'backup-policy' })
   useEffect(() => { if (policy.data) onPolicyChange?.(policy.data) }, [policy.data, onPolicyChange])
   const [settings, setSettings] = useState(false)
   const [recovery, setRecovery] = useState(false)

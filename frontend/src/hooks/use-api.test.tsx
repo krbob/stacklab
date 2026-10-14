@@ -109,4 +109,17 @@ describe('useApi', () => {
     await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2))
   })
 
+  it('preserves the same resource error across invalidation revisions but resets a changed identity', async () => {
+    const pending = deferred<string>()
+    const fetcher = vi.fn().mockRejectedValueOnce(new Error('Policy unavailable')).mockReturnValue(pending.promise)
+    const { result, rerender } = renderHook(({ resourceKey, revision }) => useApi(fetcher, [resourceKey, revision], { resourceKey }), { initialProps: { resourceKey: 'policy', revision: 0 } })
+    await waitFor(() => expect(result.current.error?.message).toBe('Policy unavailable'))
+    rerender({ resourceKey: 'policy', revision: 1 })
+    expect(result.current.error?.message).toBe('Policy unavailable')
+    expect(result.current.loading).toBe(true)
+    rerender({ resourceKey: 'other-policy', revision: 1 })
+    expect(result.current.error).toBeNull()
+    await act(async () => { pending.resolve('loaded'); await pending.promise })
+  })
+
 })
