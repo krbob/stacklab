@@ -422,7 +422,7 @@ describe('Restore selection boundaries', () => {
     expect(screen.getByText(/Select up to 100 files per restore/)).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: 'Select file-100' })).not.toBeChecked()
     expect(screen.getByRole('button', { name: 'Restore 100 selected files for download' })).toBeEnabled()
-  })
+  }, 15_000) // 101 deliberate interactions exercise the boundary on slower CI runners.
 })
 
 describe('Destination onboarding and schedules', () => {
