@@ -13,7 +13,7 @@ The following are intentionally out of scope for the first product generation:
 - secrets management platform replacement
 - long-term observability platform replacement
 - whole-host disk imaging, operating-system recovery, or a general-purpose
-  host backup product; planned application-level backup and restore are scoped
+  host backup product; application-level backup and restore are scoped
   in [Native Backup And Recovery](backup-and-recovery.md)
 - public SaaS-style hosting model
 - deep Git workflow enforcement

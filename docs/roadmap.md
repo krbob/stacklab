@@ -65,6 +65,16 @@ of changed `main` revisions provide the soak channel between stable releases.
 
 ## Near-Term Product Goals
 
+### 0. Backup Reliability Release Gate
+
+Complete the accepted [backup reliability plan](product/backup-reliability.md)
+before treating native backups as the primary protection for application data.
+Priorities are complete-copy verification, honest protection evidence, faithful
+capture with optional indexes, interruption-safe service recovery, narrower
+repository coordination, exact recovery and operational alerts. UI and operator
+documentation corrections proceed alongside these backend changes. Database
+profiles and a new capture representation remain separate follow-up work.
+
 ### 1. Template Library And Starter Catalog
 
 - collect operator feedback on the built-in starter catalog;

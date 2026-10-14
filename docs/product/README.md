@@ -5,6 +5,9 @@ the product is heading.
 
 ## Current documents
 
+- [Backup reliability and recovery hardening](backup-reliability.md) — accepted
+  repair plan and release gate following the backup review.
+
 - [Scope](scope.md) — product statement, target environment, operator model,
   principles, source of truth, and success criteria.
 - [Non-goals](non-goals.md) — deliberate boundaries that keep Stacklab focused.

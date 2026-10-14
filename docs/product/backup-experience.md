@@ -6,6 +6,8 @@ Implementation plan accepted on 2026-10-13 and committed before implementation.
 The six delivery steps below are implemented; validation evidence is recorded in
 [backup validation](../quality/backup-validation.md).
 The [native backup baseline](backup-and-recovery.md) remains the starting point.
+The subsequent [reliability plan](backup-reliability.md) records review findings,
+release blockers and the accepted repair sequence.
 After delivery, executable tests and the updated architecture, API and operator
 documents define the implemented contracts.
 
@@ -18,8 +20,8 @@ unrelated files and preventing writes through target links.
 
 The operator must be able to answer three questions without reading job logs:
 what is protected, what needs attention, and how to recover the required data.
-Backrest is a reference for useful interaction patterns. Review of the running
-[Backrest instance](https://backrest.bobinski.net/) showed a useful protection
+Backrest is a reference for useful interaction patterns. Review of a running
+Backrest instance showed a useful protection
 summary, dated operation history, file browser, repository statistics and
 maintenance controls. Its [configuration guide](https://garethgeorge.github.io/backrest/introduction/getting-started)
 and [hooks documentation](https://garethgeorge.github.io/backrest/docs/hooks)
