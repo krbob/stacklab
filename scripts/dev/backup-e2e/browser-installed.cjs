@@ -224,7 +224,7 @@ const record = (name) => summary.assertions.push(name);
     if (restored) {
       expect(['unknown', 'complete', 'incomplete', 'legacy', 'unsupported', 'invalid']).toContain(restored.recovery_status);
       await page.getByLabel('Recovery destination', { exact: true }).selectOption(restored.destination_id);
-      await page.getByLabel('Completed isolated restore', { exact: true }).selectOption(restored.id);
+      await page.getByRole('combobox', { name: 'Completed isolated restore', exact: true }).selectOption(restored.id);
       const provenance = page.getByText('Snapshot evidence at retrieval:', { exact: false }).filter({ visible: true });
       await expect(provenance).toContainText(restored.recovery_status);
       await screenshot('restore-provenance-desktop.png');
