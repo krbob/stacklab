@@ -15,6 +15,7 @@ import {
   type BackupComparison,
   type BackupDestination,
   type BackupJobResponse,
+  type BackupPlan,
   type BackupRestoreResult,
   type BackupSnapshot,
 } from '@/lib/backup-api'
@@ -38,13 +39,24 @@ const terminal = ['succeeded', 'failed', 'cancelled', 'timed_out']
 export function RecoveryWorkspace({
   destinations,
   initialDestinationId,
+  onDestinationChange,
+  plans = [],
+  toolsAvailable = true,
   onStarted,
 }: {
   destinations: BackupDestination[]
   initialDestinationId?: string
+  onDestinationChange?: (id: string) => void
+  plans?: BackupPlan[]
+  toolsAvailable?: boolean
   onStarted: (result: BackupJobResponse) => void
 }) {
-  const [destinationId, setDestinationId] = useState(initialDestinationId || destinations[0]?.id || '')
+  const [destinationId, setDestinationId] = useState(
+    initialDestinationId ?? destinations.find((item) => item.kind === 'local')?.id ?? '',
+  )
+  useEffect(() => {
+    if (initialDestinationId !== undefined) setDestinationId(initialDestinationId)
+  }, [initialDestinationId])
   const destination = destinations.find((item) => item.id === destinationId)
   return (
     <div className="space-y-4">
@@ -57,7 +69,10 @@ export function RecoveryWorkspace({
           <select
             className={inputClass}
             value={destinationId}
-            onChange={(event) => setDestinationId(event.target.value)}
+            onChange={(event) => {
+              setDestinationId(event.target.value)
+              onDestinationChange?.(event.target.value)
+            }}
           >
             <option value="">Select a destination</option>
             {destinations.map((item) => (
@@ -73,19 +88,34 @@ export function RecoveryWorkspace({
           </p>
         )}
       </BackupPanel>
-      {destination && <DestinationRecovery key={destination.id} destination={destination} onStarted={onStarted} />}
+      {destination && (
+        <DestinationRecovery
+          key={destination.id}
+          destination={destination}
+          plans={plans}
+          toolsAvailable={toolsAvailable}
+          onStarted={onStarted}
+        />
+      )}
     </div>
   )
 }
 
 function DestinationRecovery({
   destination,
+  plans,
+  toolsAvailable,
   onStarted,
 }: {
   destination: BackupDestination
+  plans: BackupPlan[]
+  toolsAvailable: boolean
   onStarted: (result: BackupJobResponse) => void
 }) {
-  const snapshots = useApi((signal) => getBackupSnapshots(destination.id, signal), [destination.id])
+  const snapshots = useApi(
+    (signal) => (toolsAvailable ? getBackupSnapshots(destination.id, signal) : Promise.resolve({ items: [] })),
+    [destination.id, toolsAvailable],
+  )
   const restores = useApi((signal) => getBackupRestores(signal), [])
   const { refetch: refreshRestores } = restores
   const { openJob } = useJobDrawer()
@@ -111,7 +141,7 @@ function DestinationRecovery({
   }, [jobId, jobState, running, refreshRestores])
 
   async function restore(files?: SelectedFile[], sourceIds?: string[]) {
-    if (!snapshotId || pending || running) return
+    if (!snapshotId || pending || running || !toolsAvailable) return
     setPending(true)
     setError(null)
     try {
@@ -136,13 +166,18 @@ function DestinationRecovery({
       <BackupPanel
         title="1. Choose and inspect a recovery set"
         actions={
-          <button className={buttonClass} onClick={snapshots.refetch}>
+          <button className={buttonClass} disabled={!toolsAvailable || snapshots.loading} onClick={snapshots.refetch}>
             Refresh snapshots
           </button>
         }
       >
         <BackupError error={error ?? snapshots.error?.message ?? null} />
-        {snapshots.loading && (
+        {!toolsAvailable && (
+          <p className="text-sm text-[var(--warning)]">
+            Install the required backup tools before accessing this repository.
+          </p>
+        )}
+        {snapshots.loading && !snapshots.data && (
           <p role="status" className="text-sm text-[var(--muted)]">
             Loading recovery sets…
           </p>
@@ -159,13 +194,15 @@ function DestinationRecovery({
               {(snapshots.data.items ?? []).map((snapshot) => (
                 <option key={snapshot.id} value={snapshot.id}>
                   {new Date(snapshot.time).toLocaleString()} · {snapshot.short_id || snapshot.id.slice(0, 8)} ·{' '}
-                  {snapshot.hostname}
+                  {plans.find((plan) => snapshot.tags?.includes(`plan:${plan.id}`))?.name ??
+                    snapshot.tags?.find((tag) => tag.startsWith('plan:'))?.slice(5) ??
+                    snapshot.hostname}
                 </option>
               ))}
             </select>
           </Field>
         )}
-        {snapshots.data && !snapshots.data.items?.length && (
+        {toolsAvailable && snapshots.data && !snapshots.data.items?.length && (
           <p className="mt-3 text-sm text-[var(--muted)]">No snapshots found in this repository.</p>
         )}
         {selectedSnapshot && (
@@ -342,6 +379,7 @@ function FileBrowser({
   const [baseline, setBaseline] = useState('')
   const [selectionError, setSelectionError] = useState<string | null>(null)
   const [comparisonOffset, setComparisonOffset] = useState(0)
+  const queryKey = JSON.stringify([destinationId, snapshot?.id, restored?.id, sourceId, path, debouncedSearch, offset])
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setDebouncedSearch(search)
@@ -358,9 +396,10 @@ function FileBrowser({
         offset,
         limit: 50,
       }
-      return restored
+      const catalog = await (restored
         ? getBackupRestoreCatalog(restored.id, query, signal)
-        : getBackupCatalog(destinationId, snapshot!.id, query, signal)
+        : getBackupCatalog(destinationId, snapshot!.id, query, signal))
+      return { catalog, queryKey }
     },
     [destinationId, snapshot?.id, restored?.id, sourceId, path, debouncedSearch, offset],
   )
@@ -371,7 +410,8 @@ function FileBrowser({
         : Promise.resolve(null),
     [baseline, sourceId, snapshot?.id, destinationId, comparisonOffset],
   )
-  const catalog = files.data
+  const catalog = files.data?.catalog
+  const stale = files.data?.queryKey !== queryKey
   const source = catalog?.sources.find((item) => item.source.id === sourceId)
   const selectedSources = new Set(selected.map((item) => item.source_id))
   const transferBytes = (catalog?.sources ?? [])
@@ -404,7 +444,7 @@ function FileBrowser({
           Retry file listing
         </button>
       )}
-      {files.loading && (
+      {files.loading && !catalog && (
         <p role="status" className="text-xs text-[var(--muted)]">
           Loading file index…
         </p>
@@ -439,18 +479,26 @@ function FileBrowser({
           )}
           {sourceId && !catalog.index_available && (
             <p className="rounded-md border border-[var(--warning)]/30 p-3 text-sm leading-6 text-[var(--warning)]">
-              This snapshot has no file index. Restore this source or the complete set to browse and download its files
-              locally.
+              This snapshot has no file index. You can still restore this source or the complete set. File browsing and
+              comparison may remain unavailable for large archives; use the recovery runbook to inspect them offline.
             </p>
           )}
-          {sourceId && catalog.index_available && !files.loading && (
+          {sourceId && catalog.index_available && (
             <>
               <div className="flex flex-wrap items-center gap-2">
-                <button className={buttonClass} disabled={!path && !search} onClick={() => navigate('')}>
+                <button
+                  className={buttonClass}
+                  disabled={files.loading || (!path && !search)}
+                  onClick={() => navigate('')}
+                >
                   Source root
                 </button>
                 {path && (
-                  <button className={buttonClass} onClick={() => navigate(path.split('/').slice(0, -1).join('/'))}>
+                  <button
+                    className={buttonClass}
+                    disabled={files.loading}
+                    onClick={() => navigate(path.split('/').slice(0, -1).join('/'))}
+                  >
                     Parent directory
                   </button>
                 )}
@@ -470,6 +518,7 @@ function FileBrowser({
               <div
                 className="divide-y divide-[var(--panel-border)] rounded-md border border-[var(--panel-border)]"
                 aria-label="File entries"
+                aria-busy={files.loading}
               >
                 {(catalog.items ?? []).map((file) => (
                   <div key={file.path} className="flex min-w-0 flex-wrap items-start justify-between gap-2 p-3">
@@ -479,7 +528,7 @@ function FileBrowser({
                           aria-label={`Select ${file.path}`}
                           type="checkbox"
                           className="mt-1"
-                          disabled={disabled}
+                          disabled={disabled || files.loading || stale}
                           checked={selected.some((item) => item.source_id === sourceId && item.path === file.path)}
                           onChange={() => selectFile({ source_id: sourceId, path: file.path })}
                         />
@@ -488,6 +537,7 @@ function FileBrowser({
                         {file.type === 'directory' ? (
                           <button
                             className="break-all text-left text-sm text-[var(--accent)] underline underline-offset-4"
+                            disabled={files.loading}
                             onClick={() => navigate(file.path)}
                           >
                             {file.path}/
@@ -509,19 +559,25 @@ function FileBrowser({
                       </div>
                     </div>
                     {restored && file.type === 'file' && (
-                      <a className={buttonClass} href={backupDownloadURL(restored.id, sourceId, file.path)} download>
+                      <a
+                        className={buttonClass}
+                        aria-label={`Download ${file.path}`}
+                        aria-disabled={files.loading || stale}
+                        href={files.loading || stale ? undefined : backupDownloadURL(restored.id, sourceId, file.path)}
+                        download
+                      >
                         Download
                       </a>
                     )}
                   </div>
                 ))}
-                {!catalog.items?.length && (
+                {!files.loading && !files.error && !stale && !catalog.items?.length && (
                   <p className="p-3 text-sm text-[var(--muted)]">
                     {search ? 'No files match this search.' : 'This directory is empty.'}
                   </p>
                 )}
               </div>
-              <CatalogPagination page={catalog} onOffset={setOffset} />
+              <CatalogPagination page={catalog} onOffset={setOffset} disabled={files.loading} />
               {snapshot && (
                 <>
                   <Field label="Compare this source with another snapshot">
@@ -555,7 +611,7 @@ function FileBrowser({
                           Comparing file indexes…
                         </p>
                       )}
-                      {!comparison.loading && comparison.data && (
+                      {!comparison.loading && !comparison.error && comparison.data && (
                         <FileComparison data={comparison.data} onOffset={setComparisonOffset} />
                       )}
                     </div>
@@ -568,14 +624,15 @@ function FileBrowser({
             <div className="space-y-2 rounded-md bg-[var(--bg)] p-3">
               <p className="text-xs leading-5 text-[var(--muted)]">
                 Selected files require retrieving their complete source archives.{' '}
-                {selected.length ? (
+                {files.loading ? (
+                  'Calculating archive transfer…'
+                ) : selected.length ? (
                   <>
                     {selected.length} files selected · estimated archive transfer <BackupSize value={transferBytes} />.
                   </>
                 ) : (
                   <>
-                    This source requires <BackupSize value={catalog.transfer_bytes || source?.size_bytes} /> of archive
-                    transfer.
+                    This source requires <BackupSize value={source?.size_bytes} /> of archive transfer.
                   </>
                 )}{' '}
                 Provider download charges and temporary disk space apply.
@@ -621,15 +678,17 @@ function FileBrowser({
 function CatalogPagination({
   page,
   onOffset,
+  disabled = false,
 }: {
   page: Pick<BackupCatalog, 'total' | 'offset' | 'limit'>
   onOffset: (offset: number) => void
+  disabled?: boolean
 }) {
   return page.total > page.limit ? (
     <nav className="flex flex-wrap items-center justify-between gap-2" aria-label="File pages">
       <button
         className={buttonClass}
-        disabled={page.offset === 0}
+        disabled={disabled || page.offset === 0}
         onClick={() => onOffset(Math.max(0, page.offset - page.limit))}
       >
         Previous files
@@ -639,7 +698,7 @@ function CatalogPagination({
       </span>
       <button
         className={buttonClass}
-        disabled={page.offset + page.limit >= page.total}
+        disabled={disabled || page.offset + page.limit >= page.total}
         onClick={() => onOffset(page.offset + page.limit)}
       >
         Next files

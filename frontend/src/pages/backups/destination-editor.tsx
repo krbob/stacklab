@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Dialog } from '@/components/dialog'
 import { useJobStream } from '@/hooks/use-job-stream'
 import { useJobDrawer } from '@/hooks/use-job-drawer'
@@ -14,6 +14,8 @@ import {
 import { BackupError, buttonClass, Field, inputClass, primaryClass, BackupStatus } from './backup-primitives'
 import { ScheduleFields } from './schedule-fields'
 import { manualSchedule } from './schedule-utils'
+import { useEditorCloseGuard } from './editor-close-guard'
+import { sftpRepositoryAddress } from './repository-address'
 
 const repositoryHints: Record<string, string> = {
   local: 'Absolute directory on a disk or mounted NAS, for example /mnt/backup/stacklab.',
@@ -54,6 +56,7 @@ export function DestinationEditor({
     remotePath: 'stacklab',
   })
   const [showPassword, setShowPassword] = useState(false)
+  const [replacePassword, setReplacePassword] = useState(false)
   const [secretMessage, setSecretMessage] = useState('')
   const [checkSchedule, setCheckSchedule] = useState<BackupSchedule>(destination?.check_schedule ?? manualSchedule)
   const [pruneSchedule, setPruneSchedule] = useState<BackupSchedule>(destination?.prune_schedule ?? manualSchedule)
@@ -70,6 +73,29 @@ export function DestinationEditor({
   const [jobAction, setJobAction] = useState('')
   const { state: jobState } = useJobStream({ jobId })
   const { openJob } = useJobDrawer()
+  const credentialsRef = useRef<HTMLInputElement>(null)
+  const verifyRef = useRef<HTMLButtonElement>(null)
+  const formValue = JSON.stringify({
+    name,
+    kind,
+    repository,
+    filesystem,
+    region,
+    secrets,
+    location,
+    checkSchedule,
+    pruneSchedule,
+    readData,
+  })
+  const [initialValue] = useState(formValue)
+  const { requestClose, confirmation } = useEditorCloseGuard(
+    !saved && formValue !== initialValue,
+    saved ? onSaved : onClose,
+  )
+  useEffect(() => {
+    if (step === 1) credentialsRef.current?.focus()
+    if (step === 2) verifyRef.current?.focus()
+  }, [step])
   const running = !!jobId && !['succeeded', 'failed', 'cancelled', 'timed_out'].includes(jobState ?? '')
   const changeSecret = (key: keyof BackupSecrets, value: string) =>
     setSecrets((previous) => ({ ...previous, [key]: value }))
@@ -84,7 +110,7 @@ export function DestinationEditor({
             '',
           )
         : kind === 'sftp'
-          ? `sftp://${encodeURIComponent(location.user)}@${location.host}${location.port && location.port !== '22' ? `:${location.port}` : ''}/${location.directory.replace(/^\/+/, '')}`
+          ? sftpRepositoryAddress(location.user, location.host, location.port, location.directory)
           : `rclone:${location.remote}:${location.remotePath}`
 
   async function detectFilesystem() {
@@ -127,7 +153,7 @@ export function DestinationEditor({
         destination?.id,
       )
       setSecrets({})
-      if (destination) onSaved()
+      if (destination && !supplied.password) onSaved()
       else {
         setSaved(result.destination)
         setStep(2)
@@ -157,7 +183,7 @@ export function DestinationEditor({
   return (
     <Dialog
       title={destination ? 'Edit destination' : 'Add destination'}
-      onClose={saved ? onSaved : onClose}
+      onClose={requestClose}
       preventClose={pending}
       busy={pending}
       panelClassName="max-w-2xl"
@@ -179,7 +205,10 @@ export function DestinationEditor({
         <div className="mt-4 space-y-4">
           <BackupError error={error} />
           <p className="text-sm text-[var(--text)]">
-            {saved.name} is saved. Verify an existing repository, or initialize this location if it is new.
+            {saved.name} is saved.{' '}
+            {destination
+              ? 'Test access with the replacement credentials.'
+              : 'Verify an existing repository, or initialize this location if it is new.'}
           </p>
           <p className="break-all text-xs text-[var(--muted)]">{saved.repository}</p>
           <p className="text-xs leading-5 text-[var(--warning)]">
@@ -187,6 +216,7 @@ export function DestinationEditor({
             encrypted repository without them.
           </p>
           <button
+            ref={verifyRef}
             className={primaryClass}
             disabled={pending || running}
             onClick={() => {
@@ -195,25 +225,27 @@ export function DestinationEditor({
           >
             Test existing repository
           </button>
-          <div className="space-y-2 rounded-md border border-[var(--panel-border)] p-3">
-            <label className="flex items-start gap-2 text-sm text-[var(--text)]">
-              <input
-                type="checkbox"
-                checked={newRepository}
-                onChange={(event) => setNewRepository(event.target.checked)}
-              />
-              This location is new and needs an encrypted repository
-            </label>
-            <button
-              className={buttonClass}
-              disabled={!newRepository || pending || running}
-              onClick={() => {
-                void verify(true)
-              }}
-            >
-              Initialize new repository
-            </button>
-          </div>
+          {!destination && (
+            <div className="space-y-2 rounded-md border border-[var(--panel-border)] p-3">
+              <label className="flex items-start gap-2 text-sm text-[var(--text)]">
+                <input
+                  type="checkbox"
+                  checked={newRepository}
+                  onChange={(event) => setNewRepository(event.target.checked)}
+                />
+                This location is new and needs an encrypted repository
+              </label>
+              <button
+                className={buttonClass}
+                disabled={!newRepository || pending || running}
+                onClick={() => {
+                  void verify(true)
+                }}
+              >
+                Initialize new repository
+              </button>
+            </div>
+          )}
           {jobId && (
             <div role="status" className="space-y-2 text-sm text-[var(--text)]">
               <span>{jobAction}: </span>
@@ -238,11 +270,11 @@ export function DestinationEditor({
             <button
               className={primaryClass}
               onClick={() => {
-                if (jobState === 'succeeded' && onCreatePlan) onCreatePlan(saved)
+                if (!destination && jobState === 'succeeded' && onCreatePlan) onCreatePlan(saved)
                 else onSaved()
               }}
             >
-              {jobState === 'succeeded' ? 'Done — create a backup plan' : 'Finish setup'}
+              {destination ? 'Done' : jobState === 'succeeded' ? 'Done — create a backup plan' : 'Finish setup'}
             </button>
           </div>
         </div>
@@ -381,7 +413,10 @@ export function DestinationEditor({
                         onChange={(event) => changeLocation('user', event.target.value)}
                       />
                     </Field>
-                    <Field label="Remote directory">
+                    <Field
+                      label="Remote directory"
+                      hint="A leading / selects an absolute server path; otherwise the path is relative to the SSH user's home directory."
+                    >
                       <input
                         className={inputClass}
                         required
@@ -453,60 +488,80 @@ export function DestinationEditor({
             {(!!destination || step === 1) && (
               <>
                 <div className="space-y-2 sm:col-span-2">
+                  {destination && (
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={replacePassword}
+                        onChange={(event) => {
+                          setReplacePassword(event.target.checked)
+                          changeSecret('password', '')
+                          setShowPassword(false)
+                        }}
+                      />
+                      Replace stored password (must match repository)
+                    </label>
+                  )}
                   <Field
                     label="Repository password"
                     hint={
                       destination
-                        ? 'Leave secrets empty to keep saved credentials. Changing this field does not change repository encryption.'
+                        ? 'The saved password is never displayed. Replacement must match the existing repository; this does not rotate its encryption key.'
                         : 'Save this password independently of this host. It is required for recovery.'
                     }
                   >
                     <input
+                      ref={credentialsRef}
                       type={showPassword ? 'text' : 'password'}
+                      disabled={!!destination && !replacePassword}
                       autoComplete="new-password"
-                      required={!destination}
+                      required={!destination || replacePassword}
                       value={secrets.password ?? ''}
                       onChange={(event) => changeSecret('password', event.target.value)}
                       className={inputClass}
                     />
                   </Field>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      className={buttonClass}
-                      onClick={() => {
-                        const bytes = crypto.getRandomValues(new Uint8Array(24))
-                        changeSecret(
-                          'password',
-                          Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join(''),
-                        )
-                        setSecretMessage('Generated a new password. Store it independently before saving.')
-                      }}
-                    >
-                      Generate password
-                    </button>
-                    <button type="button" className={buttonClass} onClick={() => setShowPassword(!showPassword)}>
-                      {showPassword ? 'Hide password' : 'Show password'}
-                    </button>
-                    <button
-                      type="button"
-                      className={buttonClass}
-                      disabled={!secrets.password}
-                      onClick={() => {
-                        void (
-                          navigator.clipboard
-                            ? navigator.clipboard.writeText(secrets.password ?? '')
-                            : Promise.reject(new Error('Clipboard unavailable'))
-                        )
-                          .then(() => setSecretMessage('Password copied. Store it in your password manager.'))
-                          .catch(() =>
-                            setSecretMessage('Clipboard is unavailable. Show the password and copy it manually.'),
+                  {(!destination || replacePassword) && (
+                    <div className="flex flex-wrap gap-2">
+                      {!destination && (
+                        <button
+                          type="button"
+                          className={buttonClass}
+                          onClick={() => {
+                            const bytes = crypto.getRandomValues(new Uint8Array(24))
+                            changeSecret(
+                              'password',
+                              Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join(''),
+                            )
+                            setSecretMessage('Generated a new password. Store it independently before saving.')
+                          }}
+                        >
+                          Generate password
+                        </button>
+                      )}
+                      <button type="button" className={buttonClass} onClick={() => setShowPassword(!showPassword)}>
+                        {showPassword ? 'Hide password' : 'Show password'}
+                      </button>
+                      <button
+                        type="button"
+                        className={buttonClass}
+                        disabled={!secrets.password}
+                        onClick={() => {
+                          void (
+                            navigator.clipboard
+                              ? navigator.clipboard.writeText(secrets.password ?? '')
+                              : Promise.reject(new Error('Clipboard unavailable'))
                           )
-                      }}
-                    >
-                      Copy password
-                    </button>
-                  </div>
+                            .then(() => setSecretMessage('Password copied. Store it in your password manager.'))
+                            .catch(() =>
+                              setSecretMessage('Clipboard is unavailable. Show the password and copy it manually.'),
+                            )
+                        }}
+                      >
+                        Copy password
+                      </button>
+                    </div>
+                  )}
                   {secretMessage && (
                     <p role="status" className="text-xs text-[var(--muted)]">
                       {secretMessage}
@@ -633,7 +688,7 @@ export function DestinationEditor({
             Credentials are write-only. Saving does not initialize or modify the repository.
           </p>
           <div className="flex flex-wrap justify-end gap-2">
-            <button type="button" className={buttonClass} disabled={pending} onClick={onClose}>
+            <button type="button" className={buttonClass} disabled={pending} onClick={requestClose}>
               Cancel
             </button>
             {!destination && step === 1 && (
@@ -647,6 +702,7 @@ export function DestinationEditor({
           </div>
         </form>
       )}
+      {confirmation}
     </Dialog>
   )
 }

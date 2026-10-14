@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from '@/lib/backup-api'
@@ -10,6 +10,7 @@ import { DestinationEditor } from './destination-editor'
 import { RunPlanDialog } from './run-plan-dialog'
 import { ScheduleFields } from './schedule-fields'
 import { ApplyRecoveryDialog } from './apply-recovery-dialog'
+import { sftpRepositoryAddress } from './repository-address'
 
 vi.mock('@/lib/backup-api')
 vi.mock('@/hooks/use-job-stream', () => ({ useJobStream: vi.fn(() => ({ state: null, events: [], clear: vi.fn() })) }))
@@ -301,7 +302,7 @@ describe('Continuous recovery workspace', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Restore complete set and test retrieval' }))
     expect(await screen.findByLabelText('Completed isolated restore')).toHaveValue('restore')
     fireEvent.change(await screen.findByLabelText('Restored source'), { target: { value: 'database' } })
-    expect(await screen.findByRole('link', { name: 'Download' })).toHaveAttribute(
+    expect(await screen.findByRole('link', { name: 'Download record.txt' })).toHaveAttribute(
       'href',
       '/api/backups/restores/restore/download?source_id=database&path=record.txt',
     )
@@ -472,5 +473,149 @@ describe('Destination onboarding and schedules', () => {
       { frequency: 'interval', interval_hours: 6 },
       expect.any(AbortSignal),
     )
+    expect(
+      screen.getByText(
+        new Date('2026-10-01T06:00:00Z').toLocaleString(undefined, { timeZone: 'UTC', timeZoneName: 'short' }),
+      ),
+    ).toBeInTheDocument()
+  })
+})
+
+describe('Backup review regressions', () => {
+  it('keeps the focused search mounted throughout debounced requests and errors', async () => {
+    workspace()
+    await chooseSnapshotSource()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Restore this source' })).toBeEnabled())
+    let rejectRequest!: (error: Error) => void
+    vi.mocked(api.getBackupCatalog).mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectRequest = reject
+        }),
+    )
+    const input = screen.getByLabelText('Search snapshot files')
+    input.focus()
+    fireEvent.change(input, { target: { value: 'record' } })
+    await waitFor(() =>
+      expect(api.getBackupCatalog).toHaveBeenLastCalledWith(
+        'nas',
+        'snap',
+        expect.objectContaining({ search: 'record' }),
+        expect.any(AbortSignal),
+      ),
+    )
+    expect(screen.getByLabelText('Search snapshot files')).toBe(input)
+    expect(input).toHaveFocus()
+    expect(screen.getByLabelText('File entries')).toHaveAttribute('aria-busy', 'true')
+    expect(screen.getByRole('checkbox', { name: 'Select record.txt' })).toBeDisabled()
+    await act(async () => rejectRequest(new Error('Repository busy')))
+    expect(input).toHaveFocus()
+    fireEvent.change(input, { target: { value: 'record2' } })
+    expect(input).toHaveValue('record2')
+    expect(screen.getByRole('button', { name: 'Retry file listing' })).toBeInTheDocument()
+  })
+
+  it('formats wall-clock preview dates in the selected zone instead of the browser zone', async () => {
+    const date = '2026-10-01T06:00:00Z'
+    vi.mocked(api.previewBackupSchedule).mockResolvedValue({ next_occurrences: [date], timezone: 'America/New_York' })
+    render(
+      <ScheduleFields
+        label="Copy schedule"
+        value={{ frequency: 'daily', time: '02:00', timezone: 'America/New_York' }}
+        onChange={vi.fn()}
+      />,
+    )
+    expect(
+      await screen.findByText(
+        new Date(date).toLocaleString(undefined, { timeZone: 'America/New_York', timeZoneName: 'short' }),
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it.each([
+    ['nas', '22', '/srv/backups', 'sftp://backup@nas//srv/backups'],
+    ['nas', '22', 'backups', 'sftp://backup@nas/backups'],
+    ['nas', '2222', '/srv/backups', 'sftp://backup@nas:2222//srv/backups'],
+    ['2001:db8::1', '2222', '/srv/backups', 'sftp://backup@[2001:db8::1]:2222//srv/backups'],
+    ['[::1]', '22', '/space #1/żółć', 'sftp://backup@[::1]//space%20%231/%C5%BC%C3%B3%C5%82%C4%87'],
+  ])('preserves SFTP server path semantics for %s:%s %s', (host, port, path, expected) => {
+    expect(sftpRepositoryAddress('backup', host, port, path)).toBe(expected)
+  })
+
+  it('requires explicit credential replacement and offers verification without generating a mismatched key', async () => {
+    vi.mocked(api.saveBackupDestination).mockResolvedValue({ destination })
+    render(<DestinationEditor destination={destination} onSaved={vi.fn()} onClose={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: 'Generate password' })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Repository password')).toBeDisabled()
+    fireEvent.click(screen.getByRole('checkbox', { name: /Replace stored password/ }))
+    fireEvent.change(screen.getByLabelText('Repository password'), { target: { value: 'existing-key' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save destination' }))
+    expect(await screen.findByRole('button', { name: 'Test existing repository' })).toHaveFocus()
+    expect(screen.queryByRole('button', { name: 'Initialize new repository' })).not.toBeInTheDocument()
+    expect(api.saveBackupDestination).toHaveBeenCalledWith(
+      expect.objectContaining({ secrets: { password: 'existing-key' } }),
+      'nas',
+    )
+  })
+
+  it('retains unsaved credentials after Escape until discard is explicitly confirmed', async () => {
+    const onClose = vi.fn()
+    render(<DestinationEditor destination={destination} onSaved={vi.fn()} onClose={onClose} />)
+    fireEvent.change(screen.getByLabelText('Destination name'), { target: { value: 'Edited name' } })
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.getByRole('dialog', { name: 'Discard unsaved changes?' })).toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }))
+    expect(screen.getByLabelText('Destination name')).toHaveValue('Edited name')
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it('loads a missing recovery manifest visibly and retries a transient failure', async () => {
+    let rejectRequest!: (error: Error) => void
+    vi.mocked(api.getBackupRestoreManifest).mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectRequest = reject
+        }),
+    )
+    render(
+      <ApplyRecoveryDialog
+        destination={destination}
+        restored={{ ...result, manifest: undefined }}
+        onStarted={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    )
+    expect(screen.getByRole('status')).toHaveTextContent('Loading recovery manifest')
+    expect(screen.getByRole('button', { name: 'Preview recovery' })).toBeDisabled()
+    await act(async () => rejectRequest(new Error('Temporary storage error')))
+    vi.mocked(api.getBackupRestoreManifest).mockResolvedValue({ manifest })
+    fireEvent.click(screen.getByRole('button', { name: 'Retry recovery manifest' }))
+    expect(await screen.findByRole('checkbox', { name: /db → \/data/ })).toBeInTheDocument()
+    expect(screen.queryByText('Temporary storage error')).not.toBeInTheDocument()
+  })
+
+  it('refreshes source coverage when the overview refresh generation changes', async () => {
+    const props = {
+      data: overview,
+      onCreatePlan: vi.fn(),
+      onAddDestination: vi.fn(),
+      onRun: vi.fn(),
+      onRecovery: vi.fn(),
+    }
+    const view = render(
+      <MemoryRouter>
+        <ProtectionDashboard {...props} refreshKey={1} />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(api.getBackupCoverage).toHaveBeenCalledTimes(1))
+    view.rerender(
+      <MemoryRouter>
+        <ProtectionDashboard {...props} refreshKey={2} />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(api.getBackupCoverage).toHaveBeenCalledTimes(2))
   })
 })

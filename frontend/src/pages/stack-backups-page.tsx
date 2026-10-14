@@ -2,7 +2,7 @@ import { Link, useParams } from 'react-router-dom'
 import { AsyncState } from '@/components/async-state'
 import { useApi } from '@/hooks/use-api'
 import { getStackBackups } from '@/lib/backup-api'
-import { BackupPanel, BackupStatus, primaryClass } from './backups/backup-primitives'
+import { BackupPanel, BackupStatus, buttonClass, primaryClass } from './backups/backup-primitives'
 import { SourceLabel } from './backups/source-label'
 import { sourceCoverage } from './backups/source-coverage'
 
@@ -15,9 +15,14 @@ export function StackBackupsPage() {
       <BackupPanel
         title="Backup coverage"
         actions={
-          <Link className={primaryClass} to={`/backups?view=plans&stack=${encodeURIComponent(stackId)}`}>
-            Manage backup plans
-          </Link>
+          <>
+            <Link className={primaryClass} to={`/backups?view=plans&stack=${encodeURIComponent(stackId)}`}>
+              Manage backup plans
+            </Link>
+            <Link className={buttonClass} to="/backups?view=recovery">
+              Recover data
+            </Link>
+          </>
         }
       >
         <p className="mb-4 text-sm leading-6 text-[var(--muted)]">
@@ -55,8 +60,13 @@ export function StackBackupsPage() {
                   )}
                   {selected.map((selection) => (
                     <p key={selection.plan.id} className="mt-2 text-xs text-[var(--muted)]">
-                      {selection.plan.name} ·{' '}
-                      {selection.plan.consistency === 'stop' ? 'Stop writers' : 'Live file capture'}
+                      <Link
+                        className="text-[var(--accent)] underline underline-offset-4"
+                        to={`/backups?view=plans&plan=${encodeURIComponent(selection.plan.id)}`}
+                      >
+                        {selection.plan.name}
+                      </Link>{' '}
+                      · {selection.plan.consistency === 'stop' ? 'Stop writers' : 'Live file capture'}
                       {selection.source.excludes?.length ? ` · Excluded: ${selection.source.excludes.join(', ')}` : ''}
                     </p>
                   ))}

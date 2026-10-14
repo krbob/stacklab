@@ -76,8 +76,9 @@ export function BackupError({ error }: { error: string | null }) {
   ) : null
 }
 
-export function BackupDate({ value }: { value?: string | null }) {
-  return <>{value ? new Date(value).toLocaleString() : 'Never'}</>
+export function BackupDate({ value, timeZone }: { value?: string | null; timeZone?: string }) {
+  if (!value) return <>Never</>
+  return <time dateTime={value}>{new Date(value).toLocaleString(undefined, { timeZone, timeZoneName: 'short' })}</time>
 }
 
 export function BackupSize({ value }: { value?: number | null }) {

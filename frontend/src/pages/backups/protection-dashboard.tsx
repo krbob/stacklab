@@ -7,21 +7,24 @@ import { sourceCoverage } from './source-coverage'
 
 export function ProtectionDashboard({
   data,
+  refreshKey,
   onCreatePlan,
   onAddDestination,
   onRun,
   onRecovery,
 }: {
   data: BackupOverview
+  refreshKey?: number | null
   onCreatePlan: () => void
   onAddDestination: () => void
   onRun: (plan: BackupPlan) => void
   onRecovery: (destinationId: string) => void
 }) {
-  const coverage = useApi((signal) => getBackupCoverage(signal), [])
+  const coverage = useApi((signal) => getBackupCoverage(signal), [refreshKey])
   const protection = data.protection ?? []
   const copies = protection.flatMap((plan) => plan.copies)
   const current = copies.filter((copy) => copy.state === 'current').length
+  const manual = copies.filter((copy) => copy.state === 'manual').length
   const attention = copies.filter(
     (copy) => ['overdue', 'outdated', 'unprotected'].includes(copy.state) || !!copy.last_error,
   ).length
@@ -31,13 +34,14 @@ export function ProtectionDashboard({
     .filter((item) => item.state !== 'configured')
   return (
     <>
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {[
           { label: 'Copies meeting schedule', value: current },
+          { label: 'Manual copies available', value: manual },
           { label: 'Copies needing attention', value: attention },
           {
             label: 'Source selection gaps',
-            value: coverage.loading ? '…' : incomplete ? `${gaps.length}+` : gaps.length,
+            value: coverage.loading && !coverage.data ? '…' : incomplete ? `${gaps.length}+` : gaps.length,
           },
         ].map((item) => (
           <div key={item.label} className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-4">
@@ -106,7 +110,7 @@ export function ProtectionDashboard({
                             </dd>
                           </div>
                           <div>
-                            <dt className="text-[var(--muted)]">Last recovery test</dt>
+                            <dt className="text-[var(--muted)]">Destination test (any plan)</dt>
                             <dd className="mt-1">
                               <BackupDate value={destination?.last_restore_test_at} />
                             </dd>
@@ -152,7 +156,7 @@ export function ProtectionDashboard({
             Retry source inventory
           </button>
         )}
-        {coverage.loading && (
+        {coverage.loading && !coverage.data && (
           <p role="status" className="text-sm text-[var(--muted)]">
             Discovering stack and host sources…
           </p>

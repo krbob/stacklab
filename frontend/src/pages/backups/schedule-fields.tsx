@@ -20,7 +20,9 @@ export function ScheduleFields({
     const controller = new AbortController()
     setPreview(null)
     setError(null)
+    setLoading(false)
     if (JSON.parse(serialized).frequency === 'manual') return
+    if (JSON.parse(serialized).frequency === 'interval' && !JSON.parse(serialized).interval_hours) return
     const timer = window.setTimeout(() => {
       setLoading(true)
       setError(null)
@@ -75,8 +77,8 @@ export function ScheduleFields({
               min={1}
               max={168}
               required
-              value={value.interval_hours ?? 6}
-              onChange={(event) => onChange({ ...value, interval_hours: Number(event.target.value) })}
+              value={Number.isNaN(value.interval_hours) ? '' : (value.interval_hours ?? 6)}
+              onChange={(event) => onChange({ ...value, interval_hours: event.target.valueAsNumber })}
             />
           </Field>
         )}
@@ -130,7 +132,7 @@ export function ScheduleFields({
                 {preview.next_occurrences.map((date, index) => (
                   <span key={date}>
                     {index > 0 && ' · '}
-                    <BackupDate value={date} />
+                    <BackupDate value={date} timeZone={preview.timezone} />
                   </span>
                 ))}
               </>

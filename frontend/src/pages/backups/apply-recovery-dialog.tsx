@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Dialog } from '@/components/dialog'
+import { useApi } from '@/hooks/use-api'
 import { OperationReview } from '@/components/operation-review'
 import {
   getBackupRestoreManifest,
@@ -7,7 +8,6 @@ import {
   restoreBackupSnapshot,
   type BackupDestination,
   type BackupJobResponse,
-  type BackupManifest,
   type BackupRestoreMapping,
   type BackupRestoreRequest,
   type BackupRestoreReview,
@@ -27,13 +27,22 @@ export function ApplyRecoveryDialog({
   onStarted: (result: BackupJobResponse) => void
   onClose: () => void
 }) {
-  const [manifest, setManifest] = useState<BackupManifest | null>(restored?.manifest ?? null)
+  const manifestState = useApi(
+    () =>
+      restored.manifest ? Promise.resolve({ manifest: restored.manifest }) : getBackupRestoreManifest(restored.target),
+    [restored.id, restored.target, restored.manifest],
+  )
+  const manifest = restored.manifest ?? manifestState.data?.manifest
   const [mappings, setMappings] = useState<BackupRestoreMapping[]>([])
   const [resume, setResume] = useState(false)
   const [review, setReview] = useState<BackupRestoreReview | null>(null)
   const [confirmation, setConfirmation] = useState('')
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const confirmationRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (review) confirmationRef.current?.focus()
+  }, [review])
 
   function payload(): BackupRestoreRequest {
     return { restore_id: restored.id, mappings, resume_services: resume }
@@ -66,25 +75,6 @@ export function ApplyRecoveryDialog({
     }
   }
 
-  useEffect(() => {
-    if (!restored || restored.manifest) return
-    let alive = true
-    setPending(true)
-    void getBackupRestoreManifest(restored.target)
-      .then((result) => {
-        if (alive) setManifest(result.manifest)
-      })
-      .catch((cause) => {
-        if (alive) setError(cause instanceof Error ? cause.message : 'Unable to load recovery manifest')
-      })
-      .finally(() => {
-        if (alive) setPending(false)
-      })
-    return () => {
-      alive = false
-    }
-  }, [restored])
-
   function updateMapping(sourceId: string, patch: Partial<BackupRestoreMapping>) {
     setMappings((previous) =>
       previous.map((mapping) => (mapping.source_id === sourceId ? { ...mapping, ...patch } : mapping)),
@@ -101,6 +91,17 @@ export function ApplyRecoveryDialog({
     >
       <div className="mt-4 space-y-4">
         <BackupError error={error} />
+        {!manifest && manifestState.loading && (
+          <p role="status" className="text-sm text-[var(--muted)]">
+            Loading recovery manifest…
+          </p>
+        )}
+        <BackupError error={manifestState.error?.message ?? null} />
+        {manifestState.error && (
+          <button className={buttonClass} onClick={manifestState.refetch}>
+            Retry recovery manifest
+          </button>
+        )}
         <p className="text-sm leading-6 text-[var(--muted)]">
           Select the recovered sources to apply, then review destination paths and affected services. Targets and
           service restart are explicit choices.
@@ -272,6 +273,7 @@ export function ApplyRecoveryDialog({
             ))}
             <Field label="Type RESTORE to apply recovered data">
               <input
+                ref={confirmationRef}
                 className={inputClass}
                 value={confirmation}
                 disabled={pending}

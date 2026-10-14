@@ -13,6 +13,7 @@ import { useApi } from '@/hooks/use-api'
 import { BackupError, buttonClass, Field, inputClass, primaryClass } from './backup-primitives'
 import { SourceLabel } from './source-label'
 import { ScheduleFields } from './schedule-fields'
+import { useEditorCloseGuard } from './editor-close-guard'
 
 const gib = 1024 ** 3
 
@@ -55,6 +56,9 @@ export function PlanEditor({
   const [stopTimeout, setStopTimeout] = useState(plan?.stop_timeout_seconds ?? 300)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const formValue = JSON.stringify({ name, enabled, consistency, sources, assignments, maxGiB, ttl, stopTimeout })
+  const [initialValue] = useState(formValue)
+  const { requestClose, confirmation } = useEditorCloseGuard(formValue !== initialValue, onClose)
   const stacks = useApi(() => getStacks(), [])
   const inventory = useApi(() => getBackupSources(stackId || undefined), [stackId])
   const available = useMemo(() => inventory.data?.items ?? [], [inventory.data])
@@ -131,7 +135,7 @@ export function PlanEditor({
   return (
     <Dialog
       title={plan ? 'Edit backup plan' : 'Create backup plan'}
-      onClose={onClose}
+      onClose={requestClose}
       preventClose={pending}
       busy={pending}
       panelClassName="max-w-3xl"
@@ -314,6 +318,25 @@ export function PlanEditor({
           </p>
           <section className="space-y-3" aria-label="Plan destinations">
             <h3 className="text-sm font-semibold text-[var(--text)]">Destinations, schedules and retention</h3>
+            {assignments
+              .filter((assignment) => !destinations.some((destination) => destination.id === assignment.destination_id))
+              .map((assignment) => (
+                <div
+                  key={assignment.destination_id}
+                  className="rounded-md border border-[var(--warning)]/30 p-3 text-sm"
+                >
+                  <p role="status">
+                    Destination details unavailable ({assignment.destination_id}). This assignment is still selected.
+                  </p>
+                  <button
+                    type="button"
+                    className={buttonClass}
+                    onClick={() => toggleDestination(assignment.destination_id)}
+                  >
+                    Remove unavailable destination assignment
+                  </button>
+                </div>
+              ))}
             {destinations.length === 0 && (
               <p className="text-sm text-[var(--muted)]">Add a destination before saving a plan.</p>
             )}
@@ -342,10 +365,10 @@ export function PlanEditor({
                             min={0}
                             max={3650}
                             className={inputClass}
-                            value={assignment.retention[period]}
+                            value={Number.isNaN(assignment.retention[period]) ? '' : assignment.retention[period]}
                             onChange={(event) =>
                               updateAssignment(destination.id, {
-                                retention: { ...assignment.retention, [period]: Number(event.target.value) },
+                                retention: { ...assignment.retention, [period]: event.target.valueAsNumber },
                               })
                             }
                           />
@@ -366,7 +389,8 @@ export function PlanEditor({
             })}
             <p className="text-xs leading-5 text-[var(--muted)]">
               Each destination has an independent copy and retention policy. Scheduled times use the displayed timezone.
-              Retention removes older snapshots owned by this plan.
+              Retention removes older snapshots owned by this plan. Set all retention counts to 0 to keep every snapshot
+              (no automatic expiration).
             </p>
           </section>
           <details className="rounded-md border border-[var(--panel-border)] p-3">
@@ -379,8 +403,8 @@ export function PlanEditor({
                   min={0.001}
                   step="any"
                   className={inputClass}
-                  value={maxGiB}
-                  onChange={(event) => setMaxGiB(Number(event.target.value))}
+                  value={Number.isNaN(maxGiB) ? '' : maxGiB}
+                  onChange={(event) => setMaxGiB(event.target.valueAsNumber)}
                 />
               </Field>
               <Field label="Retry window (hours)">
@@ -390,26 +414,29 @@ export function PlanEditor({
                   min={1}
                   max={168}
                   className={inputClass}
-                  value={ttl}
-                  onChange={(event) => setTtl(Number(event.target.value))}
+                  value={Number.isNaN(ttl) ? '' : ttl}
+                  onChange={(event) => setTtl(event.target.valueAsNumber)}
                 />
               </Field>
-              <Field label="Stop timeout (seconds)">
+              <Field
+                label="Capture downtime limit (seconds)"
+                hint="Bounds the stopped capture phase, including stopping writers and reading their data."
+              >
                 <input
                   required
                   type="number"
                   min={10}
                   max={3600}
                   className={inputClass}
-                  value={stopTimeout}
-                  onChange={(event) => setStopTimeout(Number(event.target.value))}
+                  value={Number.isNaN(stopTimeout) ? '' : stopTimeout}
+                  onChange={(event) => setStopTimeout(event.target.valueAsNumber)}
                 />
               </Field>
             </div>
           </details>
         </fieldset>
         <div className="flex justify-end gap-2">
-          <button type="button" className={buttonClass} disabled={pending} onClick={onClose}>
+          <button type="button" className={buttonClass} disabled={pending} onClick={requestClose}>
             Cancel
           </button>
           <button type="submit" className={primaryClass} disabled={pending}>
@@ -417,6 +444,7 @@ export function PlanEditor({
           </button>
         </div>
       </form>
+      {confirmation}
     </Dialog>
   )
 }

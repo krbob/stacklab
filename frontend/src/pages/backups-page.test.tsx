@@ -94,6 +94,63 @@ function renderPage(view: string) {
 }
 
 describe('Backup workflow', () => {
+  it('retains the selected recovery set and history filters when changing tabs', async () => {
+    vi.mocked(api.getBackupSnapshots).mockResolvedValue({
+      items: [{ id: 'snap', short_id: 'snap', time: '2026-10-01T00:00:00Z', hostname: 'host', tags: [], paths: [] }],
+    })
+    vi.mocked(api.getBackupRestores).mockResolvedValue({ items: [] })
+    vi.mocked(api.getBackupCatalog).mockResolvedValue({
+      items: [],
+      sources: [],
+      path: '',
+      total: 0,
+      offset: 0,
+      limit: 50,
+      index_available: false,
+      transfer_bytes: 0,
+    })
+    renderPage('recovery')
+    fireEvent.change(await screen.findByLabelText('Recovery set'), { target: { value: 'snap' } })
+    fireEvent.click(screen.getByRole('tab', { name: 'History' }))
+    fireEvent.change(await screen.findByLabelText('Filter by result'), { target: { value: 'failed' } })
+    fireEvent.click(screen.getByRole('tab', { name: 'Recovery' }))
+    expect(screen.getByLabelText('Recovery set')).toHaveValue('snap')
+    expect(api.getBackupSnapshots).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('tab', { name: 'History' }))
+    expect(screen.getByLabelText('Filter by result')).toHaveValue('failed')
+  })
+
+  it('keeps an operation error in its dialog and clears it before another action', async () => {
+    vi.mocked(api.initializeBackupDestination).mockRejectedValue(new Error('Already initialized'))
+    renderPage('destinations')
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Initialize' }))[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Initialize repository' }))
+    expect(await screen.findAllByText('Already initialized')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Remove' })[1])
+    expect(screen.queryByText('Already initialized')).not.toBeInTheDocument()
+  })
+
+  it('reviews retention cleanup costs before submitting a repository operation', async () => {
+    vi.mocked(api.pruneBackupDestination).mockResolvedValue(jobResponse)
+    renderPage('destinations')
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Run retention cleanup' }))[0])
+    expect(api.pruneBackupDestination).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toHaveTextContent('provider transfer charges')
+    fireEvent.click(screen.getByRole('button', { name: 'Start cleanup' }))
+    await waitFor(() => expect(api.pruneBackupDestination).toHaveBeenCalledWith('nas'))
+  })
+
+  it('keeps the current page stable while an overview refresh is pending', async () => {
+    renderPage('plans')
+    await screen.findByRole('button', { name: 'Back up now' })
+    vi.mocked(api.getBackups).mockImplementation(() => new Promise(() => {}))
+    const start = screen.getByRole('button', { name: 'Back up now' })
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    expect(screen.queryByText('Refreshing…')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Back up now' })).toBe(start)
+  })
+
   it('keeps successful copies visible and retries only missing copies', async () => {
     vi.mocked(api.getBackups).mockResolvedValue({
       ...overview,
