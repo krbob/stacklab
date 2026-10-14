@@ -26,6 +26,125 @@ file modes and Linux file capabilities are rejected; shared set-group-ID
 directories remain supported. Restore preview rejects paths outside managed or explicitly approved
 roots before stopping any service.
 
+## Round-Four Operational Recovery Validation — 2026-10-14
+
+The [fourth-round contract](../product/backup-operational-recovery.md) was committed
+before implementation (`680d437`). Backend changes are in `93f5d44`, `5e598c4` and
+`f6f9be7`; the UI is in `3094cf7`, with final explanatory copy and maintained
+installed fixtures in `86ad7dc`. The final production revision exercised on the
+VM is `86ad7dca88efb99141fa1dec0a87311f2ca5ca9d`.
+
+| Exercise | Evidence type | Result |
+| --- | --- | --- |
+| Explicit corruption versus interrupted/mixed transport diagnostics; both historical migration forms | Deterministic Go regression | Passed; failed attempts preserve dated evidence |
+| Maintenance retry after staging expiry/removal and unavailable transport, pause/restart/cancellation, progress events | Deterministic Go regression | Passed; verified copy and transfer timestamps remain intact |
+| First outstanding deadline with missing/unverified/unavailable evidence | Deterministic Go regression | Passed; overdue remains independent of evidence usability |
+| Frozen restore provenance, selected-source validation, bounded pre-admission index reads and hardlink rejection | Go regression plus native encrypted catalog test | Passed; ordinary short-ID restores retain the full immutable ID |
+| Unlock admission/authentication, prune acknowledgement and OpenAPI route coverage | HTTP/contract regression | Passed |
+| Full backend suite, formatting and vet | Portable Go suite/vet | Passed with Go 1.27.1; backup package 98.031 s |
+| Frontend unit suite, generated contract, typecheck, build and asset checks | Frontend unit/contract/build | 652/652 passed with Node 24.21.0; final explanatory copy also passed 77 focused tests |
+| Repository hygiene, documentation links, release scripts, lint and production dependency audit | Static/build checks | Passed |
+| Desktop/mobile regression fixtures | Mocked browser regression | Nine Chromium scenarios passed |
+| Full backup suite and privileged helper suite | Native Linux plus deterministic tests | 147 backup and 16 helper top-level tests passed; five explicit opt-in skips |
+| ACL/xattr/hardlink replacement, PostgreSQL exact replacement, filtered/managed-root refusal and actual extraction interruption | Native Linux | Five maintained integration checks passed |
+| Interrupted SFTP full check, stale lock after server return, Stacklab unlock and successful full check | Native restic plus service jobs | Passed in 23.06 s; prior integrity evidence survives interruption and unlock |
+| Encrypted pack corruption, fresh-service recovery and active/stale locks with minimum restic 0.14.0 | Native Linux | Three tests passed in 30.711 s |
+
+The Linux runner used the clean final production revision, Debian 13 arm64,
+restic 0.18.0, GNU tar 1.35 and Docker 26.1.5. Its source archive, empty working-tree
+patch, hashes and raw logs are at `/tmp/stacklab-backup-e2e-r4-20261014a`.
+The PostgreSQL fixture restored 1000 captured rows, removed 500 later rows and
+the later table, and preserved the target directory inode. The SIGKILL exercise
+proves helper rollback preservation and release refusal after actual writes;
+application journal coordination remains a separate deterministic test boundary.
+
+The opt-in SFTP fixture uses a dedicated SSH container and a byte gate: it stops
+the server after at least 8 MiB of the second full read of a 64 MiB random capture.
+The final clean-revision evidence is `/tmp/stacklab-r4-sftp-recovery-c`; test binary
+SHA256 is `cca4d4fe939069705cd3e7ce6148dabd73601a3e8ddfd15660c85b5ce9097ae3`.
+The first attempt failed during SSH provisioning because the VM could not reach
+Debian mirrors. A maintained, preloaded SSH image resolved provisioning. An
+intermediate successful run recorded a working-tree patch; the final run was
+repeated from the committed revision with an empty patch. This fixture exercises
+native restic and service jobs, not HTTP admission or browser actions.
+
+Minimum-version evidence is at `/tmp/stacklab-r4-minimum-restic`. The official
+restic 0.14.0 arm64 archive was checked against its published SHA256SUMS, then used
+through an isolated PATH; the installed restic 0.18.0 remained unchanged. The test
+binary came from `93f5d44d95de71bfa12a4c3e03a7c9fdb5d63eb1` with SHA256
+`90615c319f3afbb78bbb3a72f2f060afe79da650df728f7c712d0af5bfebc769`.
+It covers the classifier, corruption persistence and lock behavior introduced in
+that commit, rather than claiming every later UI/admission change was tested on
+the minimum version. Portable native tests also ran with restic 0.19.1.
+
+Final full checks exposed a missing unlock entry in the HTTP test's route inventory
+and two existing asynchronous frontend test races (clipboard confirmation and
+terminal reconnect). The inventory was corrected and the assertions now await
+rendered state. The corrected full checks passed; no global timeout or assertion
+was weakened. The backup selection-boundary test retains its own realistic timeout.
+
+The installed upgrade from `2026.10.0~review4` to `2026.10.0~review4fix` passed all
+five checks using the maintained harness from the clean production revision:
+legacy-sudoers warning and detection, corrected readiness without another restart,
+preserved configuration/eight plans/eight destinations/operator policy, and protected
+configuration recovery under the installed service identity. Package SHA256 is
+`5ff37933abf75ae1661b508c4865ecdafc1556292469f265b527d7a530122ade`.
+Private evidence and the full previous-state archive remain at
+`/root/stacklab-backup-upgrade-r4-20261014a` on the disposable VM. The corrected
+sudoers and upgraded package remain installed; existing automatic-backup pause is
+preserved.
+
+The installed API exercise then passed seven jobs on the same revision:
+initialization, capture, ordinary unlock, isolated full restore, full restore test,
+selected-file retrieval and reviewed replacement. The ordinary restore requested
+an eight-character snapshot prefix; its registered result retained the full 64-character
+ID, `recovery_status=complete` and `classified_at`, with identical provenance in
+the apply preview. Unlock left both integrity-evidence objects unchanged.
+Full restore/test/apply preserved read-only modes, service-owned numeric IDs,
+access/default ACLs, xattrs and hardlink identity; selected-file retrieval retained
+its intended private 0600 mode. Replacement removed the unarchived fixture file.
+All fixture resources were removed, existing configuration and policy remained
+unchanged, and test-session logout succeeded.
+
+The committed API harness SHA256 is
+`91e48c63e8f2f45055e39417dda47654ce60dd909b2713dd8f8a819c63cd022b`.
+Installed application SHA256 is
+`355c77b259370583e68a32b6e3b1c1b4e15cffd06de9431dfb8e16a62bb38c2d`.
+Private logs, job events and the executed script remain at
+`/root/stacklab-backup-api-r4-20261014a`; the local copy and cleanup summary are
+at `/tmp/stacklab-r4-live-api`. This run used the committed harness, not a later
+edited equivalent.
+
+The first installed browser run passed thirteen assertions, including full-check
+default/cost guidance, explicit unlock review and exact-name prune acknowledgement,
+then stopped on an ambiguous harness selector matching both visible and retained
+hidden restore controls. The browser session was revoked even on that failure.
+Commit `7ae77c7` changes the selector to the visible accessible combobox; the
+application did not change. The original evidence remains at
+`/tmp/stacklab-r4-live-ui`.
+
+The corrected committed browser harness then passed all eighteen assertions with
+no skipped checks on the installed package, at 1440×1000 and 390×844. It used a
+healthy local repository for snapshot selection and a separate known data-failure
+fixture for check/prune decisions. The recovery library and apply dialog displayed
+the retained legacy result's `unknown` provenance; the installed API exercise above
+separately establishes newly persisted `complete` provenance. All sixteen screenshots
+and `results.json` are at `/tmp/stacklab-r4-live-ui-final`. There were no page/asset
+errors or horizontal overflow. The harness blocks browser mutations, so these are
+dialog/read-flow assertions; actual unlock and restore/apply ran in the API fixture.
+Both browser sessions were revoked and their local/remote authentication files
+removed. Final harness SHA256 is
+`41cc84137eecef3424c5c59c167f9a6cfa5e6ff4535866a64e6019369c644f33`.
+
+The Linux suite explicitly skipped protected installed configuration, externally
+configured SFTP/S3 endpoints, the opt-in SFTP interruption and the slow watchdog.
+The interruption ran separately above; installed configuration is exercised by
+the package harness. S3/provider endpoints and the long watchdog were not rerun in
+this round. These local evidence directories are not public CI artifacts. Keep
+credentials, authentication state and recovery archives private; review and redact
+logs before sharing. CI coverage/race artifacts remain tied to their exact source
+revision and expire after 14 days.
+
 ## Round-Three Repair Validation — 2026-10-14
 
 The [third-round contract](../product/backup-evidence-and-recovery.md) adds scoped

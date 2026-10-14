@@ -2,7 +2,9 @@
 
 ## Status And Scope
 
-Accepted for implementation, 2026-10-14, following the fourth independent review.
+Implemented and validated, 2026-10-14, following the fourth independent review.
+The [validation record](../quality/backup-validation.md#round-four-operational-recovery-validation--2026-10-14)
+separates deterministic, native, installed API and browser evidence and their limits.
 This contract extends [evidence and recovery](backup-evidence-and-recovery.md)
 and [ADR 0008](../adr/0008-backup-integrity-evidence.md). The priority is recovery
 from ordinary remote-storage interruptions while preserving accurate historical
