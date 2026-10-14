@@ -905,7 +905,7 @@ func (s *Service) ExecuteRun(ctx context.Context, job store.Job, runID string) {
 			run.Copies[index] = result
 			if releaseErr := s.releaseCompletedRepository(job.ID, initial.DestinationID); releaseErr != nil {
 				message := "Could not release completed repository reservation: " + releaseErr.Error()
-				if verifiedCopy(initial) {
+				if verifiedCopy(result) {
 					run.Copies[index].Retention, run.Copies[index].RetentionError = "failed", message
 				} else {
 					run.Copies[index].State, run.Copies[index].Error = "failed", message

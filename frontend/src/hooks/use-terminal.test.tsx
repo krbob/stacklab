@@ -1,4 +1,4 @@
-import { renderHook, act } from '@testing-library/react'
+import { renderHook, act, waitFor } from '@testing-library/react'
 import { describe, expect, it, beforeEach, vi } from 'vitest'
 import { createMockWsProvider, type MockWsControls } from '@/test/mock-ws-provider'
 import { useTerminal } from './use-terminal'
@@ -353,8 +353,7 @@ describe('useTerminal', () => {
     // Reconnect — should auto-attach via queueMicrotask
     act(() => { controls.setConnected(true) })
 
-    // Flush microtask
-    await new Promise((r) => setTimeout(r, 10))
+    await waitFor(() => expect(result.current.state).toBe('connecting'))
 
     const attachFrames = controls.getSentFrames().filter((f) => f.type === 'terminal.attach')
     expect(attachFrames.length).toBeGreaterThanOrEqual(1)

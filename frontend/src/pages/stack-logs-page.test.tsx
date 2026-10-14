@@ -94,7 +94,7 @@ describe('StackLogsPage', () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(
       '[2026-07-12T08:30:00Z] [api] [stdout] server  started\n',
     ))
-    expect(screen.getByRole('status')).toHaveTextContent('Copied 1 log line.')
+    expect(await screen.findByRole('status')).toHaveTextContent('Copied 1 log line.')
 
     fireEvent.click(screen.getByRole('button', { name: 'Download visible' }))
     expect(screen.getByRole('status')).toHaveTextContent('Downloaded 1 log line.')
