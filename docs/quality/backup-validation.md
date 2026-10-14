@@ -73,6 +73,7 @@ downloads for sources that cannot be extracted automatically.
 | Built frontend on the VM, Chromium desktop 1440×1000 and mobile 390×844 | Pause/resume, recovery diagnostics, focus/tab state, archive download and apply review passed; no page errors or horizontal overflow |
 | Backend coverage gates | Passed; HTTP API 53.2%, global reported coverage 70.0% |
 | Linux arm64 release artifact and generated dependency notices | Passed; stale dependency notices regenerated from the existing lockfiles |
+| Debian 12 arm64 real-systemd package install, A-to-B upgrade and repeated configuration | Passed; helper ownership/mode, sudoers and service write paths verified, spool permissions repaired without deleting recovery evidence |
 
 The SFTP/S3 native tests remain opt-in and were not rerun in this repair batch.
 This does not establish real-provider throughput, multi-terabyte capture time,
