@@ -176,7 +176,10 @@ def main():
         example = Path("/usr/share/stacklab/examples/stacklab-backup.sudoers.example")
         install_sudoers(example)
         legacy_installed = False
-        deadline = time.monotonic() + 100
+        # Failed readiness is cached for one minute after the probe completes.
+        # A minute observer tick can fall just before that expiry, making the
+        # next probe due on the following tick. Include its 15-second budget.
+        deadline = time.monotonic() + 180
         while time.monotonic() < deadline:
             after = request("/api/backups")
             if after.get("helper_ready") is True:

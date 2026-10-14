@@ -104,8 +104,11 @@ URL can be changed using `--base-url`.
 
 The exercise verifies that legacy permissions produce `helper_ready=false`,
 installs and validates the current packaged narrow sudoers example, and waits
-for the periodic probe to report ready without another application restart. It
-checks preserved configuration bytes, plan/destination IDs, pause and host-review
+for the periodic probe to report ready without another application restart. The
+harness allows up to three minutes: the one-minute failed-readiness cache and minute
+observer ticks can produce nearly two minutes of delay, plus the probe's
+15-second budget. Healthy readiness is cached for 15 minutes.
+It also checks preserved configuration bytes, plan/destination IDs, pause and host-review
 state, then runs the protected-configuration integration test as `stacklab`.
 The result and package hash are recorded in `result.json`; package output and
 test output remain in the root-only backup directory. Only `--export-browser-session --browser-host test-vm` creates `browser-auth.json`
