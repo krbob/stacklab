@@ -60,36 +60,42 @@ func (s *Service) validateSelectedFileEntries(ctx context.Context, id string, re
 	if err != nil {
 		return err
 	}
-	indexes := map[string]map[string]FileEntry{}
+	selections := map[string]map[string]bool{}
+	sources := []string{}
 	for _, selected := range request.Files {
-		entries, loaded := indexes[selected.SourceID]
-		if !loaded {
-			source, sourceErr := catalogSource(manifest, selected.SourceID)
-			if sourceErr != nil {
-				return fmt.Errorf("%w: unknown selected source", ErrInvalid)
-			}
-			index, available, indexErr := s.snapshotIndex(ctx, d, request.SnapshotID, source)
-			if indexErr != nil {
-				return indexErr
-			}
-			if available {
-				entries = map[string]FileEntry{}
-				for _, entry := range index.Entries {
-					entries[entry.Path] = entry
-				}
-			}
-			indexes[selected.SourceID] = entries
-		}
-		if entries == nil {
-			continue
+		if selections[selected.SourceID] == nil {
+			selections[selected.SourceID] = map[string]bool{}
+			sources = append(sources, selected.SourceID)
 		}
 		name, _ := catalogPath(selected.Path, false)
-		entry, found := entries[name]
-		if !found {
-			return fmt.Errorf("%w: selected file is not in the captured index", ErrInvalid)
+		selections[selected.SourceID][name] = true
+	}
+	// Retain at most one bounded index, not up to 100 full decoded indexes.
+	// The only cross-source state is the bounded set of selected paths.
+	for _, sourceID := range sources {
+		source, sourceErr := catalogSource(manifest, sourceID)
+		if sourceErr != nil {
+			return fmt.Errorf("%w: unknown selected source", ErrInvalid)
 		}
-		if entry.Type != "file" {
-			return fmt.Errorf("%w: selected entry is %s, not a regular file; choose its regular-file target or restore the whole source", ErrInvalid, entry.Type)
+		index, available, indexErr := s.snapshotIndex(ctx, d, request.SnapshotID, source)
+		if indexErr != nil {
+			return indexErr
+		}
+		if !available {
+			continue
+		}
+		wanted := selections[sourceID]
+		for _, entry := range index.Entries {
+			if !wanted[entry.Path] {
+				continue
+			}
+			if entry.Type != "file" {
+				return fmt.Errorf("%w: selected entry is %s, not a regular file; choose its regular-file target or restore the whole source", ErrInvalid, entry.Type)
+			}
+			delete(wanted, entry.Path)
+		}
+		if len(wanted) != 0 {
+			return fmt.Errorf("%w: selected file is not in the captured index", ErrInvalid)
 		}
 	}
 	return nil
