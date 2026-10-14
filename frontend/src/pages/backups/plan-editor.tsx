@@ -403,8 +403,9 @@ export function PlanEditor({
             })}
             <p className="text-xs leading-5 text-[var(--muted)]">
               Each destination has an independent copy and retention policy. Scheduled times use the displayed timezone.
-              Retention removes older snapshots owned by this plan. Set all retention counts to 0 to keep every snapshot
-              (no automatic expiration).
+              Changing a schedule resets its overdue deadline and grace period. Retention groups snapshots by UTC day,
+              ISO week and month, and removes older snapshots owned by this plan. Set all retention counts to 0 to keep
+              every snapshot (no automatic expiration).
             </p>
           </section>
           <details className="rounded-md border border-[var(--panel-border)] p-3">

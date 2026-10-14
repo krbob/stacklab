@@ -41,21 +41,21 @@ retained locally at `/tmp/stacklab-backup-e2e-r3-20261014a`; this directory is n
 published CI artifact. Source archive, binary hashes, versions and raw logs are
 included. The fixture creates and removes its own configuration, spool and data.
 
-| Sequence | Result |
-| --- | --- |
-| Non-root capture/restore of inherited POSIX ACLs, file 0444, directory 0555, xattrs and links | Passed |
-| Root replacement with ACLs, xattrs, hardlinks and a mode-000 directory | Passed |
-| Actual encrypted restic data-pack corruption → failed full check → successful metadata check → repaired bytes and successful subset → full check | Failure stays visible until the full successful check |
-| Overdue observation through multiple occurrences and restart, with notifications enabled/disabled | Passed; no renewed grace or false heartbeat |
-| Negative classification cache, restart, transient error, 64-candidate budget and inventory larger than 4096 | Passed; bounded state and forward progress |
-| Successful copy with failed retention, maintenance-only retry, retry while paused | Passed; verified copy remains usable and skipped work cannot erase failure |
-| Full native backup suite and root helper suite | Passed |
-| PostgreSQL exact replacement | 1000 captured rows restored; 500 later rows and the later table removed; target inode retained |
-| Filtered replacement and managed-root refusal | Passed; explicit merge preserves excluded live data |
-| Helper SIGKILL during actual extraction | Rollback and partial target retained; release refused; fixture container stays stopped |
-| Portable backend, formatting and vet | Passed with Go 1.27.1 |
-| Frontend tests, generated API contract, typecheck, build, asset checks and lint | Passed; final suite 637 tests with Node 24.21.0 |
-| Browser regression fixtures | Eight Chromium desktop/mobile scenarios passed |
+| Sequence | Evidence type | Result |
+| --- | --- | --- |
+| Non-root capture/restore of inherited POSIX ACLs, file 0444, directory 0555, xattrs and links | Native Linux | Passed |
+| Root replacement with ACLs, xattrs, hardlinks and a mode-000 directory | Native Linux | Passed |
+| Actual encrypted restic data-pack corruption → failed full check → successful metadata check → repaired bytes and successful subset → full check | Native Linux | Failure stays visible until the full successful check |
+| Overdue observation through multiple occurrences and restart, with notifications enabled/disabled | Deterministic Go regression | Passed; no renewed grace or false heartbeat |
+| Negative classification cache, restart, transient error, 64-candidate budget and inventory larger than 4096 | Deterministic Go regression | Passed; bounded state and forward progress |
+| Successful copy with failed retention, maintenance-only retry, retry while paused | Deterministic Go regression | Passed; verified copy remains usable and skipped work cannot erase failure |
+| Full native backup suite and root helper suite | Linux suite: native + deterministic | Passed |
+| PostgreSQL exact replacement | Native Linux | 1000 captured rows restored; 500 later rows and the later table removed; target inode retained |
+| Filtered replacement and managed-root refusal | Native Linux | Passed; explicit merge preserves excluded live data |
+| Helper SIGKILL during actual extraction | Native Linux | Rollback and partial target retained; release refused; fixture container stays stopped |
+| Portable backend, formatting and vet | Portable Go suite/vet | Passed with Go 1.27.1 |
+| Frontend tests, generated API contract, typecheck, build, asset checks and lint | Frontend unit/contract/build checks | Passed; final suite 637 tests with Node 24.21.0 |
+| Browser regression fixtures | Mocked browser regression | Eight Chromium desktop/mobile scenarios passed |
 
 The SIGKILL fixture exercises the helper's write boundary; it does not simulate
 the application's service journal. Application journal admission and recovery
@@ -95,7 +95,10 @@ fields, real Local2 snapshot classification and preserved selection, with no
 JavaScript/asset failures or horizontal overflow. Eleven reviewed screenshots and
 `results.json` remain locally at `/tmp/stacklab-r3-live-ui`. The test session was
 revoked and authentication files were removed. Concurrent API fixtures meant the
-browser did not assert fixed plan/destination counts.
+browser did not assert fixed plan/destination counts. Initial smoke attempts were
+corrected for two fixture assumptions: `/api/meta` exposes application version,
+not the package commit field, and destination selection must use identity rather
+than a presumed English display name. The successful run followed those corrections.
 
 The installed API ACL exercise also passed on `7f6945b084bc`, using a host process
 and fresh dedicated sources/repository. All six jobs succeeded: initialization,
@@ -118,12 +121,22 @@ regular-file selections, and a long-lived administrative container with a writab
 `/:/host` mount is itself a writer to the recovery target. The final fixture selects
 an independent regular member and runs on the host; it retains the no-writers guard.
 
+The executed ACL script hash was
+`a60ae3746b0ead184335a201d5ec9b5c9d318e61edd6445c76981b8c2705d4a8`;
+the version committed in `52d66d5` has SHA256
+`8d8a1e0da71d9c2b42d19ecc53aa09b9aa1797b22f89be70be917e3318c93747`.
+The sole difference makes logout failure fail the overall result and exit status;
+capture/restore/apply assertions are identical. They are not identical artifacts.
+
 The PR Quality workflow installs restic, rclone, ACL and xattr tools, runs backup,
 job and notification race tests, and runs the helper race binary as root with
 isolated test paths. Its exact-revision coverage artifact contains logs and
 reports; backup coverage is reported rather than a dedicated percentage gate.
 Local package/state archives, credentials and browser sessions are never CI
-artifacts.
+artifacts. The successful round-three run is
+[38568192686](https://github.com/krbob/stacklab/actions/runs/38568192686),
+source `52d66d54731a92c256079cc2a7f04ebe3f212914`. CI artifacts expire after
+14 days; release evidence should be retained separately after redaction.
 
 ## Round-Two Repair Validation — 2026-10-14
 

@@ -219,9 +219,23 @@ def main():
         if run['state'] != 'succeeded' or copy['verification'] != 'recovery_objects_verified':
             raise AssertionError('capture did not create verified recovery objects')
         snapshot = copy['snapshot_id']
+        if not re.fullmatch('[0-9a-f]{64}', snapshot):
+            raise AssertionError('capture did not publish a full immutable snapshot ID')
         report['snapshot_id'] = snapshot
-        full_job = wait_job(request('/api/backups/destinations/' + destination_id + '/restore', {'snapshot_id': snapshot}), 'isolated-full-restore')
+        before_unlock = next(item for item in request('/api/backups')['destinations'] if item['id'] == destination_id)
+        wait_job(request('/api/backups/destinations/' + destination_id + '/unlock', {}), 'remove-stale-locks')
+        after_unlock = next(item for item in request('/api/backups')['destinations'] if item['id'] == destination_id)
+        if (after_unlock.get('last_operation') != 'backup_unlock' or after_unlock.get('last_operation_status') != 'succeeded'
+                or any(before_unlock.get(key) != after_unlock.get(key) for key in ('metadata_check', 'data_check', 'check_status', 'check_error'))):
+            raise AssertionError('explicit unlock did not record success independently of repository integrity')
+        report['checks'].append({'name': 'unlock_preserves_integrity_evidence', 'result': 'passed'})
+        full_job = wait_job(request('/api/backups/destinations/' + destination_id + '/restore', {'snapshot_id': snapshot[:8]}), 'isolated-full-restore')
         full = restored(full_job)
+        if full.get('snapshot_id') != snapshot or full.get('recovery_status') != 'complete' or not full.get('classified_at'):
+            raise AssertionError('short-ID full restore did not preserve the resolved snapshot identity and complete provenance')
+        report['checks'].append({'name': 'short_snapshot_id_preserves_complete_provenance', 'result': 'passed',
+                                 'requested_snapshot_id': snapshot[:8], 'resolved_snapshot_id': full['snapshot_id'],
+                                 'recovery_status': full['recovery_status'], 'classified_at': full['classified_at']})
         verify_tree(Path(full['target']) / 'files' / source_id, 'isolated-full-restore')
         test_job = wait_job(request('/api/backups/destinations/' + destination_id + '/restore', {'snapshot_id': snapshot, 'test': True}), 'full-restore-test')
         tested = restored(test_job)
@@ -237,6 +251,11 @@ def main():
         apply_request = {'restore_id': full['id'], 'snapshot_id': snapshot,
                          'mappings': [{'source_id': source_id, 'target': str(target), 'mode': 'replace'}], 'resume_services': False}
         review = request('/api/backups/destinations/' + destination_id + '/restore-preview', apply_request)
+        if review['preview'].get('recovery_status') != 'complete' or review['preview'].get('classified_at') != full['classified_at']:
+            raise AssertionError('review preview did not preserve the recovery result provenance')
+        report['checks'].append({'name': 'review_preview_preserves_recovery_provenance', 'result': 'passed',
+                                 'recovery_status': review['preview']['recovery_status'],
+                                 'classified_at': review['preview']['classified_at']})
         if review['preview']['writers']:
             raise AssertionError('fixture target unexpectedly has container writers; do not apply')
         apply_request['review_token'] = review['review_token']

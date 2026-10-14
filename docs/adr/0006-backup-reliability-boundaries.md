@@ -5,6 +5,8 @@
 Accepted, 2026-10-14. Implementation is tracked in the
 [backup reliability plan](../product/backup-reliability.md).
 
+Supplemented by [ADR 0007](0007-backup-completion-and-recovery-scope.md).
+
 ## Context
 
 The initial implementation prepares GNU tar archives, then copies one immutable

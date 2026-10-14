@@ -33,7 +33,8 @@ capture, retained retries and a recovery exercise. Helper-backed recovery also
 uses root-owned disk storage at `/var/lib/stacklab-backup-helper`; custom units
 need this writable path and `NoNewPrivileges=false` for sudo. Do not put this
 storage on an undersized tmpfs. Debian installation creates it automatically.
-For tarball deployment, create it before enabling recovery:
+Tarball deployment through `host-tools/upgrade.sh` also creates it. For custom
+deployments only, create it before enabling recovery:
 
 ```sh
 sudo install -d -o root -g root -m 0700 /var/lib/stacklab-backup-helper
@@ -125,6 +126,9 @@ until their disk quota and cleanup policy are defined.
 Saving a new or changed schedule waits for its next future occurrence; use
 **Run now** for an immediate backup. An existing unchanged schedule catches up
 one missed occurrence after restart, resume or a long-running job.
+Changing an assignment's schedule resets its outstanding deadline and grace period;
+the previous overdue condition no longer applies. Saving an unchanged schedule
+preserves the existing overdue history.
 
 ## Failures And Retrying
 
@@ -132,12 +136,57 @@ Review the parent job and each destination result. Upload, verification and
 retention are separate stages; one successful copy does not hide another failed
 copy. A completed verified copy stays usable when retention fails; its maintenance
 error appears separately. Retry maintenance reuses that snapshot without uploading
-another copy. Retry while the prepared recovery set remains within its configured
-lifetime. When staging expires, start a new capture. A failed repository check
+or verifying the copy again, even after staging has been removed or expired.
+Retrying a failed transfer still requires the original prepared recovery set
+within its configured lifetime; otherwise start a new capture. A failed repository check
 needs investigation even if upload succeeded. Metadata verification and sampled
 reads do not clear known data corruption. After repairing the repository, run a
 successful full-data check to clear that failure. Automatic forget/prune stays
-blocked while integrity has failed; explicit operator maintenance remains deliberate.
+blocked while integrity has failed. Manual prune requires acknowledgement of that
+specific failure in the dialog and API; it is not a repair operation.
+
+### Interrupted Remote Operations And Stale Locks
+
+A lost SFTP connection or restarted NAS can leave a restic lock after the owning
+process exits. Wait for legitimate work to finish, restore connectivity, then use
+**Remove stale locks** on the destination. This queues ordinary `restic unlock`
+under Stacklab's repository reservation and records the result in Jobs. It never
+uses `--remove-all`; another client's active lock can remain. Retry the failed
+operation afterward. Unlock does not clear integrity evidence or imply successful
+verification. If an external client still owns the repository, coordinate with
+that client instead of forcing lock removal.
+
+### Repository Integrity Failure
+
+Distinguish an unsuccessful check attempt from an explicit data-integrity failure.
+Network, permission and cancellation errors do not establish corruption; previous
+dated evidence remains visible alongside the failed attempt. Upgrades preserve
+ambiguous historical failures, but recognize stored non-integrity codes, including
+already migrated unknown-scope failures, as unsuccessful attempts instead.
+
+For confirmed damage:
+
+1. Pause automatic backups/maintenance and stop or wait for other clients using the
+   repository. Investigate storage, hardware and transport reliability first.
+2. Retrieve the independently saved repository password and transport credentials
+   from the [recovery credential bundle](#recovery-kit-and-fresh-host-ui). Use a
+   private password file or secure environment setup for restic; never paste secrets
+   into shell history or shared job logs. Stacklab read APIs do not export secrets.
+3. Preserve a separate copy of the repository when possible, at least its index and
+   snapshots, before repair. Keep diagnostic output private until reviewed.
+4. Run restic checks with the installed version and follow its diagnosis-specific
+   instructions. Consult the [upstream recovery guide](https://restic.readthedocs.io/en/stable/077_troubleshooting.html).
+   `repair index`, `repair packs` and `repair snapshots` are different operations;
+   do not run them as a generic sequence. Some versions use different commands.
+   Snapshot repair can remove inaccessible data, and prune/forget can remove
+   material needed for recovery. Stacklab intentionally does not automate repair.
+5. After repair, run a full data check in Stacklab. Only successful full reading
+   clears known data failure. This may download the entire repository and incur
+   transfer charges. Review protection and maintenance outcomes before resuming.
+
+While integrity remains failed, new copies can still succeed but automatic
+retention is blocked, so repository storage can grow. Monitor capacity and resolve
+the condition; repeated lighter checks do not establish that all data was repaired.
 
 In notification settings, enable **Job failed** for failed backups and backup
 timeouts and overdue-copy alerts, including scheduled runs. Overdue alerts include

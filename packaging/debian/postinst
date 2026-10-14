@@ -118,7 +118,7 @@ warn_legacy_backup_sudoers() {
   [ -f "${installed}" ] || return 0
   # Advisory only: custom policy and included aliases remain operator-owned.
   for action in prepare-restore check-restore check-restores apply-restore release-restore check-target; do
-    if ! grep -Eq "stacklab-backup-helper[[:space:]]+${action}[[:space:]]" "${installed}"; then
+    if ! sed '/^[[:space:]]*#/d' "${installed}" | grep -Eq "stacklab-backup-helper[[:space:]]+${action}([[:space:]]|$)"; then
       echo "stacklab: backup sudoers may predate the recovery protocol; review ${example} with visudo and check Backup recovery readiness. Existing policy was preserved." >&2
       break
     fi

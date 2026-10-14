@@ -508,13 +508,5 @@ Destructive and high-impact actions use the shared operation review pattern:
 scope, targets, effect, snapshot/backup where available, recovery path, and
 residual risk appear before the final confirmation.
 
-Backup completion states keep protection severity separate from queued/running
-activity. Effective pause banners include system causes even when the user pause
-preference is false. Recovery observes fresh snapshot/result lists after jobs and
-refresh without losing valid selections; disappearance never silently selects a
-different snapshot. Helper readiness identifies an upgrade or sudoers repair
-before apply. Filtered-source Replace is refused with explicit Merge/offline
-alternatives. Missing original containers show current observations and require
-typed inspection plus a reason for audited acknowledgement; replacements are not
-started. Setup explains full plaintext local staging and that a state backup
-contains all destination credentials and goes to every selected destination.
+Detailed backup completion, integrity, maintenance and recovery states are defined
+in [states and empty cases](states-and-empty-cases.md#backup-protection-and-recovery).

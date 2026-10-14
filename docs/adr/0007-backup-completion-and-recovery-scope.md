@@ -5,6 +5,8 @@
 Accepted, 2026-10-14. Supplements [ADR 0006](0006-backup-reliability-boundaries.md).
 Implementation follows the [completion plan](../product/backup-reliability-completion.md).
 
+Supplemented by [ADR 0008](0008-backup-integrity-evidence.md).
+
 ## Context
 
 Second-round review demonstrated that successful individual operations do not

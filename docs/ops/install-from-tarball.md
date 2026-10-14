@@ -64,6 +64,7 @@ stacklab-<version>-linux-<arch>/
   NOTICE
   THIRD_PARTY_NOTICES.md
   bin/stacklab
+  bin/stacklab-backup-helper
   frontend/dist/
   metadata/
     version.txt
@@ -76,6 +77,7 @@ stacklab-<version>-linux-<arch>/
     stacklab-docker-admin.sudoers.example
     stacklab-workspace-admin.sudoers.example
     stacklab-self-update.sudoers.example
+    stacklab-backup.sudoers.example
   host-tools/
     upgrade.sh
 ```

@@ -10,7 +10,7 @@ are immutable after creation. Configuration changes are audited without request
 bodies, passwords or credential-bearing subprocess output.
 
 Configuration writes return the saved destination or plan. Run, retry,
-repository initialization, access test, integrity check, prune and restore return
+repository initialization, access test, integrity check, prune, stale-lock removal and restore return
 `202` with a normal job envelope. Follow the existing job detail/event API and
 global activity for completion; HTTP acceptance is not success. Cancellation
 uses the existing job endpoint. Capture and apply take exclusive lifecycle
@@ -21,10 +21,15 @@ return conflict until those leases are released.
 
 A run's durable capture and per-destination records are separate from the job
 state. A run with one failed destination finishes with a failed job while
-preserving successful copies and snapshot IDs. Retry selects only unsuccessful
-copies from a still-valid prepared set. It does not recapture or repeat a
-successful upload. If upload succeeded but verification/retention failed, the
-snapshot ID is retained and that later stage can be retried.
+preserving successful copies and snapshot IDs. Retry selects failed copies or
+failed maintenance. Upload/verification retry requires its still-valid prepared
+set. Maintenance-only retry preserves `state=succeeded`, `verification`,
+`verified_at` and transfer timestamps, and does not require staging or its TTL.
+`retention`, `retention_error`, `retention_started_at` and `retention_completed_at`
+describe the maintenance attempt independently. Mixed retries require prepared
+data only for selected transfers. No retry silently recaptures or repeats a
+successful upload. Once every transfer is verified, staging can be removed even
+when maintenance needs attention.
 
 ## Source Identity And Filesystems
 
@@ -53,6 +58,18 @@ archives; application startup/semantic checks remain an operator exercise. A
 full restore test applies only to that exact snapshot. Sources requiring offline
 extraction can be retrieved normally, but cannot pass an automatic restore test.
 
+Destinations expose `metadata_check` and `data_check`, each with `status`, `scope`,
+`checked_at` and optional `error`. Status is unknown, verified, sampled or failed;
+scope is metadata, subset, all or unknown. `last_check_attempt_policy`,
+`last_check_attempt_status`, `last_check_attempt_at` and `last_check_attempt_error`
+describe the latest attempt separately. Transport, cancellation and inconclusive
+errors preserve earlier dated evidence. Explicit data corruption remains failed
+until a successful full read; metadata and sampled success cannot clear it.
+`last_check_at` and `last_check_policy` retain the latest successful attempt.
+The compatibility aggregates `check_status` and protection `integrity_status`
+are conservative, but **verified does not necessarily mean a full data read**.
+Inspect the evidence scope rather than interpreting the aggregate as that proof.
+
 Isolated restore requires a new directory outside live workspace and repository
 paths. Restic include patterns select saved archives/paths, not arbitrary files
 inside a tar archive. New clients select `source_ids` or regular `files`
@@ -66,6 +83,11 @@ ownership remains in the archives and is restored by the privileged apply helper
 are registered; only these directories can supply manifests to the reviewed
 online apply workflow.
 
+Selected-file requests consult available authenticated indexes before accepting
+a job. Hardlinks, symlinks and directories are not regular-file selections:
+choose the regular target or recover the complete source. Unindexed legacy
+sources still require validation after their archive has been retrieved.
+
 `GET /backups/restores` lists registered results by stable ID, including the
 originating job, creation time, selection and availability. The UI follows job
 completion into that result. Apply requests may use `restore_id` instead of
@@ -73,6 +95,15 @@ completion into that result. Apply requests may use `restore_id` instead of
 identity and complete-source eligibility. A partial-file result is inspection
 only. Removing a directory makes its registration unavailable; it does not
 create permission to read another host path.
+
+Each result retains `recovery_status` and optional `classified_at` from the snapshot
+classification available at registration. This provenance survives inventory
+eviction and removal of the remote snapshot. Legacy/unclassified results are
+`unknown`. Review repeats the provenance and validates each selected archive,
+including its recorded size. An incomplete overall set can contain an intact
+selected source; its label alone does not prohibit recovery. Exact replacement
+requires a recorded archive size and matching local archive; unknown-size legacy
+sources remain available for inspected merge or offline recovery.
 
 Snapshot `/files` and `/compare` routes accept source ID, directory/search and
 offset/limit (default 100, maximum 500 entries). Listings show immediate directory
@@ -126,13 +157,25 @@ Retention filters snapshots by Stacklab installation ownership and plan ID.
 It does not forget foreign snapshots when attaching an existing repository;
 repository-wide prune only reclaims data no longer referenced by snapshots.
 Repository locking serializes uploads, forget/prune, checks and restore.
+Snapshot lists include `recovery_status` and `classified_at`. Classifications are
+complete, incomplete, legacy, unsupported, invalid or unknown. Unknown means no
+current classification; it is neither corruption nor proof of completeness. The
+versioned cache has a global 4096-entry bound and a per-scan classification budget.
+
+`POST /backups/destinations/{id}/prune` accepts optional
+`acknowledge_integrity_failure`. Known integrity failure requires explicit `true`
+for manual execution; scheduled prune remains blocked. Acknowledgement does not
+clear evidence or repair data. `POST /backups/destinations/{id}/unlock` queues
+ordinary `restic unlock`, never force-unlock. Active repository jobs conflict with
+admission. Locks that restic still considers active remain in place; job success
+does not certify repository integrity or the absence of every lock.
 
 Staging has a per-plan byte budget and a one-to-168-hour lifetime. The service
 keeps live/retryable run summaries and the newest 200 expired terminal summaries.
 Older repository snapshots remain browsable. The recovery library retains up to 200 registrations and rejects new restores
 until space is made by explicit deletion; it never silently evicts ownership
-metadata. `DELETE /backups/restores/{restoreId}` removes only a Stacklab-owned
-directory and registration, never a custom target. Failed internal restore targets
+metadata. `DELETE /backups/restores/{restoreId}` removes the registration and, for
+Stacklab-owned results, the directory. Custom target files remain untouched. Failed internal restore targets
 are cleaned automatically. Neither
 metadata retention nor deleting a destination destroys a restic repository.
 
@@ -164,6 +207,12 @@ disabled and never-captured copies remain distinguishable. `activity` separately
 reports queued/running work without replacing the protection state. A useful
 snapshot and a failed retention step can coexist. Availability, check outcome
 and last operation outcome are separate destination fields.
+`first_outstanding_due` identifies the oldest unsatisfied occurrence, and
+`overdue_since` is that deadline plus grace once elapsed. Both are independent
+of evidence usability, so unavailable or unverified copies can remain visibly
+overdue. The older `due_at` field retains the latest occurrence for compatibility.
+Changing an assignment's schedule establishes a new activation boundary and grace;
+unchanged schedules retain their overdue history across restart.
 
 `GET /backups/coverage` aggregates discovered stack/global sources and configured
 plans, with per-stack discovery errors. Coverage is configuration, not proof of
@@ -188,11 +237,12 @@ command output.
   returns a job: `retry` retries the recorded service identities; explicit
   `acknowledge_hold` removes a reviewed restore hold without starting services or
   deleting helper rollback data. `acknowledge_missing` requires `inspected=true`
-  and an operator reason (8–1000 characters); every unfinished original container
+  and an operator reason (8–1000 Unicode code points after trimming); every unfinished original container
   must be proven absent. All use exclusive lifecycle coordination and durable
   resolution audit. Observations distinguish current Docker state/replacements
   from historical phases; prepared helper tokens are never returned.
-- Overview `helper_ready`/`helper_error` report current privileged recovery protocol
+- Overview `helper_configured`, `helper_ready` and `helper_error` distinguish
+  unconfigured integration from current privileged recovery protocol
   readiness. Capture may remain usable when helper recovery permissions need repair.
 - Overview `recovery_error` explains degraded backup operation while the panel
   remains available. Unsafe capture/apply is blocked until recovery is resolved.

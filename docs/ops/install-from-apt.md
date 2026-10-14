@@ -74,6 +74,8 @@ Until that initialization succeeds, login returns `503 auth_not_configured`.
 
 ## Upgrades
 
+For backup-enabled installations, also review [Backup Helper Upgrades](#backup-helper-upgrades).
+
 For normal repository-backed upgrades:
 
 ```bash

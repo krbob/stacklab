@@ -4,7 +4,8 @@
 and a dedicated helper to a disposable Docker host, and records source revision,
 working-tree patch, toolchain, host versions, binary hashes and raw test logs.
 The host needs GNU tar, restic, POSIX ACL/xattr tools (`acl`, `attr`), Python 3, Docker, `debian:trixie-slim` and
-`postgres:17-alpine`. It does not need Go. Run the native backup suite as a
+`postgres:17-alpine`, plus an installed Stacklab package for version reporting.
+It does not need Go. Run the native backup suite as a
 non-root account so the real restic exit-code-3 permission fixture remains valid.
 The account must be allowed to administer Docker: the runner explicitly uses
 Docker plus `chroot /host` for privileged tests.
@@ -158,9 +159,13 @@ with the existing bootstrap credential as fallback. Passwords and session cookie
 stay out of the evidence; the test session is logged out on completion.
 
 The fixture creates its own managed configuration source and target, local
-repository, manual plan and recovery results. It verifies six successful jobs:
-repository initialization, capture, isolated full restore, full restore test,
-selected-file recovery and reviewed replacement. Full recovery and reviewed apply
+repository, manual plan and recovery results. It verifies seven successful jobs:
+repository initialization, capture, explicit stale-lock removal, isolated full
+restore, full restore test, selected-file recovery and reviewed replacement.
+Unlock must leave integrity evidence unchanged. The ordinary full restore uses
+an eight-character snapshot prefix; its result must retain the resolved full ID,
+`recovery_status=complete` and `classified_at`. The apply review must preserve the
+same provenance. Full recovery and reviewed apply
 must preserve read-only file modes, numeric ownership, inherited access/default
 ACLs, user xattrs and hardlink identity. Selected-file inspection deliberately
 produces private `0600` copies: this assertion covers content and privacy, while
@@ -228,3 +233,64 @@ This demonstrates bounded cancellation during a real stalled upload and survival
 of delayed finalization beyond the old five-minute deadline. It does not measure
 a general WAN transfer rate or wait for the thirty-minute finalization deadline;
 deterministic watchdog tests cover that upper bound.
+
+## Interrupted SFTP check and stale-lock recovery
+
+The opt-in `TestNativeSFTPInterruptedCheckRecovery` owns a temporary Debian sshd
+container, SSH keys, encrypted repository and TCP fault proxy. Run as a non-root
+Linux account with Docker administration, `ssh-keygen`, restic and the
+`debian:trixie-slim` image. It installs OpenSSH only inside its dedicated container.
+Use a committed source revision, cross-build the backup test binary if necessary,
+and record its SHA256 and the installed restic version:
+
+```sh
+STACKLAB_TEST_SFTP_RECOVERY=1 ./backup.test \
+  -test.run '^TestNativeSFTPInterruptedCheckRecovery$' -test.v -test.timeout=10m
+```
+
+If the test host cannot reach Debian package mirrors, build the maintained
+`scripts/dev/backup-e2e/Dockerfile.sftp` on a connected Docker host, transfer the
+image with `docker save`/`docker load`, and set
+`STACKLAB_TEST_SFTP_IMAGE=stacklab-sftp-fixture:r4` alongside the opt-in flag.
+For example, build it with `docker build -f scripts/dev/backup-e2e/Dockerfile.sftp
+-t stacklab-sftp-fixture:r4 .`. Match the test host's architecture. The override
+must provide Debian's OpenSSH server and the standard account-management tools;
+it changes fixture provisioning, not the interruption or recovery assertions.
+
+A healthy full check establishes evidence over 64 MiB of random data. A byte gate
+interrupts the next full read after at least 8 MiB, then the fixture restarts its
+SSH server, verifies the remaining stale lock, invokes Stacklab's ordinary unlock
+job and requires a successful full check. The previous evidence must survive the
+transport failure and unlock. This exercises native repository service jobs, not
+HTTP or browser admission. The fixture removes its own container and temporary
+files; it never touches installed Stacklab state or existing Docker workloads.
+The normal `TestNativeUnlockPreservesActiveLockAndRemovesKilledOwnerLock` fixture
+separately verifies that a live owner's lock is not removed.
+
+## Installed browser smoke
+
+`browser-installed.cjs` runs against a real installed application with no API
+response mocks. Supply a private Playwright storage-state file exported by the
+upgrade harness, an explicit origin/version and a fresh output directory:
+
+```sh
+node scripts/dev/backup-e2e/browser-installed.cjs \
+  --base-url http://test-vm:8080 \
+  --auth-file /secure/browser-auth.json \
+  --output-dir /tmp/backup-browser-unique-run-id \
+  --expected-version 2026.10.0-candidate
+```
+
+Use the repository's pinned Node version and installed frontend dependencies.
+An optional `--destination-id` selects an existing local repository with a readable
+snapshot; otherwise the harness discovers one. It checks actual desktop/mobile
+rendering, immutable repository fields, scoped evidence and preserved recovery
+selection. `--integrity-destination-id` requires a particular existing repository
+with known data corruption for the full-check default and prune acknowledgement
+checks. Without it, the harness discovers such a fixture when available and
+records absent optional failure-state fixtures as skipped checks.
+No backup configuration, source data or repositories are changed. Browser-originated
+mutations are blocked; the harness's only intended mutation is revoking its own
+session. It verifies revocation using the original session, removes the credential
+file and treats logout failure as a failed run. Screenshots, result JSON, harness
+hash and source commit are private local evidence and require review before sharing.

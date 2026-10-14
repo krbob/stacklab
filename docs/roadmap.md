@@ -22,6 +22,10 @@ are also implemented and exercised, including installed API recovery with inheri
 ACLs. The [validation record](quality/backup-validation.md) identifies source
 revisions, successful checks and retained limits.
 
+Fourth-round [operational recovery corrections](product/backup-operational-recovery.md)
+cover transient transport failures, stale locks, deliberate prune, independent
+maintenance retry and persistent recovery provenance.
+
 ## Current Baseline
 
 Implemented and exercised on Linux staging hosts:

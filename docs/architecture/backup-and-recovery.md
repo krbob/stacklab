@@ -99,15 +99,17 @@ copies. Overall failure remains visible through the parent job. A retry uses
 the same prepared set and targets failed copies or failed retention; it never recaptures silently.
 A verified copy remains successful when retention fails, with a separate maintenance
 error. Retrying maintenance reuses the verified snapshot without another upload.
-Expired or removed staging requires a new run. Fully successful staging is removed
-promptly; expiry cleanup skips active runs. Retry lifetime is independent of the
+Failed transfers require unexpired staging; maintenance-only retries preserve the
+successful copy and its verification without prepared data. Staging is removed
+once no unsuccessful transfer needs it, even when retention failed. Expiry cleanup
+skips active runs. Retry lifetime for transfers is independent of the
 24-hour execution deadline. Plans carry explicit staging
 byte, lifetime and stop-time limits. Retention forgets only Stacklab-owned,
 plan-scoped snapshots; foreign/adopted snapshots are not subject to new retention
 policies. Only complete verified snapshots compete for UTC day/ISO-week/month
 retention buckets; explicit immutable IDs are forgotten. Partial, unknown, legacy
 and future-dated snapshots are preserved and cannot displace verified recovery
-points. Versioned classification evidence is bounded to 4096 IDs, and each pass
+points. Versioned classification evidence is bounded globally to 4096 IDs across all destinations, and each pass
 inspects at most 64 unknown candidates. A durable cursor advances through larger
 inventories rather than repeatedly examining one prefix. Complete, incomplete,
 legacy, unsupported and invalid classifications are distinct; temporary transport

@@ -415,3 +415,25 @@ alternatives. Missing original containers show current observations and require
 typed inspection plus a reason for audited acknowledgement; replacements are not
 started. Setup explains full plaintext local staging and that a state backup
 contains all destination credentials and goes to every selected destination.
+
+Metadata evidence, stored-data evidence and the latest check attempt show their
+own scope and time. Failed attempts do not manufacture corruption; a metadata or
+sampled success cannot clear known data failure. The check dialog defaults to a
+full data read after that failure, with its transfer-cost explanation. Manual
+prune requires a specific integrity-risk acknowledgement. Stale-lock removal
+explains that active owners remain protected and does not imply verified data.
+
+Protection displays the first outstanding deadline and elapsed grace independently
+of missing, unavailable or unverified evidence. A maintenance-only retry retains
+the successful copy and remains available after staging expires. Background
+polling does not disable manual controls or announce an operator retry. Related
+inventory changes are coalesced without waiting for slower sibling destinations.
+
+A missing selected snapshot stays selected as unavailable. Unclassified snapshots
+explain that unknown is not proof of completeness. The restored-result library and
+apply review retain the source snapshot's classification even after remote removal;
+selected-source validation determines replacement eligibility. Hardlink entries
+explain how to select their regular target or retrieve the complete source.
+Unconfigured helpers use informational status; configured helper failures explain
+repair. Capture and apply blockers use the actual policy cause without duplicated
+error prefixes or repeated aggregate error text.
