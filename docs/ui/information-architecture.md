@@ -253,6 +253,16 @@ Mobile navigation rules:
 - stack actions stay directly below that tab bar while scrolling and are
   separated into deployment, image, and disruptive groups.
 
+Backup observation refreshes the visible overview every five seconds while jobs
+are active and every minute while idle, and refreshes on focus. Copy completion
+and relevant repository evidence invalidate only that destination's snapshots;
+restored-library changes have their own refresh path. Navigation reuses snapshot
+inventory for up to one minute. A selected snapshot missing from fresh inventory
+keeps its ID and an explicit unavailable status until the operator chooses another.
+Retries show busy feedback while retaining the error for the same resource;
+changing resource identity clears unrelated errors. System pause reasons gate
+capture, while an operator scheduling pause still permits manual backup.
+
 ## URL Structure
 
 All routes are client-side (SPA with history mode):

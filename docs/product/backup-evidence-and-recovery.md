@@ -2,11 +2,12 @@
 
 ## Status And Scope
 
-Accepted for implementation, 2026-10-14, following the third independent review.
+Implemented and exercised, 2026-10-14, following the third independent review.
 This plan supplements [reliability completion](backup-reliability-completion.md)
-and [ADR 0008](../adr/0008-backup-integrity-evidence.md). The third review reopens
-release acceptance for the sequences below; earlier successful tests remain
-historical evidence, not proof that these additional cases pass.
+and [ADR 0008](../adr/0008-backup-integrity-evidence.md). The additional acceptance sequences below now have recorded outcomes in
+[backup validation](../quality/backup-validation.md). Earlier successful tests
+remain historical evidence; the new record distinguishes native, installed API
+and browser checks from scenarios not repeated this round.
 
 ## Implementation Contract
 

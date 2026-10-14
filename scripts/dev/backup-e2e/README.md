@@ -131,6 +131,70 @@ PR Quality workflow separately publishes its native/race/helper logs and coverag
 under the exact checked source SHA; backup coverage is reported, not a dedicated
 package percentage gate.
 
+## Installed application ACL recovery
+
+`api-acl-installed.py` exercises the running application's authenticated API after
+an installed-package upgrade. Run it as a host process on a disposable VM, with
+GNU tar, restic and `acl`/`attr` installed and the packaged helper ready. It does
+not upgrade the package or change the existing operator pause. The API must use
+a localhost HTTP(S) origin; the default is `http://127.0.0.1:8080`.
+
+Supply the expected candidate commit explicitly, along with fresh dedicated
+workspace and evidence directories matching the run ID:
+
+```sh
+python3 scripts/dev/backup-e2e/api-acl-installed.py \
+  --run-id unique-run-id \
+  --expected-commit 0123456789ab \
+  --work-dir /var/lib/stacklab-backup-api-unique-run-id \
+  --evidence-dir /root/stacklab-backup-api-unique-run-id \
+  --password-file /root/private-test-password
+```
+
+Replace the example commit with the installed candidate's Git revision. Both
+expected and installed commit metadata must be valid hexadecimal IDs before
+comparison. Authentication accepts a private password file or `--password-stdin`,
+with the existing bootstrap credential as fallback. Passwords and session cookies
+stay out of the evidence; the test session is logged out on completion.
+
+The fixture creates its own managed configuration source and target, local
+repository, manual plan and recovery results. It verifies six successful jobs:
+repository initialization, capture, isolated full restore, full restore test,
+selected-file recovery and reviewed replacement. Full recovery and reviewed apply
+must preserve read-only file modes, numeric ownership, inherited access/default
+ACLs, user xattrs and hardlink identity. Selected-file inspection deliberately
+produces private `0600` copies: this assertion covers content and privacy, while
+the untouched source archive retains original metadata. Replacement must remove
+the fixture's extra unarchived file. The final cleanup uses the API to delete only
+its own results, plan and destination, including results containing read-only
+directories, then removes its own source/target/repository paths. Existing plan
+and destination IDs and operator policy must remain unchanged.
+
+These fixture files use the `stacklab` service UID/GID, so ownership equality in
+isolated restore does not establish preservation of arbitrary foreign owners.
+Unprivileged isolated extraction uses the service identity; the untouched archive
+retains original ownership for privileged reviewed recovery. A failed test-session
+logout marks the report unsuccessful and exits with an error, even when recovery
+assertions passed.
+
+Close recovery views during the exercise so browser inventory reads do not
+compete with configuration cleanup. If administrative access is through Docker,
+use a short launcher to start the Python command as a host `systemd-run` unit,
+then let the launcher exit before the recovery preview. Do not run the complete
+exercise inside a container with a writable host-root bind mount: Stacklab
+correctly detects that container as a writer of the target. The harness refuses
+apply whenever its target has container writers. Avoid other such administrative
+containers during this brief apply window; read-only `systemctl` polling over SSH
+does not create a writer.
+
+`result.json`, per-job event logs and a copy of the invoked script remain in the
+root-only evidence directory. The result records the installed package version,
+source commit and application binary SHA256. On failure, fixtures remain for
+inspection; use the recorded exact IDs and paths for cleanup rather than generic
+wildcards. Audit/job history remains in Stacklab after successful cleanup. Review
+the result before sharing it; credentials, sessions and existing application
+state are never exported by this harness.
+
 ## Real transfer watchdog
 
 The opt-in Go fixture runs real restic against temporary encrypted repositories

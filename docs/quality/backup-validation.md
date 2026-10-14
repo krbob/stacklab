@@ -26,6 +26,105 @@ file modes and Linux file capabilities are rejected; shared set-group-ID
 directories remain supported. Restore preview rejects paths outside managed or explicitly approved
 roots before stopping any service.
 
+## Round-Three Repair Validation — 2026-10-14
+
+The [third-round contract](../product/backup-evidence-and-recovery.md) adds scoped
+integrity evidence, first-outstanding protection deadlines, durable snapshot
+classification, ACL recovery and UI refresh regressions. Backend implementation
+is in `78893f1`; final frontend implementation is in `7f6945b`.
+
+The maintained Linux runner executed clean revision
+`b361b4d1ac293481a0e973ca4798371e41e18291` with an empty working-tree patch, Go 1.27.1,
+Debian 13 arm64, GNU tar 1.35, restic 0.18.0 and Docker 26.1.5. The subsequent
+`7f6945b` change affects frontend polling error presentation only. Evidence is
+retained locally at `/tmp/stacklab-backup-e2e-r3-20261014a`; this directory is not a
+published CI artifact. Source archive, binary hashes, versions and raw logs are
+included. The fixture creates and removes its own configuration, spool and data.
+
+| Sequence | Result |
+| --- | --- |
+| Non-root capture/restore of inherited POSIX ACLs, file 0444, directory 0555, xattrs and links | Passed |
+| Root replacement with ACLs, xattrs, hardlinks and a mode-000 directory | Passed |
+| Actual encrypted restic data-pack corruption → failed full check → successful metadata check → repaired bytes and successful subset → full check | Failure stays visible until the full successful check |
+| Overdue observation through multiple occurrences and restart, with notifications enabled/disabled | Passed; no renewed grace or false heartbeat |
+| Negative classification cache, restart, transient error, 64-candidate budget and inventory larger than 4096 | Passed; bounded state and forward progress |
+| Successful copy with failed retention, maintenance-only retry, retry while paused | Passed; verified copy remains usable and skipped work cannot erase failure |
+| Full native backup suite and root helper suite | Passed |
+| PostgreSQL exact replacement | 1000 captured rows restored; 500 later rows and the later table removed; target inode retained |
+| Filtered replacement and managed-root refusal | Passed; explicit merge preserves excluded live data |
+| Helper SIGKILL during actual extraction | Rollback and partial target retained; release refused; fixture container stays stopped |
+| Portable backend, formatting and vet | Passed with Go 1.27.1 |
+| Frontend tests, generated API contract, typecheck, build, asset checks and lint | Passed; final suite 637 tests with Node 24.21.0 |
+| Browser regression fixtures | Eight Chromium desktop/mobile scenarios passed |
+
+The SIGKILL fixture exercises the helper's write boundary; it does not simulate
+the application's service journal. Application journal admission and recovery
+remain covered by deterministic backend tests. SFTP/S3 endpoint exercises,
+minimum-version restic integration and the slow-transfer watchdog were not rerun
+for this round; the earlier watchdog evidence and its limits remain below.
+
+The first installed upgrade exercise retained a 5.88 GB private state archive and
+passed detection of legacy sudoers and the package upgrade warning. Its old
+100-second readiness wait expired before the next eligible one-minute observer
+tick: all six helper probes succeeded at 120 seconds. The harness now permits
+180 seconds, accounting for the one-minute failed-result cache, observer cadence
+and probe execution. This was a test deadline correction, not evidence of a
+successful initial upgrade acceptance run. Initial results remain preserved at
+`/root/stacklab-backup-upgrade-r3-20261014a`.
+
+The corrected installed upgrade exercise then passed all checks for
+`2026.10.0~review3fix2`, built from production revision `7f6945b`:
+
+- the package warned about legacy sudoers, and runtime readiness detected them;
+- installing the current packaged example restored readiness without another restart;
+- existing configuration bytes, all seven plans/destinations and pause/host-review
+  policy were preserved;
+- protected service-configuration recovery passed under the installed service identity.
+
+Package SHA256 is
+`82a6ed5ef270e8dc634728df3f1582c9703cdaeec019c1d5f7b709b61b5efb7f`.
+The final harness revision is `a3862cf`; private upgrade evidence remains at
+`/root/stacklab-backup-upgrade-r3-20261014b`. The archive includes credentials and
+must not be published. The test deliberately leaves the upgraded package and
+reviewed current sudoers installed.
+
+A read-only browser inspection of the installed final package passed twelve
+assertions on desktop and a 390 px mobile viewport: scoped integrity evidence,
+helper readiness, manual capture during operator pause, immutable repository
+fields, real Local2 snapshot classification and preserved selection, with no
+JavaScript/asset failures or horizontal overflow. Eleven reviewed screenshots and
+`results.json` remain locally at `/tmp/stacklab-r3-live-ui`. The test session was
+revoked and authentication files were removed. Concurrent API fixtures meant the
+browser did not assert fixed plan/destination counts.
+
+The installed API ACL exercise also passed on `7f6945b084bc`, using a host process
+and fresh dedicated sources/repository. All six jobs succeeded: initialization,
+capture, isolated full restore, full restore-test, selected-file restore and
+reviewed replacement. Full restore/test/apply preserved content, modes, access/default ACLs, user xattrs
+and hardlink identity. Numeric ownership matched for the service-owned fixture;
+isolated extraction intentionally uses the service identity rather than restoring
+arbitrary archived owners. Privileged apply restores archived ownership. Replacement removed
+an unarchived target file. Selected regular-file retrieval preserved content and
+used the intended private inspection mode 0600; it does not reproduce archived
+ownership/ACLs. The original metadata remains in the source archive.
+
+The [maintained API fixture](../../scripts/dev/backup-e2e/README.md#installed-application-acl-recovery)
+records package/binary identity, jobs and assertions. Successful evidence is at
+`/root/stacklab-backup-api-r3-20261014-final4`. It removed its own source/target,
+repository, plan and restored results, preserved the original seven plans and
+seven destinations plus operational policy, and logged out. Earlier fixture
+attempts correctly exposed two test assumptions: tar hardlink members are not
+regular-file selections, and a long-lived administrative container with a writable
+`/:/host` mount is itself a writer to the recovery target. The final fixture selects
+an independent regular member and runs on the host; it retains the no-writers guard.
+
+The PR Quality workflow installs restic, rclone, ACL and xattr tools, runs backup,
+job and notification race tests, and runs the helper race binary as root with
+isolated test paths. Its exact-revision coverage artifact contains logs and
+reports; backup coverage is reported rather than a dedicated percentage gate.
+Local package/state archives, credentials and browser sessions are never CI
+artifacts.
+
 ## Round-Two Repair Validation — 2026-10-14
 
 The round-two repair has a [maintained Linux integration runner](../../scripts/dev/backup-e2e/README.md)

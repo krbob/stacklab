@@ -46,7 +46,9 @@ reviewed rule root:root with mode 0440, run `visudo -cf` on it, and verify **In-
 recovery helper** in Backups. Stacklab probes every required action at startup,
 before review and periodically; an incompatible helper or denied action reports
 how to repair the installation. Healthy readiness is cached for 15 minutes, failed
-readiness for one minute; opening a recovery review performs a fresh check. An
+readiness for one minute; the periodic observer can take nearly two minutes
+plus probe execution to notice a repaired helper. Opening a recovery review
+performs a fresh check. An
 unconfigured helper is informational. Probes do not repair permissions or delete
 old preparations. Do not replace the allowlist with unrestricted sudo.
 Prepared recovery protocol 2 binds capture scope as well as mode and target;
