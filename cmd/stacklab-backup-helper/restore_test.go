@@ -252,7 +252,7 @@ func TestPinnedTargetDoesNotFollowReplacementSymlink(t *testing.T) {
 }
 
 func TestPrivateRecoveryTargetsAreRejected(t *testing.T) {
-	for _, target := range []string{"/var/lib", "/var/lib/stacklab", "/var/lib/stacklab/backup", "/var/lib/stacklab-backup-helper", "/var/lib/stacklab-backup-helper/prepared"} {
+	for _, target := range []string{"/var/lib", "/var/lib/stacklab", "/var/lib/stacklab/backup", restoreSpoolRoot, filepath.Join(restoreSpoolRoot, "prepared")} {
 		if err := rejectRecoveryPrivateTarget(target, "/var/lib/stacklab"); err == nil {
 			t.Fatalf("private target accepted: %s", target)
 		}

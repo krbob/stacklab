@@ -44,7 +44,8 @@ func probeRecoveryAction(action string) error {
 	if _, _, err := trustedRoots(); err != nil {
 		return err
 	}
-	if err := privateRestoreSpool(); err != nil {
+	// Readiness checks must not create/chmod the spool or expire prepared work.
+	if err := validateRestoreSpool(false); err != nil {
 		return err
 	}
 	return json.NewEncoder(os.Stdout).Encode(struct {

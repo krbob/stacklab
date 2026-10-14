@@ -233,7 +233,10 @@ func extractArchivePinned(ctx context.Context, archivePath, targetPath, tarTarge
 		return err
 	}
 	defer cleanup()
-	args := []string{"--extract", "--file=-", "--directory=" + tarTarget, "--acls", "--xattrs", "--xattrs-include=*", "--numeric-owner", "--same-permissions", "--delay-directory-restore", "--no-recursion", "--no-wildcards", "--anchored", "--null", "--verbatim-files-from"}
+	// GNU tar restores POSIX ACLs through --acls. Applying their raw system
+	// xattrs a second time can reopen an already read-only file and fail for
+	// the unprivileged service account. Keep all other xattrs and the ACL handler.
+	args := []string{"--extract", "--file=-", "--directory=" + tarTarget, "--acls", "--xattrs", "--xattrs-include=*", "--xattrs-exclude=system.posix_acl_*", "--numeric-owner", "--same-permissions", "--delay-directory-restore", "--no-recursion", "--no-wildcards", "--anchored", "--null", "--verbatim-files-from"}
 	if preserveOwner {
 		args = append(args, "--same-owner")
 	} else {

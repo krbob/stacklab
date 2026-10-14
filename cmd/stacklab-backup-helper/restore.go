@@ -34,7 +34,7 @@ type preparedRestore struct {
 	SourceScope       string   `json:"source_scope,omitempty"`
 }
 
-func privateRestoreSpool() error {
+func validateRestoreSpool(allowMissing bool) error {
 	// The dedicated spool must not be beneath service-writable state. Check the
 	// complete existing path before creation; the installation creates its root.
 	for current := filepath.Clean(restoreSpoolRoot); ; current = filepath.Dir(current) {
@@ -44,12 +44,28 @@ func privateRestoreSpool() error {
 			if !ok || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || stat.Uid != 0 || info.Mode().Perm()&0022 != 0 {
 				return errors.New("restore spool and its ancestors must be root-owned directories without group or other write access")
 			}
-		} else if !errors.Is(err, os.ErrNotExist) {
+		} else if !allowMissing || !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 		if filepath.Dir(current) == current {
 			break
 		}
+	}
+	if !allowMissing {
+		info, err := os.Lstat(restoreSpoolRoot)
+		if err != nil {
+			return err
+		}
+		if info.Mode().Perm() != 0700 {
+			return errors.New("restore spool must have mode 0700; repair its permissions before recovery")
+		}
+	}
+	return nil
+}
+
+func privateRestoreSpool() error {
+	if err := validateRestoreSpool(true); err != nil {
+		return err
 	}
 	if err := os.MkdirAll(restoreSpoolRoot, 0700); err != nil {
 		return err
