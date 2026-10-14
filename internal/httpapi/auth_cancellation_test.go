@@ -30,11 +30,8 @@ func TestSessionCancellationDoesNotEmitServiceFailure(t *testing.T) {
 			if logged != tc.failure {
 				t.Fatalf("unexpected failure log: %s", output.String())
 			}
-			if tc.failure && response.Code != 500 {
+			if response.Code != 500 {
 				t.Fatalf("status=%d", response.Code)
-			}
-			if !tc.failure && response.Body.Len() != 0 {
-				t.Fatalf("cancelled request received error body: %s", response.Body.String())
 			}
 		})
 	}

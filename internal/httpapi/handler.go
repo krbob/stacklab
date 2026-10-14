@@ -542,16 +542,17 @@ func (h *Handler) withAuth(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (h *Handler) writeSessionAuthenticationError(w http.ResponseWriter, err error) {
-	if errors.Is(err, context.Canceled) {
-		// A disconnected caller is not an authentication backend failure.
-		return
-	}
 	if errors.Is(err, auth.ErrUnauthorized) {
 		http.SetCookie(w, h.auth.ClearSessionCookie())
 		writeError(w, http.StatusUnauthorized, "unauthorized", "Authentication required.", nil)
 		return
 	}
-	h.logger.Error("validate session failed", slog.String("err", err.Error()))
+	// Cancellation can come from a disconnected caller or service shutdown.
+	// Keep the failure response, but do not turn expected cancellation into an
+	// ERROR service-health notification.
+	if !errors.Is(err, context.Canceled) {
+		h.logger.Error("validate session failed", slog.String("err", err.Error()))
+	}
 	writeError(w, http.StatusInternalServerError, "internal_error", "Failed to validate session.", nil)
 }
 
