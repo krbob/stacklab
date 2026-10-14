@@ -78,6 +78,9 @@ fixture. It does not reset authentication or change existing source data. Before
 mutation it archives `/etc/stacklab`, `/var/lib/stacklab`, the complete helper
 spool, backup sudoers and `/usr/lib/stacklab` into a new root-only backup directory.
 Allow enough disk space for that uncompressed copy.
+This installed-package harness requires the default `/var/lib/stacklab` data
+directory and rejects a custom data directory before authenticating or changing
+the installed service. The isolated harness supports its own dedicated paths.
 
 Run as root, supplying an absolute `.deb` path and the clean revision's Linux
 backup test binary:

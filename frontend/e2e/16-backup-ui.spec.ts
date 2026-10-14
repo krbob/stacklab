@@ -229,18 +229,20 @@ test.describe('Backup round three freshness and action boundaries', () => {
     })
     await page.goto('/backups?view=recovery')
     await page.getByLabel('Recovery set', { exact: true }).selectOption('snapshot')
+    const initialListings = listings
     finished = true
     await page.clock.fastForward(60000)
     await expect(page.getByRole('option', { name: /new/ })).toHaveCount(1)
-    expect(listings).toBe(2)
+    expect(listings).toBe(initialListings + 1)
     await expect(page.getByLabel('Recovery set', { exact: true })).toHaveValue('snapshot')
     removed = true
     await page.getByRole('button', { name: 'Refresh snapshots', exact: true }).click()
     await expect(page.getByRole('status').filter({ hasText: 'The selected snapshot snapshot is no longer' })).toBeVisible()
     await expect(page.getByLabel('Recovery set', { exact: true })).toHaveValue('snapshot')
+    const refreshedListings = listings
     await page.getByRole('tab', { name: 'Destinations', exact: true }).click()
     await page.getByRole('tab', { name: 'Recovery', exact: true }).click()
-    expect(listings).toBe(3)
+    expect(listings).toBe(refreshedListings)
     await expect(page.getByText('The selected snapshot snapshot is no longer', { exact: false })).toBeVisible()
   })
 

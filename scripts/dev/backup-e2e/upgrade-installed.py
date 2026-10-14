@@ -19,6 +19,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -64,6 +65,8 @@ def main():
         if "=" in line and not line.lstrip().startswith("#"):
             key, value = line.split("=", 1)
             settings[key.strip()] = value.strip().strip("\"'")
+    if Path(settings.get("STACKLAB_DATA_DIR") or "/var/lib/stacklab") != Path("/var/lib/stacklab"):
+        raise RuntimeError("installed upgrade exercise requires the default /var/lib/stacklab data directory")
     if args.password_file:
         secret = Path(args.password_file)
         if secret.is_symlink() or not secret.is_file() or secret.stat().st_mode & 0o077:
@@ -106,31 +109,37 @@ def main():
         raise RuntimeError("upgraded application did not become ready")
 
     def install_sudoers(source):
-        temporary = sudoers.with_name("stacklab-backup-upgrade-candidate")
-        shutil.copyfile(source, temporary)
-        temporary.chmod(0o440)
+        # sudo ignores includedir entries containing dots. Do not activate a
+        # candidate policy until it has passed validation and atomic rename.
+        descriptor, candidate = tempfile.mkstemp(prefix=".stacklab-backup-upgrade-", dir=sudoers.parent)
+        os.close(descriptor)
+        temporary = Path(candidate)
         try:
+            shutil.copyfile(source, temporary)
+            temporary.chmod(0o440)
             command(["visudo", "-cf", str(temporary)])
             temporary.replace(sudoers)
         finally:
             temporary.unlink(missing_ok=True)
 
-    login()
-    before = request("/api/backups")
-    policy_before = request("/api/backups/policy")
-    report = {"package_sha256": sha256(package), "checks": [], "succeeded": False}
-    report["source_version"] = command(["dpkg-query", "-W", "-f=${Version}", "stacklab"]).stdout.decode()
-    config_hash = sha256(config)
+    report = {"checks": [], "succeeded": False}
     original_sudoers = backup / "original.sudoers"
-    shutil.copy2(sudoers, original_sudoers)
-    original_sudoers.chmod(0o400)
-    (backup / "overview-before.json").write_text(json.dumps(before))
-    (backup / "policy-before.json").write_text(json.dumps(policy_before))
     needs_restart = False
     legacy_installed = False
+    exported_session = False
     try:
-        command(["systemctl", "stop", "stacklab"])
+        login()
+        before = request("/api/backups")
+        policy_before = request("/api/backups/policy")
+        report["package_sha256"] = sha256(package)
+        report["source_version"] = command(["dpkg-query", "-W", "-f=${Version}", "stacklab"]).stdout.decode()
+        config_hash = sha256(config)
+        shutil.copy2(sudoers, original_sudoers)
+        original_sudoers.chmod(0o400)
+        (backup / "overview-before.json").write_text(json.dumps(before))
+        (backup / "policy-before.json").write_text(json.dumps(policy_before))
         needs_restart = True
+        command(["systemctl", "stop", "stacklab"])
         archive_paths = ["etc/stacklab", "var/lib/stacklab", "var/lib/stacklab-backup-helper",
                          "etc/sudoers.d/stacklab-backup", "usr/lib/stacklab"]
         command(["tar", "--acls", "--xattrs", "--numeric-owner", "-C", "/", "-cpf",
@@ -139,10 +148,14 @@ def main():
         legacy = backup / "legacy.sudoers"
         helper = "/usr/lib/stacklab/bin/stacklab-backup-helper"
         legacy.write_text(f"stacklab ALL=(root) NOPASSWD: {helper} archive *, {helper} restore *, {helper} check-target *, {helper} service-config\n")
-        install_sudoers(legacy)
         legacy_installed = True
-        installed = command(["dpkg", "--force-confold", "-i", str(package)],
-                            env={**os.environ, "DEBIAN_FRONTEND": "noninteractive"})
+        install_sudoers(legacy)
+        try:
+            installed = command(["dpkg", "--force-confold", "-i", str(package)],
+                                env={**os.environ, "DEBIAN_FRONTEND": "noninteractive"})
+        except subprocess.CalledProcessError as error:
+            (backup / "dpkg.log").write_bytes((error.stdout or b"") + (error.stderr or b""))
+            raise
         (backup / "dpkg.log").write_bytes(installed.stdout + installed.stderr)
         command(["systemctl", "start", "stacklab"])
         needs_restart = False
@@ -189,7 +202,6 @@ def main():
             raise AssertionError("protected configuration test did not execute")
         report["checks"].append({"name": "installed_protected_configuration_recovery", "result": "passed"})
         report["target_version"] = command(["dpkg-query", "-W", "-f=${Version}", "stacklab"]).stdout.decode()
-        report["succeeded"] = True
         if args.export_browser_session:
             cookies = [{"name": cookie.name, "value": cookie.value, "domain": args.browser_host,
                         "path": cookie.path, "expires": cookie.expires or -1, "httpOnly": True,
@@ -197,21 +209,43 @@ def main():
             auth_state = backup / "browser-auth.json"
             auth_state.write_text(json.dumps({"cookies": cookies, "origins": []}))
             auth_state.chmod(0o600)
-        print(json.dumps(report), flush=True)
+            exported_session = True
+        report["succeeded"] = True
     finally:
+        failure_in_progress = sys.exc_info()[0] is not None
+        cleanup_errors = []
         if legacy_installed:
-            install_sudoers(original_sudoers)
+            try:
+                install_sudoers(original_sudoers)
+            except Exception as error:
+                cleanup_errors.append("restore original sudoers: " + type(error).__name__)
         if needs_restart:
-            command(["systemctl", "start", "stacklab"])
-        if len(jar) and not (args.export_browser_session and report["succeeded"]):
+            try:
+                command(["systemctl", "start", "stacklab"])
+            except Exception as error:
+                cleanup_errors.append("restart service: " + type(error).__name__)
+        if cleanup_errors:
+            report["succeeded"] = False
+        if len(jar) and not (exported_session and report["succeeded"]):
             try:
                 request("/api/auth/logout", {})
                 jar.clear()
-            except (OSError, urllib.error.HTTPError):
+            except Exception as error:
+                cleanup_errors.append("revoke test session: " + type(error).__name__)
                 print("Session cleanup failed; revoke test sessions after recovering the service.", file=sys.stderr)
+        if cleanup_errors:
+            report["succeeded"] = False
+            report["cleanup_errors"] = cleanup_errors
         result = backup / "result.json"
-        result.write_text(json.dumps(report, indent=2) + "\n")
-        result.chmod(0o600)
+        try:
+            result.write_text(json.dumps(report, indent=2) + "\n")
+            result.chmod(0o600)
+        except OSError:
+            cleanup_errors.append("write result.json: OSError")
+            print("Could not write upgrade result.json; inspect the private evidence directory.", file=sys.stderr)
+        if cleanup_errors and not failure_in_progress:
+            raise RuntimeError("upgrade exercise cleanup failed: " + "; ".join(cleanup_errors))
+    print(json.dumps(report), flush=True)
 
 
 if __name__ == "__main__":
