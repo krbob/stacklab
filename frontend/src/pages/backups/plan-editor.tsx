@@ -59,8 +59,8 @@ export function PlanEditor({
   const formValue = JSON.stringify({ name, enabled, consistency, sources, assignments, maxGiB, ttl, stopTimeout })
   const [initialValue] = useState(formValue)
   const { requestClose, confirmation } = useEditorCloseGuard(formValue !== initialValue, onClose)
-  const stacks = useApi(() => getStacks(), [])
-  const inventory = useApi(() => getBackupSources(stackId || undefined), [stackId])
+  const stacks = useApi((signal) => getStacks(undefined, signal), [])
+  const inventory = useApi((signal) => getBackupSources(stackId || undefined, signal), [stackId])
   const available = useMemo(() => inventory.data?.items ?? [], [inventory.data])
 
   const visibleSources = available.filter((source) =>
@@ -87,7 +87,7 @@ export function PlanEditor({
             {
               destination_id: id,
               enabled: true,
-              schedule: { frequency: 'manual', time: '02:00', weekday: 0, timezone: '' },
+              schedule: { frequency: 'manual' },
               retention: { daily: 7, weekly: 4, monthly: 12 },
             },
           ],
@@ -237,10 +237,19 @@ export function PlanEditor({
               </div>
             )}
             <p className="text-xs leading-5 text-[var(--muted)]">
-              New mounts are never selected automatically. Definitions include .env and stack-local supporting files.
-              Stacklab recovery includes private credentials and a consistent SQLite copy. All selected content is
-              encrypted in each repository.
+              New mounts are never selected automatically. Definitions include the entire stack directory: .env,
+              supporting files and any stack-local data directories. Every run creates a complete local, unencrypted
+              staging copy of the selected data before uploading it to encrypted repositories. Reserve enough local
+              space even when the repository upload is incremental. Failed copies retain staging for the retry window.
             </p>
+            {sources.some((source) => source.kind === 'stacklab') && (
+              <p role="note" className="rounded-md border border-[var(--warning)]/30 p-3 text-xs leading-5 text-[var(--warning)]">
+                Stacklab recovery includes its SQLite state, stacklab.env and the passwords and access credentials
+                for every backup destination configured on this host. This credential bundle is sent to every enabled
+                destination of this plan. Select only repositories you trust with access to all of them, and keep an
+                independent recovery kit outside this host.
+              </p>
+            )}
             {sources.length > 0 && (
               <details className="rounded-md border border-[var(--panel-border)] p-3">
                 <summary className="cursor-pointer text-sm text-[var(--text)]">

@@ -222,7 +222,7 @@ describe('Protection and operations', () => {
           {
             destination_id: 'nas',
             state: index === 11 ? 'failed' : 'succeeded',
-            verification: 'verified',
+            verification: 'recovery_objects_verified',
             retention: 'succeeded',
           },
         ],
@@ -494,7 +494,7 @@ describe('Backup review regressions', () => {
               {
                 plan_id: 'plan',
                 plan_name: 'Database',
-                state: 'integrity_failed',
+                state: 'attention',
                 current_copies: 0,
                 expected_copies: 1,
                 copies: [
@@ -741,5 +741,77 @@ describe('Backup review regressions', () => {
       </MemoryRouter>,
     )
     await waitFor(() => expect(api.getBackupCoverage).toHaveBeenCalledTimes(2))
+  })
+})
+
+describe('Round two evidence and recovery flows', () => {
+  it('keeps an integrity warning visible during active work and excludes disabled copies from attention', async () => {
+    render(<MemoryRouter><ProtectionDashboard data={{ ...overview, protection: [{ plan_id: 'plan', plan_name: 'Database', state: 'attention', activity: 'running', current_copies: 0, expected_copies: 1, copies: [
+      { destination_id: 'nas', state: 'integrity_failed', activity: 'running', evidence_usable: false },
+      { destination_id: 'disabled', state: 'disabled', activity: 'idle', last_error: 'Old error' },
+    ] }] }} onCreatePlan={vi.fn()} onAddDestination={vi.fn()} onRun={vi.fn()} onRecovery={vi.fn()} /></MemoryRouter>)
+    expect(await screen.findByText(/A repository integrity check failed/)).toBeVisible()
+    expect(screen.getByText('Copies needing attention').parentElement).toHaveTextContent('1')
+    expect(screen.getByText('Saved copy does not have usable recovery evidence.')).toBeVisible()
+    expect(screen.getAllByText('running')).toHaveLength(2)
+  })
+
+  it('retains snapshot and restore job state for each visited destination', async () => {
+    render(<RecoveryWorkspace destinations={[destination, { ...destination, id: 'cloud', name: 'Cloud', kind: 's3' }]} onStarted={vi.fn()} />)
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Recovery set' }), { target: { value: 'snap' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Restore complete set and test retrieval' }))
+    await waitFor(() => expect(api.restoreBackupSnapshot).toHaveBeenCalled())
+    fireEvent.change(screen.getByLabelText('Recovery destination'), { target: { value: 'cloud' } })
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Recovery set' }), { target: { value: 'older' } })
+    fireEvent.change(screen.getByLabelText('Recovery destination'), { target: { value: 'nas' } })
+    expect(screen.getByRole('combobox', { name: 'Recovery set' })).toHaveValue('snap')
+    expect(screen.getByText('Isolated restore')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Restore complete set and test retrieval' })).toBeDisabled()
+    fireEvent.change(screen.getByLabelText('Recovery destination'), { target: { value: 'cloud' } })
+    expect(screen.getByRole('combobox', { name: 'Recovery set' })).toHaveValue('older')
+  })
+
+  it('labels a complete offline retrieval and lets the user clear the auto-selected result', async () => {
+    vi.mocked(api.getBackupRestores).mockResolvedValue({ items: [{ ...result, test: false, source_ids: [source.id] }] })
+    vi.mocked(useJobStream).mockReturnValue({ state: 'succeeded', events: [], clear: vi.fn() })
+    workspace()
+    fireEvent.change(await screen.findByLabelText('Recovery set'), { target: { value: 'snap' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Retrieve complete set for offline recovery' }))
+    await waitFor(() => expect(screen.getByLabelText('Completed isolated restore')).toHaveValue('restore'))
+    expect(screen.getByRole('option', { name: /complete set \(offline retrieval\)/ })).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Completed isolated restore'), { target: { value: '' } })
+    expect(screen.getByLabelText('Completed isolated restore')).toHaveValue('')
+    expect(screen.queryByRole('button', { name: 'Review applying recovered data' })).not.toBeInTheDocument()
+  })
+
+  it('registers destination verification jobs with the page before the wizard closes', async () => {
+    vi.mocked(api.saveBackupDestination).mockResolvedValue({ destination })
+    vi.mocked(api.testBackupDestination).mockResolvedValue(job)
+    const onStarted = vi.fn()
+    render(<DestinationEditor destination={destination} onSaved={vi.fn()} onClose={vi.fn()} onStarted={onStarted} />)
+    fireEvent.click(screen.getByLabelText('Replace stored password (must match repository)'))
+    fireEvent.change(screen.getByLabelText('Repository password'), { target: { value: 'matching-saved-password' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save destination' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Test existing repository' }))
+    await waitFor(() => expect(onStarted).toHaveBeenCalledWith(job))
+  })
+
+  it('requires an explicit merge decision for an excluded source and invalidates the previous review', async () => {
+    const excluded = { ...manifest, sources: [{ ...manifestSource, source: { ...source, excludes: ['uploads/private'] } }] }
+    vi.mocked(api.previewBackupRestore).mockResolvedValue({ review_token: 'review', expires_at: '2099-01-01T00:00:00Z', preview: { mappings: [{ source_id: source.id, target: '/data', mode: 'merge' }], writers: [], warnings: [], overwrites: true } })
+    render(<ApplyRecoveryDialog destination={destination} restored={{ ...result, manifest: excluded }} onStarted={vi.fn()} onClose={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('checkbox', { name: /db → \/data/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Use original location' }))
+    expect(screen.getByLabelText('Recovery mode for db')).toHaveValue('replace')
+    expect(screen.getByRole('button', { name: 'Preview recovery' })).toBeDisabled()
+    expect(screen.getByText(/Replacement is blocked/)).toBeVisible()
+    fireEvent.change(screen.getByLabelText('Recovery mode for db'), { target: { value: 'merge' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Preview recovery' }))
+    expect(await screen.findByText(/Server inspection confirms/)).toBeVisible()
+    fireEvent.change(screen.getByLabelText('Type RESTORE to apply recovered data'), { target: { value: 'RESTORE' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Change mappings' }))
+    fireEvent.change(screen.getByLabelText('Target directory for db'), { target: { value: '/other' } })
+    expect(screen.queryByRole('button', { name: 'Apply recovered data' })).not.toBeInTheDocument()
+    expect(api.restoreBackupSnapshot).not.toHaveBeenCalled()
   })
 })

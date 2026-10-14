@@ -34,6 +34,7 @@ type Destination struct {
 	Region                    string     `json:"region,omitempty"`
 	RepositorySizeBytes       *int64     `json:"repository_size_bytes,omitempty"`
 	CredentialsConfigured     bool       `json:"credentials_configured"`
+	LastCheckAttemptAt        *time.Time `json:"last_check_attempt_at,omitempty"`
 	LastCheckAt               *time.Time `json:"last_check_at,omitempty"`
 	LastCheckPolicy           string     `json:"last_check_policy,omitempty"`
 	CheckSchedule             Schedule   `json:"check_schedule"`
@@ -146,15 +147,18 @@ type Run struct {
 }
 
 type Snapshot struct {
-	ID       string    `json:"id"`
-	ShortID  string    `json:"short_id"`
-	Time     time.Time `json:"time"`
-	Paths    []string  `json:"paths"`
-	Tags     []string  `json:"tags"`
-	Hostname string    `json:"hostname"`
+	RestoreTestedAt *time.Time `json:"restore_tested_at,omitempty"`
+	ID              string     `json:"id"`
+	ShortID         string     `json:"short_id"`
+	Time            time.Time  `json:"time"`
+	Paths           []string   `json:"paths"`
+	Tags            []string   `json:"tags"`
+	Hostname        string     `json:"hostname"`
 }
 
 type Overview struct {
+	HelperReady      bool             `json:"helper_ready"`
+	HelperError      string           `json:"helper_error,omitempty"`
 	RecoveryError    string           `json:"recovery_error,omitempty"`
 	Destinations     []Destination    `json:"destinations"`
 	Plans            []Plan           `json:"plans"`

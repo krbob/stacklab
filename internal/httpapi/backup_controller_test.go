@@ -69,3 +69,24 @@ func TestBackupHTTPRejectsUnknownFieldsWithoutEchoingSecrets(t *testing.T) {
 		t.Fatalf("invalid input: %d %s", response.Code, response.Body.String())
 	}
 }
+
+func TestBackupHTTPRejectsInvalidOperationBeforeJobAdmission(t *testing.T) {
+	h, served, cfg := newInternalTestHandler(t)
+	h.backupCapture = backup.NewNativeCapture(cfg, h.stackReader, h.jobs.Store().Snapshot)
+	h.backups = backup.NewService(cfg, h.jobs, h.backupCapture)
+	cookies := loginInternalTestUser(t, served, "test-password")
+	for _, test := range []struct {
+		action string
+		body   any
+	}{
+		{"check", map[string]any{"read_data": "invalid"}},
+		{"restore", map[string]any{"snapshot_id": "invalid"}},
+		{"restore", map[string]any{"snapshot_id": strings.Repeat("a", 64), "test": true, "source_ids": []string{"source"}}},
+		{"restore", map[string]any{"snapshot_id": strings.Repeat("a", 64), "files": []map[string]string{{"source_id": "source", "path": "../outside"}}}},
+	} {
+		response := performInternalJSONRequest(t, served, http.MethodPost, "/api/backups/destinations/not-admitted/"+test.action, test.body, cookies)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("%s admitted invalid operation: %d %s", test.action, response.Code, response.Body.String())
+		}
+	}
+}

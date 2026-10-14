@@ -15,6 +15,7 @@ import {
 } from '@/lib/backup-api'
 import { BackupDate, BackupError, buttonClass, Field, inputClass, primaryClass } from './backup-primitives'
 import { SourceLabel } from './source-label'
+import { formatBackupDate } from './backup-formatters'
 
 export function ApplyRecoveryDialog({
   destination,
@@ -40,6 +41,9 @@ export function ApplyRecoveryDialog({
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const confirmationRef = useRef<HTMLInputElement>(null)
+  const unsafeReplacement = mappings.some((mapping) =>
+    (mapping.mode ?? 'replace') === 'replace' && !!manifest?.sources.find((item) => item.source.id === mapping.source_id)?.source.excludes?.length,
+  )
   useEffect(() => {
     if (review) confirmationRef.current?.focus()
   }, [review])
@@ -76,6 +80,8 @@ export function ApplyRecoveryDialog({
   }
 
   function updateMapping(sourceId: string, patch: Partial<BackupRestoreMapping>) {
+    setReview(null)
+    setConfirmation('')
     setMappings((previous) =>
       previous.map((mapping) => (mapping.source_id === sourceId ? { ...mapping, ...patch } : mapping)),
     )
@@ -155,6 +161,11 @@ export function ApplyRecoveryDialog({
                                 : `This source preserves metadata requiring offline recovery: ${item.recovery_restrictions?.join('; ')}. Download its original archive and follow the recovery runbook.`}
                             </p>
                           )}
+                          {!!item.source.excludes?.length && <p className="text-xs text-[var(--warning)]">
+                            Excluded from this source: {item.source.excludes.join(', ')}. Replacement is blocked because
+                            those live paths are absent from the backup. Inspect the original archive for offline recovery
+                            or explicitly choose merge when that meets your application’s recovery requirements.
+                          </p>}
                           {mapping && (
                             <div className="grid gap-3 sm:grid-cols-2">
                               <div className="sm:col-span-2">
@@ -163,7 +174,7 @@ export function ApplyRecoveryDialog({
                                   hint={
                                     item.file_name
                                       ? 'A single-file source overwrites only its named file and preserves neighboring files.'
-                                      : 'Replace removes files absent from this recovery source. Merge preserves extra files and is unsuitable for exact database recovery.'
+                                      : item.source.excludes?.length ? 'Replace is unavailable because this source excluded data. Choose merge explicitly only when preserving extra files is appropriate; merge is unsuitable for exact database recovery.' : 'Replace removes files absent from this recovery source. Merge preserves extra files and is unsuitable for exact database recovery.'
                                   }
                                 >
                                   <select
@@ -174,7 +185,7 @@ export function ApplyRecoveryDialog({
                                       updateMapping(item.source.id, { mode: event.target.value as 'replace' | 'merge' })
                                     }
                                   >
-                                    <option value="replace">Replace complete source contents</option>
+                                    <option value="replace" disabled={!!item.source.excludes?.length}>Replace complete source contents</option>
                                     <option value="merge">Merge and preserve extra files</option>
                                   </select>
                                 </Field>
@@ -243,7 +254,7 @@ export function ApplyRecoveryDialog({
                   </label>
                 </fieldset>
                 <p className="text-xs leading-5 text-[var(--warning)]">
-                  Replacement restores the selected source contents and removes newer files at the target. Merge keeps
+                  Replacement restores the selected source contents and removes every target entry absent from that source. Merge keeps
                   extra files. Affected running writers remain stopped by default. A failure after writing begins also
                   leaves them stopped for inspection; keep a separate current backup before applying recovery.
                 </p>
@@ -279,6 +290,7 @@ export function ApplyRecoveryDialog({
                   return `${label} → ${mapping.target} (${mapping.mode ?? 'replace'})`
                 }),
                 impact: [
+                  review.preview.overwrites ? 'Server inspection confirms existing target contents may be overwritten.' : 'Server inspection found no existing target contents to overwrite.',
                   ...review.preview.mappings.map((mapping) =>
                     (mapping.mode ?? 'replace') === 'replace'
                       ? `Replace ${mapping.target}: entries absent from the recovered source will be removed.`
@@ -294,7 +306,7 @@ export function ApplyRecoveryDialog({
                     ? 'Restart previously running writers after recovery succeeds.'
                     : 'Leave affected writers stopped after recovery.',
                 ],
-                snapshot: `Recovery set captured ${manifest?.captured_at ? new Date(manifest.captured_at).toLocaleString() : 'at unknown time'}; review expires ${new Date(review.expires_at).toLocaleString()}`,
+                snapshot: `Recovery set captured ${manifest?.captured_at ? formatBackupDate(manifest.captured_at) : 'at unknown time'}; review expires ${formatBackupDate(review.expires_at)}`,
                 recovery:
                   'Keep a separate current backup before replacing live data. Review Compose and application prerequisites before starting services.',
               }}
@@ -347,6 +359,7 @@ export function ApplyRecoveryDialog({
               className={primaryClass}
               disabled={
                 pending ||
+                unsafeReplacement ||
                 !manifest ||
                 mappings.length === 0 ||
                 mappings.some((mapping) => !mapping.target.trim() && !mapping.volume_name?.trim())

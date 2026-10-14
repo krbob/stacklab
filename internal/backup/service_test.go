@@ -40,6 +40,7 @@ func (c *fakeCapture) Prepare(ctx context.Context, p Plan, id, dir string) (Mani
 type recordingRunner struct {
 	mu               sync.Mutex
 	stagingDirectory string
+	repositoryStages map[string]string
 	calls            [][]string
 	repositories     []string
 	failRepo         string
@@ -63,6 +64,9 @@ func (r *recordingRunner) Run(ctx context.Context, name string, args, env []stri
 				return nil, errors.New("no staged fixture")
 			}
 			stage := filepath.Join(r.stagingDirectory, stages[len(stages)-1].Name())
+			if saved := r.repositoryStages[repo]; saved != "" {
+				stage = saved
+			}
 			if arg == "dump" {
 				return os.ReadFile(filepath.Join(stage, "manifest.json"))
 			}
@@ -87,12 +91,19 @@ func (r *recordingRunner) Run(ctx context.Context, name string, args, env []stri
 			return []byte(output.String()), err
 		}
 		if arg == "snapshots" {
+			if r.failRetention && strings.Contains(strings.Join(args, " "), ",plan:") && !strings.Contains(strings.Join(args, " "), ",run:") {
+				return nil, errors.New("retention unavailable")
+			}
 			if r.priorSnapshot != "" {
 				return []byte(`[{"id":"` + r.priorSnapshot + `"}]`), nil
 			}
 			return []byte(`[]`), nil
 		}
 		if arg == "backup" {
+			if r.repositoryStages == nil {
+				r.repositoryStages = map[string]string{}
+			}
+			r.repositoryStages[repo] = dir
 			if repo == r.failRepo {
 				return nil, errors.New("simulated destination unavailable")
 			}

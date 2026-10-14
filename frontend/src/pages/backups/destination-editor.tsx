@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Dialog } from '@/components/dialog'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useJobStream } from '@/hooks/use-job-stream'
 import { useJobDrawer } from '@/hooks/use-job-drawer'
 import {
@@ -10,12 +11,13 @@ import {
   type BackupDestination,
   type BackupSecrets,
   type BackupSchedule,
+  type BackupJobResponse,
 } from '@/lib/backup-api'
 import { BackupError, buttonClass, Field, inputClass, primaryClass, BackupStatus } from './backup-primitives'
 import { ScheduleFields } from './schedule-fields'
 import { manualSchedule } from './schedule-utils'
 import { useEditorCloseGuard } from './editor-close-guard'
-import { sftpRepositoryAddress } from './repository-address'
+import { sftpRepositoryAddress, validSFTPHost } from './repository-address'
 
 const repositoryHints: Record<string, string> = {
   local: 'Absolute directory on a disk or mounted NAS, for example /mnt/backup/stacklab.',
@@ -29,6 +31,7 @@ export function DestinationEditor({
   onSaved,
   onClose,
   onCreatePlan,
+  onStarted,
   toolsAvailable = true,
   rcloneAvailable = true,
 }: {
@@ -36,6 +39,7 @@ export function DestinationEditor({
   onSaved: () => void
   onClose: () => void
   onCreatePlan?: (destination: BackupDestination) => void
+  onStarted?: (result: BackupJobResponse) => void
   toolsAvailable?: boolean
   rcloneAvailable?: boolean
 }) {
@@ -48,6 +52,7 @@ export function DestinationEditor({
   const [region, setRegion] = useState(destination?.region ?? '')
   const [secrets, setSecrets] = useState<BackupSecrets>({})
   const [advanced, setAdvanced] = useState(!!destination)
+  const [resetAddress, setResetAddress] = useState(false)
   const [location, setLocation] = useState({
     endpoint: '',
     bucket: '',
@@ -177,6 +182,7 @@ export function DestinationEditor({
     try {
       const result = await (initialize ? initializeBackupDestination : testBackupDestination)(saved.id)
       setJobId(result.job.id)
+      onStarted?.(result)
       setJobAction(initialize ? 'Initialize repository' : 'Test access')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to start verification')
@@ -337,8 +343,8 @@ export function DestinationEditor({
                       type="checkbox"
                       checked={advanced}
                       onChange={(event) => {
-                        setRepository(repositoryValue)
-                        setAdvanced(event.target.checked)
+                        if (!event.target.checked && repository.trim()) setResetAddress(true)
+                        else { setRepository(repositoryValue); setAdvanced(event.target.checked) }
                       }}
                     />
                     Enter repository address directly
@@ -382,6 +388,8 @@ export function DestinationEditor({
                       <input
                         className={inputClass}
                         required
+                        pattern="[A-Za-z0-9][A-Za-z0-9._-]*"
+                        title="Use a bucket name without slashes or spaces."
                         value={location.bucket}
                         onChange={(event) => changeLocation('bucket', event.target.value)}
                       />
@@ -396,12 +404,15 @@ export function DestinationEditor({
                   </>
                 ) : kind === 'sftp' ? (
                   <>
-                    <Field label="SSH host">
+                    <Field label="SSH host" hint="Enter a hostname or IPv6 address only; put the port in the separate port field.">
                       <input
                         className={inputClass}
                         required
                         value={location.host}
-                        onChange={(event) => changeLocation('host', event.target.value)}
+                        onChange={(event) => {
+                          event.target.setCustomValidity(validSFTPHost(event.target.value) ? '' : 'Enter a hostname or IPv6 address without a port.')
+                          changeLocation('host', event.target.value)
+                        }}
                       />
                     </Field>
                     <Field label="SSH port">
@@ -498,6 +509,11 @@ export function DestinationEditor({
             {(!!destination || step === 1) && (
               <>
                 <div className="space-y-2 sm:col-span-2">
+                  <p className="text-xs leading-5 text-[var(--warning)]">
+                    Save an independent recovery kit outside this host: repository address and password, provider
+                    credentials, SSH key and host key or authorized rclone configuration as applicable. Also record
+                    which plans and sources each repository contains. Stacklab cannot reveal saved credentials later.
+                  </p>
                   {destination && (
                     <label className="flex items-center gap-2 text-sm">
                       <input
@@ -712,6 +728,13 @@ export function DestinationEditor({
           </div>
         </form>
       )}
+      {resetAddress && <ConfirmDialog
+        title="Use structured address fields"
+        message="Switching back replaces the directly entered repository address with the structured fields. Keep the direct address if it contains changes you need."
+        confirmLabel="Use structured fields"
+        onCancel={() => setResetAddress(false)}
+        onConfirm={() => { setAdvanced(false); setResetAddress(false) }}
+      />}
       {confirmation}
     </Dialog>
   )

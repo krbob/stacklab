@@ -1,14 +1,9 @@
 import { useState } from 'react'
+import { backupDuration as duration } from './backup-formatters'
 import type { BackupDestination, BackupPlan, BackupRun } from '@/lib/backup-api'
-import { BackupDate, BackupPanel, BackupSize, BackupStatus, buttonClass, Field, inputClass } from './backup-primitives'
+import { BackupDate, BackupError, BackupPanel, BackupSize, BackupStatus, buttonClass, Field, inputClass } from './backup-primitives'
 
 const pageSize = 10
-const duration = (seconds?: number) =>
-  seconds === undefined
-    ? 'Not measured'
-    : seconds < 60
-      ? `${seconds.toFixed(1)} s`
-      : `${Math.floor(seconds / 60)} min ${Math.round(seconds % 60)} s`
 
 export function RunHistory({
   runs,
@@ -16,6 +11,7 @@ export function RunHistory({
   destinations,
   clock,
   pending,
+  error,
   onJob,
   onRetry,
 }: {
@@ -24,6 +20,7 @@ export function RunHistory({
   destinations: BackupDestination[]
   clock: number
   pending: boolean
+  error?: string | null
   onJob: (id: string) => void
   onRetry: (run: BackupRun, ids: string[]) => void
 }) {
@@ -60,6 +57,7 @@ export function RunHistory({
   const destinationName = (id: string) => destinations.find((item) => item.id === id)?.name ?? id
   return (
     <BackupPanel title="Backup history">
+      <BackupError error={error ?? null} />
       <div className="mb-4 grid gap-3 sm:grid-cols-3">
         <Field label="Search history">
           <input

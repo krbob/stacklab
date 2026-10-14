@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { AsyncState } from '@/components/async-state'
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -72,7 +72,12 @@ export function BackupsPage() {
   const [readData, setReadData] = useState<'metadata' | 'subset' | 'all'>('metadata')
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [errorScope, setErrorScope] = useState<string | null>(null)
   const [jobIds, setJobIds] = useState<string[]>([])
+  const [configurationRevision, setConfigurationRevision] = useState(0)
+  const [recoveryRevision, setRecoveryRevision] = useState(0)
+  const [policyRevision, setPolicyRevision] = useState(0)
+  const openedPlanRef = useRef<string | null>(null)
   const [clock, setClock] = useState(() => Date.now())
   const data = state.data
   const destinations = data?.destinations ?? []
@@ -84,6 +89,8 @@ export function BackupsPage() {
     (id: string) => {
       setJobIds((previous) => previous.filter((jobId) => jobId !== id))
       refetch()
+      setRecoveryRevision((value) => value + 1)
+      setPolicyRevision((value) => value + 1)
     },
     [refetch],
   )
@@ -99,16 +106,17 @@ export function BackupsPage() {
     return () => window.clearInterval(timer)
   }, [hasRunning, refetch])
 
-  function started(result: BackupJobResponse) {
+  function started(result: BackupJobResponse, reveal = true) {
     setJobIds((previous) => (previous.includes(result.job.id) ? previous : [...previous, result.job.id]))
-    openJob(result.job.id)
+    if (reveal) openJob(result.job.id)
     state.refetch()
   }
 
-  async function command(action: () => Promise<unknown>): Promise<boolean> {
+  async function command(action: () => Promise<unknown>, scope: string | null = null): Promise<boolean> {
     if (pending) return false
     setPending(true)
     setError(null)
+    setErrorScope(scope)
     try {
       const result = await action()
       if (result && typeof result === 'object' && 'job' in result) started(result as BackupJobResponse)
@@ -134,9 +142,18 @@ export function BackupsPage() {
       { replace: true },
     )
   }
+  const configurationChanged = useCallback(() => {
+    refetch()
+    setConfigurationRevision((value) => value + 1)
+  }, [refetch])
+  const refreshAll = useCallback(() => {
+    configurationChanged()
+    setRecoveryRevision((value) => value + 1)
+    setPolicyRevision((value) => value + 1)
+  }, [configurationChanged])
   const finishEditor = () => {
     closeEditor()
-    state.refetch()
+    configurationChanged()
   }
   const openRun = (plan: BackupPlan) => {
     setError(null)
@@ -150,14 +167,20 @@ export function BackupsPage() {
   useEffect(() => {
     const id = search.get('plan')
     const plan = data?.plans.find((item) => item.id === id)
+    if (!id) { openedPlanRef.current = null; return }
+    if (openedPlanRef.current === id || !data) return
+    openedPlanRef.current = id
     if (plan) setEditor({ kind: 'plan', value: plan })
-  }, [search, data?.plans])
-  const recover = (id: string) =>
+    else setError('The linked backup plan no longer exists. Select an existing plan or create one.')
+  }, [search, data])
+  const recover = (id: string) => {
+    setRecoveryRevision((value) => value + 1)
     setSearch((previous) => {
       previous.set('view', 'recovery')
       previous.set('destination', id)
       return previous
     })
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -166,12 +189,12 @@ export function BackupsPage() {
         title="Backups"
         meta="Encrypted recovery sets with independent copies per destination"
         actions={
-          <button className={buttonClass} disabled={state.loading} onClick={state.refetch}>
+          <button className={buttonClass} disabled={state.loading} onClick={refreshAll}>
             Refresh
           </button>
         }
       />
-      <BackupError error={hasDialog ? null : error} />
+      <BackupError error={hasDialog || errorScope ? null : error} />
       <div className="flex gap-2 overflow-x-auto" role="tablist" aria-label="Backup views">
         {tabs.map((item) => (
           <button
@@ -193,6 +216,8 @@ export function BackupsPage() {
                     : tabs[(index + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length]
               setSearch((previous) => {
                 previous.set('view', next)
+                previous.delete('stack')
+                previous.delete('plan')
                 return previous
               })
               document.getElementById(`backup-tab-${next}`)?.focus()
@@ -200,6 +225,8 @@ export function BackupsPage() {
             onClick={() =>
               setSearch((previous) => {
                 previous.set('view', item)
+                previous.delete('stack')
+                previous.delete('plan')
                 return previous
               })
             }
@@ -229,10 +256,16 @@ export function BackupsPage() {
                 Restic is unavailable on this host. Install the supported backup tools before running backups.
               </p>
             )}
+            {data.helper_ready === false && (
+              <p role="alert" className="rounded-md border border-[var(--warning)]/30 p-3 text-sm text-[var(--warning)]">
+                In-place recovery is unavailable: {data.helper_error || 'The backup helper is not ready.'}
+                {' '}Update the backup helper and its narrowly scoped sudoers permissions, then verify recovery readiness.
+              </p>
+            )}
             <BackupOperations
-              refreshKey={state.updatedAt}
+              refreshKey={policyRevision}
               recoveryError={data.recovery_error}
-              onChanged={state.refetch}
+              onChanged={refreshAll}
               onStarted={started}
             />
             <div className="space-y-4">
@@ -245,7 +278,9 @@ export function BackupsPage() {
                 {(mountedTabs.has('protection') || tab === 'protection') && (
                   <ProtectionDashboard
                     data={data}
-                    refreshKey={state.updatedAt}
+                    refreshKey={configurationRevision}
+                    active={tab === 'protection'}
+                    pending={pending}
                     onCreatePlan={() => setEditor({ kind: 'plan' })}
                     onAddDestination={() => setEditor({ kind: 'destination' })}
                     onRun={openRun}
@@ -262,6 +297,10 @@ export function BackupsPage() {
                 {(mountedTabs.has('recovery') || tab === 'recovery') && (
                   <RecoveryWorkspace
                     destinations={destinations}
+                    refreshKey={recoveryRevision}
+                    active={tab === 'recovery'}
+                    helperReady={data.helper_ready}
+                    helperError={data.helper_error}
                     initialDestinationId={search.get('destination') ?? undefined}
                     plans={plans}
                     toolsAvailable={data.restic_available}
@@ -328,7 +367,7 @@ export function BackupsPage() {
                             </div>
                             <div>
                               <dt className="text-[var(--muted)]">
-                                Repository check{' '}
+                                Last successful repository check{' '}
                                 {destination.last_check_policy ? `(${destination.last_check_policy})` : ''}
                               </dt>
                               <dd className="mt-1 text-[var(--text)]">
@@ -342,6 +381,23 @@ export function BackupsPage() {
                               </dd>
                             </div>
                           </dl>
+                          <dl className="grid gap-2 text-xs sm:grid-cols-3">
+                            <div>
+                              <dt className="text-[var(--muted)]">Snapshot inventory confirmed</dt>
+                              <dd className="mt-1"><BackupDate value={destination.last_inventory_at} /></dd>
+                            </div>
+                            <div>
+                              <dt className="text-[var(--muted)]">Latest inventory attempt</dt>
+                              <dd className="mt-1"><BackupDate value={destination.last_inventory_attempt_at} /></dd>
+                            </div>
+                            <div>
+                              <dt className="text-[var(--muted)]">Latest check attempt</dt>
+                              <dd className="mt-1"><BackupDate value={destination.last_check_attempt_at} /> · {destination.check_status || 'not checked'}</dd>
+                            </div>
+                          </dl>
+                          {destination.inventory_error && (
+                            <p className="text-sm text-[var(--warning)]">Snapshot inventory: {destination.inventory_error}</p>
+                          )}
                           {destination.check_error && (
                             <p className="text-sm text-[var(--warning)]">Integrity check: {destination.check_error}</p>
                           )}
@@ -355,6 +411,7 @@ export function BackupsPage() {
                             Checks: {scheduleDescription(destination.check_schedule ?? { frequency: 'manual' })} ·
                             Cleanup: {scheduleDescription(destination.prune_schedule ?? { frequency: 'manual' })}
                           </p>
+                          <BackupError error={errorScope === destination.id ? error : null} />
                           {destination.error && <p className="text-sm text-[var(--danger)]">{destination.error}</p>}
                           <div className="flex flex-wrap gap-2">
                             <button
@@ -365,15 +422,17 @@ export function BackupsPage() {
                                 (destination.kind === 'rclone' && !data.rclone_available)
                               }
                               onClick={() => {
-                                void command(() => testBackupDestination(destination.id))
+                                void command(() => testBackupDestination(destination.id), destination.id)
                               }}
                             >
                               Test access
                             </button>
                             <button
                               className={buttonClass}
+                              title={destination.status === 'available' ? 'This repository is already available; use Test access to verify it.' : undefined}
                               disabled={
                                 pending ||
+                                destination.status === 'available' ||
                                 !data.restic_available ||
                                 (destination.kind === 'rclone' && !data.rclone_available)
                               }
@@ -390,7 +449,7 @@ export function BackupsPage() {
                               }
                               onClick={() => {
                                 setError(null)
-                                setReadData('metadata')
+                                setReadData(destination.check_read_data === 'all' || destination.check_read_data === 'subset' ? destination.check_read_data : 'metadata')
                                 setCheck(destination)
                               }}
                             >
@@ -527,13 +586,14 @@ export function BackupsPage() {
                 {(mountedTabs.has('history') || tab === 'history') && (
                   <RunHistory
                     runs={runs}
+                    error={errorScope === 'history' ? error : null}
                     plans={plans}
                     destinations={destinations}
                     clock={clock}
                     pending={pending}
                     onJob={openJob}
                     onRetry={(run, ids) => {
-                      void command(() => retryBackupRun(run.id, ids))
+                      void command(() => retryBackupRun(run.id, ids), 'history')
                     }}
                   />
                 )}
@@ -552,8 +612,9 @@ export function BackupsPage() {
           rcloneAvailable={data?.rclone_available ?? false}
           onClose={closeEditor}
           onSaved={finishEditor}
+          onStarted={(result) => started(result, false)}
           onCreatePlan={(destination) => {
-            state.refetch()
+            configurationChanged()
             setEditor({ kind: 'plan', destinationId: destination.id })
           }}
         />
@@ -693,7 +754,7 @@ export function BackupsPage() {
                     ? () => deleteBackupPlan(review.plan.id)
                     : () => deleteBackupDestination(review.destination.id)
             void command(action).then((ok) => {
-              if (ok) setReview(null)
+              if (ok) { setReview(null); configurationChanged() }
             })
           }}
         />

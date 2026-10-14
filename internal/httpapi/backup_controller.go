@@ -227,6 +227,10 @@ func (c *backupController) repositoryJob(w http.ResponseWriter, r *http.Request)
 		}
 	}
 	id := r.PathValue("destinationId")
+	if err := c.backups.ValidateRepositoryRequest(r.Context(), id, action, check, restore); err != nil {
+		c.fail(w, err)
+		return
+	}
 	job, e := c.backups.StartRepositoryJob(r.Context(), id, action, "local")
 	if e != nil {
 		c.fail(w, e)

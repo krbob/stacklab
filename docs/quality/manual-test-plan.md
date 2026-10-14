@@ -74,7 +74,7 @@ Odniesienie do kryteriów akceptacji: `docs/quality/acceptance-criteria.md`
 5. **Zgoda na akcje destrukcyjne** — plan tworzy/usuwa stacki, wolumeny, sieci,
    robi `docker prune`, restartuje daemon Dockera (docker admin) i potencjalnie
    restartuje usługę StackLab (self-update). Wszystko na **izolowanej VM**, nie
-   na produkcji `stacklab.bobinski.net`.
+   na produkcji `stacklab.example.test`.
 
 ### 1.3 Uruchomienie (tor deweloperski)
 

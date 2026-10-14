@@ -35,6 +35,7 @@ import {
 } from './backup-primitives'
 import { ApplyRecoveryDialog } from './apply-recovery-dialog'
 import { SourceLabel } from './source-label'
+import { formatBackupDate } from './backup-formatters'
 
 type SelectedFile = { source_id: string; path: string }
 const terminal = ['succeeded', 'failed', 'cancelled', 'timed_out']
@@ -46,6 +47,10 @@ export function RecoveryWorkspace({
   plans = [],
   toolsAvailable = true,
   rcloneAvailable = true,
+  refreshKey = 0,
+  active = true,
+  helperReady,
+  helperError,
   onStarted,
 }: {
   destinations: BackupDestination[]
@@ -54,6 +59,10 @@ export function RecoveryWorkspace({
   plans?: BackupPlan[]
   toolsAvailable?: boolean
   rcloneAvailable?: boolean
+  refreshKey?: number
+  active?: boolean
+  helperReady?: boolean
+  helperError?: string
   onStarted: (result: BackupJobResponse) => void
 }) {
   const [destinationId, setDestinationId] = useState(
@@ -62,7 +71,10 @@ export function RecoveryWorkspace({
   useEffect(() => {
     if (initialDestinationId !== undefined) setDestinationId(initialDestinationId)
   }, [initialDestinationId])
-  const destination = destinations.find((item) => item.id === destinationId)
+  const [visited, setVisited] = useState<string[]>(() => destinationId ? [destinationId] : [])
+  useEffect(() => {
+    if (destinationId) setVisited((previous) => previous.includes(destinationId) ? previous : [...previous, destinationId])
+  }, [destinationId])
   return (
     <div className="space-y-4">
       <BackupPanel title="Recover data">
@@ -93,15 +105,20 @@ export function RecoveryWorkspace({
           </p>
         )}
       </BackupPanel>
-      {destination && (
-        <DestinationRecovery
-          key={destination.id}
-          destination={destination}
-          plans={plans}
-          toolsAvailable={toolsAvailable && (destination.kind !== 'rclone' || rcloneAvailable)}
-          onStarted={onStarted}
-        />
-      )}
+      {destinations.filter((item) => visited.includes(item.id) || item.id === destinationId).map((destination) => (
+        <div key={destination.id} hidden={destination.id !== destinationId}>
+          <DestinationRecovery
+            destination={destination}
+            plans={plans}
+            active={active && destination.id === destinationId}
+            refreshKey={refreshKey}
+            helperReady={helperReady}
+            helperError={helperError}
+            toolsAvailable={toolsAvailable && (destination.kind !== 'rclone' || rcloneAvailable)}
+            onStarted={onStarted}
+          />
+        </div>
+      ))}
     </div>
   )
 }
@@ -110,22 +127,32 @@ function DestinationRecovery({
   destination,
   plans,
   toolsAvailable,
+  active,
+  refreshKey,
+  helperReady,
+  helperError,
   onStarted,
 }: {
   destination: BackupDestination
   plans: BackupPlan[]
   toolsAvailable: boolean
+  active: boolean
+  refreshKey: number
+  helperReady?: boolean
+  helperError?: string
   onStarted: (result: BackupJobResponse) => void
 }) {
   const snapshots = useApi(
     (signal) => (toolsAvailable ? getBackupSnapshots(destination.id, signal) : Promise.resolve({ items: [] })),
-    [destination.id, toolsAvailable],
+    [destination.id, toolsAvailable, refreshKey],
+    { enabled: active },
   )
-  const restores = useApi((signal) => getBackupRestores(signal), [])
+  const restores = useApi((signal) => getBackupRestores(signal), [refreshKey], { enabled: active })
   const { refetch: refreshRestores } = restores
   const { openJob } = useJobDrawer()
   const [snapshotId, setSnapshotId] = useState('')
-  const [restoreId, setRestoreId] = useState('')
+  const [restoreId, setRestoreId] = useState<string | null>(null)
+  const [selectionReset, setSelectionReset] = useState(0)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
@@ -137,7 +164,7 @@ function DestinationRecovery({
   const running = !!jobId && !terminal.includes(jobState ?? '')
   const results = (restores.data?.items ?? []).filter((item) => item.destination_id === destination.id)
   const automaticallySelected = results.find((item) => item.job_id === jobId)
-  const chosen = results.find((item) => item.id === restoreId) ?? automaticallySelected
+  const chosen = restoreId === null ? automaticallySelected : results.find((item) => item.id === restoreId)
   const selectedSnapshot = snapshots.data?.items.find((item) => item.id === snapshotId)
   useEffect(() => {
     if (!jobId) return
@@ -159,7 +186,8 @@ function DestinationRecovery({
         ...(files?.length ? { files } : {}),
         ...(sourceIds?.length ? { source_ids: sourceIds } : {}),
       })
-      setRestoreId('')
+      setRestoreId(null)
+      setSelectionReset((value) => value + 1)
       setJobId(result.job.id)
       onStarted(result)
     } catch (cause) {
@@ -201,7 +229,7 @@ function DestinationRecovery({
               <option value="">Select a snapshot</option>
               {(snapshots.data.items ?? []).map((snapshot) => (
                 <option key={snapshot.id} value={snapshot.id}>
-                  {new Date(snapshot.time).toLocaleString()} · {snapshot.short_id || snapshot.id.slice(0, 8)} ·{' '}
+                  {formatBackupDate(snapshot.time)} · {snapshot.short_id || snapshot.id.slice(0, 8)} ·{' '}
                   {plans.find((plan) => snapshot.tags?.includes(`plan:${plan.id}`))?.name ??
                     snapshot.tags?.find((tag) => tag.startsWith('plan:'))?.slice(5) ??
                     snapshot.hostname}
@@ -218,12 +246,16 @@ function DestinationRecovery({
             <p className="break-all text-xs text-[var(--muted)]">
               Captured <BackupDate value={selectedSnapshot.time} /> · {(selectedSnapshot.tags ?? []).join(', ')}
             </p>
+            {selectedSnapshot.restore_tested_at && (
+              <p className="text-xs text-[var(--muted)]">Complete retrieval test of this snapshot: <BackupDate value={selectedSnapshot.restore_tested_at} /></p>
+            )}
             <FileBrowser
               key={snapshotId}
               destinationId={destination.id}
               snapshot={selectedSnapshot}
               snapshots={snapshots.data?.items ?? []}
               disabled={pending || running}
+              selectionReset={selectionReset}
               onRestore={(files, sourceIds) => {
                 void restore(files, sourceIds)
               }}
@@ -303,8 +335,8 @@ function DestinationRecovery({
               <option value="">Select a restore</option>
               {results.map((item) => (
                 <option key={item.id} value={item.id}>
-                  {new Date(item.created_at).toLocaleString()} · {item.snapshot_id.slice(0, 8)} ·{' '}
-                  {item.test ? 'complete test' : item.selected_files?.length ? 'selected files' : 'selected sources'}
+                  {formatBackupDate(item.created_at)} · {item.snapshot_id.slice(0, 8)} ·{' '}
+                  {item.test ? 'complete test' : item.selected_files?.length ? 'selected files' : item.manifest && (!item.source_ids?.length || item.source_ids.length === item.manifest.sources.length) ? 'complete set (offline retrieval)' : 'selected sources'}
                   {item.available === false ? ' · unavailable' : ''}
                 </option>
               ))}
@@ -335,9 +367,14 @@ function DestinationRecovery({
                   disabled={false}
                 />
                 {!chosen.selected_files?.length ? (
-                  <button className={primaryClass} onClick={() => setApply(chosen)}>
-                    Review applying recovered data
-                  </button>
+                  <div className="space-y-2">
+                    <button className={primaryClass} disabled={helperReady === false} onClick={() => setApply(chosen)}>
+                      Review applying recovered data
+                    </button>
+                    {helperReady === false && <p role="alert" className="text-sm text-[var(--warning)]">
+                      In-place recovery is unavailable: {helperError || 'The backup helper must pass its compatibility and permission checks.'}
+                    </p>}
+                  </div>
                 ) : (
                   <p className="text-xs text-[var(--muted)]">
                     Selected files are ready to download. Restore a complete source to apply it to a stack.
@@ -417,6 +454,7 @@ function FileBrowser({
   restored,
   snapshots,
   disabled,
+  selectionReset = 0,
   onRestore,
 }: {
   destinationId: string
@@ -424,6 +462,7 @@ function FileBrowser({
   restored?: BackupRestoreResult
   snapshots: BackupSnapshot[]
   disabled: boolean
+  selectionReset?: number
   onRestore?: (files?: SelectedFile[], sourceIds?: string[]) => void
 }) {
   const [sourceId, setSourceId] = useState(
@@ -442,6 +481,10 @@ function FileBrowser({
   const [selected, setSelected] = useState<SelectedFile[]>([])
   const [baseline, setBaseline] = useState('')
   const [selectionError, setSelectionError] = useState<string | null>(null)
+  useEffect(() => {
+    setSelected([])
+    setSelectionError(null)
+  }, [selectionReset])
   const [comparisonOffset, setComparisonOffset] = useState(0)
   const queryKey = JSON.stringify([destinationId, snapshot?.id, restored?.id, sourceId, path, debouncedSearch, offset])
   useEffect(() => {
@@ -675,7 +718,7 @@ function FileBrowser({
                         .filter((item) => item.id !== snapshot.id)
                         .map((item) => (
                           <option key={item.id} value={item.id}>
-                            {new Date(item.time).toLocaleString()} · {item.short_id || item.id.slice(0, 8)}
+                            {formatBackupDate(item.time)} · {item.short_id || item.id.slice(0, 8)}
                           </option>
                         ))}
                     </select>

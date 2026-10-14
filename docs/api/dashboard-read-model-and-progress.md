@@ -47,7 +47,7 @@ badges — the frontend simply does not consume them yet.
 "metadata": {
   "icon": "jellyfin",
   "links": [
-    { "label": "Web UI", "url": "https://jellyfin.bobinski.net" }
+    { "label": "Web UI", "url": "https://media.example.test" }
   ]
 }
 ```
@@ -60,7 +60,7 @@ x-stacklab:
   icon: jellyfin            # simple-icons slug or built-in fallback glyph
   links:
     - label: Web UI
-      url: https://jellyfin.bobinski.net
+      url: https://media.example.test
 ```
 
 - Parsed during the existing compose read; invalid blocks degrade to `null`

@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -23,11 +24,16 @@ func (s *Service) executeCopy(ctx context.Context, job store.Job, run Run, plan 
 	}
 	if err == nil && copy.SnapshotID == "" {
 		s.event(ctx, job, "Uploading recovery set to "+d.Name+".")
+		var lastProgressEvent time.Time
 		uploadCtx := withTransferProgress(ctx, func(progress transferProgress) {
 			copy.BytesProcessed, copy.BytesTotal = progress.BytesProcessed, progress.BytesTotal
 			copy.FilesProcessed, copy.FilesTotal = progress.FilesProcessed, progress.FilesTotal
 			copy.BytesAdded = progress.BytesAdded
-			_ = update(copy, "upload")
+			_ = update(copy, "progress")
+			if !lastProgressEvent.IsZero() && time.Since(lastProgressEvent) < 5*time.Second {
+				return
+			}
+			lastProgressEvent = time.Now()
 			_ = s.jobs.PublishEventWithProgress(ctx, job, "job_progress", "Uploading recovery set to "+d.Name+".", "", nil, &store.JobProgress{Phase: "backup_upload", Completed: int(progress.BytesProcessed), Total: int(progress.BytesTotal), Unit: "bytes", Detail: d.Name})
 		})
 		copy.SnapshotID, err = s.upload(uploadCtx, d, plan, run, stage)
@@ -43,7 +49,10 @@ func (s *Service) executeCopy(ctx context.Context, job store.Job, run Run, plan 
 		if err == nil {
 			copy.Verification, copy.VerifiedAt = recoveryObjectsVerified, s.timePointer()
 		} else {
-			copy.Verification, copy.SnapshotID, copy.VerifiedAt = "failed", "", nil
+			copy.Verification, copy.VerifiedAt = "unavailable", nil
+			if errors.Is(err, errIncompleteSnapshot) {
+				copy.Verification, copy.SnapshotID = "failed", ""
+			}
 		}
 	}
 	if err == nil {

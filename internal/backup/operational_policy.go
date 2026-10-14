@@ -11,21 +11,31 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"time"
 )
 
 const policySettingKey = "backup_policy.v1"
+const operationalAlertSettingKey = "backup_protection_alerts.v1"
+
+// PauseReason explains a current execution constraint independently of user intent.
+type PauseReason struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
 
 // Policy is public operational state; heartbeat credentials never leave the server.
 type Policy struct {
-	Paused              bool       `json:"paused"`
-	HostReviewRequired  bool       `json:"host_review_required"`
-	OverdueGraceMinutes int        `json:"overdue_grace_minutes"`
-	HeartbeatConfigured bool       `json:"heartbeat_configured"`
-	LastHeartbeatAt     *time.Time `json:"last_heartbeat_at,omitempty"`
-	HeartbeatError      string     `json:"heartbeat_error,omitempty"`
-	Error               string     `json:"error,omitempty"`
+	EffectivePaused     bool          `json:"effective_paused"`
+	PauseReasons        []PauseReason `json:"pause_reasons"`
+	Paused              bool          `json:"paused"`
+	HostReviewRequired  bool          `json:"host_review_required"`
+	OverdueGraceMinutes int           `json:"overdue_grace_minutes"`
+	HeartbeatConfigured bool          `json:"heartbeat_configured"`
+	LastHeartbeatAt     *time.Time    `json:"last_heartbeat_at,omitempty"`
+	HeartbeatError      string        `json:"heartbeat_error,omitempty"`
+	Error               string        `json:"error,omitempty"`
 }
 type PolicyInput struct {
 	Paused              bool    `json:"paused"`
@@ -45,7 +55,15 @@ type policyState struct {
 	Overdue             map[string]bool `json:"overdue,omitempty"`
 	Error               string          `json:"-"`
 }
+type operationalAlertState struct {
+	Loaded   bool                        `json:"-"`
+	Cursor   string                      `json:"cursor,omitempty"`
+	Notified map[string]OperationalAlert `json:"notified"`
+}
+
 type OperationalAlert struct {
+	Event                                            string
+	PauseReasons                                     []PauseReason
 	PlanID, PlanName, DestinationID, DestinationName string
 	DueAt                                            time.Time
 }
@@ -68,13 +86,13 @@ func (s *Service) initializePolicy(ctx context.Context) {
 	}
 	current := hostIdentity()
 	if s.policy.HostIdentity != "" && s.policy.HostIdentity != current {
-		s.policy.Paused, s.policy.HostReviewRequired = true, true
+		s.policy.HostReviewRequired = true
 	}
 	if s.policy.HostIdentity == "" {
 		// Legacy state may be an in-place upgrade or a recovery on another host.
 		// Without a recorded identity, automatic capture and retention need review.
 		if len(s.state.Plans) > 0 {
-			s.policy.Paused, s.policy.HostReviewRequired = true, true
+			s.policy.HostReviewRequired = true
 		}
 		s.policy.HostIdentity = current
 	}
@@ -97,13 +115,48 @@ func (s *Service) Policy() Policy {
 	defer s.mu.Unlock()
 	return s.policyViewLocked()
 }
+func (s *Service) pauseReasonsLocked() []PauseReason {
+	reasons := []PauseReason{}
+	if s.policy.Paused {
+		reasons = append(reasons, PauseReason{"user_paused", "Automatic backup and retention are paused by an operator."})
+	}
+	if s.policy.HostReviewRequired {
+		reasons = append(reasons, PauseReason{"host_review_required", "Review backup sources and destinations on this host, then acknowledge the host in Backup settings."})
+	}
+	if s.policy.Error != "" {
+		reasons = append(reasons, PauseReason{"policy_error", "Repair the stored backup scheduling policy before resuming automatic backup and retention."})
+	}
+	if s.initErr != nil {
+		reasons = append(reasons, PauseReason{"initialization_error", "The backup module could not initialize. Inspect the saved backup state and service logs."})
+	}
+	if s.recoveryError != "" {
+		reasons = append(reasons, PauseReason{"service_recovery_required", "Resolve Service recovery before capturing or applying data. All plans are blocked because shared source ownership may be uncertain."})
+	}
+	return reasons
+}
 func (s *Service) policyViewLocked() Policy {
-	return Policy{Paused: s.policy.Paused, HostReviewRequired: s.policy.HostReviewRequired, OverdueGraceMinutes: s.policy.OverdueGraceMinutes, HeartbeatConfigured: s.policy.HeartbeatURL != "", LastHeartbeatAt: s.policy.LastHeartbeatAt, HeartbeatError: s.policy.HeartbeatError, Error: s.policy.Error}
+	reasons := s.pauseReasonsLocked()
+	grace := s.policy.OverdueGraceMinutes
+	if grace < 1 || grace > 10080 {
+		grace = 60
+	}
+	return Policy{Paused: s.policy.Paused, EffectivePaused: len(reasons) > 0, PauseReasons: reasons, HostReviewRequired: s.policy.HostReviewRequired, OverdueGraceMinutes: grace, HeartbeatConfigured: s.policy.HeartbeatURL != "", LastHeartbeatAt: s.policy.LastHeartbeatAt, HeartbeatError: s.policy.HeartbeatError, Error: s.policy.Error}
 }
 func (s *Service) SchedulingPaused() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.policy.Paused || s.policy.HostReviewRequired || s.policy.Error != "" || s.initErr != nil || s.recoveryError != ""
+	return len(s.pauseReasonsLocked()) > 0
+}
+
+// Explicit operator pause governs automatic work; a manual capture remains
+// available. Automatic safety pauses also reject manual capture with a conflict.
+func (s *Service) schedulingPauseErrorLocked() error {
+	for _, reason := range s.pauseReasonsLocked() {
+		if reason.Code != "user_paused" {
+			return fmt.Errorf("%w: %s", ErrBusy, reason.Message)
+		}
+	}
+	return nil
 }
 func (s *Service) SavePolicy(ctx context.Context, input PolicyInput) (Policy, error) {
 	if input.OverdueGraceMinutes < 1 || input.OverdueGraceMinutes > 10080 {
@@ -161,6 +214,7 @@ func (s *Service) RunOperationalBackground(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		s.RefreshHelperReadiness(ctx)
 		s.observeProtection(ctx)
 		select {
 		case <-ctx.Done():
@@ -169,16 +223,53 @@ func (s *Service) RunOperationalBackground(ctx context.Context) {
 		}
 	}
 }
-func (s *Service) observeProtection(ctx context.Context) {
-	if s.SchedulingPaused() {
+
+// Alert delivery state is separate from execution policy: observing a corrupt
+// policy must never overwrite the evidence that needs operator repair.
+func (s *Service) initializeOperationalAlertsLocked(ctx context.Context) {
+	if s.operationalAlerts.Loaded {
 		return
 	}
+	s.operationalAlerts = operationalAlertState{Loaded: true, Notified: map[string]OperationalAlert{}}
+	raw, found, err := s.jobs.Store().AppSetting(ctx, operationalAlertSettingKey)
+	if err == nil && found {
+		var saved operationalAlertState
+		if json.Unmarshal([]byte(raw), &saved) == nil && saved.Notified != nil {
+			s.operationalAlerts.Notified = saved.Notified
+			s.operationalAlerts.Cursor = saved.Cursor
+		}
+	}
+}
+func (s *Service) persistOperationalAlertsLocked(ctx context.Context) {
+	data, err := json.Marshal(s.operationalAlerts)
+	if err == nil {
+		_ = s.jobs.Store().SetAppSetting(ctx, operationalAlertSettingKey, string(data), s.now())
+	}
+}
+func alertSignature(alert OperationalAlert) string {
+	codes := []string{alert.Event}
+	for _, reason := range alert.PauseReasons {
+		codes = append(codes, reason.Code)
+	}
+	return strings.Join(codes, "/")
+}
+func (s *Service) observeProtection(ctx context.Context) {
 	s.mu.Lock()
+	s.initializeOperationalAlertsLocked(ctx)
 	now := s.now()
-	grace := time.Duration(s.policy.OverdueGraceMinutes) * time.Minute
-	alerts := []OperationalAlert{}
-	overdue := map[string]bool{}
-	expected, heartbeatHealthy := 0, true
+	graceMinutes := s.policy.OverdueGraceMinutes
+	if graceMinutes < 1 || graceMinutes > 10080 {
+		graceMinutes = 60
+	}
+	grace := time.Duration(graceMinutes) * time.Minute
+	active := map[string]OperationalAlert{}
+	monitored := map[string]bool{}
+	resolved := map[string]bool{}
+	reasons := s.pauseReasonsLocked()
+	if len(reasons) > 0 {
+		active["pause"] = OperationalAlert{Event: "backup_protection_paused", PauseReasons: reasons}
+	}
+	expected, heartbeatHealthy := 0, len(reasons) == 0
 	for _, plan := range s.state.Plans {
 		if !plan.Enabled {
 			continue
@@ -189,6 +280,8 @@ func (s *Service) observeProtection(ctx context.Context) {
 				continue
 			}
 			expected++
+			key := checkpointKey(plan.ID, assignment.DestinationID)
+			monitored[key] = true
 			var copy CopyProtection
 			for _, candidate := range protection.Copies {
 				if candidate.DestinationID == assignment.DestinationID {
@@ -197,53 +290,117 @@ func (s *Service) observeProtection(ctx context.Context) {
 				}
 			}
 			fresh := copy.LastCaptureAt != nil && !copy.LastCaptureAt.After(now.Add(clockSkewTolerance))
+			pastGrace := false
 			if copy.DueAt != nil && (copy.LastCaptureAt == nil || copy.LastCaptureAt.Before(*copy.DueAt)) {
-				// A newly configured schedule starts in the future, without backfilling
-				// an occurrence preceding its durable initial marker.
 				firstFuture := assignment.ScheduleActivatedAt != nil && copy.DueAt.Before(*assignment.ScheduleActivatedAt)
 				if !firstFuture && now.After(copy.DueAt.Add(grace)) {
 					fresh = false
-					key := checkpointKey(plan.ID, assignment.DestinationID)
-					overdue[key] = true
-					if !s.policy.Overdue[key] {
-						alerts = append(alerts, OperationalAlert{PlanID: plan.ID, PlanName: plan.Name, DestinationID: assignment.DestinationID, DestinationName: s.state.Destinations[assignment.DestinationID].Name, DueAt: *copy.DueAt})
-					}
+					pastGrace = true
 				}
 			}
 			if !fresh || !copy.EvidenceUsable {
 				heartbeatHealthy = false
 			}
+			resolved[key] = fresh && copy.EvidenceUsable
+			if pastGrace {
+				active[key] = OperationalAlert{Event: "backup_copy_overdue", PlanID: plan.ID, PlanName: plan.Name, DestinationID: assignment.DestinationID, DestinationName: s.state.Destinations[assignment.DestinationID].Name, DueAt: *copy.DueAt}
+			} else if previous, exists := s.operationalAlerts.Notified[key]; exists && !resolved[key] {
+				// A fresh upload with missing/corrupt evidence does not resolve an alarm.
+				active[key] = previous
+			}
 		}
 	}
-	changed := false
-	for key := range s.policy.Overdue {
-		if !overdue[key] {
-			delete(s.policy.Overdue, key)
-			changed = true
+	type transition struct {
+		key   string
+		alert OperationalAlert
+		clear bool
+	}
+	changes := []transition{}
+	for key, alert := range active {
+		previous, exists := s.operationalAlerts.Notified[key]
+		if !exists || alertSignature(previous) != alertSignature(alert) {
+			changes = append(changes, transition{key: key, alert: alert})
 		}
 	}
-	if changed {
-		_ = s.persistPolicyLocked(ctx)
+	for key, previous := range s.operationalAlerts.Notified {
+		if _, exists := active[key]; exists {
+			continue
+		}
+		if key != "pause" && !monitored[key] {
+			delete(s.operationalAlerts.Notified, key)
+			s.persistOperationalAlertsLocked(ctx)
+			continue
+		}
+		previous.Event = "backup_copy_resolved"
+		if key == "pause" {
+			previous.Event = "backup_protection_resumed"
+		}
+		changes = append(changes, transition{key: key, alert: previous, clear: true})
+	}
+	sort.Slice(changes, func(i, j int) bool { return changes[i].key < changes[j].key })
+	// Rotate copy notifications after the last attempted key so a failing channel
+	// cannot indefinitely starve later plans. System pause transitions go first.
+	ordered := make([]transition, 0, len(changes))
+	for _, change := range changes {
+		if change.key == "pause" {
+			ordered = append(ordered, change)
+		}
+	}
+	for _, change := range changes {
+		if change.key != "pause" && change.key > s.operationalAlerts.Cursor {
+			ordered = append(ordered, change)
+		}
+	}
+	for _, change := range changes {
+		if change.key != "pause" && change.key <= s.operationalAlerts.Cursor {
+			ordered = append(ordered, change)
+		}
 	}
 	notify := s.operationalNotify
 	target := s.policy.HeartbeatURL
 	heartbeatDue := s.policy.LastHeartbeatAt == nil || now.Sub(*s.policy.LastHeartbeatAt) >= time.Minute || s.policy.LastHeartbeatAt.After(now.Add(clockSkewTolerance))
 	s.mu.Unlock()
-	for _, alert := range alerts {
-		if notify == nil {
+	// Healthy evidence can restore an external heartbeat even when a notification
+	// channel is slow. Each HTTP heartbeat is independently bounded to ten seconds.
+	if target != "" && expected > 0 && heartbeatHealthy && heartbeatDue && ctx.Err() == nil {
+		s.deliverProtectionHeartbeat(ctx, target)
+	}
+	deliveryCtx, deliveryCancel := context.WithTimeout(ctx, 20*time.Second)
+	defer deliveryCancel()
+	for index, change := range ordered {
+		if notify == nil || deliveryCtx.Err() != nil || index >= 16 {
 			break
 		}
-		alertCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		err := notify(alertCtx, alert)
+		alertCtx, cancel := context.WithTimeout(deliveryCtx, 10*time.Second)
+		err := notify(alertCtx, change.alert)
 		cancel()
-		if err == nil {
-			s.mu.Lock()
-			s.policy.Overdue[checkpointKey(alert.PlanID, alert.DestinationID)] = true
-			_ = s.persistPolicyLocked(ctx)
-			s.mu.Unlock()
+		s.mu.Lock()
+		if change.key != "pause" {
+			s.operationalAlerts.Cursor = change.key
 		}
+		if err == nil {
+			if change.clear {
+				delete(s.operationalAlerts.Notified, change.key)
+			} else {
+				s.operationalAlerts.Notified[change.key] = change.alert
+			}
+			s.policy.Overdue = map[string]bool{}
+			for key := range s.operationalAlerts.Notified {
+				if key != "pause" {
+					s.policy.Overdue[key] = true
+				}
+			}
+		}
+		s.persistOperationalAlertsLocked(ctx)
+		s.mu.Unlock()
 	}
-	if target == "" || expected == 0 || !heartbeatHealthy || !heartbeatDue || ctx.Err() != nil {
+}
+func (s *Service) deliverProtectionHeartbeat(ctx context.Context, target string) {
+	// Recheck the live execution policy immediately before sending.
+	s.mu.Lock()
+	paused := len(s.pauseReasonsLocked()) > 0 || s.policy.HeartbeatURL != target
+	s.mu.Unlock()
+	if paused {
 		return
 	}
 	err := sendProtectionHeartbeat(ctx, target)

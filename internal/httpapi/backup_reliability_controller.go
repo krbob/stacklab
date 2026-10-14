@@ -74,6 +74,8 @@ func (c *backupController) resolveRecovery(w http.ResponseWriter, r *http.Reques
 		c.fail(w, err)
 		return
 	}
+	now := time.Now().UTC()
+	_ = c.audit.RecordSystemEvent(r.Context(), "backup_recovery_resolution", "local", "accepted", now, nil, map[string]any{"run_id": runID, "job_id": job.ID, "action": input.Action, "inspected": input.Inspected, "reason": input.Reason})
 	c.startWorker(func() { c.backups.ExecuteRecoveryResolution(c.appContext(), job, runID, input) })
 	writeJSON(w, http.StatusAccepted, map[string]any{"job": job})
 }

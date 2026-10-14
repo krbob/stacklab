@@ -93,28 +93,34 @@ func (s *Service) refreshInventories(ctx context.Context) {
 		}
 	}
 	s.mu.Unlock()
-	slots := make(chan struct{}, 2)
+	tasks := make(chan string)
 	var workers sync.WaitGroup
-	for _, id := range ids {
-		if ctx.Err() != nil {
-			break
-		}
+	for i := 0; i < min(2, len(ids)); i++ {
 		workers.Add(1)
-		go func(id string) {
+		go func() {
 			defer workers.Done()
-			select {
-			case slots <- struct{}{}:
-			case <-ctx.Done():
-				return
+			for id := range tasks {
+				if ctx.Err() != nil {
+					continue
+				}
+				d, release, err := s.beginRepositoryRead(ctx, id)
+				if err != nil {
+					continue
+				}
+				_ = s.refreshInventory(ctx, d)
+				release()
 			}
-			defer func() { <-slots }()
-			d, release, err := s.beginRepositoryRead(ctx, id)
-			if err != nil {
-				return
-			}
-			defer release()
-			_ = s.refreshInventory(ctx, d)
-		}(id)
+		}()
 	}
+	for _, id := range ids {
+		select {
+		case <-ctx.Done():
+			close(tasks)
+			workers.Wait()
+			return
+		case tasks <- id:
+		}
+	}
+	close(tasks)
 	workers.Wait()
 }

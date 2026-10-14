@@ -102,7 +102,7 @@ Response:
     "valid_json": true,
     "configured_keys": ["dns", "log-driver"],
     "summary": {
-      "dns": ["192.168.1.2"],
+      "dns": ["192.0.2.10"],
       "registry_mirrors": [],
       "insecure_registries": [],
       "log_driver": "json-file",
@@ -156,7 +156,7 @@ Response:
   "valid_json": true,
   "configured_keys": ["dns", "log-driver"],
   "summary": {
-    "dns": ["192.168.1.2"],
+    "dns": ["192.0.2.10"],
     "registry_mirrors": [],
     "insecure_registries": [],
     "log_driver": "json-file",
@@ -168,7 +168,7 @@ Response:
     "reason": "Managed Docker daemon apply is not configured yet.",
     "managed_keys": ["dns", "registry_mirrors", "insecure_registries", "live_restore"]
   },
-  "content": "{\n  \"dns\": [\"192.168.1.2\"],\n  \"log-driver\": \"json-file\"\n}\n"
+  "content": "{\n  \"dns\": [\"192.0.2.10\"],\n  \"log-driver\": \"json-file\"\n}\n"
 }
 ```
 
@@ -237,7 +237,7 @@ Request:
 ```json
 {
   "settings": {
-    "dns": ["192.168.1.2"],
+    "dns": ["192.0.2.10"],
     "registry_mirrors": ["https://mirror.local"],
     "live_restore": true
   },
@@ -261,10 +261,10 @@ Response:
   ],
   "preview": {
     "path": "/etc/docker/daemon.json",
-    "content": "{\n  \"dns\": [\n    \"192.168.1.2\"\n  ],\n  \"live-restore\": true,\n  \"log-driver\": \"json-file\"\n}\n",
+    "content": "{\n  \"dns\": [\n    \"192.0.2.10\"\n  ],\n  \"live-restore\": true,\n  \"log-driver\": \"json-file\"\n}\n",
     "configured_keys": ["dns", "live-restore", "log-driver"],
     "summary": {
-      "dns": ["192.168.1.2"],
+      "dns": ["192.0.2.10"],
       "registry_mirrors": [],
       "insecure_registries": [],
       "log_driver": "json-file",

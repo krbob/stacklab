@@ -36,6 +36,8 @@ func protectionFor(t *testing.T, s *Service) PlanProtection {
 
 func TestProtectionUsesCaptureAgeSurvivesRetentionAndHistoryCleanup(t *testing.T) {
 	s, _, _ := newTestService(t)
+	now := parseTestTime(t, "2026-10-13T12:00:00Z")
+	s.now = func() time.Time { return now }
 	destination := addDestination(t, s, "Independent copy")
 	plan := addPlan(t, s, destination)
 	plan.Destinations[0].Schedule = Schedule{Frequency: "daily", Time: "09:00", Timezone: "UTC"}
@@ -43,8 +45,6 @@ func TestProtectionUsesCaptureAgeSurvivesRetentionAndHistoryCleanup(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	now := parseTestTime(t, "2026-10-13T12:00:00Z")
-	s.now = func() time.Time { return now }
 	capture := now.Add(-25 * time.Hour)
 	run := completedTestRun(plan, destination, "run_verified", capture, now)
 	run.State = "failed"
@@ -119,12 +119,13 @@ func TestProtectionManualDisabledAndLatestAttemptAreDeterministic(t *testing.T) 
 	active := completedTestRun(plan, a, "run_active", now.Add(time.Minute), now)
 	active.State = "running"
 	active.Copies[0].Verification = "pending"
+	active.Copies[0].State = "running"
 	active.Copies[0].SnapshotID = ""
 	if err = s.saveRun(active, plan); err != nil {
 		t.Fatal(err)
 	}
 	view := protectionFor(t, s)
-	if view.State != "running" || view.CurrentCopies != 1 {
+	if view.State != "manual" || view.Activity != "running" || view.Copies[0].Activity != "running" || view.CurrentCopies != 1 {
 		t.Fatalf("new run hid saved copy=%#v", view)
 	}
 }

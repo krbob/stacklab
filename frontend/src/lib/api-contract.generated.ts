@@ -495,6 +495,11 @@ export interface components {
       read_data: "metadata" | "all" | "subset";
     };
     BackupCopyProtection: {
+      /**
+       * @description Current operation activity, independent of recovery evidence and protection severity.
+       * @enum {string}
+       */
+      activity?: "idle" | "queued" | "running";
       availability_status?: string;
       destination_id: string;
       /** Format: date-time */
@@ -520,7 +525,8 @@ export interface components {
       snapshot_id?: string;
       /** @enum {string} */
       snapshot_status?: "present" | "missing" | "unknown";
-      state: string;
+      /** @enum {string} */
+      state: "current" | "manual" | "disabled" | "unprotected" | "missing" | "integrity_failed" | "unavailable" | "clock_skew" | "unverified" | "overdue" | "outdated";
     };
     BackupCopyResult: {
       /** Format: int64 */
@@ -546,7 +552,8 @@ export interface components {
       state: string;
       /** Format: date-time */
       uploaded_at?: string;
-      verification: string;
+      /** @enum {string} */
+      verification: "pending" | "failed" | "unavailable" | "snapshot_metadata_verified" | "recovery_objects_verified";
       /**
        * Format: date-time
        * @description Time the complete set of referenced recovery objects was verified.
@@ -574,6 +581,11 @@ export interface components {
       kind: "local" | "s3" | "sftp" | "rclone";
       /** Format: date-time */
       last_check_at?: string;
+      /**
+       * Format: date-time
+       * @description Most recent integrity check attempt, including failures; last_check_at remains the last successful check.
+       */
+      last_check_attempt_at?: string;
       last_check_policy?: string;
       /** Format: date-time */
       last_check_scheduled_at?: string;
@@ -717,6 +729,10 @@ export interface components {
     };
     BackupOverview: {
       destinations: components["schemas"]["BackupDestination"][];
+      /** @description Actionable helper readiness problem; isolated retrieval remains available. */
+      helper_error?: string;
+      /** @description Privileged recovery helper passed compatibility, ownership, spool and non-interactive permission checks. */
+      helper_ready?: boolean;
       plans: components["schemas"]["BackupPlan"][];
       protection: components["schemas"]["BackupPlanProtection"][];
       rclone_available: boolean;
@@ -734,14 +750,28 @@ export interface components {
       id: string;
       name: string;
       sources: components["schemas"]["BackupSource"][];
-      /** Format: int64 */
+      /**
+       * Format: int64
+       * @default 10737418240
+       */
       staging_max_bytes: number;
-      /** Format: int32 */
+      /**
+       * Format: int32
+       * @default 24
+       */
       staging_ttl_hours: number;
-      /** Format: int32 */
+      /**
+       * Format: int32
+       * @default 300
+       */
       stop_timeout_seconds: number;
     };
     BackupPlanProtection: {
+      /**
+       * @description Current operation activity, independent of recovery evidence and protection severity.
+       * @enum {string}
+       */
+      activity?: "idle" | "queued" | "running";
       copies: components["schemas"]["BackupCopyProtection"][];
       /** Format: int32 */
       current_copies: number;
@@ -754,12 +784,15 @@ export interface components {
       next_run_at?: string;
       plan_id: string;
       plan_name: string;
-      state: string;
+      /** @enum {string} */
+      state: "healthy" | "manual" | "disabled" | "unprotected" | "attention";
     };
     BackupPlanResponse: {
       plan: components["schemas"]["BackupPlan"];
     };
     BackupPolicy: {
+      /** @description Effective scheduling pause including automatic safety blocks; paused reflects the user setting only. */
+      effective_paused?: boolean;
       error?: string;
       heartbeat_configured: boolean;
       heartbeat_error?: string;
@@ -768,6 +801,11 @@ export interface components {
       last_heartbeat_at?: string;
       /** @default 60 */
       overdue_grace_minutes: number;
+      pause_reasons?: ({
+          /** @enum {string} */
+          code: "user_paused" | "host_review_required" | "policy_error" | "initialization_error" | "service_recovery_required";
+          message: string;
+        })[];
       paused: boolean;
     };
     BackupPolicyInput: {
@@ -785,12 +823,26 @@ export interface components {
       writers: components["schemas"]["BackupWriter"][];
     };
     BackupRecoveryJournal: {
+      can_acknowledge_missing?: boolean;
       error?: string;
+      /** @description Private prepared recovery material exists; its tokens are never returned. */
+      has_prepared_restore?: boolean;
       hold_stopped: boolean;
-      phases?: {
-        [key: string]: string;
+      observations?: {
+        [key: string]: {
+          error?: string;
+          replacements?: ({
+              container_id: string;
+              service?: string;
+              stack_id?: string;
+              /** @enum {string} */
+              state: "running" | "stopped" | "paused";
+            })[];
+          /** @enum {string} */
+          state: "running" | "stopped" | "paused" | "missing" | "unknown";
+        };
       };
-      prepared_tokens?: {
+      phases?: {
         [key: string]: string;
       };
       run_id: string;
@@ -804,7 +856,11 @@ export interface components {
        * @description Acknowledgement removes a reviewed hold without starting services or deleting rollback data.
        * @enum {string}
        */
-      action: "retry" | "acknowledge_hold";
+      action: "retry" | "acknowledge_hold" | "acknowledge_missing";
+      /** @description Must be true for acknowledge_missing after inspecting affected data and replacements. */
+      inspected?: boolean;
+      /** @description Required inspection note for acknowledge_missing; retained in an audit record. */
+      reason?: string;
     };
     BackupRestoreLibraryResponse: {
       items: components["schemas"]["BackupRestoreResult"][];
@@ -936,6 +992,11 @@ export interface components {
       hostname: string;
       id: string;
       paths: string[];
+      /**
+       * Format: date-time
+       * @description Successful complete retrieval test of this exact snapshot; application startup is a separate exercise.
+       */
+      restore_tested_at?: string;
       short_id: string;
       tags: string[];
       /** Format: date-time */

@@ -43,3 +43,31 @@ func TestNotificationClockAdvancesAndEmptySecretDoesNotCorruptError(t *testing.T
 		t.Fatalf("empty secret corrupted message: %s", got)
 	}
 }
+
+func TestBackupPauseAndResolutionPayloadsUseStableReasons(t *testing.T) {
+	ctx := context.Background()
+	s := NewService(openNotificationTestStore(t), nil)
+	if _, err := s.UpdateSettings(ctx, UpdateSettingsRequest{Enabled: true, WebhookURL: "https://example.test/hook", Events: EventToggles{JobFailed: true}}); err != nil {
+		t.Fatal(err)
+	}
+	sent := []WebhookPayload{}
+	s.sendWebhook = func(_ context.Context, _ string, payload WebhookPayload) error {
+		sent = append(sent, payload)
+		return nil
+	}
+	summary := BackupSummary{PlanID: "p", PlanName: "Database", DestinationID: "d", DestinationName: "Offsite", PauseReasons: []string{"service_recovery_required"}}
+	for _, event := range []string{"backup_protection_paused", "backup_protection_resumed", "backup_copy_resolved"} {
+		if err := s.DispatchBackupProtection(ctx, event, summary); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(sent) != 3 || sent[0].Backup.PauseReasons[0] != "service_recovery_required" || sent[0].Event != "backup_protection_paused" || sent[1].Event != "backup_protection_resumed" || sent[2].Backup.PlanID != "p" {
+		t.Fatalf("transition payloads: %+v", sent)
+	}
+	if err := s.DispatchBackupProtection(ctx, "arbitrary", summary); err == nil {
+		t.Fatal("unknown event accepted")
+	}
+	if err := s.DispatchBackupProtection(ctx, "backup_copy_overdue", summary); err == nil {
+		t.Fatal("missing due time accepted")
+	}
+}

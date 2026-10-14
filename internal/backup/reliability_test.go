@@ -58,6 +58,11 @@ func exerciseIncompleteSnapshot(t *testing.T, unreadable bool) {
 	s.capture = &nativeArchiveCapture{fakeCapture: capture}
 	d := addDestination(t, s, "Incomplete snapshot")
 	p := addPlan(t, s, d)
+	p.Destinations[0].Retention = Retention{Daily: 1}
+	p, err := s.SavePlan(context.Background(), p.ID, p)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := s.restic(context.Background(), d, "", "init"); err != nil {
 		t.Fatal(err)
 	}
@@ -78,6 +83,23 @@ func exerciseIncompleteSnapshot(t *testing.T, unreadable bool) {
 	view, _ = s.Overview(context.Background())
 	if runner.calls != 2 || capture.calls != 1 || view.Runs[0].State != "succeeded" || view.Protection[0].CurrentCopies != 1 {
 		t.Fatalf("retry did not rebuild the incomplete copy: uploads=%d captures=%d run=%#v", runner.calls, capture.calls, view.Runs[0])
+	}
+	snapshots, inventoryErr := s.Snapshots(context.Background(), d.ID)
+	if inventoryErr != nil {
+		t.Fatal(inventoryErr)
+	}
+	verifiedID := view.Runs[0].Copies[0].SnapshotID
+	found := false
+	for _, snapshot := range snapshots {
+		if snapshot.ID == verifiedID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("retention removed the verified retry: %s, snapshots=%v", verifiedID, snapshots)
+	}
+	if err := s.verifySavedSnapshot(context.Background(), d, verifiedID); err != nil {
+		t.Fatalf("retained retry is incomplete: %v", err)
 	}
 	if _, err = os.Stat(filepath.Join(s.directory, "staging", run.ID)); !os.IsNotExist(err) {
 		t.Fatalf("successful staging not removed: %v", err)
@@ -201,7 +223,15 @@ func TestUploadAllowsHostMutationIndependentCopyAndUnrelatedRepositoryRead(t *te
 		view, _ := s.Overview(context.Background())
 		fast := view.Runs[0].Copies[1]
 		if fast.State == "succeeded" {
-			break
+			if _, err := s.Snapshots(context.Background(), b.ID); err == nil {
+				operation, err := s.StartRepositoryJob(context.Background(), b.ID, "backup_destination_test", "test")
+				if err != nil {
+					t.Fatalf("finished copy still holds the job resource: %v", err)
+				}
+				s.finish(context.Background(), operation, nil)
+				s.releaseRepositories(operation.ID)
+				break
+			}
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("fast copy waits for stalled destination: %#v", fast)
@@ -239,7 +269,7 @@ func TestReplacementRunCannotHideUnusableProtectionEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	view := protectionFor(t, s)
-	if view.State != "running" || view.Copies[0].EvidenceUsable || view.CurrentCopies != 0 {
+	if view.State != "attention" || view.Activity != "running" || view.Copies[0].State != "outdated" || view.Copies[0].EvidenceUsable || view.CurrentCopies != 0 {
 		t.Fatalf("running phase hid changed selection: %#v", view)
 	}
 }
@@ -287,22 +317,40 @@ func TestResticCancellationAllowsCleanupBeforeEscalation(t *testing.T) {
 		t.Skip("shell unavailable")
 	}
 	dir := t.TempDir()
-	executable := filepath.Join(dir, "restic")
-	marker := filepath.Join(dir, "cleanup")
+	executable, marker, ready := filepath.Join(dir, "restic"), filepath.Join(dir, "cleanup"), filepath.Join(dir, "ready")
 	script := `#!/bin/sh
 trap 'printf cleaned > "$1"; exit 130' INT
+printf ready > "$2"
 while :; do sleep 0.05; done
 `
-
 	if err := os.WriteFile(executable, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	started := time.Now()
-	_, err := (nativeRunner{}).Run(ctx, executable, []string{marker}, cleanProcessEnvironment(), dir)
-	if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > 3*time.Second {
-		t.Fatalf("graceful cancel: %v after %s", err, time.Since(started))
+	done := make(chan error, 1)
+	go func() {
+		_, err := (nativeRunner{}).Run(ctx, executable, []string{marker, ready}, cleanProcessEnvironment(), dir)
+		done <- err
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("process did not install its signal handler")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("graceful cancel: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("cancellation did not allow prompt cleanup")
 	}
 	if data, err := os.ReadFile(marker); err != nil || string(data) != "cleaned" {
 		t.Fatalf("process did not perform cleanup: %q %v", data, err)

@@ -4,6 +4,9 @@ export const manualSchedule: BackupSchedule = { frequency: 'manual' }
 
 export function scheduleDescription(schedule: BackupSchedule) {
   if (schedule.frequency === 'manual') return 'Manual only'
-  if (schedule.frequency === 'interval') return `Every ${schedule.interval_hours ?? 1} hours (UTC)`
-  return `${schedule.frequency === 'weekly' ? ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][schedule.weekday ?? 0] : 'Daily'} at ${schedule.time || '02:00'} · ${schedule.timezone || 'host timezone'}`
+  if (schedule.frequency === 'interval') {
+    const hours = schedule.interval_hours
+    return hours ? `Every ${hours} ${hours === 1 ? 'hour' : 'hours'} (UTC)` : 'Interval not configured'
+  }
+  return `${schedule.frequency === 'weekly' ? ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][schedule.weekday ?? -1] || 'Unspecified day' : 'Daily'} at ${schedule.time || 'unspecified time'} · ${schedule.timezone || 'host timezone'}`
 }

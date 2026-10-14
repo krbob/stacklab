@@ -8,7 +8,7 @@ import { sourceCoverage } from './backups/source-coverage'
 
 export function StackBackupsPage() {
   const { stackId = '' } = useParams()
-  const state = useApi(() => getStackBackups(stackId), [stackId])
+  const state = useApi((signal) => getStackBackups(stackId, signal), [stackId])
   const data = state.data
   return (
     <div className="space-y-4">

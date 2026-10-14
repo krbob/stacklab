@@ -75,13 +75,20 @@ and service compensation, the job atomically replaces that reservation with
 repository resources and uploads immutable staging. Up to two independent copies
 can transfer concurrently. Repository reservations use normalized identity, pin
 configuration/credentials, and exclude conflicting reads/mutations of the same
-repository. Unrelated stack operations and repository reads remain available.
+repository. A completed copy releases its reservation after its own retention;
+the final reservation survives until the job finishes so drain still observes it.
+Unrelated stack operations and repository reads remain available.
 Native restic locks remain authoritative, including external processes and aliases
 that cannot be recognized as the same remote repository locally. Self-update still
 drains active jobs. No automatic force-unlock is performed.
 
-Small repository commands have a 90-second deadline. Backup transfer has a
-five-minute no-progress watchdog and the job retains a 24-hour execution limit.
+Ordinary snapshots/cat/dump/ls/stats/init commands have a 90-second deadline;
+verification and retry lookup allow 15 minutes per command. Retention has a
+30-minute execution budget. A transient verification failure stays unverified
+and is not permission to create another snapshot. Backup transfer has a
+five-minute no-progress watchdog while reading, with one bounded 30-minute final
+flush window after all known input bytes are processed. Unchanged status events
+never reset the deadline. The job retains a 24-hour execution limit.
 Cancellation first signals restic to finish, then forces termination after a
 bounded grace period. Error categories are secret-safe and support the declared
 restic version range rather than assuming new exit codes on older versions.
@@ -95,7 +102,12 @@ promptly; expiry cleanup skips active runs. Retry lifetime is independent of the
 24-hour execution deadline. Plans carry explicit staging
 byte, lifetime and stop-time limits. Retention forgets only Stacklab-owned,
 plan-scoped snapshots; foreign/adopted snapshots are not subject to new retention
-policies. Checks inspect the repository, and prune reclaims unreferenced packs
+policies. Only complete verified snapshots compete for UTC day/ISO-week/month
+retention buckets; explicit immutable IDs are forgotten. Partial, unknown, legacy
+and future-dated snapshots are preserved and cannot displace verified recovery
+points. Verification evidence is bounded to 4096 IDs, and each pass inspects at
+most 64 unknown candidates. Eviction requires revalidation, never blind deletion.
+Checks inspect the repository, and prune reclaims unreferenced packs
 without forgetting foreign snapshots.
 
 Local destinations pin a filesystem device identity and check it before every
@@ -126,7 +138,11 @@ Nonexistent daylight-saving wall times are skipped; repeated wall times run
 once. Schedule previews and the scheduler share the same occurrence calculation.
 Repository check and prune have independent schedules and durable occurrence
 markers. A conflict leaves the occurrence due; a started failure is reported
-once instead of creating a retry storm. A scheduled prune separates per-copy
+once instead of creating a retry storm. Admission runs every five seconds;
+up to four scheduled runs and two maintenance operations execute independently,
+with at most two inventory requests in a separate worker. Resource reservations
+still serialize capture and conflicting repositories. Workers are joined during
+shutdown, including service recovery after cancellation. A scheduled prune separates per-copy
 forget from pack cleanup; configurations without it keep the existing
 forget-and-prune behavior. Native restic locks remain authoritative.
 New or changed schedules start at their next future occurrence. Unchanged
@@ -153,7 +169,10 @@ Protection reconciles snapshot inventory after inspection/maintenance and in the
 background, records the evidence age, and exposes missing, unverified, integrity,
 availability and clock-skew states. A failed inventory read does not mean deletion.
 Legacy metadata-only checkpoints require complete-object verification. Recovery
-exercise evidence belongs to its exact snapshot. Future occurrence/checkpoint
+exercise evidence belongs to its exact snapshot. Bounded history retains up to
+4096 complete-exercise proofs rather than a single slot per repository. Activity
+is independent of protection state, and the latest operation error is selected
+after identifying the latest run. Future occurrence/checkpoint
 markers cannot silently suppress future work after a clock correction.
 
 
@@ -221,13 +240,18 @@ capabilities are rejected before privileged extraction. Set-group-ID directories
 ordinary ownership/modes, ACLs and user xattrs remain supported.
 Before downtime, the helper seals and validates input into root-owned disk
 storage at `/var/lib/stacklab-backup-helper` and binds a preparation token to the
-target and mode. It rechecks target safety immediately before mutation. Successful
+target, mode and complete/filtered capture scope (protocol 2). Every privileged
+recovery action supports an independent readiness probe, including its sudo
+permission, before review and during operational monitoring. It rechecks target
+safety immediately before mutation. Successful
 operations release prepared data; interrupted writes retain journal/token evidence
 for operator inspection. Default temporary storage and unsealed mutable file
 descriptors are not substitutes for this protected copy.
 
 Complete-directory apply defaults to replace; explicit merge retains unrelated
-entries. Single-file sources replace only their selected basename and never clear
+entries. Sources with excludes cannot use exact replacement; managed/configured
+root boundaries cannot be replacement targets. No automatic merge fallback changes
+recovery semantics. Single-file sources replace only their selected basename and never clear
 the parent directory. Replacement preserves the target mountpoint, refuses nested
 mounts, moves existing children to a rollback directory on that filesystem and
 extracts the source. Failed extraction attempts restore the previous contents;
@@ -243,14 +267,21 @@ Fresh-host recovery is also possible with restic and GNU tar; see the
 ## Operational Policy
 
 `backup_policy.v1` stores a global scheduling/retention pause, host identity,
-overdue grace (default 60 minutes), alert transition markers and a write-only
+overdue grace (default 60 minutes) and a write-only
 optional HTTP(S) protection heartbeat URL. A changed host identity pauses automatic
 work until explicit review; cloning the same machine identity cannot be detected
 this way and requires an operator pause. Existing plans without a saved host
 identity also require a one-time review: an in-place upgrade cannot be
 distinguished safely from recovery of legacy state on a different host.
 
-An independent background worker detects overdue copies while transfers run,
+`backup_protection_alerts.v1` stores notification transitions independently, so
+observing a broken execution policy never overwrites that policy. Effective pause
+reasons distinguish operator intent from host review, recovery and module errors.
+Confirmed missing original containers have a reviewed, audited resolution; new
+containers with matching Compose labels are displayed but never started by it.
+
+An independent background worker detects overdue copies even while execution is
+paused or transfers run,
 delivers transition alerts through the existing failure-notification channels,
 and sends a success heartbeat at most once a minute only while enabled scheduled
 copies have acceptable current protection evidence. No scheduled assignments means

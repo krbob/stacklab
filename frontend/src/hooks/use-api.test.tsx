@@ -71,4 +71,17 @@ describe('useApi', () => {
     expect(result.current.data).toBe('loaded data')
     expect(result.current.loading).toBe(false)
   })
+  it('preserves the same error through retries and clears it only after success', async () => {
+    const retry = deferred<string>()
+    const failure = new Error('Offline')
+    const fetcher = vi.fn().mockRejectedValueOnce(failure).mockReturnValueOnce(retry.promise)
+    const { result } = renderHook(() => useApi(fetcher, []))
+    await waitFor(() => expect(result.current.error).toBe(failure))
+    act(() => result.current.refetch())
+    expect(result.current.error).toBe(failure)
+    await act(async () => { retry.resolve('online'); await retry.promise })
+    expect(result.current.error).toBeNull()
+    expect(result.current.data).toBe('online')
+  })
+
 })

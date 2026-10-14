@@ -191,3 +191,13 @@ Current publication policy:
 The retention count can be overridden when republishing a channel with
 `scripts/release/publish-apt-repo.sh --keep-versions N`; use `0` to keep all
 package versions in that channel.
+
+## Backup Helper Upgrades
+
+The package updates the helper and its example, but does not overwrite an
+operator-managed `/etc/sudoers.d/stacklab-backup`. Compare it with
+`/usr/share/doc/stacklab/examples/stacklab-backup.sudoers.example` after upgrading,
+review the narrow action list, install root:root 0440 and validate with `visudo -cf`.
+Old rules can allow backups while denying recovery preparation. The Backups
+helper readiness indicator probes every required action and identifies this
+condition before services are stopped. See [backup setup](backup-and-recovery.md).

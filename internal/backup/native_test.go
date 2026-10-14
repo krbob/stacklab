@@ -72,12 +72,20 @@ func TestNativeRepositoryRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := fresh.ExecuteRepositoryJob(context.Background(), job, imported.ID, "backup_restore", CheckRequest{}, RestoreRequest{SnapshotID: snapshots[0].ID, Target: target, Test: true})
+	result, err := fresh.ExecuteRepositoryJob(context.Background(), job, imported.ID, "backup_restore", CheckRequest{}, RestoreRequest{SnapshotID: snapshots[0].ShortID, Target: target, Test: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Manifest == nil || result.Manifest.PlanID != p.ID {
 		t.Fatalf("recovered manifest=%#v", result.Manifest)
+	}
+	// Exact snapshot restore-test evidence survives a process restart and is
+	// exposed on repository inventory without implying tests of other snapshots.
+	reopened := NewService(fresh.cfg, fresh.jobs, fresh.capture)
+	reopened.runner = nativeRunner{}
+	testedSnapshots, proofErr := reopened.Snapshots(context.Background(), imported.ID)
+	if proofErr != nil || len(testedSnapshots) != 1 || testedSnapshots[0].RestoreTestedAt == nil || result.SnapshotID != snapshots[0].ID {
+		t.Fatalf("restore test evidence was not persisted: %#v %v", testedSnapshots, proofErr)
 	}
 	data, err := os.ReadFile(filepath.Join(target, "payload"))
 	if err != nil || string(data) != "recover me" {

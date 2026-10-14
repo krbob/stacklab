@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useApi } from '@/hooks/use-api'
 import { getBackupCoverage, type BackupOverview, type BackupPlan } from '@/lib/backup-api'
@@ -8,6 +9,8 @@ import { sourceCoverage } from './source-coverage'
 export function ProtectionDashboard({
   data,
   refreshKey,
+  active = true,
+  pending = false,
   onCreatePlan,
   onAddDestination,
   onRun,
@@ -15,18 +18,24 @@ export function ProtectionDashboard({
 }: {
   data: BackupOverview
   refreshKey?: number | null
+  active?: boolean
+  pending?: boolean
   onCreatePlan: () => void
   onAddDestination: () => void
   onRun: (plan: BackupPlan) => void
   onRecovery: (destinationId: string) => void
 }) {
-  const coverage = useApi((signal) => getBackupCoverage(signal), [refreshKey])
+  const [coverageRevision, setCoverageRevision] = useState(refreshKey)
+  useEffect(() => {
+    if (active) setCoverageRevision(refreshKey)
+  }, [active, refreshKey])
+  const coverage = useApi((signal) => getBackupCoverage(signal), [coverageRevision])
   const protection = data.protection ?? []
   const copies = protection.flatMap((plan) => plan.copies)
   const current = copies.filter((copy) => copy.state === 'current').length
   const manual = copies.filter((copy) => copy.state === 'manual').length
   const attention = copies.filter(
-    (copy) =>
+    (copy) => copy.state !== 'disabled' && (
       [
         'overdue',
         'outdated',
@@ -36,7 +45,7 @@ export function ProtectionDashboard({
         'unavailable',
         'clock_skew',
         'unverified',
-      ].includes(copy.state) || !!copy.last_error,
+      ].includes(copy.state) || !!copy.last_error),
   ).length
   const incomplete = !!coverage.error || (coverage.data?.stacks ?? []).some((stack) => !!stack.error)
   const gaps = (coverage.data?.stacks ?? [])
@@ -89,7 +98,9 @@ export function ProtectionDashboard({
               <article key={plan.id} className="space-y-3 rounded-md border border-[var(--panel-border)] p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="font-medium text-[var(--text)]">{plan.name}</h3>
-                  <BackupStatus value={health?.state ?? (plan.enabled ? 'unprotected' : 'disabled')} />
+                  <div className="flex gap-2"><BackupStatus value={health?.state ?? (plan.enabled ? 'unprotected' : 'disabled')} />
+                    {health?.activity && health.activity !== 'idle' && <BackupStatus value={health.activity} />}
+                  </div>
                 </div>
                 <p className="text-sm text-[var(--muted)]">
                   {health
@@ -104,8 +115,15 @@ export function ProtectionDashboard({
                       <div key={copy.destination_id} className="rounded-md bg-[var(--bg)] p-3">
                         <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                           <span className="text-[var(--text)]">{destination?.name || copy.destination_id}</span>
-                          <BackupStatus value={copy.state} />
+                          <div className="flex gap-2"><BackupStatus value={copy.state} />
+                            {copy.activity && copy.activity !== 'idle' && <BackupStatus value={copy.activity} />}
+                          </div>
                         </div>
+                        {copy.evidence_usable !== undefined && copy.state !== 'disabled' && (
+                          <p className="mt-2 text-xs text-[var(--muted)]">
+                            {copy.evidence_usable ? 'Saved copy has usable recovery evidence.' : 'Saved copy does not have usable recovery evidence.'}
+                          </p>
+                        )}
                         <dl className="mt-2 grid gap-2 text-xs sm:grid-cols-3">
                           <div>
                             <dt className="text-[var(--muted)]">Latest data captured</dt>
@@ -201,7 +219,7 @@ export function ProtectionDashboard({
                     )
                   })}
                 </div>
-                <button className={buttonClass} disabled={!data.restic_available} onClick={() => onRun(plan)}>
+                <button className={buttonClass} disabled={pending || !data.restic_available} onClick={() => onRun(plan)}>
                   Back up now
                 </button>
               </article>

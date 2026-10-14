@@ -43,6 +43,9 @@ func run(args []string) error {
 		return errors.New("expected archive or restore")
 	}
 	action := args[0]
+	if len(args) == 2 && args[1] == "--probe" {
+		return probeRecoveryAction(action)
+	}
 	if action == "service-config" {
 		if len(args) != 1 {
 			return errors.New("service-config accepts no arguments")
@@ -178,7 +181,11 @@ func run(args []string) error {
 		return err
 	}
 	defer input.Close()
-	token, err := prepareRestore(ctx, input, info.Size(), target, "merge")
+	opened, err := input.Stat()
+	if err != nil || !os.SameFile(info, opened) {
+		return errors.New("recovery archive changed during authorization")
+	}
+	token, err := prepareRestore(ctx, input, info.Size(), target, "merge", "complete")
 	if err != nil {
 		return err
 	}

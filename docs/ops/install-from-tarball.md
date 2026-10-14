@@ -90,9 +90,11 @@ The tarball also includes:
 - `bin/stacklab-docker-admin-helper`
 - `bin/stacklab-workspace-admin-helper`
 - `bin/stacklab-self-update-helper`
+- `bin/stacklab-backup-helper`
 - `systemd/stacklab-docker-admin.sudoers.example`
 - `systemd/stacklab-workspace-admin.sudoers.example`
 - `systemd/stacklab-self-update.sudoers.example`
+- `systemd/stacklab-backup.sudoers.example`
 
 The self-update helper is included because the same release artifact also feeds
 the `.deb` build, but tarball installs themselves remain unsupported for
@@ -242,3 +244,18 @@ curl -fsS http://127.0.0.1:8080/api/ready
 - it does not support Stacklab self-update
 - it does not support migration to or from package-managed installs
 - it assumes the host already has Docker and Compose available
+
+## Native Backup Helper
+
+Install restic 0.14+, rclone 1.60+, GNU tar, OpenSSH client and CA certificates
+through the host distribution. Configure
+`STACKLAB_BACKUP_HELPER_PATH=/opt/stacklab/app/current/bin/stacklab-backup-helper`
+and `STACKLAB_BACKUP_USE_SUDO=true` after reviewing the bundled backup sudoers
+example. Install the allowlist as root:root 0440 and validate it with `visudo -cf`.
+The updater creates root-owned mode-0700 `/var/lib/stacklab-backup-helper`; custom
+units require this writable path and `NoNewPrivileges=false`.
+
+On upgrade, reconcile the existing sudoers file with the new example: capture
+permission alone does not grant prepared recovery actions. Verify the Backups
+helper readiness indicator and perform an isolated recovery before relying on
+new plans. See [backup setup and recovery](backup-and-recovery.md).

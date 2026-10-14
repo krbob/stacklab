@@ -3,6 +3,7 @@ package backup
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -104,6 +105,7 @@ func (s *Service) ExecuteRepositoryJob(ctx context.Context, job store.Job, id, a
 	case "backup_destination_test":
 		_, operationErr = s.restic(ctx, d, "", "cat", "config")
 	case "backup_check":
+		d.LastCheckAttemptAt = s.timePointer()
 		operationErr = s.check(ctx, d, check.ReadData)
 		if operationErr == nil {
 			_ = s.refreshInventory(ctx, d)
@@ -128,7 +130,7 @@ func (s *Service) ExecuteRepositoryJob(ctx context.Context, job store.Job, id, a
 				recoveryError := s.recoveryError
 				s.mu.Unlock()
 				if recoveryError != "" {
-					operationErr = fmt.Errorf("backup recovery requires attention: %s", recoveryError)
+					operationErr = fmt.Errorf("%w: backup recovery requires attention: %s", ErrBusy, recoveryError)
 				} else if lockErr := s.jobs.ReplaceResources(job.ID, jobs.GlobalResource(), jobs.BackupRepositoryResource(repositoryKey(d))); lockErr != nil {
 					operationErr = lockErr
 				} else {
@@ -144,9 +146,16 @@ func (s *Service) ExecuteRepositoryJob(ctx context.Context, job store.Job, id, a
 		if operationErr == nil && restore.Test {
 			d.LastRestoreTestAt = s.timePointer()
 			d.LastRestoreTestSnapshotID = result.SnapshotID
+			s.mu.Lock()
+			rememberSnapshotEvidence(&s.state.RestoreTests, snapshotEvidenceKey(d.ID, result.SnapshotID), *d.LastRestoreTestAt)
+			s.mu.Unlock()
 		}
 		if operationErr == nil {
-			s.event(ctx, job, "Recovered files are available in "+result.Target+".")
+			if restore.RestoredDirectory != "" || restore.RestoreID != "" || len(restore.Mappings) > 0 {
+				s.event(ctx, job, "Reviewed recovery was applied to the selected destinations.")
+			} else {
+				s.event(ctx, job, "Recovered files are available in "+result.Target+".")
+			}
 		}
 	default:
 		operationErr = fmt.Errorf("%w: unsupported repository operation", ErrInvalid)
@@ -164,25 +173,29 @@ func (s *Service) ExecuteRepositoryJob(ctx context.Context, job store.Job, id, a
 	return result, operationErr
 }
 
-func (s *Service) restore(ctx context.Context, d Destination, request RestoreRequest) (RestoreResult, error) {
+func (s *Service) restore(ctx context.Context, d Destination, request RestoreRequest) (result RestoreResult, resultErr error) {
 	s.mu.Lock()
 	libraryFull := len(s.state.Restores) >= 200
 	s.mu.Unlock()
 	if libraryFull {
 		return RestoreResult{}, fmt.Errorf("%w: recovery library is full; remove an old result first", ErrInvalid)
 	}
-	result := RestoreResult{ID: newID("restore_"), JobID: request.jobID, CreatedAt: s.now(), Available: true, DestinationID: d.ID, SnapshotID: request.SnapshotID, Test: request.Test}
-	if !snapshotID.MatchString(request.SnapshotID) {
-		return result, fmt.Errorf("%w: snapshot_id must be a hexadecimal snapshot ID", ErrInvalid)
+	result = RestoreResult{ID: newID("restore_"), JobID: request.jobID, CreatedAt: s.now(), Available: true, DestinationID: d.ID, SnapshotID: request.SnapshotID, Test: request.Test}
+	if err := validateRestoreSelection(request); err != nil {
+		return result, err
 	}
-	if request.Test && (len(request.Includes) > 0 || len(request.SourceIDs) > 0 || len(request.Files) > 0) {
-		return result, fmt.Errorf("%w: restore tests require the full recovery set", ErrInvalid)
-	}
-	if len(request.SourceIDs) > 1000 || len(request.Files) > 100 || len(request.Includes) > 1000 {
-		return result, fmt.Errorf("%w: restore selection is too large", ErrInvalid)
-	}
-	if len(request.Includes) > 0 && (len(request.SourceIDs) > 0 || len(request.Files) > 0) || len(request.SourceIDs) > 0 && len(request.Files) > 0 {
-		return result, fmt.Errorf("%w: choose sources, files, or legacy paths, not multiple selection modes", ErrInvalid)
+	if request.Test && len(request.SnapshotID) < 64 {
+		// A short ID is accepted as input, but durable proof is bound to the
+		// unique immutable full ID returned by this repository before restore.
+		output, err := s.restic(ctx, d, "", "snapshots", request.SnapshotID)
+		if err != nil {
+			return result, err
+		}
+		var snapshots []Snapshot
+		if err := json.Unmarshal(output, &snapshots); err != nil || len(snapshots) != 1 || len(snapshots[0].ID) != 64 || !snapshotID.MatchString(snapshots[0].ID) || !strings.HasPrefix(snapshots[0].ID, request.SnapshotID) {
+			return result, fmt.Errorf("%w: restore test requires a uniquely resolved snapshot ID", ErrInvalid)
+		}
+		request.SnapshotID, result.SnapshotID = snapshots[0].ID, snapshots[0].ID
 	}
 	exactSelection := []string{}
 	if len(request.SourceIDs) > 0 || len(request.Files) > 0 {
@@ -283,7 +296,9 @@ func (s *Service) restore(ctx context.Context, d Destination, request RestoreReq
 			if !registered {
 				current, statErr := root.Lstat(filepath.Base(target))
 				if statErr == nil && original != nil && os.SameFile(original, current) {
-					_ = root.RemoveAll(filepath.Base(target))
+					if cleanupErr := s.deleteManagedRestore(result); cleanupErr != nil {
+						resultErr = errors.Join(resultErr, fmt.Errorf("could not remove failed isolated recovery: %w", cleanupErr))
+					}
 				}
 			}
 		}()
@@ -409,20 +424,30 @@ func isWithin(root, path string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-// RunBackground executes at most one missed occurrence per assignment, then
-// records the next due time. A scheduler resource conflict remains due for the
-// next tick. Runs are synchronous here so shutdown waits for capture recovery.
+// Background admission stays responsive while transfers or checks run. Capture
+// exclusion and per-repository leases remain authoritative; bounded workers are
+// joined before shutdown completes.
 func (s *Service) RunBackground(ctx context.Context) {
-	ticker := time.NewTicker(time.Minute)
+	runs, maintenance, inventories := newBackgroundWorkers(4), newBackgroundWorkers(2), newBackgroundWorkers(1)
+	defer runs.wait()
+	defer maintenance.wait()
+	defer inventories.wait()
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
+	var lastHousekeeping time.Time
 	for {
 		if ctx.Err() != nil {
 			return
 		}
-		s.cleanupExpired()
-		s.runScheduled(ctx)
-		s.runMaintenance(ctx)
-		s.refreshInventories(ctx)
+		s.scheduleRuns(ctx, runs)
+		s.scheduleMaintenance(ctx, maintenance)
+		if lastHousekeeping.IsZero() || time.Since(lastHousekeeping) >= time.Minute {
+			s.cleanupExpired()
+			if inventories.reserve(ctx) {
+				go func() { defer inventories.release(); s.refreshInventories(ctx) }()
+			}
+			lastHousekeeping = time.Now()
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -430,7 +455,8 @@ func (s *Service) RunBackground(ctx context.Context) {
 		}
 	}
 }
-func (s *Service) runScheduled(ctx context.Context) {
+func (s *Service) runScheduled(ctx context.Context) { s.scheduleRuns(ctx, nil) }
+func (s *Service) scheduleRuns(ctx context.Context, workers *backgroundWorkers) {
 	if s.SchedulingPaused() {
 		return
 	}
@@ -463,8 +489,14 @@ func (s *Service) runScheduled(ctx context.Context) {
 		if len(dueIDs) == 0 {
 			continue
 		}
+		if workers != nil && !workers.reserve(ctx) {
+			return
+		}
 		job, run, err := s.StartRun(ctx, p.ID, RunRequest{DestinationIDs: dueIDs}, "scheduler")
 		if err != nil {
+			if workers != nil {
+				workers.release()
+			}
 			continue
 		}
 		s.mu.Lock()
@@ -486,9 +518,17 @@ func (s *Service) runScheduled(ctx context.Context) {
 			run.CaptureState = "failed"
 			_ = s.saveRun(run, p)
 			s.finish(ctx, job, persistErr)
+			s.releaseRepositories(job.ID)
+			if workers != nil {
+				workers.release()
+			}
 			continue
 		}
-		s.ExecuteRun(ctx, job, run.ID)
+		if workers == nil {
+			s.ExecuteRun(ctx, job, run.ID)
+		} else {
+			go func() { defer workers.release(); s.ExecuteRun(ctx, job, run.ID) }()
+		}
 	}
 }
 func sortPlans(plans []Plan) { // Stable ordering prevents map iteration starvation.

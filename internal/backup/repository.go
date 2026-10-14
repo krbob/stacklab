@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -37,14 +38,15 @@ func (nativeRunner) RunProgress(ctx context.Context, name string, args, env []st
 	if filepath.Base(name) == "restic" && commandIn(args, "backup") {
 		transferCtx, cancel := context.WithCancelCause(ctx)
 		defer cancel(nil)
-		timer := time.AfterFunc(5*time.Minute, func() { cancel(errTransferStalled) })
+		watchdog := newTransferWatchdog(time.Now())
+		var finalizing atomic.Bool
+		timer := time.AfterFunc(transferProgressTimeout, func() { cancel(transferStallError(finalizing.Load())) })
 		defer timer.Stop()
-		previousBytes, previousFiles := int64(-1), int64(-1)
 		original := callback
 		callback = func(progress transferProgress) {
-			if progress.BytesProcessed != previousBytes || progress.FilesProcessed != previousFiles {
-				previousBytes, previousFiles = progress.BytesProcessed, progress.FilesProcessed
-				timer.Reset(5 * time.Minute)
+			if watchdog.observe(time.Now(), progress) {
+				finalizing.Store(watchdog.finalizing)
+				timer.Reset(time.Until(watchdog.deadline))
 			}
 			if original != nil {
 				original(progress)
@@ -90,7 +92,7 @@ func (nativeRunner) RunProgress(ctx context.Context, name string, args, env []st
 	cmd.Stderr = &diagnostic
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
-			return nil, context.Cause(ctx)
+			return nil, commandContextError(context.Cause(ctx))
 		}
 		// Remote backends may echo credential-bearing URLs or rclone configuration.
 		// Never include raw subprocess output in errors, events, or API responses.
@@ -236,7 +238,11 @@ func shellWord(value string) string { return "'" + strings.ReplaceAll(value, "'"
 func (s *Service) restic(ctx context.Context, d Destination, dir string, args ...string) ([]byte, error) {
 	if len(args) > 0 && (args[0] == "snapshots" || args[0] == "cat" || args[0] == "dump" || args[0] == "ls" || args[0] == "stats" || args[0] == "init") {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, 90*time.Second)
+		budget := 90 * time.Second
+		if verification, _ := ctx.Value(verificationContextKey{}).(bool); verification {
+			budget = 15 * time.Minute
+		}
+		ctx, cancel = context.WithTimeout(ctx, budget)
 		defer cancel()
 	}
 	if err := s.validateAvailability(d); err != nil {
@@ -391,13 +397,18 @@ func (s *Service) Snapshots(ctx context.Context, id string) ([]Snapshot, error) 
 	if err = s.reconcileInventory(ctx, d, result); err != nil {
 		return nil, err
 	}
+	s.mu.Lock()
+	for i := range result {
+		result[i].RestoreTestedAt = s.restoreTestedAtLocked(d, result[i].ID)
+	}
+	s.mu.Unlock()
 	return result, nil
 }
 
 func (s *Service) upload(ctx context.Context, d Destination, p Plan, run Run, stage string) (string, error) {
 	// A process can die after restic commits a snapshot but before SQLite records
 	// its ID. Recover by the immutable run tag before starting another upload.
-	prior, lookupErr := s.restic(ctx, d, "", "snapshots", "--tag", "stacklab,instance:"+s.state.InstanceID+",plan:"+p.ID+",run:"+run.ID)
+	prior, lookupErr := s.restic(context.WithValue(ctx, verificationContextKey{}, true), d, "", "snapshots", "--tag", "stacklab,instance:"+s.state.InstanceID+",plan:"+p.ID+",run:"+run.ID)
 	if lookupErr != nil {
 		return "", lookupErr
 	}
@@ -409,8 +420,8 @@ func (s *Service) upload(ctx context.Context, d Destination, p Plan, run Run, st
 		if snapshotID.MatchString(priorSnapshots[index].ID) {
 			if err := s.verifyRecoveryObjects(ctx, d, priorSnapshots[index].ID, stage); err == nil {
 				return priorSnapshots[index].ID, nil
-			} else if ctx.Err() != nil {
-				return "", ctx.Err()
+			} else if !errors.Is(err, errIncompleteSnapshot) {
+				return "", fmt.Errorf("existing snapshot verification unavailable: %w", err)
 			}
 		}
 	}
@@ -428,19 +439,6 @@ func (s *Service) upload(ctx context.Context, d Destination, p Plan, run Run, st
 	}
 	return "", fmt.Errorf("restic did not report a completed snapshot")
 }
-func (s *Service) retain(ctx context.Context, d Destination, planID string, policy Retention) error {
-	if policy.Daily == 0 && policy.Weekly == 0 && policy.Monthly == 0 {
-		return nil
-	}
-	// An AND tag list limits ownership to this plan. Stable host and group-by tags
-	// avoid each randomly named prepared directory forming a separate group.
-	args := []string{"forget", "--tag", "stacklab,instance:" + s.state.InstanceID + ",plan:" + planID, "--group-by", "host", "--keep-daily", strconv.Itoa(policy.Daily), "--keep-weekly", strconv.Itoa(policy.Weekly), "--keep-monthly", strconv.Itoa(policy.Monthly)}
-	if d.PruneSchedule.Frequency == "" || d.PruneSchedule.Frequency == "manual" {
-		args = append(args, "--prune")
-	}
-	_, err := s.restic(ctx, d, "", args...)
-	return err
-}
 
 func (s *Service) check(ctx context.Context, d Destination, policy string) error {
 	args := []string{"check"}
@@ -457,15 +455,27 @@ func (s *Service) check(ctx context.Context, d Destination, policy string) error
 	return err
 }
 
-var errTransferStalled = errors.New("restic transfer made no progress for five minutes; check destination connectivity and retry")
+var errTransferStalled = errors.New("restic transfer exceeded its bounded progress timeout; check destination connectivity and retry")
 
 type repositoryCommandError struct {
 	Code     string
 	ExitCode int
 	message  string
+	cause    error
 }
 
 func (e *repositoryCommandError) Error() string { return e.message }
+func (e *repositoryCommandError) Unwrap() error { return e.cause }
+func commandContextError(cause error) error {
+	code, message := "timeout", "repository operation timed out; check connectivity and retry"
+	if errors.Is(cause, context.Canceled) {
+		code, message = "cancelled", "repository operation was cancelled"
+	}
+	if errors.Is(cause, errTransferStalled) {
+		code, message = "unavailable", cause.Error()
+	}
+	return &repositoryCommandError{Code: code, ExitCode: -1, message: message + " (" + code + ")", cause: cause}
+}
 func commandIn(args []string, wanted string) bool {
 	for _, arg := range args {
 		if arg == wanted {
@@ -517,7 +527,7 @@ func retryRepositoryLock(ctx context.Context, call func() ([]byte, error)) ([]by
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return nil, ctx.Err()
+			return nil, commandContextError(ctx.Err())
 		case <-timer.C:
 		}
 	}

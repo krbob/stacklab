@@ -136,7 +136,7 @@ directory and registration, never a custom target. Failed internal restore targe
 are cleaned automatically. Neither
 metadata retention nor deleting a destination destroys a restic repository.
 
-Schedules use explicit timezone-aware calendar occurrences. At startup, at most
+Schedules use explicit timezone-aware calendar occurrences. On each scheduler tick, at most
 one missed occurrence per destination is caught up; destinations due together
 share capture. A resource collision stays due for retry on the next scheduler
 tick. Failed scheduled execution is a normal failed job and notification,
@@ -160,7 +160,8 @@ after restart. Legacy schedules lacking a marker remain eligible for catch-up.
 The captured timestamp, selected-source fingerprint and last verified snapshot
 are durable evidence independent of retained run summaries. A retry does not
 make captured data newer. Current, overdue, outdated selection, manual,
-disabled, running and never-captured copies remain distinguishable. A useful
+disabled and never-captured copies remain distinguishable. `activity` separately
+reports queued/running work without replacing the protection state. A useful
 snapshot and a failed retention step can coexist. Availability, check outcome
 and last operation outcome are separate destination fields.
 
@@ -180,16 +181,25 @@ command output.
   preserves it and `clear_heartbeat` removes it. Resuming after a host change
   requires `acknowledge_host=true`. Pause also suppresses automatic retention.
   Existing plans without saved host identity require the same one-time review.
+  `effective_paused` and `pause_reasons` include automatic safety blocks, independent
+  of the user's `paused` preference. Monitoring and transition notifications continue.
 - `GET /backups/recovery` lists durable service-recovery journals. Malformed
   journals remain visible for manual inspection. `POST /backups/recovery/{runId}`
   returns a job: `retry` retries the recorded service identities; explicit
   `acknowledge_hold` removes a reviewed restore hold without starting services or
-  deleting helper rollback data. Both use exclusive lifecycle coordination.
+  deleting helper rollback data. `acknowledge_missing` requires `inspected=true`
+  and an operator reason (8–1000 characters); every unfinished original container
+  must be proven absent. All use exclusive lifecycle coordination and durable
+  resolution audit. Observations distinguish current Docker state/replacements
+  from historical phases; prepared helper tokens are never returned.
+- Overview `helper_ready`/`helper_error` report current privileged recovery protocol
+  readiness. Capture may remain usable when helper recovery permissions need repair.
 - Overview `recovery_error` explains degraded backup operation while the panel
   remains available. Unsafe capture/apply is blocked until recovery is resolved.
 - Copy protection includes `snapshot_status`, `snapshot_checked_at`,
   `integrity_status`, `availability_status` and snapshot-scoped
-  `last_restore_test_at`. Inventory failure or expired evidence is not silently
+  `last_restore_test_at`; snapshot lists expose `restore_tested_at` and destinations
+  distinguish `last_check_attempt_at` from the last successful check. Inventory failure or expired evidence is not silently
   treated as a healthy current copy. Clock anomalies require attention.
   `evidence_usable` separates verification evidence from a currently running
   transfer. `schedule_activated_at` excludes occurrences before a new schedule
@@ -202,3 +212,7 @@ command output.
   expose unselected archive content. Authentication and private attachment headers
   match individual-file downloads. `recovery_restrictions` describes metadata
   requiring operator-controlled offline extraction.
+
+Exact replace rejects filtered sources and managed/configured root boundaries.
+The source scope comes from the registered manifest and is sealed by the helper;
+clients cannot override it in mappings. Explicit merge retains unarchived content.

@@ -483,13 +483,22 @@ func (h *systemController) handleFrontend(w http.ResponseWriter, r *http.Request
 	if requestPath != "" && requestPath != "." {
 		candidate := filepath.Join(h.cfg.FrontendDistDir, requestPath)
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			if requestPath == "index.html" {
+				w.Header().Set("Cache-Control", "no-cache")
+			}
 			http.ServeFile(w, r, candidate)
+			return
+		}
+		if strings.HasPrefix(requestPath, "assets/") {
+			w.Header().Set("Cache-Control", "no-store")
+			http.NotFound(w, r)
 			return
 		}
 	}
 
 	indexPath := filepath.Join(h.cfg.FrontendDistDir, "index.html")
 	if info, err := os.Stat(indexPath); err == nil && !info.IsDir() {
+		w.Header().Set("Cache-Control", "no-cache")
 		http.ServeFile(w, r, indexPath)
 		return
 	}

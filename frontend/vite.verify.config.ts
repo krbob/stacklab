@@ -1,9 +1,12 @@
-// Temporary verification config: dev server proxied to production API.
-// Not part of the build; safe to delete.
+// Optional verification proxy. Set STACKLAB_VERIFY_API to an explicitly chosen test instance.
 import { fileURLToPath, URL } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+
+const target = process.env.STACKLAB_VERIFY_API
+if (!target) throw new Error('Set STACKLAB_VERIFY_API to the test instance URL before using the verification proxy.')
+const origin = new URL(target).origin
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -17,18 +20,18 @@ export default defineConfig({
     port: 5199,
     proxy: {
       '/api': {
-        target: 'https://stacklab.bobinski.net',
+        target,
         changeOrigin: true,
         secure: true,
         ws: true,
         cookieDomainRewrite: '127.0.0.1',
         configure(proxy) {
           proxy.on('proxyReq', (proxyReq) => {
-            proxyReq.setHeader('origin', 'https://stacklab.bobinski.net')
-            proxyReq.setHeader('referer', 'https://stacklab.bobinski.net/')
+            proxyReq.setHeader('origin', origin)
+            proxyReq.setHeader('referer', `${origin}/`)
           })
           proxy.on('proxyReqWs', (proxyReq) => {
-            proxyReq.setHeader('origin', 'https://stacklab.bobinski.net')
+            proxyReq.setHeader('origin', origin)
           })
           proxy.on('proxyRes', (proxyRes) => {
             const cookies = proxyRes.headers['set-cookie']

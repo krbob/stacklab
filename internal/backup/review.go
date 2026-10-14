@@ -47,6 +47,10 @@ func (s *Service) normalizeRecoveryRequest(ctx context.Context, destinationID st
 			return request, fmt.Errorf("%w: a registered restore_id or restored_directory is required", ErrInvalid)
 		}
 		s.mu.Lock()
+		if s.restoreDeletes[filepath.Clean(request.RestoredDirectory)] {
+			s.mu.Unlock()
+			return request, fmt.Errorf("%w: recovery result deletion is in progress", ErrBusy)
+		}
 		registered, ok := s.state.Restores[filepath.Clean(request.RestoredDirectory)]
 		result = clone(registered)
 		s.mu.Unlock()
@@ -100,6 +104,14 @@ func (s *Service) recoveryPreview(ctx context.Context, destinationID string, req
 	capture, ok := s.capture.(recoveryCapturer)
 	if !ok {
 		return manifest, preview, fmt.Errorf("reviewed recovery unavailable")
+	}
+	if checker, supported := s.capture.(recoveryHelperChecker); supported {
+		if err := checker.CheckRecoveryHelper(ctx); err != nil {
+			s.mu.Lock()
+			s.helperReady, s.helperError, s.helperCheckedAt = false, err.Error(), s.now()
+			s.mu.Unlock()
+			return manifest, preview, fmt.Errorf("%w: %v", ErrBusy, err)
+		}
 	}
 	if !filepath.IsAbs(request.RestoredDirectory) || len(request.Mappings) == 0 {
 		return manifest, preview, fmt.Errorf("%w: restored_directory and mappings are required", ErrInvalid)

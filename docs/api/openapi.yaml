@@ -6073,6 +6073,10 @@ components:
     BackupDestination:
       type: object
       properties:
+        last_check_attempt_at:
+          type: string
+          format: date-time
+          description: Most recent integrity check attempt, including failures; last_check_at remains the last successful check.
         last_inventory_attempt_at:
           type: string
           format: date-time
@@ -6203,11 +6207,15 @@ components:
         weekday:
           type: integer
           format: int32
+          minimum: 0
+          maximum: 6
         timezone:
           type: string
         interval_hours:
           type: integer
           format: int32
+          minimum: 1
+          maximum: 168
       required:
       - frequency
     BackupRetention:
@@ -6216,12 +6224,18 @@ components:
         daily:
           type: integer
           format: int32
+          minimum: 0
+          maximum: 10000
         weekly:
           type: integer
           format: int32
+          minimum: 0
+          maximum: 10000
         monthly:
           type: integer
           format: int32
+          minimum: 0
+          maximum: 10000
       required:
       - daily
       - weekly
@@ -6275,12 +6289,21 @@ components:
         staging_max_bytes:
           type: integer
           format: int64
+          minimum: 1048576
+          maximum: 1125899906842624
+          default: 10737418240
         staging_ttl_hours:
           type: integer
           format: int32
+          minimum: 1
+          maximum: 168
+          default: 24
         stop_timeout_seconds:
           type: integer
           format: int32
+          minimum: 10
+          maximum: 3600
+          default: 300
       required:
       - id
       - name
@@ -6309,6 +6332,7 @@ components:
           format: date-time
         verification:
           type: string
+          enum: [pending, failed, unavailable, snapshot_metadata_verified, recovery_objects_verified]
         retention:
           type: string
         error:
@@ -6399,6 +6423,10 @@ components:
     BackupSnapshot:
       type: object
       properties:
+        restore_tested_at:
+          type: string
+          format: date-time
+          description: Successful complete retrieval test of this exact snapshot; application startup is a separate exercise.
         id:
           type: string
         short_id:
@@ -6426,6 +6454,20 @@ components:
     BackupPolicy:
       type: object
       properties:
+        effective_paused:
+          type: boolean
+          description: Effective scheduling pause including automatic safety blocks; paused reflects the user setting only.
+        pause_reasons:
+          type: array
+          items:
+            type: object
+            required: [code, message]
+            properties:
+              code:
+                type: string
+                enum: [user_paused, host_review_required, policy_error, initialization_error, service_recovery_required]
+              message:
+                type: string
         paused:
           type: boolean
         host_review_required:
@@ -6467,6 +6509,37 @@ components:
     BackupRecoveryJournal:
       type: object
       properties:
+        can_acknowledge_missing:
+          type: boolean
+        has_prepared_restore:
+          type: boolean
+          description: Private prepared recovery material exists; its tokens are never returned.
+        observations:
+          type: object
+          additionalProperties:
+            type: object
+            required: [state]
+            properties:
+              state:
+                type: string
+                enum: [running, stopped, paused, missing, unknown]
+              error:
+                type: string
+              replacements:
+                type: array
+                items:
+                  type: object
+                  required: [container_id, state]
+                  properties:
+                    container_id:
+                      type: string
+                    stack_id:
+                      type: string
+                    service:
+                      type: string
+                    state:
+                      type: string
+                      enum: [running, stopped, paused]
         run_id:
           type: string
         hold_stopped:
@@ -6476,10 +6549,6 @@ components:
           items:
             $ref: '#/components/schemas/BackupWriter'
         phases:
-          type: object
-          additionalProperties:
-            type: string
-        prepared_tokens:
           type: object
           additionalProperties:
             type: string
@@ -6497,14 +6566,28 @@ components:
     BackupRecoveryResolution:
       type: object
       properties:
+        inspected:
+          type: boolean
+          description: Must be true for acknowledge_missing after inspecting affected data and replacements.
+        reason:
+          type: string
+          minLength: 8
+          maxLength: 1000
+          description: Required inspection note for acknowledge_missing; retained in an audit record.
         action:
           type: string
-          enum: [retry, acknowledge_hold]
+          enum: [retry, acknowledge_hold, acknowledge_missing]
           description: Acknowledgement removes a reviewed hold without starting services or deleting rollback data.
       required: [action]
     BackupOverview:
       type: object
       properties:
+        helper_ready:
+          type: boolean
+          description: Privileged recovery helper passed compatibility, ownership, spool and non-interactive permission checks.
+        helper_error:
+          type: string
+          description: Actionable helper readiness problem; isolated retrieval remains available.
         recovery_error:
           type: string
           description: Unresolved service recovery or backup state issue; the panel remains available.
@@ -6569,6 +6652,7 @@ components:
             type: string
         files:
           type: array
+          maxItems: 100
           items:
             $ref: '#/components/schemas/BackupFileSelection'
         mappings:
@@ -6821,12 +6905,17 @@ components:
     BackupPlanProtection:
       type: object
       properties:
+        activity:
+          type: string
+          enum: [idle, queued, running]
+          description: Current operation activity, independent of recovery evidence and protection severity.
         plan_id:
           type: string
         plan_name:
           type: string
         state:
           type: string
+          enum: [healthy, manual, disabled, unprotected, attention]
         expected_copies:
           type: integer
           format: int32
@@ -6855,6 +6944,10 @@ components:
     BackupCopyProtection:
       type: object
       properties:
+        activity:
+          type: string
+          enum: [idle, queued, running]
+          description: Current operation activity, independent of recovery evidence and protection severity.
         evidence_usable:
           type: boolean
           description: Snapshot presence and verification evidence remain usable independently of transfer activity or schedule freshness.
@@ -6876,6 +6969,7 @@ components:
           type: string
         state:
           type: string
+          enum: [current, manual, disabled, unprotected, missing, integrity_failed, unavailable, clock_skew, unverified, overdue, outdated]
         last_capture_at:
           type: string
           format: date-time

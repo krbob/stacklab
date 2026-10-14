@@ -91,6 +91,9 @@ func normalizeRestoreResult(result RestoreResult) RestoreResult {
 func (s *Service) registerRestoreResult(ctx context.Context, result RestoreResult) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.restoreDeletes[filepath.Clean(result.Target)] {
+		return fmt.Errorf("%w: recovery result deletion is in progress", ErrBusy)
+	}
 	if s.state.Restores == nil {
 		s.state.Restores = map[string]RestoreResult{}
 	}
@@ -155,6 +158,9 @@ func (s *Service) ResolveRestore(ctx context.Context, id string) (RestoreResult,
 	}
 	for _, result := range s.state.Restores {
 		if restoreIdentity(result) == id {
+			if s.restoreDeletes[filepath.Clean(result.Target)] {
+				return RestoreResult{}, fmt.Errorf("%w: recovery result deletion is in progress", ErrBusy)
+			}
 			normalized := normalizeRestoreResult(clone(result))
 			normalized.Managed = s.managedRestore(normalized)
 			return normalized, nil

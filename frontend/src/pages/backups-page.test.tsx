@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { BackupsPage } from './backups-page'
@@ -6,11 +6,12 @@ import { DestinationEditor } from './backups/destination-editor'
 import { PlanEditor } from './backups/plan-editor'
 import { ApplyRecoveryDialog } from './backups/apply-recovery-dialog'
 import * as api from '@/lib/backup-api'
+import { useJobStream } from '@/hooks/use-job-stream'
 import { getStacks } from '@/lib/api-client'
 
 vi.mock('@/lib/backup-api')
 vi.mock('@/lib/api-client', () => ({ getStacks: vi.fn() }))
-vi.mock('@/hooks/use-job-stream', () => ({ useJobStream: () => ({ state: null, events: [] }) }))
+vi.mock('@/hooks/use-job-stream', () => ({ useJobStream: vi.fn(() => ({ state: null, events: [], clear: vi.fn() })) }))
 
 const destination: api.BackupDestination = {
   id: 'nas',
@@ -63,6 +64,7 @@ const jobResponse = { job: { id: 'job-1' } } as api.BackupJobResponse
 
 beforeEach(() => {
   vi.resetAllMocks()
+  vi.mocked(useJobStream).mockReturnValue({ state: null, events: [], clear: vi.fn() })
   vi.mocked(api.getBackups).mockResolvedValue(overview)
   vi.mocked(api.getBackupPolicy).mockResolvedValue({
     paused: false,
@@ -131,7 +133,7 @@ describe('Backup workflow', () => {
     fireEvent.change(await screen.findByLabelText('Filter by result'), { target: { value: 'failed' } })
     fireEvent.click(screen.getByRole('tab', { name: 'Recovery' }))
     expect(screen.getByLabelText('Recovery set')).toHaveValue('snap')
-    expect(api.getBackupSnapshots).toHaveBeenCalledTimes(1)
+    expect(api.getBackupSnapshots).toHaveBeenCalledTimes(2)
     fireEvent.click(screen.getByRole('tab', { name: 'History' }))
     expect(screen.getByLabelText('Filter by result')).toHaveValue('failed')
   })
@@ -362,5 +364,84 @@ describe('Backup configuration and recovery', () => {
         review_token: 'bound-review',
       }),
     )
+  })
+})
+
+
+describe('Backup workflow round two regressions', () => {
+  const oldSnapshot: api.BackupSnapshot = { id: 'old', short_id: 'old', time: '2026-10-01T00:00:00Z', hostname: 'host', tags: [], paths: [] }
+  function recoveryFixtures() {
+    vi.mocked(api.getBackupSnapshots).mockResolvedValue({ items: [oldSnapshot] })
+    vi.mocked(api.getBackupRestores).mockResolvedValue({ items: [] })
+    vi.mocked(api.getBackupCatalog).mockResolvedValue({ items: [], sources: [], path: '', total: 0, offset: 0, limit: 50, index_available: false, transfer_bytes: 0 })
+  }
+
+  it('refreshes a mounted Recovery list after backup completion and preserves the chosen snapshot', async () => {
+    recoveryFixtures()
+    vi.mocked(api.runBackupPlan).mockResolvedValue(jobResponse)
+    renderPage('recovery')
+    fireEvent.change(await screen.findByLabelText('Recovery set'), { target: { value: 'old' } })
+    fireEvent.click(screen.getByRole('tab', { name: 'Plans' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Back up now' }))
+    const dialog = screen.getByRole('dialog')
+    await within(dialog).findByText('demo / db')
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /I understand/ }))
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Start backup' }))
+    await waitFor(() => expect(api.runBackupPlan).toHaveBeenCalled())
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    vi.mocked(api.getBackupSnapshots).mockResolvedValue({ items: [oldSnapshot, { ...oldSnapshot, id: 'new', short_id: 'new' }] })
+    vi.mocked(useJobStream).mockReturnValue({ state: 'succeeded', events: [], clear: vi.fn() })
+    fireEvent.click(screen.getByRole('tab', { name: 'Recovery' }))
+    await screen.findByRole('option', { name: /new/ })
+    expect(screen.getByLabelText('Recovery set')).toHaveValue('old')
+    expect(api.getBackupRestores).toHaveBeenCalledTimes(3)
+  })
+
+  it('invalidates snapshots and restored data on manual Refresh without discarding selection', async () => {
+    recoveryFixtures()
+    renderPage('recovery')
+    fireEvent.change(await screen.findByLabelText('Recovery set'), { target: { value: 'old' } })
+    vi.mocked(api.getBackupSnapshots).mockResolvedValue({ items: [oldSnapshot, { ...oldSnapshot, id: 'new', short_id: 'new' }] })
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    await screen.findByRole('option', { name: /new/ })
+    expect(screen.getByLabelText('Recovery set')).toHaveValue('old')
+    expect(api.getBackupRestores).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not rediscover sources or policy on every running overview poll', async () => {
+    vi.mocked(api.getBackups).mockResolvedValue({ ...overview, runs: [{ id: 'active', job_id: 'active-job', plan_id: 'daily', plan_name: 'Daily', state: 'running', capture_state: 'running', phase: 'capture', created_at: '2026-10-01T00:00:00Z', expires_at: '2026-10-02T00:00:00Z', copies: [] }] })
+    vi.useFakeTimers()
+    try {
+      await act(async () => { renderPage('protection') })
+      expect(screen.getByText('Copies needing attention')).toBeVisible()
+      expect(api.getBackupCoverage).toHaveBeenCalledTimes(1)
+      expect(api.getBackupPolicy).toHaveBeenCalledTimes(1)
+      await act(async () => { await vi.advanceTimersByTimeAsync(15000) })
+      expect(api.getBackups).toHaveBeenCalledTimes(4)
+      expect(api.getBackupCoverage).toHaveBeenCalledTimes(1)
+      expect(api.getBackupPolicy).toHaveBeenCalledTimes(1)
+    } finally { vi.useRealTimers() }
+  })
+
+  it('keeps failed refresh feedback visible while the next refresh is pending', async () => {
+    renderPage('plans')
+    await screen.findByRole('button', { name: 'Back up now' })
+    vi.mocked(api.getBackups).mockRejectedValueOnce(new Error('Network is unavailable'))
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('Network is unavailable')
+    vi.mocked(api.getBackups).mockImplementation(() => new Promise(() => {}))
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    expect(screen.getByRole('alert')).toBe(alert)
+    expect(screen.getByRole('button', { name: 'Back up now' })).toBeVisible()
+  })
+
+  it('uses the configured check policy and disables initialization for an available repository', async () => {
+    vi.mocked(api.getBackups).mockResolvedValue({ ...overview, destinations: [{ ...destination, status: 'available', check_read_data: 'all', inventory_error: 'Inventory could not be confirmed', last_check_attempt_at: '2026-10-14T09:00:00Z' }] })
+    renderPage('destinations')
+    expect(await screen.findByRole('button', { name: 'Initialize' })).toBeDisabled()
+    expect(screen.getByText(/Inventory could not be confirmed/)).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Check repository' }))
+    expect(screen.getByLabelText('Data-read policy')).toHaveValue('all')
   })
 })

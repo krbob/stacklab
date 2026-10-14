@@ -328,10 +328,11 @@ func archiveMemberLists(ctx context.Context, archive *os.File) (string, string, 
 }
 
 type RestoreMapping struct {
-	SourceID   string `json:"source_id"`
-	Target     string `json:"target"`
-	VolumeName string `json:"volume_name,omitempty"`
-	Mode       string `json:"mode,omitempty"`
+	SourceID    string `json:"source_id"`
+	Target      string `json:"target"`
+	VolumeName  string `json:"volume_name,omitempty"`
+	Mode        string `json:"mode,omitempty"`
+	sourceScope string
 }
 type RestorePreview struct {
 	Mappings   []RestoreMapping `json:"mappings"`
@@ -381,6 +382,14 @@ func (c *NativeCapture) PreviewRestore(ctx context.Context, manifest Manifest, m
 			preview.Mappings[index].Mode = "merge"
 			preview.Warnings = append(preview.Warnings, "Single-file source "+source.Source.ID+" replaces only its archived basename; neighboring files are retained.")
 		}
+		preview.Mappings[index].sourceScope = "complete"
+		if len(source.Source.Excludes) > 0 {
+			preview.Mappings[index].sourceScope = "filtered"
+			if mapping.Mode == "replace" {
+				return preview, errors.New("exact replacement is unavailable for a source with backup exclusions: excluded live data must be preserved; choose merge explicitly for suitable file data or recover offline")
+			}
+			preview.Warnings = append(preview.Warnings, "Source "+source.Source.ID+" contains backup exclusions. Explicit merge preserves unarchived paths and does not provide exact database recovery.")
+		}
 		if len(source.RecoveryRestrictions) > 0 {
 			return preview, errors.New("source requires operator-controlled offline recovery: " + strings.Join(source.RecoveryRestrictions, "; "))
 		}
@@ -414,6 +423,13 @@ func (c *NativeCapture) PreviewRestore(ctx context.Context, manifest Manifest, m
 		}
 		allowed := mapping.VolumeName != ""
 		roots := append([]string{filepath.Join(c.cfg.RootDir, "stacks"), filepath.Join(c.cfg.RootDir, "config"), filepath.Join(c.cfg.RootDir, "data")}, c.cfg.BackupAllowedPaths...)
+		if mapping.Mode == "replace" {
+			for _, root := range roots {
+				if filepath.IsAbs(root) && pathContains(normalizedDataPath(mapping.Target), normalizedDataPath(root)) {
+					return preview, errors.New("exact replacement cannot target a managed or configured backup root, or its ancestor; select the individual source directory")
+				}
+			}
+		}
 		for _, root := range roots {
 			if filepath.IsAbs(root) && pathContains(normalizedDataPath(root), normalizedDataPath(mapping.Target)) {
 				allowed = true
@@ -474,7 +490,7 @@ func (c *NativeCapture) prepareRestoreArchive(ctx context.Context, archive strin
 	if err != nil {
 		return "", err
 	}
-	args := []string{"prepare-restore", "--path", mapping.Target, "--mode", mapping.Mode, "--size", fmt.Sprint(info.Size())}
+	args := []string{"prepare-restore", "--path", mapping.Target, "--mode", mapping.Mode, "--source-scope", mapping.sourceScope, "--size", fmt.Sprint(info.Size())}
 	name, args := c.helperInvocation(args...)
 	cmd := exec.CommandContext(ctx, name, args...)
 	configureCaptureProcess(cmd)

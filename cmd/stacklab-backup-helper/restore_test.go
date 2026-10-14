@@ -73,7 +73,7 @@ func TestExactReplacementRemovesNewerFilesAndPreservesMountpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state := preparedRestore{Target: target, Mode: "replace", Phase: "prepared"}
+	state := preparedRestore{Target: target, Mode: "replace", SourceScope: "complete", Phase: "prepared"}
 	if err = validatePreparedTarget(context.Background(), archive, target, "replace"); err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestReplacementFailureRestoresPreviousContents(t *testing.T) {
 	if err := os.WriteFile(archive, []byte("not a tar"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	state := preparedRestore{Target: target, Mode: "replace", Phase: "prepared"}
+	state := preparedRestore{Target: target, Mode: "replace", SourceScope: "complete", Phase: "prepared"}
 	if err := applyPreparedRestore(context.Background(), directory, archive, &state); err == nil {
 		t.Fatal("invalid archive succeeded")
 	}
@@ -186,7 +186,7 @@ func TestPreparedArchiveAcceptsCallerBytesAndIsImmutable(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := filepath.Join(directory, "target")
-	token, err := prepareRestore(context.Background(), bytes.NewReader(data), int64(len(data)), target, "replace")
+	token, err := prepareRestore(context.Background(), bytes.NewReader(data), int64(len(data)), target, "replace", "complete")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestPreparedArchiveAcceptsCallerBytesAndIsImmutable(t *testing.T) {
 	if state.Target != target || state.Mode != "replace" || state.Phase != "prepared" {
 		t.Fatalf("unbound prepared state=%+v", state)
 	}
-	if _, err = prepareRestore(context.Background(), strings.NewReader("short"), int64(len(data)), target, "replace"); err == nil {
+	if _, err = prepareRestore(context.Background(), strings.NewReader("short"), int64(len(data)), target, "replace", "complete"); err == nil {
 		t.Fatal("truncated input accepted")
 	}
 }
@@ -286,7 +286,7 @@ func TestBatchPreflightAccountsForAllTargetsOnOneFilesystem(t *testing.T) {
 		if readErr != nil {
 			t.Fatal(readErr)
 		}
-		token, prepareErr := prepareRestore(context.Background(), bytes.NewReader(data), int64(len(data)), filepath.Join(directory, "data", name), "replace")
+		token, prepareErr := prepareRestore(context.Background(), bytes.NewReader(data), int64(len(data)), filepath.Join(directory, "data", name), "replace", "complete")
 		if prepareErr != nil {
 			t.Fatal(prepareErr)
 		}

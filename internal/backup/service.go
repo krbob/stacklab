@@ -28,14 +28,16 @@ type persistedRun struct {
 	PlanSnapshot Plan `json:"plan_snapshot"`
 }
 type state struct {
-	CopyCheckpoints map[string]copyCheckpoint `json:"copy_checkpoints,omitempty"`
-	RestoreOrder    []string                  `json:"restore_order,omitempty"`
-	Restores        map[string]RestoreResult  `json:"restores"`
-	InstanceID      string                    `json:"instance_id"`
-	Version         int                       `json:"version"`
-	Destinations    map[string]Destination    `json:"destinations"`
-	Plans           map[string]Plan           `json:"plans"`
-	Runs            map[string]persistedRun   `json:"runs"`
+	VerifiedSnapshots map[string]time.Time      `json:"verified_snapshots,omitempty"`
+	RestoreTests      map[string]time.Time      `json:"restore_tests,omitempty"`
+	CopyCheckpoints   map[string]copyCheckpoint `json:"copy_checkpoints,omitempty"`
+	RestoreOrder      []string                  `json:"restore_order,omitempty"`
+	Restores          map[string]RestoreResult  `json:"restores"`
+	InstanceID        string                    `json:"instance_id"`
+	Version           int                       `json:"version"`
+	Destinations      map[string]Destination    `json:"destinations"`
+	Plans             map[string]Plan           `json:"plans"`
+	Runs              map[string]persistedRun   `json:"runs"`
 }
 
 type Service struct {
@@ -52,6 +54,12 @@ type Service struct {
 	recoveryError         string
 	policy                policyState
 	operationalNotify     func(context.Context, OperationalAlert) error
+	operationalAlerts     operationalAlertState
+	helperReady           bool
+	helperError           string
+	helperCheckedAt       time.Time
+	helperChecking        bool
+	restoreDeletes        map[string]bool
 	activeRepositoryReads int
 	initErr               error
 	now                   func() time.Time
@@ -115,6 +123,12 @@ func NewService(cfg config.Config, jobService *jobs.Service, capture Capturer) *
 		s.state.Runs = map[string]persistedRun{}
 	}
 	for id, destination := range s.state.Destinations {
+		if destination.LastRestoreTestAt != nil && snapshotID.MatchString(destination.LastRestoreTestSnapshotID) {
+			key := snapshotEvidenceKey(id, destination.LastRestoreTestSnapshotID)
+			if _, exists := s.state.RestoreTests[key]; !exists {
+				rememberSnapshotEvidence(&s.state.RestoreTests, key, *destination.LastRestoreTestAt)
+			}
+		}
 		if destination.CheckSchedule.Frequency == "" {
 			destination.CheckSchedule.Frequency = "manual"
 		}
@@ -172,7 +186,7 @@ func clone[T any](value T) T {
 func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	result := Overview{Destinations: []Destination{}, Plans: []Plan{}, Runs: []Run{}, Protection: []PlanProtection{}, StagingDirectory: filepath.Join(s.directory, "staging"), RecoveryError: s.recoveryError}
+	result := Overview{Destinations: []Destination{}, Plans: []Plan{}, Runs: []Run{}, Protection: []PlanProtection{}, StagingDirectory: filepath.Join(s.directory, "staging"), RecoveryError: s.recoveryError, HelperReady: s.helperReady, HelperError: s.helperError}
 	if s.initErr != nil {
 		result.RecoveryError = "Backup module is unavailable: " + s.initErr.Error() + ". Inspect the saved backup state; other Stacklab features remain available."
 		return result, nil
@@ -199,7 +213,7 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 }
 
 func (s *Service) configurationBusyLocked() bool {
-	if len(s.repositoryJobs) > 0 || s.activeRepositoryReads > 0 {
+	if len(s.repositoryJobs) > 0 || s.activeRepositoryReads > 0 || len(s.restoreDeletes) > 0 {
 		return true
 	}
 	for _, r := range s.state.Runs {
@@ -520,7 +534,7 @@ func (s *Service) StartRun(ctx context.Context, planID string, request RunReques
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.initErr != nil {
-		return store.Job{}, Run{}, s.initErr
+		return store.Job{}, Run{}, fmt.Errorf("%w: %s", ErrBusy, s.initErr)
 	}
 
 	p, ok := s.state.Plans[planID]
@@ -541,8 +555,8 @@ func (s *Service) StartRun(ctx context.Context, planID string, request RunReques
 	if len(selected) > 0 || len(copies) == 0 {
 		return store.Job{}, Run{}, fmt.Errorf("%w: select enabled destinations assigned to this plan", ErrInvalid)
 	}
-	if s.recoveryError != "" {
-		return store.Job{}, Run{}, fmt.Errorf("backup recovery requires attention: %s", s.recoveryError)
+	if err := s.schedulingPauseErrorLocked(); err != nil {
+		return store.Job{}, Run{}, err
 	}
 	resources, err := s.repositoryResourcesLocked(copies)
 	if err != nil {
@@ -815,11 +829,21 @@ func (s *Service) ExecuteRun(ctx context.Context, job store.Job, runID string) {
 				runMu.Lock()
 				defer runMu.Unlock()
 				run.Copies[index] = copy
+				if phase == "progress" {
+					s.mu.Lock()
+					s.state.Runs[run.ID] = persistedRun{Run: clone(run), PlanSnapshot: clone(p)}
+					s.mu.Unlock()
+					return nil
+				}
 				run.Phase = phase
 				return s.saveRun(run, p)
 			})
 			runMu.Lock()
 			run.Copies[index] = result
+			if releaseErr := s.releaseCompletedRepository(job.ID, initial.DestinationID); releaseErr != nil {
+				run.Copies[index].State = "failed"
+				run.Copies[index].Error = "Could not release completed repository reservation: " + releaseErr.Error()
+			}
 			runMu.Unlock()
 		}(i, copy)
 	}
@@ -837,6 +861,7 @@ func (s *Service) ExecuteRun(ctx context.Context, job store.Job, runID string) {
 // Reconcile preserves successful copies and marks interrupted work for an
 // explicit retry. Capture recovery must run before accepting mutations.
 func (s *Service) Reconcile(ctx context.Context) error {
+	s.CheckHelperReadiness(ctx)
 	var recoveryErr error
 	if s.capture != nil {
 		recoveryErr = s.capture.Recover(ctx)

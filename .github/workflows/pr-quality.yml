@@ -66,8 +66,23 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Install native backup test dependencies
+        run: sudo apt-get update && sudo apt-get install -y restic acl attr libcap2-bin
+
       - name: Run backend tests and coverage gates
         run: make check-backend-coverage COVERAGE_DIR=coverage
+
+      - name: Exercise native repositories and concurrent backup recovery
+        run: |
+          set -o pipefail
+          restic version | tee coverage/restic-version.txt
+          go test -race -count=1 -v ./internal/backup ./internal/jobs | tee coverage/backup-race.log
+
+      - name: Exercise privileged Linux recovery helper
+        run: |
+          set -o pipefail
+          go test -c -o "$RUNNER_TEMP/stacklab-backup-helper.test" ./cmd/stacklab-backup-helper
+          sudo "$RUNNER_TEMP/stacklab-backup-helper.test" -test.v | tee coverage/backup-helper-root.log
 
       - name: Upload backend coverage
         if: ${{ always() }}

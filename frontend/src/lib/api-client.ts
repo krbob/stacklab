@@ -373,12 +373,12 @@ export function repairConfigWorkspacePermissions(requestBody: ConfigRepairPermis
 
 // --- Stack management ---
 
-export function getStacks(params?: StackListQueryParams): Promise<StackListResponse> {
+export function getStacks(params?: StackListQueryParams, signal?: AbortSignal): Promise<StackListResponse> {
   const search = new URLSearchParams()
   if (params?.q) search.set('q', params.q)
   if (params?.sort) search.set('sort', params.sort)
   const qs = search.toString()
-  return request(`/api/stacks${qs ? `?${qs}` : ''}`)
+  return request(`/api/stacks${qs ? `?${qs}` : ''}`, { signal })
 }
 
 export function getStackStats(signal?: AbortSignal): Promise<StackStatsResponse> {

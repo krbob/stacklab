@@ -13,6 +13,7 @@ import (
 // Protection describes saved data separately from configuration and repository
 // availability. A retry never makes the original capture newer.
 type PlanProtection struct {
+	Activity       string           `json:"activity"`
 	PlanID         string           `json:"plan_id"`
 	PlanName       string           `json:"plan_name"`
 	State          string           `json:"state"`
@@ -25,6 +26,7 @@ type PlanProtection struct {
 }
 
 type CopyProtection struct {
+	Activity           string     `json:"activity"`
 	DestinationID      string     `json:"destination_id"`
 	State              string     `json:"state"`
 	LastCaptureAt      *time.Time `json:"last_capture_at,omitempty"`
@@ -104,14 +106,22 @@ func (s *Service) recordCheckpointsLocked(run Run, plan Plan) {
 			checkpoint.SnapshotCheckedAt = copy.VerifiedAt
 		}
 		s.state.CopyCheckpoints[key] = checkpoint
+		if copy.Verification == recoveryObjectsVerified {
+			rememberSnapshotEvidence(&s.state.VerifiedSnapshots, snapshotEvidenceKey(copy.DestinationID, copy.SnapshotID), s.now())
+		}
 	}
 }
 
 func (s *Service) protectionLocked(plan Plan) PlanProtection {
 	now := s.now()
-	result := PlanProtection{PlanID: plan.ID, PlanName: plan.Name, State: "healthy", Copies: []CopyProtection{}}
+	result := PlanProtection{PlanID: plan.ID, PlanName: plan.Name, State: "healthy", Activity: "idle", Copies: []CopyProtection{}}
 	var latest *persistedRun
 	for _, run := range s.state.Runs {
+		if run.PlanID == plan.ID {
+			if run.State == "running" || run.State == "queued" && result.Activity == "idle" {
+				result.Activity = run.State
+			}
+		}
 		if run.PlanID == plan.ID && (latest == nil || newerRun(run.Run, latest.Run, now)) {
 			item := run
 			latest = &item
@@ -124,7 +134,7 @@ func (s *Service) protectionLocked(plan Plan) PlanProtection {
 	attention := false
 	for _, assignment := range plan.Destinations {
 		destination := s.state.Destinations[assignment.DestinationID]
-		copy := CopyProtection{DestinationID: assignment.DestinationID, State: "unprotected", SnapshotStatus: "unknown", IntegrityStatus: destination.CheckStatus, AvailabilityStatus: destination.Status}
+		copy := CopyProtection{DestinationID: assignment.DestinationID, State: "unprotected", Activity: "idle", SnapshotStatus: "unknown", IntegrityStatus: destination.CheckStatus, AvailabilityStatus: destination.Status}
 		if copy.IntegrityStatus == "" {
 			copy.IntegrityStatus = "unknown"
 		}
@@ -141,9 +151,7 @@ func (s *Service) protectionLocked(plan Plan) PlanProtection {
 			if copy.SnapshotStatus == "" {
 				copy.SnapshotStatus = "unknown"
 			}
-			if destination.LastRestoreTestSnapshotID == checkpoint.SnapshotID {
-				copy.LastRestoreTestAt = destination.LastRestoreTestAt
-			}
+			copy.LastRestoreTestAt = s.restoreTestedAtLocked(destination, checkpoint.SnapshotID)
 			if result.LastCaptureAt == nil || result.LastCaptureAt.Before(checkpoint.CapturedAt) {
 				t := checkpoint.CapturedAt
 				result.LastCaptureAt = &t
@@ -198,20 +206,28 @@ func (s *Service) protectionLocked(plan Plan) PlanProtection {
 		// Latest attempt is useful diagnostic evidence even while an older verified
 		// copy is still within its expected schedule.
 		var latestCopyRun *persistedRun
+		var latestAttempt CopyResult
 		for _, run := range s.state.Runs {
 			if run.PlanID != plan.ID {
 				continue
 			}
 			for _, attempt := range run.Copies {
-				if attempt.DestinationID == assignment.DestinationID && (latestCopyRun == nil || newerRun(run.Run, latestCopyRun.Run, now)) {
+				if attempt.DestinationID != assignment.DestinationID {
+					continue
+				}
+				// A retry keeps its original capture time. Activity therefore scans
+				// every active attempt independently from newest protection evidence.
+				if run.State == "running" || run.State == "queued" {
+					if attempt.State == "running" || run.CaptureState == "running" {
+						copy.Activity = "running"
+					} else if attempt.State == "pending" && copy.Activity == "idle" {
+						copy.Activity = "queued"
+					}
+				}
+				if latestCopyRun == nil || newerRun(run.Run, latestCopyRun.Run, now) {
 					item := run
 					latestCopyRun = &item
-					if copy.LastError == "" {
-						copy.LastError = attempt.Error
-					}
-					if run.CaptureState == "failed" {
-						copy.LastError = run.Error
-					}
+					latestAttempt = attempt
 				}
 			}
 		}
@@ -219,9 +235,12 @@ func (s *Service) protectionLocked(plan Plan) PlanProtection {
 		usable := copy.EvidenceUsable && (copy.State == "current" || copy.State == "manual")
 		if latestCopyRun != nil {
 			copy.LastRunID = latestCopyRun.ID
-		}
-		if latestCopyRun != nil && (latestCopyRun.State == "running" || latestCopyRun.State == "queued") {
-			copy.State = "running"
+			if copy.LastError == "" {
+				copy.LastError = latestAttempt.Error
+				if latestCopyRun.CaptureState == "failed" {
+					copy.LastError = latestCopyRun.Error
+				}
+			}
 		}
 		if !plan.Enabled || !assignment.Enabled {
 			copy.State = "disabled"
@@ -241,8 +260,6 @@ func (s *Service) protectionLocked(plan Plan) PlanProtection {
 	if !plan.Enabled || result.ExpectedCopies == 0 {
 		result.State = "disabled"
 		result.NextRunAt = nil
-	} else if latest != nil && (latest.State == "running" || latest.State == "queued") {
-		result.State = "running"
 	} else if result.CurrentCopies == 0 && result.LastCaptureAt == nil {
 		result.State = "unprotected"
 	} else if attention {

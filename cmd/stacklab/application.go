@@ -158,7 +158,14 @@ func newApplication(parent context.Context, cfg config.Config, logger *slog.Logg
 	backupCapture := backup.NewNativeCapture(cfg, stackReader, appStore.Snapshot)
 	backupService := backup.NewService(cfg, jobService, backupCapture)
 	backupService.SetOperationalNotifier(func(ctx context.Context, alert backup.OperationalAlert) error {
-		return notificationService.DispatchBackupAlert(ctx, alert.PlanID, alert.PlanName, alert.DestinationID, alert.DestinationName, alert.DueAt)
+		summary := notifications.BackupSummary{PlanID: alert.PlanID, PlanName: alert.PlanName, DestinationID: alert.DestinationID, DestinationName: alert.DestinationName}
+		if !alert.DueAt.IsZero() {
+			summary.DueAt = &alert.DueAt
+		}
+		for _, reason := range alert.PauseReasons {
+			summary.PauseReasons = append(summary.PauseReasons, reason.Code)
+		}
+		return notificationService.DispatchBackupProtection(ctx, alert.Event, summary)
 	})
 	recoveryCtx, recoveryCancel := context.WithTimeout(parent, 2*time.Minute)
 	recoveryErr := backupService.Reconcile(recoveryCtx)

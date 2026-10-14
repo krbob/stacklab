@@ -7,7 +7,11 @@ interface UseApiState<T> {
   updatedAt: number | null
 }
 
-export function useApi<T>(fetcher: (signal?: AbortSignal) => Promise<T>, deps: unknown[] = []): UseApiState<T> & { refetch: () => void } {
+export function useApi<T>(
+  fetcher: (signal?: AbortSignal) => Promise<T>,
+  deps: unknown[] = [],
+  { enabled = true }: { enabled?: boolean } = {},
+): UseApiState<T> & { refetch: () => void } {
   const [state, setState] = useState<UseApiState<T>>({ data: null, error: null, loading: true, updatedAt: null })
   const requestIDRef = useRef(0)
   const abortRef = useRef<AbortController | null>(null)
@@ -19,7 +23,7 @@ export function useApi<T>(fetcher: (signal?: AbortSignal) => Promise<T>, deps: u
     const controller = new AbortController()
     abortRef.current = controller
 
-    setState((s) => ({ ...s, loading: true, error: null }))
+    setState((s) => ({ ...s, loading: true }))
     fetcher(controller.signal)
       .then((data) => {
         if (controller.signal.aborted || requestIDRef.current !== requestID) return
@@ -33,9 +37,9 @@ export function useApi<T>(fetcher: (signal?: AbortSignal) => Promise<T>, deps: u
   }, deps)
 
   useEffect(() => {
-    load()
+    if (enabled) load()
     return () => abortRef.current?.abort()
-  }, [load])
+  }, [load, enabled])
 
   return { ...state, refetch: load }
 }

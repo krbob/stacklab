@@ -1,5 +1,6 @@
 import { cloneElement, isValidElement, useId, type ReactNode } from 'react'
 import { cn } from '@/lib/cn'
+import { formatBackupDate } from './backup-formatters'
 
 export const inputClass =
   'w-full rounded-md border border-[var(--panel-border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--accent)] disabled:opacity-50'
@@ -83,7 +84,7 @@ export function BackupError({ error }: { error: string | null }) {
 
 export function BackupDate({ value, timeZone }: { value?: string | null; timeZone?: string }) {
   if (!value) return <>Never</>
-  return <time dateTime={value}>{new Date(value).toLocaleString(undefined, { timeZone, timeZoneName: 'short' })}</time>
+  return <time dateTime={value}>{formatBackupDate(value, timeZone)}</time>
 }
 
 export function BackupSize({ value }: { value?: number | null }) {

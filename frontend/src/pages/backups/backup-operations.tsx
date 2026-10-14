@@ -54,23 +54,24 @@ export function BackupOperations({
           Retry backup settings
         </button>
       )}
-      {policy.data?.host_review_required ? (
-        <p role="alert" className="rounded-md border border-[var(--warning)]/30 p-3 text-sm text-[var(--warning)]">
-          Backup state needs review on this host after recovery or upgrade. Automatic backups and retention are paused. Review sources,
-          destinations and service mappings, then acknowledge this host in Backup settings.
-        </p>
-      ) : (
-        policy.data?.paused && (
-          <p role="status" className="rounded-md border border-[var(--warning)]/30 p-3 text-sm text-[var(--warning)]">
-            Automatic backups and repository maintenance are paused. Manual operations remain available.
-          </p>
-        )
+      {(policy.data?.effective_paused || policy.data?.paused || policy.data?.host_review_required || recoveryError) && (
+        <div role="alert" className="space-y-2 rounded-md border border-[var(--warning)]/30 p-3 text-sm text-[var(--warning)]">
+          <p>Automatic backups, integrity checks and retention cleanup are paused. Protection monitoring remains active.</p>
+          {policy.data?.host_review_required && <p>
+            Backup state needs review on this host after recovery or upgrade. Review sources, destinations and service
+            mappings, then acknowledge this host in Backup settings.
+          </p>}
+          {policy.data?.pause_reasons?.map((reason) => <p key={reason.code}>{reason.message}</p>)}
+          {recoveryError && <p>
+            Service recovery needs attention: {recoveryError} Open Service recovery to inspect recorded operations.
+            New captures remain blocked until the affected services and shared mounts are reviewed.
+          </p>}
+          {policy.data?.paused && !policy.data.host_review_required && <p>The automatic scheduling pause is enabled in Backup settings.</p>}
+        </div>
       )}
-      {recoveryError && (
-        <p role="alert" className="rounded-md border border-[var(--warning)]/30 p-3 text-sm text-[var(--warning)]">
-          Service recovery needs attention: {recoveryError} Open Service recovery to inspect recorded operations.
-        </p>
-      )}
+      {policy.data?.heartbeat_configured && <p className="text-xs text-[var(--muted)]">
+        Last successful external heartbeat: <BackupDate value={policy.data.last_heartbeat_at} />
+      </p>}
       {policy.data?.heartbeat_error && (
         <p role="alert" className="text-sm text-[var(--warning)]">
           {policy.data.heartbeat_error}
@@ -103,6 +104,7 @@ export function BackupPolicyDialog({
   onClose: () => void
   onSaved: () => void
 }) {
+  const [baseline] = useState(policy)
   const [paused, setPaused] = useState(policy.paused)
   const [acknowledgeHost, setAcknowledgeHost] = useState(false)
   const [grace, setGrace] = useState(String(policy.overdue_grace_minutes))
@@ -111,9 +113,9 @@ export function BackupPolicyDialog({
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const dirty =
-    paused !== policy.paused ||
+    paused !== baseline.paused ||
     acknowledgeHost ||
-    grace !== String(policy.overdue_grace_minutes) ||
+    grace !== String(baseline.overdue_grace_minutes) ||
     !!heartbeat ||
     clearHeartbeat
   const { requestClose, confirmation } = useEditorCloseGuard(dirty, onClose)
@@ -161,7 +163,7 @@ export function BackupPolicyDialog({
           </label>
           <p className="text-xs leading-5 text-[var(--muted)]">
             Pausing stops scheduled copies, integrity checks and retention cleanup. Manual recovery and backup actions
-            remain available. Success heartbeats stop while paused.
+            remain available unless service recovery is unresolved. Protection monitoring continues; success heartbeats stop while paused.
           </p>
           {policy.host_review_required && (
             <label className="flex items-start gap-2 text-sm text-[var(--warning)]">
@@ -259,6 +261,8 @@ export function ServiceRecoveryDialog({
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
+  const [inspectionNote, setInspectionNote] = useState('')
+  const [inspectionConfirmation, setInspectionConfirmation] = useState('')
   const { state: jobState } = useJobStream({ jobId })
   const { refetch } = state
   const running = !!jobId && !['succeeded', 'failed', 'cancelled', 'timed_out'].includes(jobState ?? '')
@@ -274,7 +278,7 @@ export function ServiceRecoveryDialog({
     setPending(true)
     setError(null)
     try {
-      const result = await resolveBackupRecovery(review.journal.run_id, { action: review.action })
+      const result = await resolveBackupRecovery(review.journal.run_id, { action: review.action, ...(review.action === 'acknowledge_missing' ? { inspected: true, reason: inspectionNote.trim() } : {}) })
       setJobId(result.job.id)
       setReview(null)
       onStarted(result)
@@ -318,15 +322,30 @@ export function ServiceRecoveryDialog({
               {(journal.writers ?? []).map((writer) => (
                 <li key={writer.container_id} className="break-all">
                   {writer.stack_id || 'external'} / {writer.service || writer.container_id} · {writer.container_id} ·{' '}
-                  {journal.phases?.[writer.container_id] ?? 'phase not recorded'}
+                  recorded phase: {journal.phases?.[writer.container_id] ?? 'not recorded'}
+                  <span className="block">Observed container state: {journal.observations?.[writer.container_id]?.state ?? 'unknown'}</span>
+                  {journal.observations?.[writer.container_id]?.error && <span className="block text-[var(--warning)]">{journal.observations[writer.container_id].error}</span>}
+                  {journal.observations?.[writer.container_id]?.replacements?.map((replacement) => (
+                    <span className="block" key={replacement.container_id}>
+                      Possible replacement: {replacement.stack_id || 'external'} / {replacement.service || replacement.container_id} · {replacement.container_id} · {replacement.state}
+                    </span>
+                  ))}
                 </li>
               ))}
             </ul>
-            {Object.keys(journal.prepared_tokens ?? {}).length > 0 && (
+            {journal.has_prepared_restore && (
               <p className="text-xs text-[var(--warning)]">
                 Prepared restore and rollback data exists. Follow the recovery runbook to inspect it; acknowledging the
                 record does not remove those files.
               </p>
+            )}
+            {journal.can_acknowledge_missing && (
+              <button className={buttonClass} disabled={pending || running} onClick={() => {
+                setError(null)
+                setInspectionNote('')
+                setInspectionConfirmation('')
+                setReview({ journal, action: 'acknowledge_missing' })
+              }}>Review missing containers</button>
             )}
             {!journal.error && (
               <button
@@ -348,7 +367,32 @@ export function ServiceRecoveryDialog({
           </button>
         </div>
       </div>
-      {review && (
+      {review?.action === 'acknowledge_missing' && (
+        <Dialog title="Resolve missing container identities" onClose={() => setReview(null)} preventClose={pending} busy={pending}>
+          <div className="mt-4 space-y-4">
+            <p className="text-sm leading-6 text-[var(--muted)]">
+              Inspect the affected data, mounts and any replacement containers before resolving this record. Stacklab
+              will verify the recorded identities again, save your inspection note and remove the recovery block.
+              This action never starts replacement containers and does not delete rollback data.
+            </p>
+            <ul className="text-xs font-mono">{(review.journal.writers ?? []).map((writer) => <li key={writer.container_id}>{writer.container_id}</li>)}</ul>
+            <BackupError error={error} />
+            <Field label="Inspection note" hint="Describe what replaced the missing containers and how you checked the affected data (8–1000 characters).">
+              <textarea className={inputClass} minLength={8} maxLength={1000} value={inspectionNote} disabled={pending} onChange={(event) => setInspectionNote(event.target.value)} />
+            </Field>
+            <Field label="Type INSPECTED to resolve missing containers">
+              <input className={inputClass} value={inspectionConfirmation} disabled={pending} onChange={(event) => setInspectionConfirmation(event.target.value)} />
+            </Field>
+            <div className="flex justify-end gap-2">
+              <button className={buttonClass} disabled={pending} onClick={() => setReview(null)}>Cancel</button>
+              <button className={primaryClass} disabled={pending || inspectionConfirmation !== 'INSPECTED' || inspectionNote.trim().length < 8} onClick={() => { void resolve() }}>
+                {pending ? 'Resolving…' : 'Resolve inspected record'}
+              </button>
+            </div>
+          </div>
+        </Dialog>
+      )}
+      {review && review.action !== 'acknowledge_missing' && (
         <ConfirmDialog
           title={
             review.action === 'acknowledge_hold' ? 'Acknowledge inspected recovery' : 'Retry recorded service recovery'

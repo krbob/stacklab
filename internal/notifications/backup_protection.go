@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"stacklab/internal/store"
@@ -12,6 +13,7 @@ import (
 
 // BackupSummary contains identities and names, never repository addresses or credentials.
 type BackupSummary struct {
+	PauseReasons    []string   `json:"pause_reasons,omitempty"`
 	PlanID          string     `json:"plan_id,omitempty"`
 	PlanName        string     `json:"plan_name,omitempty"`
 	DestinationID   string     `json:"destination_id,omitempty"`
@@ -21,6 +23,13 @@ type BackupSummary struct {
 }
 
 func (s *Service) DispatchBackupAlert(ctx context.Context, planID, planName, destinationID, destinationName string, due time.Time) error {
+	return s.DispatchBackupProtection(ctx, "backup_copy_overdue", BackupSummary{PlanID: planID, PlanName: planName, DestinationID: destinationID, DestinationName: destinationName, DueAt: &due})
+}
+
+// Protection transitions share the existing backup failure notification channel.
+// Only stable reason codes and display identities are sent, never raw errors,
+// heartbeat URLs, helper tokens or repository credentials.
+func (s *Service) DispatchBackupProtection(ctx context.Context, event string, backup BackupSummary) error {
 	settings, err := s.loadSettings(ctx)
 	if err != nil {
 		return err
@@ -28,7 +37,23 @@ func (s *Service) DispatchBackupAlert(ctx context.Context, planID, planName, des
 	if !settings.Events.JobFailed || !hasConfiguredNotificationChannel(settings) {
 		return errors.New("backup protection notifications are not enabled")
 	}
-	return s.dispatchPayload(ctx, settings, WebhookPayload{Event: "backup_copy_overdue", SentAt: s.now(), Source: "stacklab", Summary: fmt.Sprintf("Backup copy overdue: %s → %s (due %s)", planName, destinationName, due.Format(time.RFC3339)), Backup: &BackupSummary{PlanID: planID, PlanName: planName, DestinationID: destinationID, DestinationName: destinationName, DueAt: &due}})
+	var summary string
+	switch event {
+	case "backup_copy_overdue":
+		if backup.DueAt == nil {
+			return errors.New("backup overdue notification requires a due time")
+		}
+		summary = fmt.Sprintf("Backup copy overdue: %s → %s (due %s)", backup.PlanName, backup.DestinationName, backup.DueAt.Format(time.RFC3339))
+	case "backup_copy_resolved":
+		summary = fmt.Sprintf("Backup protection restored: %s → %s has a fresh, usable copy.", backup.PlanName, backup.DestinationName)
+	case "backup_protection_paused":
+		summary = "Automatic backup and retention are paused: " + strings.Join(backup.PauseReasons, ", ") + ". Review Backup settings and Service recovery; protection monitoring continues."
+	case "backup_protection_resumed":
+		summary = "Automatic backup and retention have resumed. Copy freshness is monitored separately."
+	default:
+		return errors.New("unsupported backup protection notification")
+	}
+	return s.dispatchPayload(ctx, settings, WebhookPayload{Event: event, SentAt: s.now(), Source: "stacklab", Summary: summary, Backup: &backup})
 }
 func (s *Service) backupJobSummary(ctx context.Context, job store.Job) *BackupSummary {
 	raw, found, err := s.store.AppSetting(ctx, "backup.v1")

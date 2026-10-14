@@ -10,8 +10,9 @@ func (s *Service) timePointer() *time.Time { value := s.now(); return &value }
 
 // Maintenance is independent of backup capture. A conflict remains due; a
 // started (including failed) occurrence is recorded once and is never replayed
-// in a tight loop. Both actions use the same global admission lock as backups.
-func (s *Service) runMaintenance(ctx context.Context) {
+// in a tight loop. Each action owns only its repository reservation.
+func (s *Service) runMaintenance(ctx context.Context) { s.scheduleMaintenance(ctx, nil) }
+func (s *Service) scheduleMaintenance(ctx context.Context, workers *backgroundWorkers) {
 	if s.SchedulingPaused() {
 		return
 	}
@@ -35,8 +36,14 @@ func (s *Service) runMaintenance(ctx context.Context) {
 			if !ok || !occurrencePending(last, due, s.now()) {
 				continue
 			}
+			if workers != nil && !workers.reserve(ctx) {
+				return
+			}
 			job, err := s.StartRepositoryJob(ctx, destination.ID, action, "scheduler")
 			if err != nil {
+				if workers != nil {
+					workers.release()
+				}
 				continue
 			}
 			s.mu.Lock()
@@ -54,9 +61,19 @@ func (s *Service) runMaintenance(ctx context.Context) {
 			s.mu.Unlock()
 			if persistErr != nil {
 				s.finish(ctx, job, persistErr)
+				if workers != nil {
+					workers.release()
+				}
 				continue
 			}
-			_, _ = s.ExecuteRepositoryJob(ctx, job, destination.ID, action, CheckRequest{ReadData: destination.CheckReadData}, RestoreRequest{})
+			execute := func() {
+				_, _ = s.ExecuteRepositoryJob(ctx, job, destination.ID, action, CheckRequest{ReadData: destination.CheckReadData}, RestoreRequest{})
+			}
+			if workers == nil {
+				execute()
+			} else {
+				go func() { defer workers.release(); execute() }()
+			}
 		}
 	}
 }

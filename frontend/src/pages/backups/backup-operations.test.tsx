@@ -94,7 +94,7 @@ describe('Backup operational controls', () => {
           hold_stopped: true,
           writers: [{ container_id: 'db-container', stack_id: 'demo', service: 'db', running: true }],
           phases: { 'db-container': 'stopped' },
-          prepared_tokens: { db: 'private-token' },
+          has_prepared_restore: true,
         },
       ],
     })
@@ -126,5 +126,29 @@ describe('Backup operational controls', () => {
     expect(await screen.findByText('Invalid journal requires manual inspection')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Retry recorded service recovery' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Review held services' })).not.toBeInTheDocument()
+  })
+})
+
+describe('Round two effective pause and journal resolution', () => {
+  it('explains automatic scheduling suspension independently of the user pause flag', async () => {
+    vi.mocked(api.getBackupPolicy).mockResolvedValue({ ...policy, paused: false, effective_paused: true, pause_reasons: [{ code: 'service_recovery_required', message: 'A recorded operation requires service inspection.' }] })
+    render(<BackupOperations refreshKey={1} onChanged={vi.fn()} onStarted={vi.fn()} />)
+    expect(await screen.findByText(/Automatic backups, integrity checks and retention cleanup are paused/)).toBeVisible()
+    expect(screen.getByText('A recorded operation requires service inspection.')).toBeVisible()
+  })
+
+  it('shows observed replacements separately from historical phases and requires an audited inspection note', async () => {
+    vi.mocked(api.getBackupRecoveryJournals).mockResolvedValue({ items: [{ run_id: 'missing-run', hold_stopped: false, writers: [{ container_id: 'old-id', stack_id: 'demo', service: 'db', running: true }], phases: { 'old-id': 'stopped' }, can_acknowledge_missing: true, observations: { 'old-id': { state: 'missing', replacements: [{ container_id: 'new-id', stack_id: 'demo', service: 'db', state: 'running' }] } } }] })
+    render(<ServiceRecoveryDialog onClose={vi.fn()} onChanged={vi.fn()} onStarted={vi.fn()} />)
+    expect(await screen.findByText('Observed container state: missing')).toBeVisible()
+    expect(screen.getByText(/Possible replacement: demo \/ db · new-id · running/)).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Review missing containers' }))
+    const dialog = screen.getByRole('dialog', { name: 'Resolve missing container identities' })
+    const resolve = within(dialog).getByRole('button', { name: 'Resolve inspected record' })
+    fireEvent.change(within(dialog).getByLabelText('Type INSPECTED to resolve missing containers'), { target: { value: 'INSPECTED' } })
+    expect(resolve).toBeDisabled()
+    fireEvent.change(within(dialog).getByLabelText('Inspection note'), { target: { value: 'Recreated database; verified the same volume and data.' } })
+    fireEvent.click(resolve)
+    await waitFor(() => expect(api.resolveBackupRecovery).toHaveBeenCalledWith('missing-run', { action: 'acknowledge_missing', inspected: true, reason: 'Recreated database; verified the same volume and data.' }))
   })
 })

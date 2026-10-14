@@ -15,6 +15,9 @@ import (
 const recoveryObjectsVerified = "recovery_objects_verified"
 
 var errIncompleteSnapshot = errors.New("snapshot recovery objects are incomplete")
+var errLegacySnapshot = errors.New("legacy recovery object requires a new verified backup")
+
+type verificationContextKey struct{}
 
 // A snapshot object only proves that restic committed a tree. In particular,
 // exit status 3 can commit a tree with unreadable files missing. Compare every
@@ -24,13 +27,6 @@ func (s *Service) verifyRecoveryObjects(ctx context.Context, d Destination, id, 
 	manifest, err := os.ReadFile(filepath.Join(stage, "manifest.json"))
 	if err != nil {
 		return fmt.Errorf("read prepared recovery manifest: %w", err)
-	}
-	remote, err := s.restic(ctx, d, "", "dump", id, "/manifest.json")
-	if err != nil {
-		return fmt.Errorf("%w: manifest cannot be read", errIncompleteSnapshot)
-	}
-	if !bytes.Equal(bytes.TrimSpace(remote), bytes.TrimSpace(manifest)) {
-		return fmt.Errorf("%w: manifest does not match the prepared recovery set", errIncompleteSnapshot)
 	}
 	expected := map[string]int64{}
 	err = filepath.WalkDir(stage, func(path string, entry fs.DirEntry, walkErr error) error {
@@ -57,10 +53,22 @@ func (s *Service) verifyRecoveryObjects(ctx context.Context, d Destination, id, 
 	if err != nil {
 		return err
 	}
-	return s.verifySnapshotObjects(ctx, d, id, expected)
+	if err := s.verifySnapshotObjects(ctx, d, id, expected); err != nil {
+		return err
+	}
+	ctx = context.WithValue(ctx, verificationContextKey{}, true)
+	remote, err := s.restic(ctx, d, "", "dump", id, "/manifest.json")
+	if err != nil {
+		return fmt.Errorf("read snapshot manifest: %w", err)
+	}
+	if !bytes.Equal(bytes.TrimSpace(remote), bytes.TrimSpace(manifest)) {
+		return fmt.Errorf("%w: manifest does not match the prepared recovery set", errIncompleteSnapshot)
+	}
+	return nil
 }
 
 func (s *Service) verifySnapshotObjects(ctx context.Context, d Destination, id string, expected map[string]int64) error {
+	ctx = context.WithValue(ctx, verificationContextKey{}, true)
 	output, err := s.restic(ctx, d, "", "ls", "--recursive", id)
 	if err != nil {
 		return err
@@ -95,6 +103,11 @@ func (s *Service) verifySnapshotObjects(ctx context.Context, d Destination, id s
 // Existing installations may only have a metadata checkpoint. Revalidate its
 // authenticated manifest and all referenced objects before calling it usable.
 func (s *Service) verifySavedSnapshot(ctx context.Context, d Destination, id string) error {
+	ctx = context.WithValue(ctx, verificationContextKey{}, true)
+	// Establish absence using a complete listing, never a transport error.
+	if err := s.verifySnapshotObjects(ctx, d, id, map[string]int64{"/manifest.json": -1}); err != nil {
+		return err
+	}
 	manifest, err := s.snapshotManifest(ctx, d, id)
 	if err != nil {
 		return err
@@ -102,7 +115,7 @@ func (s *Service) verifySavedSnapshot(ctx context.Context, d Destination, id str
 	expected := map[string]int64{"/manifest.json": -1}
 	for _, source := range manifest.Sources {
 		if !source.Archive {
-			return fmt.Errorf("legacy recovery object requires a new verified backup")
+			return errLegacySnapshot
 		}
 		expected["/"+strings.TrimPrefix(source.SavedPath, "/")] = source.SizeBytes
 		if source.IndexPath != "" {

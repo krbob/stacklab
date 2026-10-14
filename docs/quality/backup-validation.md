@@ -26,6 +26,62 @@ file modes and Linux file capabilities are rejected; shared set-group-ID
 directories remain supported. Restore preview rejects paths outside managed or explicitly approved
 roots before stopping any service.
 
+## Round-Two Repair Validation — 2026-10-14
+
+The round-two repair has a [maintained Linux integration runner](../../scripts/dev/backup-e2e/README.md).
+It creates isolated helper configuration, spool, data and PostgreSQL fixtures;
+it does not replace the installed application or modify existing backup state.
+The reproduction command is:
+
+```sh
+scripts/dev/backup-e2e/run-linux.sh \
+  test-user@test-vm unique-run-id /tmp/backup-evidence-unique-run-id arm64
+```
+
+The initial run `r2-20261014b` used Debian 13 arm64, GNU tar 1.35, restic 0.18.0,
+Docker 26.1.5 and PostgreSQL 17 Alpine. Its source was `8f729e4` plus the repair
+working tree; `revision.txt`, `working-tree.patch`, `source.tar.gz`, binary hashes,
+host versions and raw logs were retained in the local artifact directory
+`/tmp/stacklab-backup-e2e-r2-20261014b`. This explicitly identifies a working-tree
+validation, not a test of the previously installed `2026.10.0~review2` package.
+
+| Exercise | Result |
+| --- | --- |
+| Full backup test binary as the non-root service identity | 106 top-level tests passed; 3 explicit opt-in skips |
+| Root helper test binary | 15 top-level tests passed; no skips |
+| Real restic partial/incomplete snapshot retry and retention | Passed, including the non-root exit-code-3 permission fixture |
+| Every required helper action's protocol probe | Passed |
+| PostgreSQL stopped capture and populated exact replacement | Original 1,000 rows and checksum recovered; 500 later rows, later table and marker removed; target inode preserved |
+| Filtered or unknown-scope exact replacement | Refused; excluded live file preserved |
+| Explicit filtered merge | Passed; excluded live file remained identical |
+| Managed root exact replacement | Refused before mutation |
+| Actual SIGKILL during helper extraction | Killed the process group only after phase `writing` and a newly extracted nonempty file existed; rollback and partial target remained, release refused the interrupted record, fixture service stayed stopped |
+| Existing VM application and fixtures | Remained running; isolated test container and successful run directories were removed |
+
+The three skipped tests were native SFTP, native S3 and recovery of the installed
+protected service configuration. They require separately configured transports
+or the installed helper; this run does not claim that they executed. The kill
+exercise validates privileged extraction interruption, while maintained Go
+regressions cover application stop journals, daemon-side fencing, missing writer
+inspection, explicit acknowledgement and durable audit before journal removal.
+
+Artifact SHA-256 values for the initial run:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `backup.test` | `64846f98bc65ba55c5bce8a189830736bf73083a335080dec93dd21306dddbba` |
+| `helper.test` | `28be9bbe98fdf5c62ae5a47a697f78264bc93976831839a680c3fd110832e229` |
+| Fixture helper | `174b8d3f4368450fccefad576f31b266187e6ee3a3ca9f1d4ed1f18280135ce7` |
+
+Additional portable race regressions passed after this initial run for bounded
+notification batches, fair retries across failed channels, malformed policy
+preservation, valid grace fallback, pause/overdue/resolved delivery across
+restart and missing-writer acknowledgement without starting replacements.
+Notification delivery is at least once: a crash or storage failure after delivery
+can cause a repeat. Each observation attempts at most 16 transitions within a
+20-second delivery budget, with a persisted cursor and priority for pause
+transitions; a healthy external heartbeat is attempted before channel delivery.
+
 ## Reliability Repair Validation — 2026-10-14
 
 The independent review identified failures beyond the earlier fixtures below.

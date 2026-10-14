@@ -7,6 +7,8 @@ the product is heading.
 
 - [Backup reliability and recovery hardening](backup-reliability.md) — accepted
   repair plan and release gate following the backup review.
+- [Backup reliability completion](backup-reliability-completion.md) — second-round
+  replacement, retention, operational recovery and validation contract.
 
 - [Scope](scope.md) — product statement, target environment, operator model,
   principles, source of truth, and success criteria.

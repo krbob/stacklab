@@ -456,3 +456,12 @@ Root-owned sealed inputs and rollback records are separate from the service's
 writable state. Faithful capture may preserve metadata that automated extraction
 refuses; those archives remain available for offline recovery. See
 [backup architecture](backup-and-recovery.md).
+
+The helper is defense in depth for narrowly reviewed application operations.
+Membership in Docker's administrative group already grants host-equivalent power;
+the helper does not make a compromised Docker-authorized service account unprivileged.
+Sudo use requires `NoNewPrivileges=false`. Sealed inputs live beneath root-owned
+`/var/lib/stacklab-backup-helper`, whose ancestors cannot be writable by other users;
+custom systemd units must allow that path. Protocol 2 binds capture scope and
+rejects filtered exact replacement and managed/configured root targets. Current
+helper and sudoers permissions are checked for each required recovery action.

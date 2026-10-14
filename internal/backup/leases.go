@@ -100,3 +100,33 @@ func (s *Service) recordRecoveryFailure(cause error) {
 	s.recoveryError = "Service recovery requires attention: " + cause.Error()
 	s.mu.Unlock()
 }
+
+// Release each finished destination while its siblings continue transferring.
+// The final reservation remains until job finalization and staging cleanup, so
+// self-update drain still observes the job throughout its filesystem work.
+func (s *Service) releaseCompletedRepository(jobID, destinationID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, exists := s.state.Destinations[destinationID]
+	if !exists {
+		return nil
+	}
+	completed := repositoryKey(d)
+	if s.repositoryJobs[completed] != jobID {
+		return nil
+	}
+	remaining := []jobs.Resource{}
+	for key, holder := range s.repositoryJobs {
+		if holder == jobID && key != completed {
+			remaining = append(remaining, jobs.BackupRepositoryResource(key))
+		}
+	}
+	if len(remaining) == 0 {
+		return nil
+	}
+	if err := s.jobs.ReplaceResources(jobID, remaining...); err != nil {
+		return err
+	}
+	delete(s.repositoryJobs, completed)
+	return nil
+}

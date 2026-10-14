@@ -150,3 +150,52 @@ test.describe('Backup UI failure regressions', () => {
     await expect(page.getByRole('button', { name: 'Generate password', exact: true })).toHaveCount(0)
   })
 })
+
+test.describe('Backup round two recovery boundaries', () => {
+  test.use({ timezoneId: 'Europe/Warsaw', locale: 'en-US', serviceWorkers: 'block' })
+
+  test('keeps evidence warnings during activity and refreshes a selected Recovery list', async ({ page }) => {
+    await mockBackupUI(page)
+    await page.route('**/api/backups', (route) => route.fulfill({ json: {
+      destinations: [destination], plans: [{ id: 'plan', name: 'Database plan', enabled: true, consistency: 'stop', sources: [source], destinations: [], staging_max_bytes: 1024 ** 3, staging_ttl_hours: 24, stop_timeout_seconds: 300 }], runs: [],
+      protection: [{ plan_id: 'plan', plan_name: 'Database plan', state: 'attention', activity: 'running', current_copies: 0, expected_copies: 1, copies: [{ destination_id: 'nas', state: 'integrity_failed', activity: 'running', evidence_usable: false, snapshot_id: 'snapshot' }] }],
+      restic_available: true, rclone_available: true, helper_ready: true, staging_directory: '/staging',
+    } }))
+    await page.route('**/api/backups/policy', (route) => route.fulfill({ json: { paused: false, effective_paused: true, pause_reasons: [{ code: 'service_recovery_required', message: 'Review interrupted service recovery.' }], host_review_required: false, overdue_grace_minutes: 60, heartbeat_configured: false } }))
+    let newSnapshot = false
+    await page.route('**/api/backups/destinations/nas/snapshots', (route) => route.fulfill({ json: { items: [
+      { id: 'snapshot', short_id: 'snapshot', time: '2026-10-01T00:00:00Z', hostname: 'stacklab', tags: [], paths: [] },
+      ...(newSnapshot ? [{ id: 'new-snapshot', short_id: 'new-snapshot', time: '2026-10-02T00:00:00Z', hostname: 'stacklab', tags: [], paths: [] }] : []),
+    ] } }))
+    await page.goto('/backups?view=protection')
+    await expect(page.getByText('Copies needing attention').locator('..')).toContainText('1')
+    await expect(page.getByText('A repository integrity check failed.', { exact: false })).toBeVisible()
+    await expect(page.getByText('Automatic backups, integrity checks and retention cleanup are paused.', { exact: false })).toBeVisible()
+    await page.getByRole('button', { name: 'Recover data', exact: true }).click()
+    await page.getByLabel('Recovery set', { exact: true }).selectOption('snapshot')
+    newSnapshot = true
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+    await expect(page.getByLabel('Recovery set', { exact: true }).getByRole('option', { name: /new-snapshot/ })).toHaveCount(1)
+    await expect(page.getByLabel('Recovery set', { exact: true })).toHaveValue('snapshot')
+  })
+
+  for (const viewport of [{ name: 'desktop', width: 1440, height: 1000 }, { name: 'mobile', width: 390, height: 844 }]) {
+    test(`requires an explicit safe recovery choice for exclusions on ${viewport.name}`, async ({ page }) => {
+      await page.setViewportSize(viewport)
+      await mockBackupUI(page)
+      await page.route('**/api/backups/restores', (route) => route.fulfill({ json: { items: [{ id: 'restore', destination_id: 'nas', snapshot_id: 'snapshot', target: '/private/restore', available: true, test: false, created_at: '2026-10-01T12:00:00Z', source_ids: ['database'], manifest: { version: 1, run_id: 'run', plan_id: 'plan', consistency: 'stop', captured_at: '2026-10-01T00:00:00Z', stacklab_version: 'test', sources: [{ ...catalog.sources[0], source: { ...source, excludes: ['private-uploads'] } }] } }] } }))
+      await page.route('**/api/backups/restores/restore/files?**', (route) => route.fulfill({ json: catalog }))
+      await page.goto('/backups?view=recovery')
+      await page.getByLabel('Completed isolated restore').selectOption('restore')
+      await page.getByRole('button', { name: 'Review applying recovered data' }).click()
+      await page.getByRole('checkbox', { name: /db → \/data/ }).check()
+      await page.getByRole('button', { name: 'Use original location' }).click()
+      await expect(page.getByLabel('Recovery mode for db')).toHaveValue('replace')
+      await expect(page.getByRole('button', { name: 'Preview recovery' })).toBeDisabled()
+      await expect(page.getByText('Replacement is blocked', { exact: false })).toBeVisible()
+      await page.getByLabel('Recovery mode for db').selectOption('merge')
+      await expect(page.getByRole('button', { name: 'Preview recovery' })).toBeEnabled()
+      expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false)
+    })
+  }
+})

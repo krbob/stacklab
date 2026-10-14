@@ -31,6 +31,7 @@ type preparedRestore struct {
 	Moved             []string `json:"moved,omitempty"`
 	AuthorizationRoot string   `json:"authorization_root,omitempty"`
 	RootMetadata      bool     `json:"root_metadata,omitempty"`
+	SourceScope       string   `json:"source_scope,omitempty"`
 }
 
 func privateRestoreSpool() error {
@@ -167,7 +168,10 @@ func validatePreparedTarget(ctx context.Context, archive, target, mode string) e
 	return backup.ValidateArchive(helperContextReader{ctx: ctx, reader: input}, validationTarget)
 }
 
-func prepareRestore(ctx context.Context, input io.Reader, size int64, target, mode string) (token string, err error) {
+func prepareRestore(ctx context.Context, input io.Reader, size int64, target, mode, sourceScope string) (token string, err error) {
+	if err = validateRestoreScope(target, mode, sourceScope, nil); err != nil {
+		return "", err
+	}
 	if size < 512 || size > 1<<50 {
 		return "", errors.New("invalid archive size")
 	}
@@ -242,7 +246,7 @@ func prepareRestore(ctx context.Context, input io.Reader, size int64, target, mo
 	if err = validatePreparedTarget(ctx, archive, target, mode); err != nil {
 		return "", err
 	}
-	if err = savePrepared(directory, preparedRestore{Target: target, Mode: mode, Phase: "prepared"}); err != nil {
+	if err = savePrepared(directory, preparedRestore{Target: target, Mode: mode, SourceScope: sourceScope, Phase: "prepared"}); err != nil {
 		return "", err
 	}
 	return token, nil
@@ -250,12 +254,13 @@ func prepareRestore(ctx context.Context, input io.Reader, size int64, target, mo
 
 func runPreparedRestore(ctx context.Context, action string, args []string) error {
 	flags := flag.NewFlagSet(action, flag.ContinueOnError)
-	var token, target, volume, mode string
+	var token, target, volume, mode, sourceScope string
 	var size int64
 	flags.StringVar(&token, "token", "", "prepared recovery token")
 	flags.StringVar(&target, "path", "", "approved target directory")
 	flags.StringVar(&volume, "volume", "", "Docker local volume")
 	flags.StringVar(&mode, "mode", "replace", "replace or merge")
+	flags.StringVar(&sourceScope, "source-scope", "", "complete or filtered capture scope")
 	flags.Int64Var(&size, "size", 0, "exact archive size")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -288,16 +293,19 @@ func runPreparedRestore(ctx context.Context, action string, args []string) error
 		if err = rejectRecoveryPrivateTarget(target, stateRoot); err != nil {
 			return err
 		}
+		if err = validateRestoreScope(target, mode, sourceScope, roots); err != nil {
+			return err
+		}
 		if err = validateAuthorizationRoot(approvedRecoveryRoot(target, roots)); err != nil {
 			return err
 		}
-		token, err = prepareRestore(ctx, os.Stdin, size, target, mode)
+		token, err = prepareRestore(ctx, os.Stdin, size, target, mode, sourceScope)
 		if err == nil {
 			_, err = fmt.Fprintln(os.Stdout, token)
 		}
 		return err
 	}
-	if target != "" || volume != "" || size != 0 {
+	if target != "" || volume != "" || size != 0 || sourceScope != "" {
 		return errors.New("prepared operation accepts only a token")
 	}
 	directory, err := preparedPath(token)
@@ -322,6 +330,9 @@ func runPreparedRestore(ctx context.Context, action string, args []string) error
 		return err
 	}
 	if err = rejectRecoveryPrivateTarget(state.Target, stateRoot); err != nil {
+		return err
+	}
+	if err = validateRestoreScope(state.Target, state.Mode, state.SourceScope, roots); err != nil {
 		return err
 	}
 	archive := filepath.Join(directory, "source.tar")

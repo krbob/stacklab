@@ -34,6 +34,17 @@ uses root-owned disk storage at `/var/lib/stacklab-backup-helper`; custom units
 need this writable path and `NoNewPrivileges=false` for sudo. Do not put this
 storage on an undersized tmpfs.
 
+After every helper upgrade, compare `/etc/sudoers.d/stacklab-backup` with the
+current packaged example. The package preserves operator-managed sudoers files;
+older rules may permit capture but omit prepared recovery actions. Install the
+reviewed rule root:root with mode 0440, run `visudo -cf` on it, and verify **In-place
+recovery helper** in Backups. Stacklab probes every required action at startup,
+before review and periodically; an incompatible helper or denied action reports
+how to repair the installation. Do not replace the allowlist with unrestricted sudo.
+Prepared recovery protocol 2 binds capture scope as well as mode and target;
+old, unused preparations must be prepared again. Interrupted writes still require
+inspection and their retained evidence must not be removed during upgrade.
+
 ## Configure Copies
 
 Open **Backups → Destinations**, follow connection, credentials and verification,
@@ -41,6 +52,12 @@ and store the repository password in a
 password manager independent of this host. Also retain endpoint/bucket/path,
 transport credentials, SSH host keys, or the authorized Drive configuration.
 The repository cannot unlock itself using a password stored only inside it.
+
+Selecting **Stacklab recovery** includes credentials for **all destinations** and
+`stacklab.env`, and copies them to **every destination selected for that plan**.
+Use a separate state-recovery plan pointed at consciously trusted destinations.
+Repository encryption protects these secrets in storage; possession of that
+repository password grants access to the full recovered state.
 
 - Local disk or mounted NAS: enter the repository directory, detect and review
   its filesystem identity. Verify the intended disk/share is actually mounted.
@@ -95,7 +112,7 @@ forget-and-prune behavior. Automatic isolated restore tests remain future work
 until their disk quota and cleanup policy are defined.
 Saving a new or changed schedule waits for its next future occurrence; use
 **Run now** for an immediate backup. An existing unchanged schedule catches up
-one missed occurrence after restart.
+one missed occurrence after restart, resume or a long-running job.
 
 ## Failures And Retrying
 
@@ -108,7 +125,10 @@ needs investigation even if upload succeeded.
 In notification settings, enable **Job failed** for failed backups and backup
 timeouts and overdue-copy alerts, including scheduled runs. Overdue alerts include
 plan/destination names, respect the configured grace period (60 minutes by default),
-and are sent on transition rather than every poll. Enable **Maintenance succeeded** for
+and are sent on transition rather than every poll. The same channel reports
+scheduling pauses/resumption and recovery from overdue protection. Observation
+continues while execution is paused; a system pause never silently disables alerts.
+Queued time counts toward the scheduled deadline. Enable **Maintenance succeeded** for
 successful restore and restore-test results. These use the existing configured
 webhook or Telegram channels; cancelled jobs do not trigger failure alerts.
 
@@ -144,7 +164,12 @@ Complete-directory apply defaults to **Replace**: files absent from the backup
 are removed. **Merge** is an explicit option that leaves unrelated/newer files,
 and is unsuitable for restoring a database directory to an exact earlier state.
 A single-file source only replaces its basename; it never clears neighboring
-configuration files. Review the deletion scope before confirming.
+configuration files. Sources with backup exclusions cannot use Replace: excluded
+live files have no copy in the archive. Explicit Merge remains available for
+appropriate file data; it does not promise exact database recovery. Managed
+stacks/config/data roots, configured path boundaries and their ancestors cannot
+be replacement targets. Select the individual source directory or an inspected
+local volume. Review the target and all-content deletion scope before confirming.
 
 The helper prepares immutable input before downtime, retains the target mountpoint,
 rejects nested mounts, and keeps prior contents for rollback during replacement.
@@ -154,7 +179,14 @@ job and retained helper preparation/rollback directories before acknowledging a
 hold in Recovery diagnostics. Acknowledgement does not start services or remove
 rollback files. Corrupt journals require direct host inspection; never delete a
 journal merely to clear a warning. Previously recorded containers may have been
-removed or recreated and must be identified before operator recovery.
+removed or recreated. Diagnostics show recorded intent separately from current
+Docker observations. When every unfinished original container is confirmed
+absent, inspect replacements and shared data, type `INSPECTED` and record a
+reason to acknowledge the missing originals. This writes a durable audit record
+under `backup/recovery-history` before clearing the journal; it never starts a
+replacement. For mixed present/missing originals retry recovery first. Unresolved
+or unreadable journals retain global capture/apply exclusion because their shared
+source scope cannot always be established safely.
 
 Sources with restricted metadata (for example absolute symlinks, FIFO or setuid
 files) are preserved as archives. Normal isolated recovery makes those archives
@@ -181,15 +213,37 @@ is separate from the plan's capture budget. Fully successful staging is removed
 promptly; failed copies retain staging for retry until expiry.
 
 Jobs have a 24-hour execution limit, independently of the retry lifetime.
-Repository metadata commands are bounded to 90 seconds, and backup upload aborts
-after five minutes without progress. A large initial upload that cannot fit in
+Ordinary `snapshots`, `cat`, `dump`, `ls`, `stats` and `init` commands have a
+90-second deadline. Copy verification and retry lookup allow 15 minutes per
+command; a timeout preserves an unverified candidate for retry instead of
+classifying it as incomplete or uploading a duplicate. Retention has a 30-minute
+budget. Other check/prune/restore work remains within the job execution limit.
+Backup upload aborts after five minutes without counter progress while reading;
+the final flush has a bounded 30-minute no-progress window once all known input
+bytes have been processed. Repeated unchanged status events do not extend it.
+A large initial upload that cannot fit in
 24 hours needs a smaller plan or faster transport; repository deduplication can
 reuse committed blocks, but a new capture is required after staging expires.
 Cancellation is graceful first; never assume a manually removed restic lock was
 unused merely because a Stacklab job ended.
 
+Scheduled runs, maintenance and inventory have bounded independent workers;
+a slow repository does not hold the scheduler loop. Finished copies release their
+repository reservations after retention even while a sibling copy is still busy.
+
+Retention selects only verified complete snapshots of this instance and plan.
+Daily, weekly and monthly buckets use UTC (weeks use ISO week numbering), retaining
+the union and protecting the current checkpoint. Unknown, incomplete, future-dated
+and legacy snapshots remain conservatively preserved; they cannot displace a
+verified copy. At most 64 unknown candidates are inspected per retention run;
+retained unclassified objects can require deliberate operator cleanup. Zeroes
+for all three retention counts continue to mean keep all.
+
 Backup settings provide a global automatic-scheduling pause that also suppresses
-retention. After restoring state to a host with a different machine identity,
+retention. Effective pause reasons are shown separately from the user's preference.
+Manual backup remains allowed during a user pause, but host review, invalid
+policy/state or unresolved recovery blocks unsafe capture with an actionable
+conflict. Inventory and overdue observation continue during pauses. After restoring state to a host with a different machine identity,
 review is required before resuming. A clone retaining the same machine identity
 cannot be detected automatically: pause before migration and keep the previous
 host disabled. Host changes do not silently adopt old snapshot retention ownership.
@@ -219,8 +273,8 @@ manifest before placing anything over application data.
    ```bash
    export RESTIC_REPOSITORY=/mnt/backup/stacklab
    export RESTIC_PASSWORD_FILE=/secure/repository-password
-   restic snapshots
-   restic check --read-data
+   restic snapshots --tag stacklab
+   restic check --read-data-subset=10%
    mkdir -m 0700 /srv/recovery-inspection
    restic restore SNAPSHOT_ID --target /srv/recovery-inspection --verify
    find /srv/recovery-inspection -name manifest.json -print
@@ -228,6 +282,9 @@ manifest before placing anything over application data.
 
    For S3, supply the independent AWS credentials; for Drive supply the
    authorized `RCLONE_CONFIG`; for SFTP install the key and pinned host keys.
+   A full `check --read-data` reads the whole repository and may incur substantial
+   cloud transfer costs. A sample checks only the sampled data and does not replace
+   a full check or application recovery exercise.
    Follow the upstream [restic repository guide](https://restic.readthedocs.io/en/stable/030_preparing_a_new_repo.html)
    for backend-specific environment configuration.
 3. Inspect `manifest.json`. It maps each saved archive to its logical source,
@@ -271,7 +328,9 @@ outside this workflow.
 Keep the following outside the protected host and outside the repository it unlocks:
 repository URI/backend, repository password, S3 credentials/region or SSH key and
 pinned host keys or the authorized rclone configuration, Stacklab/restic versions,
-and a record of which plan contains the Stacklab state and required stack sources.
+and a record of plan IDs/names, stack mappings and which repositories contain
+Stacklab state. Include effective `stacklab.env`, the heartbeat monitor reference
+and the independent credentials needed to restore monitoring.
 Retain refreshed provider credentials when tokens rotate. A state backup includes
 **all destination credentials and service configuration**; anyone who obtains that
 state repository's decryption key may recover credentials for other destinations.
@@ -286,6 +345,8 @@ locations. Do not start application containers until their data and prerequisite
 are restored. If recovering `stacklab.db` instead, stop Stacklab, restore its private
 state offline, verify owner/mode and service configuration, then review the global
 backup pause before enabling automatic work. Keep the old host's scheduler stopped.
+A fresh database creates a new instance identity: attached historical snapshots
+remain foreign to automatic retention until explicitly managed outside Stacklab.
 
 Stack-definition capture includes the whole selected stack directory, including
 relative `./data` subdirectories unless excluded. Select data explicitly and review

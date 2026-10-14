@@ -18,6 +18,13 @@ import (
 )
 
 func applyPreparedRestore(ctx context.Context, directory, archive string, state *preparedRestore) (err error) {
+	roots, _, err := trustedRoots()
+	if err != nil {
+		return err
+	}
+	if err = validateRestoreScope(state.Target, state.Mode, state.SourceScope, roots); err != nil {
+		return err
+	}
 	root, pinned, err := pinRestoreTarget(state.Target, state.AuthorizationRoot)
 	if err != nil {
 		return err
@@ -87,14 +94,36 @@ func applyPreparedRestore(ctx context.Context, directory, archive string, state 
 		}
 		return err
 	}
+	var rootHeader *tar.Header
+	if state.Mode == "replace" {
+		if err = restoreArchiveRootMetadata(ctx, directory, archive, state.Target, pinned); err != nil {
+			return err
+		}
+		metadata, openErr := os.Open(filepath.Join(directory, "source-root.tar"))
+		if openErr != nil {
+			return openErr
+		}
+		rootHeader, err = tar.NewReader(metadata).Next()
+		closeErr := metadata.Close()
+		if err = errors.Join(err, closeErr); err != nil {
+			return err
+		}
+	}
 	if state.Rollback != "" {
 		if err = root.RemoveAll(rollbackName); err != nil {
 			return fmt.Errorf("restored data is complete; remove rollback at %s after inspection: %w", state.Rollback, err)
 		}
 	}
-	if state.Mode == "replace" {
-		if err = restoreArchiveRootMetadata(ctx, directory, archive, state.Target, pinned); err != nil {
-			return err
+	if rootHeader != nil {
+		// Removing the rollback entry changes the target directory timestamps.
+		// Full metadata restoration has already succeeded while rollback existed;
+		// restore only these timestamps through the still-pinned target descriptor.
+		atime := rootHeader.AccessTime
+		if atime.IsZero() {
+			atime = rootHeader.ModTime
+		}
+		if err = root.Chtimes(".", atime, rootHeader.ModTime); err != nil {
+			return fmt.Errorf("restored content and metadata are complete; resetting directory timestamps after rollback cleanup failed: %w", err)
 		}
 	}
 	state.Phase = "completed"
