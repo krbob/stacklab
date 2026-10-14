@@ -19,12 +19,67 @@ supported user xattrs, and rejection when the staging byte budget is exceeded.
 Coordination tests cover shared sources, unmanaged writers, changed Compose
 mounts, compensation after capture failure, durable interruption journals,
 previously stopped services, descendant process cancellation, and keeping
-partially restored services stopped. Archive validation rejects path traversal,
+partially restored services stopped. Privileged extraction validation rejects path traversal,
 escaping links, writes through links, special files and existing target
 ancestor symlinks. A safe final symlink can be restored repeatedly. Privileged
 file modes and Linux file capabilities are rejected; shared set-group-ID
 directories remain supported. Restore preview rejects paths outside managed or explicitly approved
 roots before stopping any service.
+
+## Reliability Repair Validation — 2026-10-14
+
+The independent review identified failures beyond the earlier fixtures below.
+The [reliability plan](../product/backup-reliability.md) and
+[ADR 0006](../adr/0006-backup-reliability-boundaries.md) define the repaired
+contracts. Prior green checks are historical evidence, not evidence that those
+review findings were absent.
+
+Maintained regressions now cover real restic partial snapshots (including exit
+code 3), required-object verification before retry adoption, repository leases
+after capture, independent reads/lifecycle work during blocked transfer, graceful
+cancellation, snapshot deletion and stale inventory, failed integrity checks,
+clock rollback, and restore-test evidence scoped to a snapshot. Policy tests
+cover recovered/legacy host review, overdue grace and deduplication, first-future
+schedules, write-only heartbeat settings, redirect refusal, and suppression of
+false heartbeats even while a replacement copy is running.
+
+Capture tests cover durable stop phases, missing identities, diagnostic startup,
+large archives beyond index limits, special metadata capture, bounded catalog
+fallback and corrupt archive rejection. Helper regressions exercise sealed
+root-owned disk inputs, grouped filesystem capacity, replace rollback, retained
+interrupted rollback, target descriptor pinning, and single-file neighbor
+preservation. Library tests distinguish deleting owned results from forgetting
+custom registrations, reject symlink substitution, and preserve original archive
+downloads for sources that cannot be extracted automatically.
+
+| Exercise | Result |
+| --- | --- |
+| Canonical `make check`: Go tests/vet, API generation, frontend, build, docs and hygiene | Passed; 74 frontend files, 605 tests |
+| Full backup/jobs race suite and affected helper/application race tests | Passed |
+| Full backup test binary on Debian 13 arm64, restic 0.18.0 | Passed; actual missing-object and partial-read retry cases included |
+| Root helper tests on Debian | 11 passed, including filesystem capacity and descriptor safety |
+| Root-owned service configuration and SQLite snapshot through the installed helper | Passed as the non-root service account |
+| Debian Bookworm arm64 with restic 0.14.0, non-root process | Roundtrip, incomplete snapshot and real exit-3 retry regressions passed; no skips |
+| Two repository copies of PostgreSQL 17 and shared bind data | Passed; one captured set, complete-object verification, successful staging removed |
+| Full restic data check and isolated recovery test | Passed |
+| Reviewed replacement into populated live PostgreSQL and bind targets | Passed; database returned to the captured row set, newer files removed, services resumed |
+| Ownership, ACL and user xattr after reviewed apply | Passed |
+| Native FIFO and absolute-symlink capture, retrieval and archive download | Passed; automatic extraction test refused while original types and link targets remained recoverable |
+| Managed deletion and custom-result forgetting through HTTP API | Passed; only owned data was removed, custom files remained |
+| Replayed restore approval | Rejected; repository availability and verified integrity remained intact |
+| Actual SIGKILL during Docker stop, with durable intent, received TERM and still-running container | Passed; startup fenced the pending stop and the original writer stayed running beyond its previous stop grace |
+| Missing original writer after interruption | Passed; panel and diagnostic APIs returned HTTP 200 while retaining the unresolved journal and actionable error |
+| Real Chromium typing/debounce, tab preservation and different schedule/browser timezones | 2 maintained browser regressions passed |
+| Built frontend on the VM, Chromium desktop 1440×1000 and mobile 390×844 | Pause/resume, recovery diagnostics, focus/tab state, archive download and apply review passed; no page errors or horizontal overflow |
+| Backend coverage gates | Passed; HTTP API 53.2%, global reported coverage 70.0% |
+| Linux arm64 release artifact and generated dependency notices | Passed; stale dependency notices regenerated from the existing lockfiles |
+
+The SFTP/S3 native tests remain opt-in and were not rerun in this repair batch.
+This does not establish real-provider throughput, multi-terabyte capture time,
+all network filesystem semantics, or recovery from physical disk failure. Tar
+capture and validation still perform multiple full reads; large-source downtime
+and free-space needs must be measured for the intended workload. Replace is
+recoverable per source, not an atomic transaction across all mapped sources.
 
 ## Protected Configuration Exercise
 

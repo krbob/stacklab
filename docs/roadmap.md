@@ -26,6 +26,11 @@ Implemented and exercised on Linux staging hosts:
   durable freshness evidence, source coverage, filtered execution history,
   indexed file browsing/comparison/download, a registered restore library,
   guided setup, interval schedules and independent repository maintenance;
+- [backup reliability hardening](product/backup-reliability.md): complete-copy
+  verification, optional bounded indexes, interruption recovery diagnostics,
+  repository-scoped transfers, reviewed replacement, overdue alerts and
+  recovered-host scheduling review; measured limits are in
+  [backup validation](quality/backup-validation.md);
 - single-user authentication, session revocation, and bounded retention;
 - filesystem and Docker runtime stack discovery, detail views, lifecycle jobs,
   audit history, live logs, stats, and container terminals;
@@ -64,16 +69,6 @@ GitHub Releases page is the canonical current version list. Nightly prereleases
 of changed `main` revisions provide the soak channel between stable releases.
 
 ## Near-Term Product Goals
-
-### 0. Backup Reliability Release Gate
-
-Complete the accepted [backup reliability plan](product/backup-reliability.md)
-before treating native backups as the primary protection for application data.
-Priorities are complete-copy verification, honest protection evidence, faithful
-capture with optional indexes, interruption-safe service recovery, narrower
-repository coordination, exact recovery and operational alerts. UI and operator
-documentation corrections proceed alongside these backend changes. Database
-profiles and a new capture representation remain separate follow-up work.
 
 ### 1. Template Library And Starter Catalog
 

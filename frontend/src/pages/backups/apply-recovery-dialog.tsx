@@ -119,7 +119,7 @@ export function ApplyRecoveryDialog({
                     .filter((item) => !restored?.source_ids?.length || restored.source_ids.includes(item.source.id))
                     .map((item) => {
                       const mapping = mappings.find((value) => value.source_id === item.source.id)
-                      const offline = item.source.kind === 'stacklab'
+                      const offline = item.source.kind === 'stacklab' || !!item.recovery_restrictions?.length
                       return (
                         <div
                           key={item.source.id}
@@ -134,7 +134,14 @@ export function ApplyRecoveryDialog({
                               onChange={(event) =>
                                 setMappings((previous) =>
                                   event.target.checked
-                                    ? [...previous, { source_id: item.source.id, target: '' }]
+                                    ? [
+                                        ...previous,
+                                        {
+                                          source_id: item.source.id,
+                                          target: '',
+                                          mode: item.file_name ? 'merge' : 'replace',
+                                        },
+                                      ]
                                     : previous.filter((value) => value.source_id !== item.source.id),
                                 )
                               }
@@ -143,11 +150,35 @@ export function ApplyRecoveryDialog({
                           </label>
                           {offline && (
                             <p className="text-xs text-[var(--warning)]">
-                              Stacklab private state and SQLite must be recovered offline using the recovery runbook.
+                              {item.source.kind === 'stacklab'
+                                ? 'Stacklab private state and SQLite must be recovered offline using the recovery runbook.'
+                                : `This source preserves metadata requiring offline recovery: ${item.recovery_restrictions?.join('; ')}. Download its original archive and follow the recovery runbook.`}
                             </p>
                           )}
                           {mapping && (
                             <div className="grid gap-3 sm:grid-cols-2">
+                              <div className="sm:col-span-2">
+                                <Field
+                                  label={`Recovery mode for ${item.source.service || item.source.kind}`}
+                                  hint={
+                                    item.file_name
+                                      ? 'A single-file source overwrites only its named file and preserves neighboring files.'
+                                      : 'Replace removes files absent from this recovery source. Merge preserves extra files and is unsuitable for exact database recovery.'
+                                  }
+                                >
+                                  <select
+                                    className={inputClass}
+                                    value={mapping.mode ?? 'replace'}
+                                    disabled={!!item.file_name}
+                                    onChange={(event) =>
+                                      updateMapping(item.source.id, { mode: event.target.value as 'replace' | 'merge' })
+                                    }
+                                  >
+                                    <option value="replace">Replace complete source contents</option>
+                                    <option value="merge">Merge and preserve extra files</option>
+                                  </select>
+                                </Field>
+                              </div>
                               <Field
                                 label={`Target directory for ${item.source.service || item.source.kind}`}
                                 hint={`Original path: ${item.original_path}${item.source.kind === 'managed_config' ? '. For a backed-up file, choose its parent directory; extraction retains the filename.' : ''}`}
@@ -212,9 +243,9 @@ export function ApplyRecoveryDialog({
                   </label>
                 </fieldset>
                 <p className="text-xs leading-5 text-[var(--warning)]">
-                  Recovery merges selected content, overwriting matching files and preserving unrelated files. Affected
-                  running writers remain stopped by default. A failure after writing begins also leaves them stopped so
-                  you can inspect the result.
+                  Replacement restores the selected source contents and removes newer files at the target. Merge keeps
+                  extra files. Affected running writers remain stopped by default. A failure after writing begins also
+                  leaves them stopped for inspection; keep a separate current backup before applying recovery.
                 </p>
                 {(manifest.images?.length ?? 0) > 0 && (
                   <p className="break-all text-xs text-[var(--muted)]">
@@ -245,12 +276,14 @@ export function ApplyRecoveryDialog({
                   const label = source
                     ? [source.stack_id, source.service, source.mount || source.kind].filter(Boolean).join(' / ')
                     : mapping.source_id
-                  return `${label} → ${mapping.target}`
+                  return `${label} → ${mapping.target} (${mapping.mode ?? 'replace'})`
                 }),
                 impact: [
-                  review.preview.overwrites
-                    ? 'Existing files at these destinations may be overwritten. Unrelated files remain.'
-                    : 'Recovered data will be written to the selected destinations.',
+                  ...review.preview.mappings.map((mapping) =>
+                    (mapping.mode ?? 'replace') === 'replace'
+                      ? `Replace ${mapping.target}: entries absent from the recovered source will be removed.`
+                      : `Merge ${mapping.target}: matching files will be overwritten; extra files remain.`,
+                  ),
                   ...(review.preview.writers ?? [])
                     .filter((writer) => writer.running)
                     .map(

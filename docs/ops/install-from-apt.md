@@ -112,10 +112,14 @@ flow instead:
   - `/usr/lib/stacklab/bin/stacklab-workspace-admin-helper`
 - The package also installs the Stacklab self-update helper binary:
   - `/usr/lib/stacklab/bin/stacklab-self-update-helper`
+- The package also installs the backup helper:
+  - `/usr/lib/stacklab/bin/stacklab-backup-helper`
+  - root-owned preparation storage at `/var/lib/stacklab-backup-helper`
 - A sample `sudoers` allowlist is installed at:
   - `/usr/share/doc/stacklab/examples/stacklab-docker-admin.sudoers.example`
   - `/usr/share/doc/stacklab/examples/stacklab-workspace-admin.sudoers.example`
   - `/usr/share/doc/stacklab/examples/stacklab-self-update.sudoers.example`
+  - `/usr/share/doc/stacklab/examples/stacklab-backup.sudoers.example`
 - Project and third-party licensing information is installed at:
   - `/usr/share/doc/stacklab/copyright`
   - `/usr/share/doc/stacklab/NOTICE`
@@ -126,6 +130,8 @@ flow instead:
   - Docker Engine and Docker CLI
   - Compose
   - `git`
+  - `restic`, `rclone`, GNU `tar`, and `openssh-client`
+  - `ca-certificates` is recommended for repository HTTPS trust
 - After install, adjust `/etc/stacklab/stacklab.env` as needed and start or
   restart the service with `systemctl`.
 - Docker daemon apply remains opt-in:

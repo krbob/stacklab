@@ -26,32 +26,36 @@ type Secrets struct {
 }
 
 type Destination struct {
-	ID                    string     `json:"id"`
-	Name                  string     `json:"name"`
-	Kind                  string     `json:"kind"` // local, s3, sftp, rclone
-	Repository            string     `json:"repository"`
-	ExpectedFilesystem    string     `json:"expected_filesystem,omitempty"`
-	Region                string     `json:"region,omitempty"`
-	RepositorySizeBytes   *int64     `json:"repository_size_bytes,omitempty"`
-	CredentialsConfigured bool       `json:"credentials_configured"`
-	LastCheckAt           *time.Time `json:"last_check_at,omitempty"`
-	LastCheckPolicy       string     `json:"last_check_policy,omitempty"`
-	CheckSchedule         Schedule   `json:"check_schedule"`
-	CheckReadData         string     `json:"check_read_data"`
-	PruneSchedule         Schedule   `json:"prune_schedule"`
-	LastCheckScheduledAt  *time.Time `json:"last_check_scheduled_at,omitempty"`
-	LastPruneScheduledAt  *time.Time `json:"last_prune_scheduled_at,omitempty"`
-	LastPruneAt           *time.Time `json:"last_prune_at,omitempty"`
-	CheckStatus           string     `json:"check_status,omitempty"`
-	CheckError            string     `json:"check_error,omitempty"`
-	LastOperation         string     `json:"last_operation,omitempty"`
-	LastOperationStatus   string     `json:"last_operation_status,omitempty"`
-	LastOperationError    string     `json:"last_operation_error,omitempty"`
-	LastOperationAt       *time.Time `json:"last_operation_at,omitempty"`
-	LastRestoreTestAt     *time.Time `json:"last_restore_test_at,omitempty"`
-	LastSuccessAt         *time.Time `json:"last_success_at,omitempty"`
-	Status                string     `json:"status"`
-	Error                 string     `json:"error,omitempty"`
+	ID                        string     `json:"id"`
+	Name                      string     `json:"name"`
+	Kind                      string     `json:"kind"` // local, s3, sftp, rclone
+	Repository                string     `json:"repository"`
+	ExpectedFilesystem        string     `json:"expected_filesystem,omitempty"`
+	Region                    string     `json:"region,omitempty"`
+	RepositorySizeBytes       *int64     `json:"repository_size_bytes,omitempty"`
+	CredentialsConfigured     bool       `json:"credentials_configured"`
+	LastCheckAt               *time.Time `json:"last_check_at,omitempty"`
+	LastCheckPolicy           string     `json:"last_check_policy,omitempty"`
+	CheckSchedule             Schedule   `json:"check_schedule"`
+	CheckReadData             string     `json:"check_read_data"`
+	PruneSchedule             Schedule   `json:"prune_schedule"`
+	LastCheckScheduledAt      *time.Time `json:"last_check_scheduled_at,omitempty"`
+	LastPruneScheduledAt      *time.Time `json:"last_prune_scheduled_at,omitempty"`
+	LastPruneAt               *time.Time `json:"last_prune_at,omitempty"`
+	CheckStatus               string     `json:"check_status,omitempty"`
+	CheckError                string     `json:"check_error,omitempty"`
+	LastOperation             string     `json:"last_operation,omitempty"`
+	LastOperationStatus       string     `json:"last_operation_status,omitempty"`
+	LastOperationError        string     `json:"last_operation_error,omitempty"`
+	LastOperationAt           *time.Time `json:"last_operation_at,omitempty"`
+	LastRestoreTestAt         *time.Time `json:"last_restore_test_at,omitempty"`
+	LastRestoreTestSnapshotID string     `json:"last_restore_test_snapshot_id,omitempty"`
+	LastInventoryAt           *time.Time `json:"last_inventory_at,omitempty"`
+	LastInventoryAttemptAt    *time.Time `json:"last_inventory_attempt_at,omitempty"`
+	InventoryError            string     `json:"inventory_error,omitempty"`
+	LastSuccessAt             *time.Time `json:"last_success_at,omitempty"`
+	Status                    string     `json:"status"`
+	Error                     string     `json:"error,omitempty"`
 }
 
 type DestinationInput struct {
@@ -81,11 +85,12 @@ type Retention struct {
 }
 
 type Assignment struct {
-	DestinationID   string     `json:"destination_id"`
-	Enabled         bool       `json:"enabled"`
-	Schedule        Schedule   `json:"schedule"`
-	Retention       Retention  `json:"retention"`
-	LastScheduledAt *time.Time `json:"last_scheduled_at,omitempty"`
+	DestinationID       string     `json:"destination_id"`
+	Enabled             bool       `json:"enabled"`
+	Schedule            Schedule   `json:"schedule"`
+	Retention           Retention  `json:"retention"`
+	LastScheduledAt     *time.Time `json:"last_scheduled_at,omitempty"`
+	ScheduleActivatedAt *time.Time `json:"schedule_activated_at,omitempty"`
 }
 
 type Plan struct {
@@ -106,6 +111,7 @@ type CopyResult struct {
 	SnapshotID      string     `json:"snapshot_id,omitempty"`
 	UploadedAt      *time.Time `json:"uploaded_at,omitempty"`
 	Verification    string     `json:"verification"`
+	VerifiedAt      *time.Time `json:"verified_at,omitempty"`
 	Retention       string     `json:"retention"`
 	Error           string     `json:"error,omitempty"`
 	StartedAt       *time.Time `json:"started_at,omitempty"`
@@ -149,6 +155,7 @@ type Snapshot struct {
 }
 
 type Overview struct {
+	RecoveryError    string           `json:"recovery_error,omitempty"`
 	Destinations     []Destination    `json:"destinations"`
 	Plans            []Plan           `json:"plans"`
 	Runs             []Run            `json:"runs"`
@@ -186,6 +193,7 @@ type RestoreRequest struct {
 }
 
 type RestoreResult struct {
+	Managed           bool            `json:"managed"`
 	Available         bool            `json:"available"`
 	UnavailableReason string          `json:"unavailable_reason,omitempty"`
 	ID                string          `json:"id"`

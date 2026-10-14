@@ -19,10 +19,8 @@ func (s *Service) StartRepositoryJob(ctx context.Context, id, action, requestedB
 	if s.initErr != nil {
 		return store.Job{}, s.initErr
 	}
-	if s.activeRepositoryReads > 0 {
-		return store.Job{}, ErrBusy
-	}
-	if _, ok := s.state.Destinations[id]; !ok {
+	d, ok := s.state.Destinations[id]
+	if !ok {
 		return store.Job{}, ErrNotFound
 	}
 	switch action {
@@ -30,14 +28,22 @@ func (s *Service) StartRepositoryJob(ctx context.Context, id, action, requestedB
 	default:
 		return store.Job{}, fmt.Errorf("%w: unsupported repository operation", ErrInvalid)
 	}
-	job, err := s.jobs.StartDraining(ctx, action, requestedBy, jobs.GlobalResource())
+	key := repositoryKey(d)
+	if s.repositoryReads[key] > 0 || s.repositoryJobs[key] != "" {
+		return store.Job{}, ErrBusy
+	}
+	job, err := s.jobs.StartWithResources(ctx, "", action, requestedBy, jobs.BackupRepositoryResource(key))
 	if err == nil {
-		s.repositoryJob = job.ID
+		if s.repositoryJobs == nil {
+			s.repositoryJobs = map[string]string{}
+		}
+		s.repositoryJobs[key] = job.ID
 	}
 	return job, err
 }
 
 func (s *Service) ExecuteRepositoryJob(ctx context.Context, job store.Job, id, action string, check CheckRequest, restore RestoreRequest) (result RestoreResult, operationErr error) {
+	defer s.releaseRepositories(job.ID)
 	ctx, cancel := context.WithTimeout(ctx, 24*time.Hour)
 	defer cancel()
 	unregister := s.jobs.RegisterCancel(job.ID, cancel)
@@ -48,6 +54,10 @@ func (s *Service) ExecuteRepositoryJob(ctx context.Context, job store.Job, id, a
 	defer func() {
 		s.mu.Lock()
 		if ok {
+			currentEvidence := s.state.Destinations[id]
+			d.LastInventoryAt = currentEvidence.LastInventoryAt
+			d.LastInventoryAttemptAt = currentEvidence.LastInventoryAttemptAt
+			d.InventoryError = currentEvidence.InventoryError
 			d.LastOperation = action
 			d.LastOperationAt = s.timePointer()
 			d.LastOperationStatus, d.LastOperationError = "succeeded", ""
@@ -81,7 +91,6 @@ func (s *Service) ExecuteRepositoryJob(ctx context.Context, job store.Job, id, a
 				operationErr = err
 			}
 		}
-		s.repositoryJob = ""
 		s.mu.Unlock()
 		s.finish(ctx, job, operationErr)
 	}()
@@ -97,6 +106,7 @@ func (s *Service) ExecuteRepositoryJob(ctx context.Context, job store.Job, id, a
 	case "backup_check":
 		operationErr = s.check(ctx, d, check.ReadData)
 		if operationErr == nil {
+			_ = s.refreshInventory(ctx, d)
 			d.LastCheckAt = s.timePointer()
 			d.LastCheckPolicy = check.ReadData
 			if d.LastCheckPolicy == "" {
@@ -114,13 +124,26 @@ func (s *Service) ExecuteRepositoryJob(ctx context.Context, job store.Job, id, a
 			if restore.Test {
 				operationErr = fmt.Errorf("%w: restore tests require a complete isolated recovery", ErrInvalid)
 			} else {
-				result, operationErr = s.applyReviewedRestore(ctx, d, restore)
+				s.mu.Lock()
+				recoveryError := s.recoveryError
+				s.mu.Unlock()
+				if recoveryError != "" {
+					operationErr = fmt.Errorf("backup recovery requires attention: %s", recoveryError)
+				} else if lockErr := s.jobs.ReplaceResources(job.ID, jobs.GlobalResource(), jobs.BackupRepositoryResource(repositoryKey(d))); lockErr != nil {
+					operationErr = lockErr
+				} else {
+					result, operationErr = s.applyReviewedRestore(ctx, d, restore)
+					if operationErr != nil {
+						s.recordRecoveryFailure(operationErr)
+					}
+				}
 			}
 		} else {
 			result, operationErr = s.restore(ctx, d, restore)
 		}
 		if operationErr == nil && restore.Test {
 			d.LastRestoreTestAt = s.timePointer()
+			d.LastRestoreTestSnapshotID = result.SnapshotID
 		}
 		if operationErr == nil {
 			s.event(ctx, job, "Recovered files are available in "+result.Target+".")
@@ -142,6 +165,12 @@ func (s *Service) ExecuteRepositoryJob(ctx context.Context, job store.Job, id, a
 }
 
 func (s *Service) restore(ctx context.Context, d Destination, request RestoreRequest) (RestoreResult, error) {
+	s.mu.Lock()
+	libraryFull := len(s.state.Restores) >= 200
+	s.mu.Unlock()
+	if libraryFull {
+		return RestoreResult{}, fmt.Errorf("%w: recovery library is full; remove an old result first", ErrInvalid)
+	}
 	result := RestoreResult{ID: newID("restore_"), JobID: request.jobID, CreatedAt: s.now(), Available: true, DestinationID: d.ID, SnapshotID: request.SnapshotID, Test: request.Test}
 	if !snapshotID.MatchString(request.SnapshotID) {
 		return result, fmt.Errorf("%w: snapshot_id must be a hexadecimal snapshot ID", ErrInvalid)
@@ -238,6 +267,27 @@ func (s *Service) restore(ctx context.Context, d Destination, request RestoreReq
 		return result, err
 	}
 	result.Target = target
+	result.Managed = s.managedRestore(result)
+	registered := false
+	if result.Managed {
+		// A failed isolated restore owns only this newly created internal directory.
+		// Bind cleanup to its parent descriptor and original inode.
+		root, rootErr := os.OpenRoot(parent)
+		if rootErr != nil {
+			_ = os.Remove(target)
+			return result, rootErr
+		}
+		original, _ := root.Lstat(filepath.Base(target))
+		defer func() {
+			defer root.Close()
+			if !registered {
+				current, statErr := root.Lstat(filepath.Base(target))
+				if statErr == nil && original != nil && os.SameFile(original, current) {
+					_ = root.RemoveAll(filepath.Base(target))
+				}
+			}
+		}()
+	}
 	args := []string{"restore", request.SnapshotID, "--target", target, "--verify"}
 	for _, include := range request.Includes {
 		args = append(args, "--include", include)
@@ -285,6 +335,14 @@ func (s *Service) restore(ctx context.Context, d Destination, request RestoreReq
 		}
 		extractedSources++
 		result.SourceIDs = append(result.SourceIDs, source.Source.ID)
+		if len(source.RecoveryRestrictions) > 0 && len(request.Files) == 0 {
+			if request.Test {
+				return result, fmt.Errorf("restore test cannot automatically materialize source %s: recovery restrictions require operator review", source.Source.ID)
+			}
+			// Preserve the faithful archive for explicit offline recovery without
+			// silently removing metadata or creating privileged filesystem objects.
+			continue
+		}
 		filesTarget := filepath.Join(target, "files", source.Source.ID)
 		if len(request.Files) > 0 {
 			paths := []string{}
@@ -311,6 +369,7 @@ func (s *Service) restore(ctx context.Context, d Destination, request RestoreReq
 	if err = s.registerRestoreResult(context.Background(), result); err != nil {
 		return result, err
 	}
+	registered = true
 	return result, nil
 }
 
@@ -360,9 +419,10 @@ func (s *Service) RunBackground(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		s.cleanupExpired()
 		s.runScheduled(ctx)
 		s.runMaintenance(ctx)
-		s.cleanupExpired()
+		s.refreshInventories(ctx)
 		select {
 		case <-ctx.Done():
 			return
@@ -371,6 +431,9 @@ func (s *Service) RunBackground(ctx context.Context) {
 	}
 }
 func (s *Service) runScheduled(ctx context.Context) {
+	if s.SchedulingPaused() {
+		return
+	}
 	s.mu.Lock()
 	plans := make([]Plan, 0, len(s.state.Plans))
 	for _, p := range s.state.Plans {
@@ -379,6 +442,9 @@ func (s *Service) runScheduled(ctx context.Context) {
 	s.mu.Unlock()
 	sortPlans(plans)
 	for _, p := range plans {
+		if s.SchedulingPaused() {
+			return
+		}
 		if !p.Enabled {
 			continue
 		}
@@ -389,7 +455,7 @@ func (s *Service) runScheduled(ctx context.Context) {
 				continue
 			}
 			due, ok := latestDue(a.Schedule, s.now())
-			if ok && (a.LastScheduledAt == nil || a.LastScheduledAt.Before(due)) {
+			if ok && (occurrencePending(a.LastScheduledAt, due, s.now())) {
 				dueIDs = append(dueIDs, a.DestinationID)
 				dueTimes[a.DestinationID] = due
 			}
@@ -406,6 +472,9 @@ func (s *Service) runScheduled(ctx context.Context) {
 		for i := range current.Destinations {
 			if due, ok := dueTimes[current.Destinations[i].DestinationID]; ok {
 				current.Destinations[i].LastScheduledAt = &due
+				if activated := current.Destinations[i].ScheduleActivatedAt; activated != nil && activated.After(s.now().Add(clockSkewTolerance)) {
+					current.Destinations[i].ScheduleActivatedAt = s.timePointer()
+				}
 			}
 		}
 		s.state.Plans[p.ID] = current
@@ -433,7 +502,7 @@ func (s *Service) cleanupExpired() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, run := range s.state.Runs {
-		if run.State != "running" && !s.now().Before(run.ExpiresAt) && safeID.MatchString(run.ID) {
+		if run.State != "running" && run.State != "queued" && !s.now().Before(run.ExpiresAt) && safeID.MatchString(run.ID) {
 			_ = os.RemoveAll(filepath.Join(s.directory, "staging", run.ID))
 		}
 	}

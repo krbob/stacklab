@@ -428,6 +428,7 @@ main() {
 
   install -d -m 0755 "${releases_dir}" "${stacklab_root}/stacks" "${stacklab_root}/config" "${stacklab_root}/data"
   install -d -m 0700 "${data_dir}"
+  install -d -o root -g root -m 0700 /var/lib/stacklab-backup-helper
 
   log "Installing release ${release_name} into ${install_dir}"
   cp -R "${artifact_root}" "${install_dir}"

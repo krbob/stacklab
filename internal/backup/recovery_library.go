@@ -95,6 +95,9 @@ func (s *Service) registerRestoreResult(ctx context.Context, result RestoreResul
 		s.state.Restores = map[string]RestoreResult{}
 	}
 	result.ID = restoreIdentity(result)
+	if _, exists := s.state.Restores[filepath.Clean(result.Target)]; !exists && len(s.state.Restores) >= 200 {
+		return fmt.Errorf("%w: recovery library is full; remove an old recovery result first", ErrInvalid)
+	}
 	if result.CreatedAt.IsZero() {
 		result.CreatedAt = s.now()
 	}
@@ -128,6 +131,7 @@ func (s *Service) RestoreLibrary(ctx context.Context) ([]RestoreResult, error) {
 			return nil, err
 		}
 		results[index] = normalizeRestoreResult(results[index])
+		results[index].Managed = s.managedRestore(results[index])
 	}
 	sort.Slice(results, func(i, j int) bool {
 		if results[i].CreatedAt.Equal(results[j].CreatedAt) {
@@ -151,7 +155,9 @@ func (s *Service) ResolveRestore(ctx context.Context, id string) (RestoreResult,
 	}
 	for _, result := range s.state.Restores {
 		if restoreIdentity(result) == id {
-			return normalizeRestoreResult(clone(result)), nil
+			normalized := normalizeRestoreResult(clone(result))
+			normalized.Managed = s.managedRestore(normalized)
+			return normalized, nil
 		}
 	}
 	return RestoreResult{}, ErrNotFound
@@ -240,6 +246,11 @@ func (s *Service) RestoredCatalog(ctx context.Context, id string, query CatalogQ
 			return CatalogPage{}, archiveErr
 		}
 		index, err = restoredIndex(ctx, result.Target, archive, source)
+		if errors.Is(err, ErrIndexUnavailable) {
+			page, pageErr := catalogPage(manifest, FileIndex{}, false, query)
+			page.IndexUnavailableReason = err.Error()
+			return page, pageErr
+		}
 		if err != nil {
 			return CatalogPage{}, err
 		}
@@ -252,6 +263,9 @@ func (s *Service) RestoredCatalog(ctx context.Context, id string, query CatalogQ
 // validate the actual archive bytes. Legacy indexes are generated once inside
 // the private recovery directory, without modifying the repository manifest.
 func restoredIndex(ctx context.Context, target, archive string, source ManifestSource) (FileIndex, error) {
+	if source.IndexPath == "" && source.IndexUnavailableReason != "" {
+		return FileIndex{}, fmt.Errorf("%w: %s", ErrIndexUnavailable, source.IndexUnavailableReason)
+	}
 	indexPath := filepath.Join(target, "indexes", source.Source.ID+".json")
 	info, err := os.Lstat(indexPath)
 	if err == nil {
@@ -274,7 +288,7 @@ func restoredIndex(ctx context.Context, target, archive string, source ManifestS
 	}
 	data, err := json.Marshal(index)
 	if err != nil || len(data) > maxCatalogBytes {
-		return index, errors.New("recovered index exceeds supported bounds")
+		return index, fmt.Errorf("%w: recovered index exceeds supported bounds", ErrIndexUnavailable)
 	}
 	root, err := os.OpenRoot(target)
 	if err != nil {
@@ -349,7 +363,7 @@ func (s *Service) OpenRestoredFile(ctx context.Context, id, sourceID, filename s
 	if err != nil || !os.SameFile(before, after) {
 		return result, errors.New("recovered archive changed during access")
 	}
-	if err = ValidateArchive(contextReader{ctx: ctx, reader: file}, ""); err != nil {
+	if _, err = ValidateCapturedArchive(contextReader{ctx: ctx, reader: file}); err != nil {
 		return result, err
 	}
 	if _, err = file.Seek(0, io.SeekStart); err != nil {
@@ -399,7 +413,7 @@ func ExtractSelectedFiles(ctx context.Context, archivePath, target string, paths
 		return err
 	}
 	defer file.Close()
-	if err = ValidateArchive(contextReader{ctx: ctx, reader: file}, ""); err != nil {
+	if _, err = ValidateCapturedArchive(contextReader{ctx: ctx, reader: file}); err != nil {
 		return err
 	}
 	if _, err = file.Seek(0, io.SeekStart); err != nil {

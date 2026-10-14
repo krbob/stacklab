@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -37,14 +38,18 @@ func (c *fakeCapture) Prepare(ctx context.Context, p Plan, id, dir string) (Mani
 }
 
 type recordingRunner struct {
-	calls         [][]string
-	repositories  []string
-	failRepo      string
-	failRetention bool
-	priorSnapshot string
+	mu               sync.Mutex
+	stagingDirectory string
+	calls            [][]string
+	repositories     []string
+	failRepo         string
+	failRetention    bool
+	priorSnapshot    string
 }
 
 func (r *recordingRunner) Run(ctx context.Context, name string, args, env []string, dir string) ([]byte, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.calls = append(r.calls, append([]string(nil), args...))
 	repo := ""
 	if len(args) > 1 {
@@ -52,6 +57,35 @@ func (r *recordingRunner) Run(ctx context.Context, name string, args, env []stri
 	}
 	r.repositories = append(r.repositories, repo)
 	for _, arg := range args {
+		if arg == "dump" || arg == "ls" {
+			stages, _ := os.ReadDir(r.stagingDirectory)
+			if len(stages) == 0 {
+				return nil, errors.New("no staged fixture")
+			}
+			stage := filepath.Join(r.stagingDirectory, stages[len(stages)-1].Name())
+			if arg == "dump" {
+				return os.ReadFile(filepath.Join(stage, "manifest.json"))
+			}
+			var output strings.Builder
+			err := filepath.WalkDir(stage, func(path string, entry os.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if entry.IsDir() {
+					return nil
+				}
+				info, err := entry.Info()
+				if err != nil {
+					return err
+				}
+				rel, _ := filepath.Rel(stage, path)
+				data, _ := json.Marshal(map[string]any{"path": "/" + filepath.ToSlash(rel), "type": "file", "size": info.Size()})
+				output.Write(data)
+				output.WriteByte('\n')
+				return nil
+			})
+			return []byte(output.String()), err
+		}
 		if arg == "snapshots" {
 			if r.priorSnapshot != "" {
 				return []byte(`[{"id":"` + r.priorSnapshot + `"}]`), nil
@@ -98,7 +132,7 @@ func newTestService(t *testing.T) (*Service, *fakeCapture, *recordingRunner) {
 	if service.initErr != nil {
 		t.Fatal(service.initErr)
 	}
-	runner := &recordingRunner{}
+	runner := &recordingRunner{stagingDirectory: filepath.Join(service.directory, "staging")}
 	service.runner = runner
 	return service, capture, runner
 }
@@ -312,7 +346,7 @@ func TestMetadataRetentionPreservesRetryableRunsAndRepositorySnapshots(t *testin
 		s.state.RestoreOrder = append(s.state.RestoreOrder, path)
 	}
 	s.pruneMetadataLocked()
-	if len(s.state.Runs) != 202 || len(s.state.Restores) != 200 {
+	if len(s.state.Runs) != 202 || len(s.state.Restores) != 205 {
 		t.Fatalf("retention runs=%d restores=%d", len(s.state.Runs), len(s.state.Restores))
 	}
 	if _, ok := s.state.Runs["run_retryable"]; !ok {

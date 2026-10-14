@@ -152,6 +152,7 @@ type TestResponse struct {
 }
 
 type WebhookPayload struct {
+	Backup          *BackupSummary        `json:"backup,omitempty"`
 	Event           string                `json:"event"`
 	SentAt          time.Time             `json:"sent_at"`
 	Source          string                `json:"source"`
@@ -291,7 +292,7 @@ func NewService(settingStore Store, logger *slog.Logger) *Service {
 			}
 			return parseRuntimeContainerLogOutput(output, since), nil
 		},
-		now:            time.Now().UTC,
+		now:            func() time.Time { return time.Now().UTC() },
 		pollInterval:   30 * time.Second,
 		alertCooldown:  15 * time.Minute,
 		logReadTimeout: runtimeLogReadTimeout,
@@ -325,9 +326,12 @@ func redactWebhookError(err error, target string) error {
 	if err == nil {
 		return nil
 	}
+	if target == "" {
+		return err
+	}
 	redacted := redactWebhookTarget(target)
 	message := strings.ReplaceAll(err.Error(), target, redacted)
-	if parsed, parseErr := url.Parse(target); parseErr == nil {
+	if parsed, parseErr := url.Parse(target); parseErr == nil && parsed.String() != "" {
 		message = strings.ReplaceAll(message, parsed.String(), redacted)
 	}
 	return errors.New(message)
@@ -546,11 +550,19 @@ func (s *Service) buildJobPayload(ctx context.Context, job store.Job, settings S
 	}
 
 	summary := buildSummary(eventType, job, warningCount)
+	var backupSummary *BackupSummary
+	if strings.HasPrefix(job.Action, "backup_") {
+		backupSummary = s.backupJobSummary(ctx, job)
+		if backupSummary != nil {
+			summary += ": " + backupSummary.PlanName + " (" + strings.Join(backupSummary.Destinations, ", ") + ")"
+		}
+	}
 	payload := WebhookPayload{
 		Event:        eventType,
 		SentAt:       s.now(),
 		Source:       "stacklab",
 		Summary:      summary,
+		Backup:       backupSummary,
 		WarningCount: warningCount,
 		PostUpdate:   postUpdate,
 		Job: &WebhookJob{

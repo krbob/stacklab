@@ -55,6 +55,11 @@ export function BackupStatus({ value }: { value: string }) {
                 'overdue',
                 'outdated',
                 'attention',
+                'missing',
+                'integrity_failed',
+                'unavailable',
+                'clock_skew',
+                'unverified',
               ].includes(value)
             ? 'border-[var(--warning)]/30 text-[var(--warning)]'
             : 'border-[var(--panel-border)] text-[var(--muted)]',

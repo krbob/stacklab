@@ -22,6 +22,7 @@ const (
 	ResourceKindSelfUpdate
 	ResourceKindImageUpdates
 	ResourceKindStack
+	ResourceKindBackupRepository
 )
 
 type Resource struct {
@@ -51,6 +52,12 @@ func ImageUpdatesResource() Resource {
 
 func StackResource(stackID string) Resource {
 	return Resource{kind: ResourceKindStack, id: strings.TrimSpace(stackID)}
+}
+
+// BackupRepositoryResource serializes repository operations independently of
+// host/Compose mutations. Self-update still drains every active job.
+func BackupRepositoryResource(key string) Resource {
+	return Resource{kind: ResourceKindBackupRepository, id: strings.TrimSpace(key)}
 }
 
 func StackResources(stackIDs []string) []Resource {
@@ -88,6 +95,8 @@ func (r Resource) String() string {
 		return "image-updates"
 	case ResourceKindStack:
 		return "stack:" + r.id
+	case ResourceKindBackupRepository:
+		return "backup-repository:" + r.id
 	default:
 		return "invalid"
 	}
@@ -100,7 +109,7 @@ func (r Resource) validate() error {
 			return fmt.Errorf("%w: %s resource cannot have an id", ErrInvalidResource, r.String())
 		}
 		return nil
-	case ResourceKindStack:
+	case ResourceKindStack, ResourceKindBackupRepository:
 		if r.id == "" {
 			return fmt.Errorf("%w: stack resource requires an id", ErrInvalidResource)
 		}
@@ -111,7 +120,7 @@ func (r Resource) validate() error {
 }
 
 // ResourcesConflict is the single conflict matrix for mutating jobs:
-//   - global excludes every other resource;
+//   - global excludes other host resources; repository I/O is independent;
 //   - Docker daemon changes exclude stack and registry mutations;
 //   - Docker registry changes exclude stack mutations;
 //   - otherwise only the same typed resource conflicts.
@@ -121,6 +130,9 @@ func (r Resource) validate() error {
 func ResourcesConflict(left, right Resource) bool {
 	if left == right {
 		return true
+	}
+	if left.kind == ResourceKindBackupRepository || right.kind == ResourceKindBackupRepository {
+		return false
 	}
 	if left.kind == ResourceKindGlobal || right.kind == ResourceKindGlobal {
 		return true
@@ -190,7 +202,11 @@ func normalizeResources(stackID string, requested []Resource) ([]Resource, error
 		return nil, ErrResourcesRequired
 	}
 	if _, globallyLocked := unique[GlobalResource()]; globallyLocked {
-		return []Resource{GlobalResource()}, nil
+		for resource := range unique {
+			if resource != GlobalResource() && resource.kind != ResourceKindBackupRepository {
+				delete(unique, resource)
+			}
+		}
 	}
 
 	resources := make([]Resource, 0, len(unique))

@@ -2,8 +2,11 @@ import { useEffect, useState } from 'react'
 import { useApi } from '@/hooks/use-api'
 import { useJobStream } from '@/hooks/use-job-stream'
 import { useJobDrawer } from '@/hooks/use-job-drawer'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import {
   backupDownloadURL,
+  backupArchiveURL,
+  deleteBackupRestore,
   compareBackupSnapshots,
   getBackupCatalog,
   getBackupRestoreCatalog,
@@ -42,6 +45,7 @@ export function RecoveryWorkspace({
   onDestinationChange,
   plans = [],
   toolsAvailable = true,
+  rcloneAvailable = true,
   onStarted,
 }: {
   destinations: BackupDestination[]
@@ -49,6 +53,7 @@ export function RecoveryWorkspace({
   onDestinationChange?: (id: string) => void
   plans?: BackupPlan[]
   toolsAvailable?: boolean
+  rcloneAvailable?: boolean
   onStarted: (result: BackupJobResponse) => void
 }) {
   const [destinationId, setDestinationId] = useState(
@@ -93,7 +98,7 @@ export function RecoveryWorkspace({
           key={destination.id}
           destination={destination}
           plans={plans}
-          toolsAvailable={toolsAvailable}
+          toolsAvailable={toolsAvailable && (destination.kind !== 'rclone' || rcloneAvailable)}
           onStarted={onStarted}
         />
       )}
@@ -125,6 +130,9 @@ function DestinationRecovery({
   const [error, setError] = useState<string | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
   const [apply, setApply] = useState<BackupRestoreResult | null>(null)
+  const [remove, setRemove] = useState<BackupRestoreResult | null>(null)
+  const [removeError, setRemoveError] = useState<string | null>(null)
+  const [removing, setRemoving] = useState(false)
   const { state: jobState } = useJobStream({ jobId })
   const running = !!jobId && !terminal.includes(jobState ?? '')
   const results = (restores.data?.items ?? []).filter((item) => item.destination_id === destination.id)
@@ -140,14 +148,14 @@ function DestinationRecovery({
     }
   }, [jobId, jobState, running, refreshRestores])
 
-  async function restore(files?: SelectedFile[], sourceIds?: string[]) {
+  async function restore(files?: SelectedFile[], sourceIds?: string[], test = true) {
     if (!snapshotId || pending || running || !toolsAvailable) return
     setPending(true)
     setError(null)
     try {
       const result = await restoreBackupSnapshot(destination.id, {
         snapshot_id: snapshotId,
-        test: !files?.length && !sourceIds?.length,
+        test: test && !files?.length && !sourceIds?.length,
         ...(files?.length ? { files } : {}),
         ...(sourceIds?.length ? { source_ids: sourceIds } : {}),
       })
@@ -233,6 +241,19 @@ function DestinationRecovery({
               <p className="text-xs leading-5 text-[var(--muted)]">
                 Creates a private directory on this host and verifies the full recovery set. Disk space and provider
                 transfer charges apply. Application startup is a separate recovery exercise.
+              </p>
+              <button
+                className={buttonClass}
+                disabled={pending || running}
+                onClick={() => {
+                  void restore(undefined, undefined, false)
+                }}
+              >
+                Retrieve complete set for offline recovery
+              </button>
+              <p className="text-xs leading-5 text-[var(--muted)]">
+                Retrieves original archives without claiming a recovery test. Use this when preserved metadata requires
+                offline extraction.
               </p>
             </div>
           </div>
@@ -329,6 +350,18 @@ function DestinationRecovery({
                 Restore job details
               </button>
             )}
+            {chosen.managed !== undefined && (
+              <button
+                className={buttonClass}
+                disabled={removing}
+                onClick={() => {
+                  setRemoveError(null)
+                  setRemove(chosen)
+                }}
+              >
+                {chosen.managed ? 'Delete isolated restore' : 'Forget result'}
+              </button>
+            )}
           </div>
         )}
       </BackupPanel>
@@ -340,6 +373,37 @@ function DestinationRecovery({
           onStarted={(result) => {
             onStarted(result)
             setApply(null)
+          }}
+        />
+      )}
+      {remove && (
+        <ConfirmDialog
+          title={remove.managed ? 'Delete isolated restore' : 'Forget recovery result'}
+          message={
+            remove.managed
+              ? 'Delete this local restored data and its registration to reclaim host storage. Repository snapshots remain unchanged. Download any files you want to retain first.'
+              : 'Remove this result from the recovery library. Its custom directory and every file remain on this host. Repository snapshots also remain unchanged; manage these files separately.'
+          }
+          items={[remove.target]}
+          confirmLabel={remove.managed ? 'Delete restored data' : 'Forget result'}
+          confirming={removing}
+          error={removeError}
+          onCancel={() => {
+            if (!removing) setRemove(null)
+          }}
+          onConfirm={() => {
+            setRemoving(true)
+            setRemoveError(null)
+            void deleteBackupRestore(remove.id)
+              .then(() => {
+                setRemove(null)
+                setRestoreId('')
+                refreshRestores()
+              })
+              .catch((cause) =>
+                setRemoveError(cause instanceof Error ? cause.message : 'Unable to delete restored data'),
+              )
+              .finally(() => setRemoving(false))
           }}
         />
       )}
@@ -477,10 +541,27 @@ function FileBrowser({
               <SourceLabel source={source.source} />
             </div>
           )}
+          {source?.recovery_restrictions?.map((restriction) => (
+            <p key={restriction} className="text-xs text-[var(--warning)]">
+              Offline recovery required: {restriction}
+            </p>
+          ))}
+          {restored && source && !restored.selected_files?.length && (
+            <div className="space-y-2">
+              <a className={buttonClass} href={backupArchiveURL(restored.id, sourceId)} download>
+                Download original source archive
+              </a>
+              <p className="text-xs text-[var(--muted)]">
+                Preserves the complete source and its metadata. Inspect and extract it offline using the recovery
+                runbook; downloading alone does not test application recovery.
+              </p>
+            </div>
+          )}
           {sourceId && !catalog.index_available && (
             <p className="rounded-md border border-[var(--warning)]/30 p-3 text-sm leading-6 text-[var(--warning)]">
               This snapshot has no file index. You can still restore this source or the complete set. File browsing and
-              comparison may remain unavailable for large archives; use the recovery runbook to inspect them offline.
+              comparison may remain unavailable for large archives; use the recovery runbook to inspect them offline.{' '}
+              {catalog.index_unavailable_reason || source?.index_unavailable_reason}
             </p>
           )}
           {sourceId && catalog.index_available && (
@@ -709,7 +790,11 @@ function CatalogPagination({
 
 function FileComparison({ data, onOffset }: { data: BackupComparison; onOffset: (offset: number) => void }) {
   if (!data.index_available)
-    return <p className="text-sm text-[var(--warning)]">Both snapshots need a file index for comparison.</p>
+    return (
+      <p className="text-sm text-[var(--warning)]">
+        Both snapshots need a file index for comparison. {data.index_unavailable_reason}
+      </p>
+    )
   return (
     <>
       <p className="text-xs text-[var(--muted)]">

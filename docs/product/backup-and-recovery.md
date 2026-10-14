@@ -6,11 +6,12 @@ Implemented native module, 2026-10-13. [ADR 0005](../adr/0005-native-backup-orch
 records the architectural decision; the [architecture](../architecture/backup-and-recovery.md),
 [API semantics](../api/backup-and-recovery.md), and
 [operator procedure](../ops/backup-and-recovery.md) describe the delivered
-contracts and constraints. This document retains the product requirements.
+contracts and constraints. The [reliability plan](backup-reliability.md) records
+the accepted review corrections. This document describes the product contract.
 Cloud account authorization, provider-specific live validation and actual
 application recovery exercises remain deployment responsibilities.
 
-Stacklab will manage backup and recovery for its own configuration and the
+Stacklab manages backup and recovery for its own configuration and the
 Compose workloads it manages. The operator should be able to select data by
 stack and service, keep copies in several locations, and recover without
 maintaining a separate backup container. This covers application recovery;
@@ -18,20 +19,19 @@ whole-host disk imaging and operating-system recovery remain outside scope.
 
 ## Execution Model
 
-Stacklab will orchestrate native restic processes and use native rclone where
-required by the destination. It will own the plans, scheduling, source
-preparation, job progress, notifications, and recovery workflow. Restic will
-own the encrypted backup format, deduplication, repository integrity checks,
+Stacklab orchestrates native restic processes and use native rclone where
+required by the destination. It owns the plans, scheduling, source
+preparation, job progress, notifications, and recovery workflow. Restic owns the encrypted backup format, deduplication, repository integrity checks,
 retention operations, and data restoration.
 
 Backrest is a reference for useful backup workflows, not a runtime dependency.
 Repositories must remain usable with the supported restic tooling without a
-running Stacklab installation. Stacklab-specific recovery metadata will be
+running Stacklab installation. Stacklab-specific recovery metadata is
 versioned and stored with the backup, not only in the live Stacklab database.
 
 ## Destinations
 
-The first release will support these destinations:
+The supported destination types are:
 
 | Destination | Transport | Operator configuration |
 | --- | --- | --- |
@@ -40,12 +40,8 @@ The first release will support these destinations:
 | Local disk | restic local backend | Repository directory and expected backing filesystem |
 | NAS | restic SFTP backend or a host-mounted share | SSH connection or validated mounted directory |
 
-Backblaze B2 through S3 is the initial cloud destination chosen for homelab
-validation. Its first 10 GB of storage are free according to the
-[B2 pricing page](https://www.backblaze.com/cloud-storage/pricing), checked on
-2026-10-13. This is a deployment choice, not a product-wide default or a
-hard-coded quota; the other destination types remain in the first-release
-scope, and provider pricing must be checked when configuring a deployment.
+Provider quotas, prices and access policies are deployment choices and must be
+checked when configuring a destination; no provider quota is hard-coded.
 
 A destination represents one repository and has an access test, credential
 configuration, availability state, and repository-check history. Credentials
@@ -67,7 +63,7 @@ The operator can choose the following scopes independently:
 | Scope | Selectable content |
 | --- | --- |
 | Stacklab recovery | Service configuration, application settings, backup plans, required credential state, and a consistent SQLite backup |
-| Stack definition | Compose, optional `.env`, and selected stack-local supporting files |
+| Stack definition | The selected stack directory, including Compose, `.env` and relative data unless explicitly excluded |
 | Managed configuration | Selected files and directories under `<STACKLAB_ROOT>/config` |
 | Service data | Selected bind mounts and named volumes, with file and directory exclusions |
 
@@ -84,18 +80,19 @@ changed source must be reported rather than silently omitted from a successful
 backup. Shared volumes are captured once per recovery set, with all consumer
 relationships retained and all writers considered during consistency handling.
 
-The stack view will show covered, excluded, and unconfigured persistent data.
+The stack view shows covered, excluded, and unconfigured persistent data.
 Adding a new mount or service must surface a coverage change for review rather
 than automatically uploading previously unselected data. Container writable
 layers, downloadable image layers, logs, and caches are excluded by default;
-image references and available digests are recorded as recovery prerequisites.
+Compose image references are recorded as recovery prerequisites; image digests
+and downloadable image layers are not currently captured.
 
 ## Plans And Multiple Destinations
 
 A plan selects sources and their consistency mode, then assigns one or more
 destinations. Each assignment has an enabled state, schedule, and daily,
-weekly, and monthly retention policy. Start with explicit daily and weekly
-schedules in the displayed host timezone. A manual run can target all or
+weekly, and monthly retention policy. Schedules support manual, every N hours,
+daily and weekly occurrences with explicit timezone previews. A manual run can target all or
 selected destinations. For example, one data selection can be copied daily
 to a NAS and B2, and weekly to Drive, with different retention in each place.
 
@@ -120,7 +117,7 @@ model; this plan does not add new values to the published job-state contract.
 
 ## Data Consistency And Service Coordination
 
-The first release needs two explicit capture modes:
+Two explicit capture modes are available:
 
 - File capture for immutable data, prepared application dumps, or data whose
   live-copy behavior the operator has reviewed. Label live file copies with
@@ -145,7 +142,7 @@ unsupported volume drivers or inaccessible paths must be reported explicitly.
 
 ## Verification And Restore
 
-The first release must support the complete recovery workflow:
+The recovery workflow includes:
 
 1. Browse recovery sets by stack, service, capture time, and destination, with
    selected sources, exclusions, consistency mode, and verification results.
@@ -160,8 +157,9 @@ The first release must support the complete recovery workflow:
    recovery credentials, without needing the previous Stacklab database.
 
 Each recovery set includes a versioned manifest mapping logical sources to
-saved content, Compose definitions, volume/service relationships, capture
-method, and relevant Stacklab and image versions. Fresh-host recovery must
+saved content, volume/service relationships, capture
+method, and relevant Stacklab and image references. Compose files are included
+when their stack-definition source is selected. Fresh-host recovery must
 allow reviewed path and volume remapping. Missing external networks, image
 registries, build inputs, secrets, or other dependencies must be visible; the
 product must not imply that a saved image digest makes an image available.
@@ -185,7 +183,8 @@ copies, repository size, and verification/restore-test age.
 The global `/backups` screen and each stack's Backups tab expose configuration,
 coverage and recovery. The implementation uses existing jobs and notifications,
 versioned SQLite application settings, private credential/staging files, and a
-narrow native archive helper. Online restore merges reviewed source archives;
+narrow native archive helper. Reviewed complete-directory restore defaults to
+replacement; merge remains explicit and single-file recovery preserves neighbors;
 private Stacklab state recovery is deliberately offline. See the canonical
 implementation documents linked above for limitations and installation details.
 

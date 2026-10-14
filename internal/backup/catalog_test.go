@@ -66,8 +66,8 @@ func TestSourceCatalogIndexesCapturedBytesAndBounds(t *testing.T) {
 	stamp := time.Date(2026, 10, 13, 10, 0, 0, 0, time.UTC)
 	writeCatalogFixture(t, archive, []catalogFixtureEntry{{name: "folder/data.txt", content: "captured", mtime: stamp}, {name: "linked", kind: tar.TypeSymlink, link: "folder/data.txt"}})
 	source := ManifestSource{Source: Source{ID: "source-a"}, SavedPath: "source.tar", Archive: true}
-	if _, err := writeSourceIndex(context.Background(), archive, dir, &source, 1); err == nil {
-		t.Fatal("index ignored staging budget")
+	if size, err := writeSourceIndex(context.Background(), archive, dir, &source, 1); err != nil || size != 0 || source.IndexPath != "" || source.IndexUnavailableReason == "" {
+		t.Fatalf("bounded index must degrade inspection without rejecting capture: size=%d source=%+v err=%v", size, source, err)
 	}
 	size, err := writeSourceIndex(context.Background(), archive, dir, &source, 1<<20)
 	if err != nil {

@@ -1,0 +1,152 @@
+import { expect, test, type Page } from '@playwright/test'
+
+const source = {
+  id: 'database',
+  kind: 'service_mount',
+  stack_id: 'demo',
+  service: 'db',
+  mount: '/data',
+  path: 'demo_data',
+}
+const destination = {
+  id: 'nas',
+  name: 'NAS',
+  kind: 'local',
+  repository: '/mnt/backup',
+  expected_filesystem: '2',
+  status: 'available',
+  credentials_configured: true,
+  check_schedule: { frequency: 'manual' },
+  prune_schedule: { frequency: 'manual' },
+  check_read_data: 'metadata',
+}
+const catalog = {
+  items: [
+    {
+      path: 'record.txt',
+      type: 'file',
+      size_bytes: 12,
+      mode: 384,
+      uid: 1000,
+      gid: 1000,
+      modified_at: '2026-10-01T00:00:00Z',
+    },
+  ],
+  sources: [{ source, original_path: '/data', saved_path: 'sources/database.tar', size_bytes: 1024, archive: true }],
+  path: '',
+  total: 1,
+  offset: 0,
+  limit: 50,
+  index_available: true,
+  transfer_bytes: 1024,
+}
+
+async function mockBackupUI(page: Page, waitForSearch?: () => Promise<void>) {
+  // UI regression fixtures never submit jobs or mutate repositories on the test host.
+  await page.route('**/api/**', async (route) => {
+    const url = new URL(route.request().url())
+    let body: unknown
+    switch (url.pathname) {
+      case '/api/session':
+        body = { authenticated: true }
+        break
+      case '/api/meta':
+        body = { app: { version: 'test' }, docker: { engine_version: 'test', compose_version: 'test' } }
+        break
+      case '/api/jobs/active':
+        body = { items: [], summary: {} }
+        break
+      case '/api/backups':
+        body = {
+          destinations: [destination],
+          plans: [],
+          runs: [],
+          protection: [],
+          restic_available: true,
+          rclone_available: true,
+          staging_directory: '/staging',
+        }
+        break
+      case '/api/backups/policy':
+        body = { paused: false, host_review_required: false, overdue_grace_minutes: 60, heartbeat_configured: false }
+        break
+      case '/api/backups/coverage':
+        body = { stacks: [] }
+        break
+      case '/api/backups/restores':
+        body = { items: [] }
+        break
+      case '/api/backups/destinations/nas/snapshots':
+        body = {
+          items: [
+            {
+              id: 'snapshot',
+              short_id: 'snapshot',
+              time: '2026-10-01T00:00:00Z',
+              hostname: 'stacklab',
+              tags: [],
+              paths: [],
+            },
+          ],
+        }
+        break
+      case '/api/backups/destinations/nas/snapshots/snapshot/files':
+        if (url.searchParams.get('search')) await waitForSearch?.()
+        body = catalog
+        break
+      case '/api/backups/schedule-preview':
+        body = { timezone: 'America/New_York', next_occurrences: ['2026-10-01T06:00:00Z'] }
+        break
+      default:
+        await route.fulfill({
+          status: 404,
+          json: { error: { message: 'UI fixture does not implement this endpoint' } },
+        })
+        return
+    }
+    await route.fulfill({ json: body })
+  })
+}
+
+test.describe('Backup UI failure regressions', () => {
+  test.use({ timezoneId: 'Europe/Warsaw', locale: 'en-US', serviceWorkers: 'block' })
+
+  test('keeps typing focus during an index request and preserves Recovery across tabs', async ({ page }) => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    await mockBackupUI(page, () => gate)
+    await page.goto('/backups?view=recovery')
+    await page.getByLabel('Recovery set', { exact: true }).selectOption('snapshot')
+    await page.getByLabel('Snapshot source').selectOption('database')
+    const search = page.getByLabel('Search snapshot files')
+    const requested = page.waitForRequest((request) => new URL(request.url()).searchParams.get('search') === 'record')
+    await search.fill('record')
+    await requested
+    await expect(search).toBeFocused()
+    await page.keyboard.type('2')
+    await expect(search).toHaveValue('record2')
+    await expect(page).toHaveURL(/\/backups\?view=recovery$/)
+    release()
+    await page.getByRole('tab', { name: 'History', exact: true }).click()
+    await page.getByLabel('Filter by result').selectOption('failed')
+    await page.getByRole('tab', { name: 'Recovery', exact: true }).click()
+    await expect(page.getByLabel('Recovery set', { exact: true })).toHaveValue('snapshot')
+    await expect(search).toHaveValue('record2')
+    await page.getByRole('tab', { name: 'History', exact: true }).click()
+    await expect(page.getByLabel('Filter by result')).toHaveValue('failed')
+  })
+
+  test('shows the schedule zone in a browser with a different timezone', async ({ page }) => {
+    await mockBackupUI(page)
+    await page.goto('/backups?view=destinations')
+    await page.getByRole('button', { name: 'Edit', exact: true }).click()
+    await page.getByText('Repository maintenance schedules', { exact: true }).click()
+    await page.getByLabel('Repository check schedule', { exact: true }).selectOption('daily')
+    await page.getByLabel('Timezone (Repository check schedule)').fill('America/New_York')
+    await expect(page.getByText('Next occurrences (America/New_York):')).toBeVisible()
+    await expect(page.getByText('10/1/2026, 2:00:00 AM EDT', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Generate password', exact: true })).toHaveCount(0)
+  })
+})

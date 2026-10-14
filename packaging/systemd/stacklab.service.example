@@ -24,7 +24,7 @@ PrivateTmp=true
 ProtectSystem=full
 ProtectHome=true
 # Include /etc/docker when the opt-in Docker admin helper is enabled.
-ReadWritePaths=/opt/stacklab /var/lib/stacklab /etc/docker
+ReadWritePaths=/opt/stacklab /var/lib/stacklab /etc/docker -/var/lib/stacklab-backup-helper
 
 [Install]
 WantedBy=multi-user.target

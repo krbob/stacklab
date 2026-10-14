@@ -17,6 +17,12 @@ type backupController struct{ *Handler }
 
 func (c *backupController) registerRoutes(mux *http.ServeMux) {
 	routes := map[string]http.HandlerFunc{
+		"GET /api/backups/recovery":                                                    c.recoveryJournals,
+		"POST /api/backups/recovery/{runId}":                                           c.resolveRecovery,
+		"GET /api/backups/policy":                                                      c.policy,
+		"PUT /api/backups/policy":                                                      c.savePolicy,
+		"DELETE /api/backups/restores/{restoreId}":                                     c.deleteRestore,
+		"GET /api/backups/restores/{restoreId}/archive":                                c.downloadRestoredArchive,
 		"GET /api/backups/coverage":                                                    c.coverage,
 		"POST /api/backups/schedule-preview":                                           c.schedulePreview,
 		"GET /api/backups/plans/{planId}/preflight":                                    c.preflight,

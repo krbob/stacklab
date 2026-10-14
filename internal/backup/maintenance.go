@@ -12,6 +12,9 @@ func (s *Service) timePointer() *time.Time { value := s.now(); return &value }
 // started (including failed) occurrence is recorded once and is never replayed
 // in a tight loop. Both actions use the same global admission lock as backups.
 func (s *Service) runMaintenance(ctx context.Context) {
+	if s.SchedulingPaused() {
+		return
+	}
 	s.mu.Lock()
 	destinations := make([]Destination, 0, len(s.state.Destinations))
 	for _, destination := range s.state.Destinations {
@@ -21,7 +24,7 @@ func (s *Service) runMaintenance(ctx context.Context) {
 	sort.Slice(destinations, func(i, j int) bool { return destinations[i].ID < destinations[j].ID })
 	for _, destination := range destinations {
 		for _, action := range []string{"backup_check", "backup_prune"} {
-			if ctx.Err() != nil {
+			if ctx.Err() != nil || s.SchedulingPaused() {
 				return
 			}
 			schedule, last := destination.CheckSchedule, destination.LastCheckScheduledAt
@@ -29,7 +32,7 @@ func (s *Service) runMaintenance(ctx context.Context) {
 				schedule, last = destination.PruneSchedule, destination.LastPruneScheduledAt
 			}
 			due, ok := latestDue(schedule, s.now())
-			if !ok || last != nil && !last.Before(due) {
+			if !ok || !occurrencePending(last, due, s.now()) {
 				continue
 			}
 			job, err := s.StartRepositoryJob(ctx, destination.ID, action, "scheduler")
@@ -46,7 +49,7 @@ func (s *Service) runMaintenance(ctx context.Context) {
 			s.state.Destinations[destination.ID] = current
 			persistErr := s.persist(context.Background())
 			if persistErr != nil {
-				s.repositoryJob = ""
+				delete(s.repositoryJobs, repositoryKey(destination))
 			}
 			s.mu.Unlock()
 			if persistErr != nil {

@@ -80,12 +80,34 @@ export interface paths {
   "/backups/plans/{planId}/run": {
     post: operations["runBackupPlan"];
   };
+  "/backups/policy": {
+    /** @description Scheduling pause, recovered-host review and external protection monitoring status. Secrets are not returned. */
+    get: operations["getBackupPolicy"];
+    /** @description Update backup and retention pause, overdue grace and write-only external heartbeat configuration. */
+    put: operations["saveBackupPolicy"];
+  };
+  "/backups/recovery": {
+    /** @description List unresolved service recovery journals, including held restores and malformed entries. */
+    get: operations["getBackupRecoveryJournals"];
+  };
+  "/backups/recovery/{runId}": {
+    /** @description Resolve service recovery under exclusive lifecycle coordination; explicit hold acknowledgement never starts services. */
+    post: operations["resolveBackupRecovery"];
+  };
   "/backups/restore-manifest": {
     get: operations["getBackupRestoreManifest"];
   };
   "/backups/restores": {
     /** @description List successfully registered isolated recovery results, including availability and partial-file selection. Legacy entries receive stable IDs. */
     get: operations["getBackupRestores"];
+  };
+  "/backups/restores/{restoreId}": {
+    /** @description Remove a recovery registration. Stacklab-owned directories are also deleted; custom directories and their files remain untouched. */
+    delete: operations["deleteBackupRestore"];
+  };
+  "/backups/restores/{restoreId}/archive": {
+    /** @description Download a complete source archive for operator-controlled offline recovery. Partial-file results cannot expose whole archives. */
+    get: operations["downloadRestoredBackupArchive"];
   };
   "/backups/restores/{restoreId}/download": {
     /** @description Stream one regular file from a registered isolated recovery as a private attachment. Arbitrary host paths and symlinks are rejected. */
@@ -446,9 +468,15 @@ export interface components {
       last_scheduled_at?: string;
       retention: components["schemas"]["BackupRetention"];
       schedule: components["schemas"]["BackupSchedule"];
+      /**
+       * Format: date-time
+       * @description First activation of the current schedule; earlier occurrences are not backfilled.
+       */
+      schedule_activated_at?: string;
     };
     BackupCatalogPage: {
       index_available: boolean;
+      index_unavailable_reason?: string;
       items: components["schemas"]["BackupFileEntry"][];
       /** Format: int32 */
       limit: number;
@@ -467,18 +495,31 @@ export interface components {
       read_data: "metadata" | "all" | "subset";
     };
     BackupCopyProtection: {
+      availability_status?: string;
       destination_id: string;
       /** Format: date-time */
       due_at?: string;
+      /** @description Snapshot presence and verification evidence remain usable independently of transfer activity or schedule freshness. */
+      evidence_usable?: boolean;
+      integrity_status?: string;
       /** Format: date-time */
       last_capture_at?: string;
       last_error?: string;
+      /**
+       * Format: date-time
+       * @description Full recovery exercise for this exact snapshot only.
+       */
+      last_restore_test_at?: string;
       last_run_id?: string;
       /** Format: date-time */
       last_uploaded_at?: string;
       /** Format: date-time */
       next_run_at?: string;
+      /** Format: date-time */
+      snapshot_checked_at?: string;
       snapshot_id?: string;
+      /** @enum {string} */
+      snapshot_status?: "present" | "missing" | "unknown";
       state: string;
     };
     BackupCopyResult: {
@@ -506,6 +547,11 @@ export interface components {
       /** Format: date-time */
       uploaded_at?: string;
       verification: string;
+      /**
+       * Format: date-time
+       * @description Time the complete set of referenced recovery objects was verified.
+       */
+      verified_at?: string;
     };
     BackupCoverageResponse: {
       plans: components["schemas"]["BackupPlan"][];
@@ -523,6 +569,7 @@ export interface components {
       error?: string;
       expected_filesystem?: string;
       id: string;
+      inventory_error?: string;
       /** @enum {string} */
       kind: "local" | "s3" | "sftp" | "rclone";
       /** Format: date-time */
@@ -530,6 +577,10 @@ export interface components {
       last_check_policy?: string;
       /** Format: date-time */
       last_check_scheduled_at?: string;
+      /** Format: date-time */
+      last_inventory_at?: string;
+      /** Format: date-time */
+      last_inventory_attempt_at?: string;
       last_operation?: string;
       /** Format: date-time */
       last_operation_at?: string;
@@ -541,6 +592,7 @@ export interface components {
       last_prune_scheduled_at?: string;
       /** Format: date-time */
       last_restore_test_at?: string;
+      last_restore_test_snapshot_id?: string;
       /** Format: date-time */
       last_success_at?: string;
       name: string;
@@ -579,6 +631,7 @@ export interface components {
       /** Format: int32 */
       added: number;
       index_available: boolean;
+      index_unavailable_reason?: string;
       items: components["schemas"]["BackupFileChange"][];
       /** Format: int32 */
       limit: number;
@@ -605,7 +658,7 @@ export interface components {
       /** Format: int64 */
       size_bytes: number;
       /** @enum {string} */
-      type: "file" | "directory" | "symlink" | "hardlink";
+      type: "file" | "directory" | "symlink" | "hardlink" | "fifo" | "character_device" | "block_device";
       /** Format: int32 */
       uid: number;
     };
@@ -648,9 +701,13 @@ export interface components {
       entry_count?: number;
       file_name?: string;
       index_path?: string;
+      /** @description Inspection limitation; the complete source archive is still backed up. */
+      index_unavailable_reason?: string;
       /** Format: int32 */
       index_version?: number;
       original_path: string;
+      /** @description Metadata preserved in the archive that requires operator-controlled offline recovery. */
+      recovery_restrictions?: string[];
       saved_path: string;
       /** Format: int64 */
       size_bytes: number;
@@ -663,6 +720,8 @@ export interface components {
       plans: components["schemas"]["BackupPlan"][];
       protection: components["schemas"]["BackupPlanProtection"][];
       rclone_available: boolean;
+      /** @description Unresolved service recovery or backup state issue; the panel remains available. */
+      recovery_error?: string;
       restic_available: boolean;
       runs: components["schemas"]["BackupRun"][];
       staging_directory: string;
@@ -700,10 +759,52 @@ export interface components {
     BackupPlanResponse: {
       plan: components["schemas"]["BackupPlan"];
     };
+    BackupPolicy: {
+      error?: string;
+      heartbeat_configured: boolean;
+      heartbeat_error?: string;
+      host_review_required: boolean;
+      /** Format: date-time */
+      last_heartbeat_at?: string;
+      /** @default 60 */
+      overdue_grace_minutes: number;
+      paused: boolean;
+    };
+    BackupPolicyInput: {
+      /** @description Explicitly acknowledge reviewed recovered sources on this host. */
+      acknowledge_host?: boolean;
+      clear_heartbeat?: boolean;
+      /** @description Optional HTTP(S) success heartbeat URL. Blank or omitted preserves the existing secret URL. */
+      heartbeat_url?: string;
+      overdue_grace_minutes: number;
+      paused: boolean;
+    };
     BackupPreflight: {
       sources: components["schemas"]["BackupManifestSource"][];
       warnings: string[];
       writers: components["schemas"]["BackupWriter"][];
+    };
+    BackupRecoveryJournal: {
+      error?: string;
+      hold_stopped: boolean;
+      phases?: {
+        [key: string]: string;
+      };
+      prepared_tokens?: {
+        [key: string]: string;
+      };
+      run_id: string;
+      writers: components["schemas"]["BackupWriter"][];
+    };
+    BackupRecoveryJournals: {
+      items: components["schemas"]["BackupRecoveryJournal"][];
+    };
+    BackupRecoveryResolution: {
+      /**
+       * @description Acknowledgement removes a reviewed hold without starting services or deleting rollback data.
+       * @enum {string}
+       */
+      action: "retry" | "acknowledge_hold";
     };
     BackupRestoreLibraryResponse: {
       items: components["schemas"]["BackupRestoreResult"][];
@@ -712,6 +813,12 @@ export interface components {
       manifest: components["schemas"]["BackupManifest"];
     };
     BackupRestoreMapping: {
+      /**
+       * @description Replace removes entries absent from the archive; merge preserves them. Applies to complete sources only.
+       * @default replace
+       * @enum {string}
+       */
+      mode?: "replace" | "merge";
       source_id: string;
       target: string;
       volume_name?: string;
@@ -742,6 +849,8 @@ export interface components {
       destination_id: string;
       id: string;
       job_id?: string;
+      /** @description Stacklab owns this directory and permits explicit removal. Custom targets are operator-owned. */
+      managed?: boolean;
       manifest?: components["schemas"]["BackupManifest"];
       selected_files?: components["schemas"]["BackupFileSelection"][];
       snapshot_id: string;
@@ -860,6 +969,8 @@ export interface components {
       running: boolean;
       service?: string;
       stack_id?: string;
+      /** @description Docker container graceful stop setting, when explicitly configured. */
+      stop_timeout_seconds?: number;
     };
     ComposeWarning: {
       code: string;
@@ -2835,6 +2946,77 @@ export interface operations {
       503: components["responses"]["ErrorInvalidState"];
     };
   };
+  /** @description Scheduling pause, recovered-host review and external protection monitoring status. Secrets are not returned. */
+  getBackupPolicy: {
+    responses: {
+      /** @description Successful response. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BackupPolicy"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      409: components["responses"]["ErrorConflict"];
+    };
+  };
+  /** @description Update backup and retention pause, overdue grace and write-only external heartbeat configuration. */
+  saveBackupPolicy: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["BackupPolicyInput"];
+      };
+    };
+    responses: {
+      /** @description Successful response. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BackupPolicy"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      409: components["responses"]["ErrorConflict"];
+    };
+  };
+  /** @description List unresolved service recovery journals, including held restores and malformed entries. */
+  getBackupRecoveryJournals: {
+    responses: {
+      /** @description Successful response. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BackupRecoveryJournals"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      409: components["responses"]["ErrorConflict"];
+    };
+  };
+  /** @description Resolve service recovery under exclusive lifecycle coordination; explicit hold acknowledgement never starts services. */
+  resolveBackupRecovery: {
+    parameters: {
+      path: {
+        runId: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["BackupRecoveryResolution"];
+      };
+    };
+    responses: {
+      /** @description Successful response. */
+      202: {
+        content: {
+          "application/json": components["schemas"]["JobEnvelopeResponse"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      409: components["responses"]["ErrorConflict"];
+    };
+  };
   getBackupRestoreManifest: {
     parameters: {
       query: {
@@ -2865,6 +3047,46 @@ export interface operations {
       401: components["responses"]["ErrorUnauthorized"];
       404: components["responses"]["ErrorNotFound"];
       409: components["responses"]["ErrorConflict"];
+    };
+  };
+  /** @description Remove a recovery registration. Stacklab-owned directories are also deleted; custom directories and their files remain untouched. */
+  deleteBackupRestore: {
+    parameters: {
+      path: {
+        restoreId: string;
+      };
+    };
+    responses: {
+      /** @description Recovery result removed. */
+      204: {
+        content: never;
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
+    };
+  };
+  /** @description Download a complete source archive for operator-controlled offline recovery. Partial-file results cannot expose whole archives. */
+  downloadRestoredBackupArchive: {
+    parameters: {
+      query: {
+        source_id: string;
+      };
+      path: {
+        restoreId: string;
+      };
+    };
+    responses: {
+      /** @description Private tar attachment; extracting preserved privileged metadata requires explicit operator care. */
+      200: {
+        content: {
+          "application/x-tar": string;
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      404: components["responses"]["ErrorNotFound"];
     };
   };
   /** @description Stream one regular file from a registered isolated recovery as a private attachment. Arbitrary host paths and symlinks are rejected. */

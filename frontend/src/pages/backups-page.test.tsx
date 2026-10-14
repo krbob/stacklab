@@ -64,6 +64,12 @@ const jobResponse = { job: { id: 'job-1' } } as api.BackupJobResponse
 beforeEach(() => {
   vi.resetAllMocks()
   vi.mocked(api.getBackups).mockResolvedValue(overview)
+  vi.mocked(api.getBackupPolicy).mockResolvedValue({
+    paused: false,
+    host_review_required: false,
+    overdue_grace_minutes: 60,
+    heartbeat_configured: false,
+  })
   vi.mocked(api.getBackupCoverage).mockResolvedValue({ stacks: [] })
   vi.mocked(api.getBackupPreflight).mockResolvedValue({
     sources: [],
@@ -94,6 +100,16 @@ function renderPage(view: string) {
 }
 
 describe('Backup workflow', () => {
+  it('allows configuration but disables repository commands when restic is unavailable', async () => {
+    vi.mocked(api.getBackups).mockResolvedValue({ ...overview, restic_available: false })
+    renderPage('destinations')
+    for (const action of ['Test access', 'Initialize', 'Check repository', 'Run retention cleanup']) {
+      for (const button of await screen.findAllByRole('button', { name: action }))
+        expect(button).toBeDisabled()
+    }
+    expect(screen.getAllByRole('button', { name: 'Edit' })[0]).toBeEnabled()
+  })
+
   it('retains the selected recovery set and history filters when changing tabs', async () => {
     vi.mocked(api.getBackupSnapshots).mockResolvedValue({
       items: [{ id: 'snap', short_id: 'snap', time: '2026-10-01T00:00:00Z', hostname: 'host', tags: [], paths: [] }],
@@ -302,7 +318,7 @@ describe('Backup configuration and recovery', () => {
       review_token: 'bound-review',
       expires_at: '2099-10-13T12:00:00Z',
       preview: {
-        mappings: [{ source_id: 'data', target: '/recovered/data' }],
+        mappings: [{ source_id: 'data', target: '/recovered/data', mode: 'replace' }],
         writers: [{ container_id: 'container', stack_id: 'demo', service: 'db', running: true }],
         warnings: ['Unrelated files remain.'],
         overwrites: true,
@@ -341,7 +357,7 @@ describe('Backup configuration and recovery', () => {
     await waitFor(() =>
       expect(api.restoreBackupSnapshot).toHaveBeenCalledWith('nas', {
         restore_id: 'restore',
-        mappings: [{ source_id: 'data', target: '/recovered/data' }],
+        mappings: [{ source_id: 'data', target: '/recovered/data', mode: 'replace' }],
         resume_services: false,
         review_token: 'bound-review',
       }),

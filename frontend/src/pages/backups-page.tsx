@@ -41,6 +41,7 @@ import { RunHistory } from './backups/run-history'
 import { RunPlanDialog } from './backups/run-plan-dialog'
 import { scheduleDescription } from './backups/schedule-utils'
 import { SourceLabel } from './backups/source-label'
+import { BackupOperations } from './backups/backup-operations'
 
 type Editor =
   | { kind: 'destination'; value?: BackupDestination }
@@ -145,7 +146,7 @@ export function BackupsPage() {
     setError(null)
     setReview(value)
   }
-  const hasDialog = !!runPlan || !!check || !!review
+  const hasDialog = !!runPlan || !!check || !!review || !!editor
   useEffect(() => {
     const id = search.get('plan')
     const plan = data?.plans.find((item) => item.id === id)
@@ -228,6 +229,12 @@ export function BackupsPage() {
                 Restic is unavailable on this host. Install the supported backup tools before running backups.
               </p>
             )}
+            <BackupOperations
+              refreshKey={state.updatedAt}
+              recoveryError={data.recovery_error}
+              onChanged={state.refetch}
+              onStarted={started}
+            />
             <div className="space-y-4">
               <div
                 role="tabpanel"
@@ -258,6 +265,7 @@ export function BackupsPage() {
                     initialDestinationId={search.get('destination') ?? undefined}
                     plans={plans}
                     toolsAvailable={data.restic_available}
+                    rcloneAvailable={data.rclone_available}
                     onDestinationChange={(id) =>
                       setSearch(
                         (previous) => {
@@ -540,6 +548,8 @@ export function BackupsPage() {
       {editor?.kind === 'destination' && (
         <DestinationEditor
           destination={editor.value}
+          toolsAvailable={data?.restic_available ?? false}
+          rcloneAvailable={data?.rclone_available ?? false}
           onClose={closeEditor}
           onSaved={finishEditor}
           onCreatePlan={(destination) => {
@@ -557,7 +567,7 @@ export function BackupsPage() {
           onClose={closeEditor}
           onSaved={(plan) => {
             finishEditor()
-            if (plan) setRunPlan(plan)
+            if (plan) openRun(plan)
           }}
         />
       )}

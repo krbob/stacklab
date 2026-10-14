@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"net/url"
 	"os"
 	"os/exec"
@@ -34,16 +34,51 @@ func (nativeRunner) Run(ctx context.Context, name string, args, env []string, di
 	return nativeRunner{}.RunProgress(ctx, name, args, env, dir, nil)
 }
 func (nativeRunner) RunProgress(ctx context.Context, name string, args, env []string, dir string, callback progressCallback) ([]byte, error) {
+	if filepath.Base(name) == "restic" && commandIn(args, "backup") {
+		transferCtx, cancel := context.WithCancelCause(ctx)
+		defer cancel(nil)
+		timer := time.AfterFunc(5*time.Minute, func() { cancel(errTransferStalled) })
+		defer timer.Stop()
+		previousBytes, previousFiles := int64(-1), int64(-1)
+		original := callback
+		callback = func(progress transferProgress) {
+			if progress.BytesProcessed != previousBytes || progress.FilesProcessed != previousFiles {
+				previousBytes, previousFiles = progress.BytesProcessed, progress.FilesProcessed
+				timer.Reset(5 * time.Minute)
+			}
+			if original != nil {
+				original(progress)
+			}
+		}
+		ctx = transferCtx
+	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = env
 	cmd.Dir = dir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.WaitDelay = 5 * time.Second
+	cmd.WaitDelay = 10 * time.Second
+	done := make(chan struct{})
+	defer close(done)
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {
 			return os.ErrProcessDone
 		}
-		err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		signal := syscall.SIGKILL
+		pid := -cmd.Process.Pid
+		if filepath.Base(name) == "restic" {
+			signal, pid = syscall.SIGINT, cmd.Process.Pid
+			go func(group int) {
+				timer := time.NewTimer(5 * time.Second)
+				defer timer.Stop()
+				select {
+				case <-done:
+					return
+				case <-timer.C:
+					_ = syscall.Kill(-group, syscall.SIGKILL)
+				}
+			}(cmd.Process.Pid)
+		}
+		err := syscall.Kill(pid, signal)
 		if err == syscall.ESRCH {
 			return os.ErrProcessDone
 		}
@@ -51,14 +86,15 @@ func (nativeRunner) RunProgress(ctx context.Context, name string, args, env []st
 	}
 	output := progressBuffer{callback: callback}
 	cmd.Stdout = &output
-	cmd.Stderr = io.Discard
+	diagnostic := cappedBuffer{}
+	cmd.Stderr = &diagnostic
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, context.Cause(ctx)
 		}
 		// Remote backends may echo credential-bearing URLs or rclone configuration.
 		// Never include raw subprocess output in errors, events, or API responses.
-		return nil, fmt.Errorf("%s operation failed; verify repository access and credentials", filepath.Base(name))
+		return nil, classifyCommandError(name, err, diagnostic.String())
 	}
 	output.finish()
 	if output.output.overflow {
@@ -131,7 +167,7 @@ func validateDestination(in DestinationInput) error {
 		// URL syntax only: no arbitrary SSH command/configuration injection.
 		u, err := url.Parse(strings.TrimPrefix(in.Repository, "sftp:"))
 		if !strings.HasPrefix(in.Repository, "sftp://") || err != nil || u.Scheme != "" || u.Hostname() == "" || u.User == nil || u.User.Username() == "" || u.Path == "" {
-			return fmt.Errorf("%w: SFTP repository must use sftp://user@host/absolute/path", ErrInvalid)
+			return fmt.Errorf("%w: SFTP repository must use sftp://user@host//absolute/path (or /home-relative/path)", ErrInvalid)
 		}
 		if _, present := u.User.Password(); present || u.RawQuery != "" || u.Fragment != "" || strings.HasPrefix(u.Hostname(), "-") || !regexp.MustCompile(`^[A-Za-z0-9_.-]+$`).MatchString(u.User.Username()) {
 			return fmt.Errorf("%w: unsupported SFTP address", ErrInvalid)
@@ -198,6 +234,11 @@ func cleanProcessEnvironment() []string {
 }
 func shellWord(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'" }
 func (s *Service) restic(ctx context.Context, d Destination, dir string, args ...string) ([]byte, error) {
+	if len(args) > 0 && (args[0] == "snapshots" || args[0] == "cat" || args[0] == "dump" || args[0] == "ls" || args[0] == "stats" || args[0] == "init") {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 90*time.Second)
+		defer cancel()
+	}
 	if err := s.validateAvailability(d); err != nil {
 		return nil, err
 	}
@@ -232,9 +273,9 @@ func (s *Service) restic(ctx context.Context, d Destination, dir string, args ..
 	argv = append(argv, args...)
 	if callback, ok := ctx.Value(progressKey{}).(progressCallback); ok {
 		if runner, streaming := s.runner.(progressCommandRunner); streaming {
-			return runner.RunProgress(ctx, "restic", argv, env, dir, callback)
+			return retryRepositoryLock(ctx, func() ([]byte, error) { return runner.RunProgress(ctx, "restic", argv, env, dir, callback) })
 		}
-		output, err := s.runner.Run(ctx, "restic", argv, env, dir)
+		output, err := retryRepositoryLock(ctx, func() ([]byte, error) { return s.runner.Run(ctx, "restic", argv, env, dir) })
 		if err == nil {
 			for _, line := range bytes.Split(output, []byte("\n")) {
 				if progress, recognized, _ := decodeTransferProgress(line); recognized {
@@ -244,7 +285,7 @@ func (s *Service) restic(ctx context.Context, d Destination, dir string, args ..
 		}
 		return output, err
 	}
-	return s.runner.Run(ctx, "restic", argv, env, dir)
+	return retryRepositoryLock(ctx, func() ([]byte, error) { return s.runner.Run(ctx, "restic", argv, env, dir) })
 }
 
 func (s *Service) validateAvailability(d Destination) error {
@@ -307,17 +348,27 @@ func (s *Service) beginRepositoryRead(ctx context.Context, id string) (Destinati
 	if !ok {
 		return Destination{}, nil, ErrNotFound
 	}
-	if s.repositoryJob != "" {
+	key := repositoryKey(d)
+	if s.repositoryJobs[key] != "" {
 		return Destination{}, nil, ErrBusy
 	}
-	for _, run := range s.state.Runs {
-		if run.State == "running" || run.State == "queued" {
-			return Destination{}, nil, ErrBusy
-		}
+	if s.repositoryReads == nil {
+		s.repositoryReads = map[string]int{}
 	}
+	s.repositoryReads[key]++
 	s.activeRepositoryReads++
 	var once sync.Once
-	release := func() { once.Do(func() { s.mu.Lock(); s.activeRepositoryReads--; s.mu.Unlock() }) }
+	release := func() {
+		once.Do(func() {
+			s.mu.Lock()
+			s.repositoryReads[key]--
+			if s.repositoryReads[key] == 0 {
+				delete(s.repositoryReads, key)
+			}
+			s.activeRepositoryReads--
+			s.mu.Unlock()
+		})
+	}
 	return d, release, nil
 }
 
@@ -337,6 +388,9 @@ func (s *Service) Snapshots(ctx context.Context, id string) ([]Snapshot, error) 
 	if err = json.Unmarshal(output, &result); err != nil {
 		return nil, fmt.Errorf("invalid restic snapshot response")
 	}
+	if err = s.reconcileInventory(ctx, d, result); err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 
@@ -353,7 +407,11 @@ func (s *Service) upload(ctx context.Context, d Destination, p Plan, run Run, st
 	}
 	for index := len(priorSnapshots) - 1; index >= 0; index-- {
 		if snapshotID.MatchString(priorSnapshots[index].ID) {
-			return priorSnapshots[index].ID, nil
+			if err := s.verifyRecoveryObjects(ctx, d, priorSnapshots[index].ID, stage); err == nil {
+				return priorSnapshots[index].ID, nil
+			} else if ctx.Err() != nil {
+				return "", ctx.Err()
+			}
 		}
 	}
 	output, err := s.restic(ctx, d, stage, "backup", "--tag", "stacklab", "--tag", "instance:"+s.state.InstanceID, "--tag", "plan:"+p.ID, "--tag", "run:"+run.ID, "--host", "stacklab", "--time", run.CapturedAt.In(time.Local).Format("2006-01-02 15:04:05"), ".")
@@ -397,4 +455,70 @@ func (s *Service) check(ctx context.Context, d Destination, policy string) error
 	}
 	_, err := s.restic(ctx, d, "", args...)
 	return err
+}
+
+var errTransferStalled = errors.New("restic transfer made no progress for five minutes; check destination connectivity and retry")
+
+type repositoryCommandError struct {
+	Code     string
+	ExitCode int
+	message  string
+}
+
+func (e *repositoryCommandError) Error() string { return e.message }
+func commandIn(args []string, wanted string) bool {
+	for _, arg := range args {
+		if arg == wanted {
+			return true
+		}
+	}
+	return false
+}
+func classifyCommandError(name string, err error, diagnostic string) error {
+	code := -1
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		code = exit.ExitCode()
+	}
+	lower := strings.ToLower(diagnostic)
+	kind, message := "operation_failed", "operation failed; check destination access and retry"
+	if filepath.Base(name) == "restic" {
+		switch {
+		case code == 3:
+			kind, message = "incomplete_snapshot", "backup could not read all recovery objects; an incomplete snapshot may exist and is not a verified copy"
+		case code == 10 || strings.Contains(lower, "is there a repository at") || strings.Contains(lower, "unable to open config file"):
+			kind, message = "repository_missing", "repository is missing or uninitialized; verify the address before initializing"
+		case code == 11 || strings.Contains(lower, "repository is already locked") || strings.Contains(lower, "unable to create lock"):
+			kind, message = "repository_locked", "repository is locked by another operation; wait for it to finish and inspect stale locks before retrying"
+		case code == 12 || strings.Contains(lower, "wrong password") || strings.Contains(lower, "no key found"):
+			kind, message = "credentials_rejected", "repository rejected the encryption password; verify its saved credentials"
+		case strings.Contains(lower, "no space left on device") || strings.Contains(lower, "quota exceeded"):
+			kind, message = "storage_full", "destination storage or quota is full"
+		case strings.Contains(lower, "repository contains errors") || strings.Contains(lower, "does not match") || strings.Contains(lower, "pack") && strings.Contains(lower, "does not exist") || strings.Contains(lower, "invalid data returned"):
+			kind, message = "integrity_failed", "repository integrity verification failed; inspect the repository and preserve existing copies"
+		case strings.Contains(lower, "connection refused") || strings.Contains(lower, "no such host") || strings.Contains(lower, "timeout") || strings.Contains(lower, "network is unreachable"):
+			kind, message = "unavailable", "destination connection failed; check its address, network and availability"
+		case strings.Contains(lower, "permission denied") || strings.Contains(lower, "access denied"):
+			kind, message = "permission_denied", "destination denied access; verify transport credentials and directory permissions"
+		}
+	}
+	// Diagnostics select fixed, actionable text only. Neither remote error bodies
+	// nor paths, URLs, command arguments or credential material reach the API.
+	return &repositoryCommandError{Code: kind, ExitCode: code, message: fmt.Sprintf("%s: %s (%s)", filepath.Base(name), message, kind)}
+}
+func retryRepositoryLock(ctx context.Context, call func() ([]byte, error)) ([]byte, error) {
+	for attempt := 0; ; attempt++ {
+		output, err := call()
+		var diagnostic *repositoryCommandError
+		if attempt >= 2 || !errors.As(err, &diagnostic) || diagnostic.Code != "repository_locked" {
+			return output, err
+		}
+		timer := time.NewTimer(time.Duration(attempt+1) * time.Second)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
 }

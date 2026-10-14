@@ -47,7 +47,11 @@ type Service struct {
 	directory             string
 	state                 state
 	reviews               map[string]restoreChallenge
-	repositoryJob         string
+	repositoryJobs        map[string]string
+	repositoryReads       map[string]int
+	recoveryError         string
+	policy                policyState
+	operationalNotify     func(context.Context, OperationalAlert) error
 	activeRepositoryReads int
 	initErr               error
 	now                   func() time.Time
@@ -136,6 +140,7 @@ func NewService(cfg config.Config, jobService *jobs.Service, capture Capturer) *
 	for _, run := range s.state.Runs {
 		s.recordCheckpointsLocked(run.Run, run.PlanSnapshot)
 	}
+	s.initializePolicy(context.Background())
 	return s
 }
 
@@ -167,10 +172,11 @@ func clone[T any](value T) T {
 func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	result := Overview{Destinations: []Destination{}, Plans: []Plan{}, Runs: []Run{}, Protection: []PlanProtection{}, StagingDirectory: filepath.Join(s.directory, "staging"), RecoveryError: s.recoveryError}
 	if s.initErr != nil {
-		return Overview{}, s.initErr
+		result.RecoveryError = "Backup module is unavailable: " + s.initErr.Error() + ". Inspect the saved backup state; other Stacklab features remain available."
+		return result, nil
 	}
-	result := Overview{Destinations: []Destination{}, Plans: []Plan{}, Runs: []Run{}, Protection: []PlanProtection{}, StagingDirectory: filepath.Join(s.directory, "staging")}
 	_, err := exec.LookPath("restic")
 	result.ResticAvailable = err == nil
 	_, err = exec.LookPath("rclone")
@@ -193,7 +199,7 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 }
 
 func (s *Service) configurationBusyLocked() bool {
-	if s.repositoryJob != "" || s.activeRepositoryReads > 0 {
+	if len(s.repositoryJobs) > 0 || s.activeRepositoryReads > 0 {
 		return true
 	}
 	for _, r := range s.state.Runs {
@@ -232,7 +238,7 @@ func (s *Service) SaveDestination(ctx context.Context, id string, input Destinat
 		return Destination{}, ErrBusy
 	}
 	for existingID, destination := range s.state.Destinations {
-		if existingID != id && destination.Kind == input.Kind && destination.Repository == input.Repository {
+		if existingID != id && repositoryKey(destination) == repositoryKey(Destination{Kind: input.Kind, Repository: input.Repository}) {
 			return Destination{}, fmt.Errorf("%w: this repository already has a destination", ErrInvalid)
 		}
 	}
@@ -435,10 +441,12 @@ func (s *Service) SavePlan(ctx context.Context, id string, p Plan) (Plan, error)
 			return Plan{}, fmt.Errorf("%w: unknown destination", ErrInvalid)
 		}
 		a.LastScheduledAt = nil
+		a.ScheduleActivatedAt = s.timePointer()
 		preserveOccurrence := false
 		for _, old := range previous.Destinations {
 			if old.DestinationID == a.DestinationID && old.Schedule == a.Schedule {
 				a.LastScheduledAt = old.LastScheduledAt
+				a.ScheduleActivatedAt = old.ScheduleActivatedAt
 				preserveOccurrence = true
 			}
 		}
@@ -514,9 +522,7 @@ func (s *Service) StartRun(ctx context.Context, planID string, request RunReques
 	if s.initErr != nil {
 		return store.Job{}, Run{}, s.initErr
 	}
-	if s.activeRepositoryReads > 0 {
-		return store.Job{}, Run{}, ErrBusy
-	}
+
 	p, ok := s.state.Plans[planID]
 	if !ok {
 		return store.Job{}, Run{}, ErrNotFound
@@ -535,15 +541,29 @@ func (s *Service) StartRun(ctx context.Context, planID string, request RunReques
 	if len(selected) > 0 || len(copies) == 0 {
 		return store.Job{}, Run{}, fmt.Errorf("%w: select enabled destinations assigned to this plan", ErrInvalid)
 	}
-	job, err := s.jobs.StartDraining(ctx, "backup_run", requestedBy, jobs.GlobalResource())
+	if s.recoveryError != "" {
+		return store.Job{}, Run{}, fmt.Errorf("backup recovery requires attention: %s", s.recoveryError)
+	}
+	resources, err := s.repositoryResourcesLocked(copies)
 	if err != nil {
 		return store.Job{}, Run{}, err
 	}
+	resources = append(resources, jobs.GlobalResource())
+	job, err := s.jobs.StartWithResources(ctx, "", "backup_run", requestedBy, resources...)
+	if err != nil {
+		return store.Job{}, Run{}, err
+	}
+	s.reserveRepositoriesLocked(job.ID, copies)
 	now := s.now()
 	run := Run{ID: newID("run_"), JobID: job.ID, PlanID: p.ID, PlanName: p.Name, State: "running", CaptureState: "pending", Phase: "capture", CreatedAt: now, ExpiresAt: now.Add(time.Duration(p.StagingTTLHours) * time.Hour), Copies: copies, Plan: clone(p)}
 	s.state.Runs[run.ID] = persistedRun{Run: run, PlanSnapshot: clone(p)}
 	if err := s.persist(ctx); err != nil {
 		delete(s.state.Runs, run.ID)
+		for key, holder := range s.repositoryJobs {
+			if holder == job.ID {
+				delete(s.repositoryJobs, key)
+			}
+		}
 		_, _ = s.jobs.FinishFailed(context.Background(), job, "backup_state_failed", "Could not persist backup run.")
 		return store.Job{}, Run{}, err
 	}
@@ -553,9 +573,10 @@ func (s *Service) StartRun(ctx context.Context, planID string, request RunReques
 func (s *Service) StartRetry(ctx context.Context, runID string, request RunRequest, requestedBy string) (store.Job, Run, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.activeRepositoryReads > 0 {
-		return store.Job{}, Run{}, ErrBusy
+	if s.initErr != nil {
+		return store.Job{}, Run{}, s.initErr
 	}
+
 	stored, ok := s.state.Runs[runID]
 	if !ok {
 		return store.Job{}, Run{}, ErrNotFound
@@ -587,10 +608,15 @@ func (s *Service) StartRetry(ctx context.Context, runID string, request RunReque
 	if pending == 0 || len(selected) > 0 {
 		return store.Job{}, Run{}, fmt.Errorf("%w: no failed destination selected", ErrInvalid)
 	}
-	job, err := s.jobs.StartDraining(ctx, "backup_retry", requestedBy, jobs.GlobalResource())
+	resources, err := s.repositoryResourcesLocked(run.Copies)
 	if err != nil {
 		return store.Job{}, Run{}, err
 	}
+	job, err := s.jobs.StartWithResources(ctx, "", "backup_retry", requestedBy, resources...)
+	if err != nil {
+		return store.Job{}, Run{}, err
+	}
+	s.reserveRepositoriesLocked(job.ID, run.Copies)
 	run.JobID = job.ID
 	run.State = "running"
 	run.Phase = "upload"
@@ -599,6 +625,11 @@ func (s *Service) StartRetry(ctx context.Context, runID string, request RunReque
 	s.state.Runs[runID] = persistedRun{Run: run, PlanSnapshot: stored.PlanSnapshot}
 	if err := s.persist(ctx); err != nil {
 		s.state.Runs[runID] = stored
+		for key, holder := range s.repositoryJobs {
+			if holder == job.ID {
+				delete(s.repositoryJobs, key)
+			}
+		}
 		_, _ = s.jobs.FinishFailed(context.Background(), job, "backup_state_failed", "Could not persist retry.")
 		return store.Job{}, Run{}, err
 	}
@@ -629,6 +660,7 @@ func (s *Service) finish(ctx context.Context, job store.Job, err error) {
 	}
 }
 func (s *Service) ExecuteRun(ctx context.Context, job store.Job, runID string) {
+	defer s.releaseRepositories(job.ID)
 	ctx, cancel := context.WithTimeout(ctx, 24*time.Hour)
 	defer cancel()
 	unregister := s.jobs.RegisterCancel(job.ID, cancel)
@@ -641,8 +673,6 @@ func (s *Service) ExecuteRun(ctx context.Context, job store.Job, runID string) {
 		return
 	}
 	run := clone(stored.Run)
-	ctx, expireCancel := context.WithDeadline(ctx, run.ExpiresAt)
-	defer expireCancel()
 	p := clone(stored.PlanSnapshot)
 	stage := filepath.Join(s.directory, "staging", run.ID)
 	var operationErr error
@@ -659,6 +689,9 @@ func (s *Service) ExecuteRun(ctx context.Context, job store.Job, runID string) {
 		}
 		if err := s.saveRun(run, p); err != nil {
 			operationErr = fmt.Errorf("backup state persistence failed")
+		}
+		if operationErr == nil || run.CaptureState != "succeeded" {
+			_ = os.RemoveAll(stage)
 		}
 		s.finish(ctx, job, operationErr)
 	}()
@@ -694,6 +727,9 @@ func (s *Service) ExecuteRun(ctx context.Context, job store.Job, runID string) {
 		}
 		captureStarted := time.Now()
 		manifest, err := s.capture.Prepare(ctx, p, run.ID, stage)
+		if err != nil {
+			s.recordRecoveryFailure(err)
+		}
 		run.CaptureDurationSeconds = time.Since(captureStarted).Seconds()
 		if err != nil {
 			run.CaptureState = "failed"
@@ -748,98 +784,48 @@ func (s *Service) ExecuteRun(ctx context.Context, job store.Job, runID string) {
 			return
 		}
 	}
-	for i := range run.Copies {
-		copy := &run.Copies[i]
+	resources := []jobs.Resource{}
+	s.mu.Lock()
+	for _, copy := range run.Copies {
+		if copy.State == "pending" {
+			resources = append(resources, jobs.BackupRepositoryResource(repositoryKey(s.state.Destinations[copy.DestinationID])))
+		}
+	}
+	s.mu.Unlock()
+	if err := s.jobs.ReplaceResources(job.ID, resources...); err != nil {
+		operationErr = err
+		return
+	}
+	// A slow destination must not delay an independent copy. Bounds keep local
+	// disk/network pressure predictable while each repository remains serialized.
+	var transfers sync.WaitGroup
+	var runMu sync.Mutex
+	slots := make(chan struct{}, 2)
+	immutableRun := clone(run)
+	for i, copy := range immutableRun.Copies {
 		if copy.State != "pending" {
 			continue
 		}
-		if err := ctx.Err(); err != nil {
-			copy.State = "failed"
-			copy.Error = err.Error()
-			operationErr = err
-			continue
-		}
-		s.mu.Lock()
-		d, exists := s.state.Destinations[copy.DestinationID]
-		s.mu.Unlock()
-		if !exists {
-			copy.State = "failed"
-			copy.Error = "Destination was removed."
-			operationErr = fmt.Errorf("one or more configured copies failed")
-			continue
-		}
-		copy.State = "running"
-		copy.StartedAt = s.timePointer()
-		copy.CompletedAt = nil
-		run.Phase = "upload"
-		copyStarted := time.Now()
-		_ = s.saveRun(run, p)
-		s.event(ctx, job, "Uploading recovery set to "+d.Name+".")
-		var err error
-		if copy.SnapshotID == "" {
-			uploadCtx := withTransferProgress(ctx, func(progress transferProgress) {
-				copy.BytesProcessed, copy.BytesTotal = progress.BytesProcessed, progress.BytesTotal
-				copy.FilesProcessed, copy.FilesTotal = progress.FilesProcessed, progress.FilesTotal
-				copy.BytesAdded = progress.BytesAdded
-				_ = s.saveRun(run, p)
-				_ = s.jobs.PublishEventWithProgress(ctx, job, "job_progress", "Uploading recovery set to "+d.Name+".", "", nil, &store.JobProgress{Phase: "backup_upload", Completed: int(progress.BytesProcessed), Total: int(progress.BytesTotal), Unit: "bytes", Detail: d.Name})
+		transfers.Add(1)
+		go func(index int, initial CopyResult) {
+			defer transfers.Done()
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			result := s.executeCopy(ctx, job, immutableRun, p, stage, initial, func(copy CopyResult, phase string) error {
+				runMu.Lock()
+				defer runMu.Unlock()
+				run.Copies[index] = copy
+				run.Phase = phase
+				return s.saveRun(run, p)
 			})
-			copy.SnapshotID, err = s.upload(uploadCtx, d, p, run, stage)
-			if err == nil {
-				copy.UploadedAt = s.timePointer()
-				_ = s.saveRun(run, p)
-			}
-		}
-		if err == nil {
-			run.Phase = "verify"
-			_ = s.saveRun(run, p)
-			s.event(ctx, job, "Verifying snapshot metadata in "+d.Name+".")
-			_, err = s.restic(ctx, d, "", "cat", "snapshot", copy.SnapshotID)
-			if err == nil {
-				copy.Verification = "snapshot_metadata_verified"
-			} else {
-				copy.Verification = "failed"
-			}
-		}
-		if err == nil {
-			run.Phase = "retention"
-			_ = s.saveRun(run, p)
-			s.event(ctx, job, "Applying retention in "+d.Name+".")
-			for _, a := range p.Destinations {
-				if a.DestinationID == d.ID {
-					err = s.retain(ctx, d, p.ID, a.Retention)
-					break
-				}
-			}
-			if err == nil {
-				copy.Retention = "succeeded"
-			} else {
-				copy.Retention = "failed"
-			}
-		}
-		copy.CompletedAt = s.timePointer()
-		copy.DurationSeconds += time.Since(copyStarted).Seconds()
-		if err != nil {
-			copy.State = "failed"
-			copy.Error = err.Error()
-			operationErr = fmt.Errorf("one or more configured copies failed")
-			if ctx.Err() != nil {
-				operationErr = ctx.Err()
-			}
-		} else {
-			copy.State = "succeeded"
-			copy.Error = ""
-			s.mu.Lock()
-			d.LastSuccessAt = copy.UploadedAt
-			d.Status = "available"
-			d.Error = ""
-			s.state.Destinations[d.ID] = d
-			s.mu.Unlock()
-		}
-		if err = s.saveRun(run, p); err != nil {
-			operationErr = err
-			return
-		}
+			runMu.Lock()
+			run.Copies[index] = result
+			runMu.Unlock()
+		}(i, copy)
+	}
+	transfers.Wait()
+	if ctx.Err() != nil {
+		operationErr = ctx.Err()
 	}
 	for _, copy := range run.Copies {
 		if copy.State != "succeeded" && operationErr == nil {
@@ -851,13 +837,16 @@ func (s *Service) ExecuteRun(ctx context.Context, job store.Job, runID string) {
 // Reconcile preserves successful copies and marks interrupted work for an
 // explicit retry. Capture recovery must run before accepting mutations.
 func (s *Service) Reconcile(ctx context.Context) error {
+	var recoveryErr error
 	if s.capture != nil {
-		if err := s.capture.Recover(ctx); err != nil {
-			return err
-		}
+		recoveryErr = s.capture.Recover(ctx)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.recoveryError = ""
+	if recoveryErr != nil {
+		s.recoveryError = recoveryErr.Error()
+	}
 	if s.initErr != nil {
 		return s.initErr
 	}
@@ -881,7 +870,10 @@ func (s *Service) Reconcile(ctx context.Context) error {
 		}
 		s.state.Runs[id] = stored
 	}
-	return s.persist(ctx)
+	if err := s.persist(ctx); err != nil {
+		return err
+	}
+	return recoveryErr
 }
 
 // pruneMetadataLocked bounds operational summaries without deleting repository
@@ -904,9 +896,5 @@ func (s *Service) pruneMetadataLocked() {
 		}
 		delete(s.state.Runs, run.ID)
 	}
-	for len(s.state.RestoreOrder) > 200 {
-		oldest := s.state.RestoreOrder[0]
-		s.state.RestoreOrder = s.state.RestoreOrder[1:]
-		delete(s.state.Restores, oldest)
-	}
+
 }

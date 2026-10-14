@@ -3,14 +3,16 @@
 ## Prepare The Host
 
 Install restic 0.14 or newer, rclone 1.60 or newer, GNU tar, OpenSSH client and
-CA certificates. Debian packages declare these dependencies. Tarball operators
+CA certificates. Debian packages depend on the tools and recommend `ca-certificates`.
+Private CA certificates installed in the system trust store are supported. Tarball operators
 install them through their distribution. Use the service account's environment
 when testing; a command working in an administrator's shell does not establish
 that Stacklab can read the source or access a repository.
 
 The backend stays non-root. For protected managed paths and local Docker named
 volumes, install the release's `stacklab-backup-helper`, copy and review the
-shipped sudoers example with `visudo`, then set:
+shipped sudoers example at
+`/usr/share/doc/stacklab/examples/stacklab-backup.sudoers.example` with `visudo`, then set:
 
 ```ini
 STACKLAB_BACKUP_HELPER_PATH=/usr/lib/stacklab/bin/stacklab-backup-helper
@@ -27,7 +29,10 @@ For tarball installs the binary is under
 configuration. A custom systemd sandbox must allow access to the selected mounts
 and private state. `ProtectHome=true` intentionally blocks home-directory
 sources; use managed workspace paths. Ensure private staging has space for
-capture, retained retries and a recovery exercise.
+capture, retained retries and a recovery exercise. Helper-backed recovery also
+uses root-owned disk storage at `/var/lib/stacklab-backup-helper`; custom units
+need this writable path and `NoNewPrivileges=false` for sudo. Do not put this
+storage on an undersized tmpfs.
 
 ## Configure Copies
 
@@ -44,7 +49,10 @@ The repository cannot unlock itself using a password stored only inside it.
 - S3/B2: use `s3:https://endpoint/bucket/prefix`, access key, secret and optional
   region. Stacklab does not provision cloud accounts or buckets. Restrict the
   provider key to the intended bucket/prefix where supported.
-- SFTP NAS: use URL syntax, a dedicated SSH key and pinned `known_hosts` data.
+- SFTP NAS: an absolute directory uses `sftp://user@host//srv/repository`
+  (two slashes after the host). `sftp://user@host/path` is relative to the SSH
+  home directory. The wizard preserves this distinction; existing addresses
+  are never rewritten automatically. Use a dedicated SSH key and pinned `known_hosts` data.
   Verify the host key through a trusted channel. Interactive password prompts
   are not supported.
 - Google Drive: authorize a `drive` remote using native `rclone config` on a
@@ -73,7 +81,8 @@ a fresh capture. Use **History** to filter by plan, destination, outcome or date
 and inspect capture, upload, verification and retention separately. Before a
 manual run, review the current affected services, including shared consumers.
 Stop-mode services resume after capture and archive validation; file indexing
-and uploads then continue against the prepared bytes. Upload file counters count
+and uploads then continue against the prepared bytes without blocking unrelated
+stack operations. Upload file counters count
 recovery objects, while the file browser describes application data.
 
 Choose every N hours (1–168), daily or weekly schedules. Hourly intervals are
@@ -97,7 +106,9 @@ lifetime. When staging expires, start a new capture. A failed repository check
 needs investigation even if upload succeeded.
 
 In notification settings, enable **Job failed** for failed backups and backup
-timeouts, including scheduled runs. Enable **Maintenance succeeded** for
+timeouts and overdue-copy alerts, including scheduled runs. Overdue alerts include
+plan/destination names, respect the configured grace period (60 minutes by default),
+and are sent on transition rather than every poll. Enable **Maintenance succeeded** for
 successful restore and restore-test results. These use the existing configured
 webhook or Telegram channels; cancelled jobs do not trigger failure alerts.
 
@@ -115,9 +126,10 @@ files. Compare snapshots when investigating a changed file. Restore the whole
 set, selected sources or selected regular files into an isolated result. The
 current format downloads each containing source archive; review the displayed
 transfer estimate even when selecting one small file. Older snapshots without
-indexes become browsable after isolated restore. Indexes support up to 100,000
-entries and 12 MiB of metadata per source; an oversized new source index fails
-capture explicitly. Search includes descendants, and snapshot comparison covers
+indexes may build a local index after isolated restore. Indexes support up to
+100,000 entries and 12 MiB of metadata per source; exceeding a bound preserves
+the backup and reports that browsing/comparison is unavailable. The local fallback
+has the same limits. The whole archive remains recoverable. Search includes descendants, and snapshot comparison covers
 the complete source or chosen subtree, including content and metadata changes.
 
 The completed job opens its registered result in Recovery. Download individual
@@ -128,12 +140,71 @@ content. Confirm by typing `RESTORE`; the confirmation is single-use and expires
 after ten minutes. Services remain stopped by default. Resume them only after
 reviewing application prerequisites; previously stopped services stay stopped.
 
-Apply merges files and retains unrelated target content. It is not a filesystem
-rollback. If writes fail or Stacklab is killed mid-restore, affected services
-remain stopped across restart. Inspect the job and target data before manually
-starting them or repeating a full recovery. Restored Compose definitions are
-validated before the optional resume. Private Stacklab state must use offline
-recovery below.
+Complete-directory apply defaults to **Replace**: files absent from the backup
+are removed. **Merge** is an explicit option that leaves unrelated/newer files,
+and is unsuitable for restoring a database directory to an exact earlier state.
+A single-file source only replaces its basename; it never clears neighboring
+configuration files. Review the deletion scope before confirming.
+
+The helper prepares immutable input before downtime, retains the target mountpoint,
+rejects nested mounts, and keeps prior contents for rollback during replacement.
+This is not an atomic multi-source transaction. If writes fail or Stacklab is
+killed mid-restore, services remain stopped across restart. Inspect the target,
+job and retained helper preparation/rollback directories before acknowledging a
+hold in Recovery diagnostics. Acknowledgement does not start services or remove
+rollback files. Corrupt journals require direct host inspection; never delete a
+journal merely to clear a warning. Previously recorded containers may have been
+removed or recreated and must be identified before operator recovery.
+
+Sources with restricted metadata (for example absolute symlinks, FIFO or setuid
+files) are preserved as archives. Normal isolated recovery makes those archives
+available for download and shows the restriction instead of unsafe extraction.
+An automatic full restore test cannot succeed for such a source. Extract it only
+through a reviewed offline procedure appropriate to the data and destination.
+
+Use **Delete isolated restore** for old Stacklab-owned results. For custom
+locations, **Forget result** removes only the library entry; directories remain
+operator-owned and require manual cleanup. The library stops
+accepting new restores at 200 registrations; it does not discard old ownership
+records and leave invisible directories. Private Stacklab state uses offline DR.
+
+## Capacity, Scheduling And Monitoring
+
+Every run creates a full, unencrypted local tar copy of each selected source,
+including file mode. Restic deduplicates repository blocks, but staging still
+requires full source reads/writes. Defaults are a 10 GiB capture budget, 24-hour
+retry lifetime and 300-second maximum stopped capture period. The byte budget is
+an upper limit, not a requirement to reserve all 10 GiB before a small capture;
+a 64 MiB filesystem reserve remains enforced. Allow space for concurrent retained
+failed sets, isolated recovery and helper preparation/rollback. The helper spool
+is separate from the plan's capture budget. Fully successful staging is removed
+promptly; failed copies retain staging for retry until expiry.
+
+Jobs have a 24-hour execution limit, independently of the retry lifetime.
+Repository metadata commands are bounded to 90 seconds, and backup upload aborts
+after five minutes without progress. A large initial upload that cannot fit in
+24 hours needs a smaller plan or faster transport; repository deduplication can
+reuse committed blocks, but a new capture is required after staging expires.
+Cancellation is graceful first; never assume a manually removed restic lock was
+unused merely because a Stacklab job ended.
+
+Backup settings provide a global automatic-scheduling pause that also suppresses
+retention. After restoring state to a host with a different machine identity,
+review is required before resuming. A clone retaining the same machine identity
+cannot be detected automatically: pause before migration and keep the previous
+host disabled. Host changes do not silently adopt old snapshot retention ownership.
+Existing plans without saved host identity also pause once after upgrading;
+review them before resuming because legacy recovery and in-place upgrade cannot
+be distinguished automatically.
+
+Optionally configure an external HTTP(S) heartbeat URL in backup settings. Stacklab
+pings it at most once a minute while all enabled scheduled copies have acceptable
+current protection evidence (allowing the overdue grace). It sends nothing when
+paused, when no scheduled copies exist, or when protection is unverified/failed.
+The external monitor detects a stopped Stacklab process; configure its deadline
+and maintenance periods accordingly. The URL is stored as a write-only secret.
+Repository availability, last check, snapshot presence and restore exercise age
+remain separate evidence; a green freshness timestamp alone is insufficient.
 
 ## Recover Without The Original Stacklab Database
 
@@ -193,3 +264,32 @@ explains selection and verification. Stacklab adds a versioned manifest and
 source archives, not a proprietary repository format. Whole-host imaging,
 operating-system recovery and database-specific point-in-time recovery remain
 outside this workflow.
+
+
+## Recovery Kit And Fresh-Host UI
+
+Keep the following outside the protected host and outside the repository it unlocks:
+repository URI/backend, repository password, S3 credentials/region or SSH key and
+pinned host keys or the authorized rclone configuration, Stacklab/restic versions,
+and a record of which plan contains the Stacklab state and required stack sources.
+Retain refreshed provider credentials when tokens rotate. A state backup includes
+**all destination credentials and service configuration**; anyone who obtains that
+state repository's decryption key may recover credentials for other destinations.
+This is intentional full-state escrow, not independent isolation between those
+secrets. A storage provider without the decryption key cannot read them.
+
+For UI recovery on a fresh installation, add the existing destination, choose
+**Test access** (never Initialize an existing repository), then select the snapshot
+in Recovery and restore into an isolated directory. Review/download definitions,
+create the required local Docker volumes, and map complete sources to their new
+locations. Do not start application containers until their data and prerequisites
+are restored. If recovering `stacklab.db` instead, stop Stacklab, restore its private
+state offline, verify owner/mode and service configuration, then review the global
+backup pause before enabling automatic work. Keep the old host's scheduler stopped.
+
+Stack-definition capture includes the whole selected stack directory, including
+relative `./data` subdirectories unless excluded. Select data explicitly and review
+exclusions to avoid unintended live database copies or duplicate nested content.
+Image references are saved; image digests and image layers are not currently backed
+up. Retention `0/0/0` keeps all snapshots. With daily-only retention, several hourly
+captures can be reduced to the retained point for each day.

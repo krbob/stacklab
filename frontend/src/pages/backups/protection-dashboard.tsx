@@ -26,7 +26,17 @@ export function ProtectionDashboard({
   const current = copies.filter((copy) => copy.state === 'current').length
   const manual = copies.filter((copy) => copy.state === 'manual').length
   const attention = copies.filter(
-    (copy) => ['overdue', 'outdated', 'unprotected'].includes(copy.state) || !!copy.last_error,
+    (copy) =>
+      [
+        'overdue',
+        'outdated',
+        'unprotected',
+        'missing',
+        'integrity_failed',
+        'unavailable',
+        'clock_skew',
+        'unverified',
+      ].includes(copy.state) || !!copy.last_error,
   ).length
   const incomplete = !!coverage.error || (coverage.data?.stacks ?? []).some((stack) => !!stack.error)
   const gaps = (coverage.data?.stacks ?? [])
@@ -110,12 +120,62 @@ export function ProtectionDashboard({
                             </dd>
                           </div>
                           <div>
-                            <dt className="text-[var(--muted)]">Destination test (any plan)</dt>
+                            <dt className="text-[var(--muted)]">Recovery test of this snapshot</dt>
                             <dd className="mt-1">
-                              <BackupDate value={destination?.last_restore_test_at} />
+                              <BackupDate value={copy.last_restore_test_at} />
                             </dd>
                           </div>
                         </dl>
+                        <dl className="mt-2 grid gap-2 text-xs sm:grid-cols-3">
+                          <div>
+                            <dt className="text-[var(--muted)]">Snapshot presence</dt>
+                            <dd className="mt-1">
+                              {copy.snapshot_status ?? 'Unknown'}
+                              {copy.snapshot_checked_at && (
+                                <>
+                                  {' '}
+                                  · observed <BackupDate value={copy.snapshot_checked_at} />
+                                </>
+                              )}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="text-[var(--muted)]">Repository availability</dt>
+                            <dd className="mt-1">{copy.availability_status ?? 'Unknown'}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-[var(--muted)]">Repository integrity</dt>
+                            <dd className="mt-1">{copy.integrity_status ?? 'Not checked'}</dd>
+                          </div>
+                        </dl>
+                        {copy.state === 'missing' && (
+                          <p className="mt-2 text-xs text-[var(--warning)]">
+                            The latest recorded snapshot is missing from the repository. Create a new copy and
+                            investigate retention or external changes.
+                          </p>
+                        )}
+                        {copy.state === 'integrity_failed' && (
+                          <p className="mt-2 text-xs text-[var(--warning)]">
+                            A repository integrity check failed. Inspect the check result before relying on this copy.
+                          </p>
+                        )}
+                        {copy.state === 'unavailable' && (
+                          <p className="mt-2 text-xs text-[var(--warning)]">
+                            Repository access failed. Check its availability and credentials; this does not establish
+                            whether its data is intact.
+                          </p>
+                        )}
+                        {copy.state === 'clock_skew' && (
+                          <p className="mt-2 text-xs text-[var(--warning)]">
+                            Recorded backup times are ahead of the host clock. Review time synchronization before
+                            assessing protection.
+                          </p>
+                        )}
+                        {copy.state === 'unverified' && (
+                          <p className="mt-2 text-xs text-[var(--warning)]">
+                            The complete recovery objects have not been verified. Create a new verified copy.
+                          </p>
+                        )}
                         {copy.state === 'manual' && (
                           <p className="mt-2 text-xs text-[var(--muted)]">
                             Copy available. Manual schedule has no freshness guarantee.

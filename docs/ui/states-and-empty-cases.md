@@ -363,15 +363,44 @@ Configured source selection is neutral, not proof of a recoverable copy. A
 verified scheduled copy can be current; manual copies show availability without
 an automatic freshness claim. Unprotected, overdue, changed-source and failed
 operation states call for attention. Discovery errors explicitly make the source
-gap inventory incomplete instead of silently reducing its apparent scope.
+gap inventory incomplete instead of silently reducing its apparent scope. Manual
+copies have their own count and never inflate scheduled protection. Missing
+snapshots, failed integrity checks, unavailable storage, unverified recovery objects
+and clock anomalies are attention states. Snapshot presence includes its observation
+time; a recovery test belongs to that exact snapshot.
 
 Repository availability, integrity-check results and the most recent operation
 have separate presentation. A rejected restore review does not imply that a
-repository is inaccessible. Missing file indexes offer isolated restore and local
-browsing. Unavailable registered restore directories remain visible with their
+repository is inaccessible. Missing file indexes do not block retrieval: show the
+reason and offer original archives for offline inspection. Local index generation
+is bounded and must not be promised as an unconditional fallback.
+Unavailable registered restore directories remain visible with their
 reason, with download and apply actions unavailable.
 
 Recovery retains selected snapshot and job progress during execution, then
 selects the matching registered result. Partial file recovery cannot receive a
 complete-test label. Preflight errors disable backup confirmation, and failed
 scheduled-copy retries preserve the last successful copies.
+
+Search input and navigation survive pending file requests, including failure and
+retry, while stale rows cannot select files from another source or query. Switching
+tabs preserves Recovery and History state. Background overview polling does not
+move content or repeatedly announce refreshes, and pauses in hidden browser tabs.
+Coverage refreshes after plan changes.
+
+Apply manifest loading has a visible status and retry. Review gives focus to the
+typed confirmation. Unsaved configuration survives Escape/backdrop dismissal until
+discard is confirmed. Errors clear before unrelated action reviews. Unknown size
+remains unmeasured; retention 0/0/0 explicitly keeps every snapshot. Missing tools
+disable only operations that require them.
+
+A backup recovery error keeps the panel usable and provides service recovery
+diagnostics. Held restores require inspection before removing their hold;
+acknowledgement never starts services or removes rollback files. Corrupt journals
+require operator repair. Host-change review and a global scheduling pause have
+persistent banners. Heartbeat failures remain visible; an offline host must be
+detected by the independently configured monitor.
+
+Deleting a managed isolated restore confirms deletion of its local data. Forgetting
+a custom result confirms removal of only its library record and preservation of
+its files. Both distinguish local results from repository snapshots.

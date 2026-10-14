@@ -364,23 +364,38 @@ Routes: `/backups` and `/stacks/:stackId/backups`.
 The global screen opens on **Protection**. Its keyboard-operated tabs are
 Protection, Recovery, History, Plans, and Destinations. The URL retains the tab;
 old `view=runs` links open History. Refresh errors preserve the previous response
-and missing native tools are reported explicitly.
+and missing native tools are reported explicitly. Visited panels remain mounted,
+preserving Recovery selection/progress and History filters. Background refreshes
+do not insert a layout-shifting message, and overview polling pauses in hidden
+browser tabs. Errors belong to the action that produced them; another review
+starts without that action's error.
 
 - **Protection:** show verified copies and their schedule compliance separately
   from configured source selection. Each plan lists destination-specific last
-  capture, next occurrence, errors, and last recovery test. A manual copy has a
-  neutral badge and no automatic freshness claim. Changed selections require a
+  capture, next occurrence, errors, snapshot presence and its observation time,
+  repository availability/integrity, and a recovery test of that exact snapshot.
+  A destination-wide exercise is not evidence for an unrelated plan or snapshot.
+  Missing snapshots, failed integrity checks, unavailable repositories, clock
+  anomalies and incomplete verification cannot appear as healthy protection.
+  Manual copies have a separate count, a neutral badge and no automatic freshness
+  claim. Changed selections require a
   fresh capture; a failed newer copy remains visible beside an older usable copy.
   Fleet source discovery identifies missing, disabled, narrowed and changed
   selections. Discovery failures make that inventory incomplete; they never
-  produce an all-covered message.
+  produce an all-covered message. Refresh and configuration changes invalidate
+  the coverage inventory together with the overview.
 - **Destinations:** the new-destination flow has Location, Credentials & policy,
   and Verify steps. Typed S3/SFTP/rclone fields assemble the repository address;
   an advanced address input remains available. Local filesystem detection checks
-  the intended mount. Repository passwords can be generated, shown, and copied;
+  the intended mount. SFTP fields preserve absolute versus home-relative paths,
+  nondefault ports and IPv6. Existing addresses are never rewritten. Passwords
+  can be generated only for new destinations, then shown and copied;
   recovery credentials must also be saved independently of this host. Secret
   fields are write-only, and empty edit fields retain credentials. Repository
-  type and address are immutable during editing. Save, test existing access, and
+  type and address are immutable during editing. Password replacement requires an
+  explicit choice and a value matching the existing repository; it does not rotate
+  encryption keys. Saving a replacement leads to access testing.
+  Save, test existing access, and
   initialize a new repository remain separate actions. Verification retains its
   job result in the wizard; successful verification leads into plan creation.
 - **Plans:** select sources explicitly by stack, service and mount, with source
@@ -390,7 +405,12 @@ and missing native tools are reported explicitly.
   manual, interval, daily or weekly schedule. Interval cadence is fixed in UTC;
   wall-clock schedules show their timezone and authoritative next occurrences.
   New or changed schedules start at the next future occurrence; existing missed
-  schedules catch up once.
+  schedules catch up once. Preview dates use the displayed timezone independently
+  of the browser; an unresolved host-zone name uses a labelled UTC preview.
+  Retention 0/0/0 keeps every snapshot. The capture downtime limit includes stopping
+  writers and reading their data. Unknown destination assignments remain visible
+  and removable. Plan and destination editors confirm discarding unsaved changes,
+  including Escape and backdrop dismissal.
   New plan creation leads into the first-run review. Manual runs load concrete
   running writers, including shared data, before enabling confirmation. Failed
   preflight blocks the action; execution resolves service state again.
@@ -404,28 +424,55 @@ and missing native tools are reported explicitly.
   data and have their own schedule. Retention cleanup can run independently on a
   schedule. Access, integrity-check and last-operation results remain distinct.
   Repository checking never implies a successful application recovery test.
+  Manual cleanup has a cost/locking review. Missing native tools disable commands
+  requiring them while configuration and local recovery inspection remain usable.
+  An unmeasured repository size is shown as unknown, not zero bytes.
 - **Recovery:** one workspace connects destination and snapshot selection to
   source browsing, recursive search, paged file metadata and snapshot comparison.
   Comparison distinguishes content and metadata changes. File indexes are inside
-  encrypted snapshots. Older snapshots without an index offer isolated restore
-  followed by local browsing. Selected regular files (up to 100), a complete
+  encrypted snapshots. Search controls retain focus during loading; stale results
+  cannot submit file selections for another source or query. Missing or oversized
+  indexes explain the limitation without implying missing backup data. Local index
+  generation after retrieval is also bounded; original archive downloads remain
+  the offline inspection path when browsing is unavailable.
+  Selected regular files (up to 100), a complete
   source, or the whole recovery set can be restored. Partial restores cannot be
   labelled complete tests. The interface explains that selected files require
   retrieval of complete source archives and displays estimated transfer size.
+  Full offline retrieval is separate from a complete recovery exercise; restricted
+  automatic-extraction metadata must not earn a completed-test label.
 - **Completed restores:** registered results remain selectable after navigation.
   The result matching a just-completed job is selected automatically; directory
   paths never need to be copied from logs. Browse restored files and download
   regular files through registered identities. Missing directories remain visible
   as unavailable and cannot be applied. File-only restores are for download;
-  applying to a stack requires a complete recovered source.
+  applying to a stack requires a complete recovered source. Complete sources offer
+  original archive downloads with offline-recovery restrictions visible. Deleting
+  a managed result removes its local directory after confirmation. Forgetting a
+  custom result removes only its registration and explicitly preserves every file.
+  Neither action removes repository snapshots.
 - **Apply recovered data:** the selected registration supplies its manifest.
   Choose only sources actually present in that restore and explicitly map
   directories or existing local volumes; no target or source is preselected.
-  Server preview supplies affected writers, overwrite scope and warnings. A
+  Manifest loading has visible progress and retry. Complete directory mappings
+  default to replacement, removing entries absent from the archive. Explicit merge
+  preserves extra files and warns against using it for exact database recovery.
+  Single-file sources always merge into their parent so sibling files survive.
+  Offline-only sources cannot be selected for automatic apply.
+  Server preview supplies affected writers, overwrite/removal scope and warnings. A
   separate `RESTORE` confirmation sends a short-lived token. Changing mappings
-  discards review. Recovery merges files, preserves unrelated content and leaves
-  writers stopped by default. Resuming previously running writers is explicit.
+  discards review. Focus moves to the confirmation field once review is ready.
+  Writers remain stopped by default. Resuming previously running writers is explicit.
   Recovery of Stacklab's own database remains an offline runbook operation.
+- **Backup settings and service recovery:** a global pause covers automatic copies,
+  checks and cleanup. Recovered state on a different host requires reviewing and
+  acknowledging sources, repositories and service mappings before resuming.
+  Settings expose overdue grace and a write-only external success-heartbeat URL;
+  the independent monitor must alert when heartbeats stop. A degraded backup module
+  retains the panel and exposes unresolved service recovery records. Retry uses
+  recorded container identities. A held restore requires typed inspection
+  acknowledgement, keeps services stopped and preserves rollback files. Corrupt
+  records expose a diagnostic without an automatic resolution action.
 
 The stack tab shows configured, unconfigured, disabled and changed-source
 coverage, with exclusions and plan links. Configured selection uses a neutral

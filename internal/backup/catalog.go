@@ -22,6 +22,9 @@ import (
 const maxCatalogEntries = 100000
 const maxCatalogBytes = 12 << 20
 
+// ErrIndexUnavailable describes a bounded inspection limitation, not damaged data.
+var ErrIndexUnavailable = errors.New("source file index unavailable")
+
 // FileIndex is stored with the source archive inside the encrypted snapshot.
 // It describes captured bytes, never a later traversal of a live source.
 type FileIndex struct {
@@ -57,15 +60,16 @@ type CatalogQuery struct {
 }
 
 type CatalogPage struct {
-	Items          []FileEntry      `json:"items"`
-	Sources        []ManifestSource `json:"sources"`
-	SourceID       string           `json:"source_id,omitempty"`
-	Path           string           `json:"path"`
-	Total          int              `json:"total"`
-	Offset         int              `json:"offset"`
-	Limit          int              `json:"limit"`
-	IndexAvailable bool             `json:"index_available"`
-	TransferBytes  int64            `json:"transfer_bytes"`
+	Items                  []FileEntry      `json:"items"`
+	Sources                []ManifestSource `json:"sources"`
+	SourceID               string           `json:"source_id,omitempty"`
+	Path                   string           `json:"path"`
+	Total                  int              `json:"total"`
+	Offset                 int              `json:"offset"`
+	Limit                  int              `json:"limit"`
+	IndexAvailable         bool             `json:"index_available"`
+	IndexUnavailableReason string           `json:"index_unavailable_reason,omitempty"`
+	TransferBytes          int64            `json:"transfer_bytes"`
 }
 
 type FileChange struct {
@@ -78,14 +82,15 @@ type FileChange struct {
 }
 
 type FileComparison struct {
-	Items          []FileChange `json:"items"`
-	Total          int          `json:"total"`
-	Offset         int          `json:"offset"`
-	Limit          int          `json:"limit"`
-	IndexAvailable bool         `json:"index_available"`
-	Added          int          `json:"added"`
-	Removed        int          `json:"removed"`
-	Modified       int          `json:"modified"`
+	Items                  []FileChange `json:"items"`
+	Total                  int          `json:"total"`
+	Offset                 int          `json:"offset"`
+	Limit                  int          `json:"limit"`
+	IndexAvailable         bool         `json:"index_available"`
+	IndexUnavailableReason string       `json:"index_unavailable_reason,omitempty"`
+	Added                  int          `json:"added"`
+	Removed                int          `json:"removed"`
+	Modified               int          `json:"modified"`
 }
 
 func catalogPath(value string, allowRoot bool) (string, error) {
@@ -134,7 +139,7 @@ func indexArchive(ctx context.Context, archivePath, sourceID string) (FileIndex,
 	if err != nil || !info.Mode().IsRegular() {
 		return result, errors.New("source archive must be a regular file")
 	}
-	if err = ValidateArchive(contextReader{ctx: ctx, reader: file}, ""); err != nil {
+	if _, err = ValidateCapturedArchive(contextReader{ctx: ctx, reader: file}); err != nil {
 		return result, err
 	}
 	if _, err = file.Seek(0, io.SeekStart); err != nil {
@@ -157,7 +162,7 @@ func indexArchive(ctx context.Context, archivePath, sourceID string) (FileIndex,
 		}
 		name, nameErr := catalogPath(header.Name, false)
 		if nameErr != nil {
-			return result, nameErr
+			return result, fmt.Errorf("%w: a captured path cannot be represented in the file browser", ErrIndexUnavailable)
 		}
 		if explicit[name] {
 			return result, errors.New("source archive contains duplicate paths")
@@ -195,8 +200,14 @@ func indexArchive(ctx context.Context, archivePath, sourceID string) (FileIndex,
 		case tar.TypeLink:
 			entry.Type = "hardlink"
 			entry.LinkTarget = path.Clean(header.Linkname)
+		case tar.TypeFifo:
+			entry.Type = "fifo"
+		case tar.TypeChar:
+			entry.Type = "character_device"
+		case tar.TypeBlock:
+			entry.Type = "block_device"
 		default:
-			return result, errors.New("unsupported indexed file type")
+			return result, fmt.Errorf("%w: unsupported indexed file type", ErrIndexUnavailable)
 		}
 		entries[name] = entry
 		encoded, _ := json.Marshal(entry)
@@ -208,7 +219,7 @@ func indexArchive(ctx context.Context, archivePath, sourceID string) (FileIndex,
 			}
 		}
 		if len(entries) > maxCatalogEntries || encodedBytes > maxCatalogBytes-1024 {
-			return result, errors.New("source file index exceeds 100000 entries or 12 MiB")
+			return result, fmt.Errorf("%w: source exceeds 100000 entries or 12 MiB of index metadata", ErrIndexUnavailable)
 		}
 	}
 	for _, entry := range entries {
@@ -220,6 +231,11 @@ func indexArchive(ctx context.Context, archivePath, sourceID string) (FileIndex,
 
 func writeSourceIndex(ctx context.Context, archivePath, stagingDir string, source *ManifestSource, remaining int64) (int64, error) {
 	index, err := indexArchive(ctx, archivePath, source.Source.ID)
+	if errors.Is(err, ErrIndexUnavailable) {
+		source.IndexUnavailableReason = err.Error()
+		source.IndexPath, source.IndexVersion, source.EntryCount = "", 0, 0
+		return 0, nil
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -228,7 +244,9 @@ func writeSourceIndex(ctx context.Context, archivePath, stagingDir string, sourc
 		return 0, err
 	}
 	if len(data) > maxCatalogBytes || int64(len(data)) > remaining {
-		return 0, errors.New("source file index exceeds staging budget or 12 MiB")
+		source.IndexUnavailableReason = "Source index exceeds the available staging budget or 12 MiB; the complete archive is preserved."
+		source.IndexPath, source.IndexVersion, source.EntryCount = "", 0, 0
+		return 0, nil
 	}
 	relative := "indexes/" + source.Source.ID + ".json"
 	if err = os.MkdirAll(filepath.Join(stagingDir, "indexes"), 0700); err != nil {
@@ -237,6 +255,7 @@ func writeSourceIndex(ctx context.Context, archivePath, stagingDir string, sourc
 	if err = atomicfile.WriteBytesMode(filepath.Join(stagingDir, filepath.FromSlash(relative)), data, ".index-*", 0600); err != nil {
 		return 0, err
 	}
+	source.IndexUnavailableReason = ""
 	source.IndexPath = relative
 	source.IndexVersion = 1
 	source.EntryCount = len(index.Entries)
@@ -277,7 +296,7 @@ func decodeIndex(data []byte, source ManifestSource) (FileIndex, error) {
 			if _, err = hex.DecodeString(entry.SHA256); err != nil {
 				return index, errors.New("invalid source content digest")
 			}
-		case "directory":
+		case "directory", "fifo", "character_device", "block_device":
 		case "symlink", "hardlink":
 			if len(entry.LinkTarget) > 4096 || strings.ContainsAny(entry.LinkTarget, "\x00\r\n") {
 				return index, errors.New("invalid indexed link")
@@ -378,6 +397,12 @@ func catalogPage(manifest Manifest, index FileIndex, available bool, query Catal
 		return page, err
 	}
 	page.TransferBytes = source.SizeBytes
+	if !available {
+		page.IndexUnavailableReason = source.IndexUnavailableReason
+		if page.IndexUnavailableReason == "" {
+			page.IndexUnavailableReason = "This snapshot has no file index. Isolated recovery may build a bounded local index."
+		}
+	}
 	filtered := []FileEntry{}
 	for _, entry := range index.Entries {
 		if entryMatches(entry.Path, query) {
@@ -487,6 +512,7 @@ func (s *Service) CompareSnapshotFiles(ctx context.Context, destinationID, id, b
 	}
 	result.IndexAvailable = currentAvailable && baseAvailable
 	if !result.IndexAvailable {
+		result.IndexUnavailableReason = "Comparison requires complete indexes for both sources."
 		return result, nil
 	}
 	before := map[string]FileEntry{}

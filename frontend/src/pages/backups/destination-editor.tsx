@@ -29,11 +29,15 @@ export function DestinationEditor({
   onSaved,
   onClose,
   onCreatePlan,
+  toolsAvailable = true,
+  rcloneAvailable = true,
 }: {
   destination?: BackupDestination
   onSaved: () => void
   onClose: () => void
   onCreatePlan?: (destination: BackupDestination) => void
+  toolsAvailable?: boolean
+  rcloneAvailable?: boolean
 }) {
   const [step, setStep] = useState(0)
   const [saved, setSaved] = useState<BackupDestination | null>(null)
@@ -97,6 +101,7 @@ export function DestinationEditor({
     if (step === 2) verifyRef.current?.focus()
   }, [step])
   const running = !!jobId && !['succeeded', 'failed', 'cancelled', 'timed_out'].includes(jobState ?? '')
+  const verificationAvailable = toolsAvailable && (kind !== 'rclone' || rcloneAvailable)
   const changeSecret = (key: keyof BackupSecrets, value: string) =>
     setSecrets((previous) => ({ ...previous, [key]: value }))
   const changeLocation = (key: keyof typeof location, value: string) =>
@@ -166,7 +171,7 @@ export function DestinationEditor({
   }
 
   async function verify(initialize: boolean) {
-    if (!saved || pending || running) return
+    if (!saved || pending || running || !verificationAvailable) return
     setPending(true)
     setError(null)
     try {
@@ -204,6 +209,11 @@ export function DestinationEditor({
       {step === 2 && saved ? (
         <div className="mt-4 space-y-4">
           <BackupError error={error} />
+          {!verificationAvailable && (
+            <p className="text-sm text-[var(--warning)]">
+              Configuration is saved. Install the required backup tools before verifying this repository.
+            </p>
+          )}
           <p className="text-sm text-[var(--text)]">
             {saved.name} is saved.{' '}
             {destination
@@ -218,7 +228,7 @@ export function DestinationEditor({
           <button
             ref={verifyRef}
             className={primaryClass}
-            disabled={pending || running}
+            disabled={pending || running || !verificationAvailable}
             onClick={() => {
               void verify(false)
             }}
@@ -237,7 +247,7 @@ export function DestinationEditor({
               </label>
               <button
                 className={buttonClass}
-                disabled={!newRepository || pending || running}
+                disabled={!newRepository || pending || running || !verificationAvailable}
                 onClick={() => {
                   void verify(true)
                 }}

@@ -157,12 +157,14 @@ func newApplication(parent context.Context, cfg config.Config, logger *slog.Logg
 	}
 	backupCapture := backup.NewNativeCapture(cfg, stackReader, appStore.Snapshot)
 	backupService := backup.NewService(cfg, jobService, backupCapture)
+	backupService.SetOperationalNotifier(func(ctx context.Context, alert backup.OperationalAlert) error {
+		return notificationService.DispatchBackupAlert(ctx, alert.PlanID, alert.PlanName, alert.DestinationID, alert.DestinationName, alert.DueAt)
+	})
 	recoveryCtx, recoveryCancel := context.WithTimeout(parent, 2*time.Minute)
 	recoveryErr := backupService.Reconcile(recoveryCtx)
 	recoveryCancel()
 	if recoveryErr != nil {
-		_ = authService.Shutdown(context.Background())
-		return nil, fmt.Errorf("recover services interrupted by backup: %w", recoveryErr)
+		logger.Warn("backup recovery needs intervention; diagnostic panel remains available", "error", recoveryErr)
 	}
 	reconcileInterruptedJobs(parent, jobService, auditService, logger)
 	jobService.SetMetricsObserver(serviceMetrics)
@@ -213,6 +215,7 @@ func newApplication(parent context.Context, cfg config.Config, logger *slog.Logg
 			{name: "self-update", run: selfUpdateService.RunBackground},
 			{name: "retention", run: retentionService.RunBackground},
 			{name: "backups", run: backupService.RunBackground},
+			{name: "backup protection", run: backupService.RunOperationalBackground},
 		},
 	}, nil
 }

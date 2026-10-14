@@ -2,10 +2,10 @@
 
 ## Status And Scope
 
-Accepted implementation plan, 2026-10-14. Commit this plan before changing the
-implementation. Delivery and measured results belong in
-[backup validation](../quality/backup-validation.md); the requirements below
-are not claims that the fixes have already shipped.
+Implemented and exercised on 2026-10-14. The accepted plan was committed before
+implementation. Measured results and remaining validation limits are recorded in
+[backup validation](../quality/backup-validation.md). The requirements below
+remain the acceptance contract for subsequent changes.
 
 The review of the native backup baseline and protection/recovery experience
 identified failures in capture, interruption recovery, repository isolation,

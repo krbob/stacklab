@@ -19,6 +19,12 @@ type domainRoute struct {
 
 func domainRouteContract() []domainRoute {
 	return []domainRoute{
+		{http.MethodGet, "/api/backups/policy", "GET /api/backups/policy"},
+		{http.MethodPut, "/api/backups/policy", "PUT /api/backups/policy"},
+		{http.MethodGet, "/api/backups/recovery", "GET /api/backups/recovery"},
+		{http.MethodPost, "/api/backups/recovery/demo", "POST /api/backups/recovery/{runId}"},
+		{http.MethodDelete, "/api/backups/restores/demo", "DELETE /api/backups/restores/{restoreId}"},
+		{http.MethodGet, "/api/backups/restores/demo/archive", "GET /api/backups/restores/{restoreId}/archive"},
 		{http.MethodGet, "/api/backups/coverage", "GET /api/backups/coverage"},
 		{http.MethodPost, "/api/backups/schedule-preview", "POST /api/backups/schedule-preview"},
 		{http.MethodGet, "/api/backups/plans/demo/preflight", "GET /api/backups/plans/{planId}/preflight"},
@@ -131,8 +137,8 @@ func TestHandlerRegistersDomainRouteContract(t *testing.T) {
 	handler.registerRoutes()
 	routes := domainRouteContract()
 
-	if len(routes) != 102 {
-		t.Fatalf("route contract contains %d operations, want 102", len(routes))
+	if len(routes) != 108 {
+		t.Fatalf("route contract contains %d operations, want 108", len(routes))
 	}
 	for _, route := range routes {
 		route := route
@@ -272,8 +278,8 @@ func TestDomainRoutesPreserveAuthenticationPolicy(t *testing.T) {
 			t.Errorf("protected route %s returned %d, want %d", route.pattern, response.Code, http.StatusUnauthorized)
 		}
 	}
-	if protectedCount != 95 {
-		t.Fatalf("protected route count = %d, want 95", protectedCount)
+	if protectedCount != 101 {
+		t.Fatalf("protected route count = %d, want 101", protectedCount)
 	}
 }
 

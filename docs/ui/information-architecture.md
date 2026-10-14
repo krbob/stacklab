@@ -214,15 +214,21 @@ Backups → Protection → Add destination → Location → Credentials → Veri
   → Create plan → Select sources and schedules → Review writers → First backup
 Backups → Recovery → Destination and snapshot → Browse / compare source files
   → Isolated restore → Automatically selected result → Download files
-  → Optional map targets → Server preview → RESTORE confirmation → Apply
-Stack → Backups → Review selection gaps → Manage backup plans
+  → Optional map targets and replacement mode → Server preview → RESTORE confirmation → Apply
+  → Or original archive download → Offline recovery
+Backups → Backup settings → Pause / review recovered host / external monitoring
+Backups → Service recovery → Inspect interrupted operation → Retry or acknowledge held data
+Stack → Backups → Review selection gaps → Specific plan or Recovery
 ```
 
 `/backups?view=protection|recovery|history|plans|destinations` preserves the active
 view; Protection is the default and the legacy `view=runs` opens History.
-`/backups?view=recovery&destination=:id` opens a repository in Recovery.
+`/backups?view=recovery&destination=:id` opens a repository in Recovery; changing
+the destination updates this URL. Remote repositories are not selected implicitly.
 `/backups?view=plans&stack=:stackId` preselects that stack in the new-plan source
-scope. Completed restores are persistent registrations, so recovery does not
+scope; closing that editor clears this one-shot context. The `plan=:id` parameter
+opens a specific plan for editing. Visited tabs retain their workspace state.
+Completed restores are persistent registrations, so recovery does not
 depend on retaining a log message or copying a host path.
 The command palette includes Backups; its sidebar shortcut is `8`, preserving
 the existing section shortcuts. On mobile it is available through More.

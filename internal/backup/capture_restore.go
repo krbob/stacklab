@@ -114,6 +114,10 @@ func ValidateArchive(reader io.Reader, target string) error {
 				if statErr == nil && info.Mode()&os.ModeSymlink != 0 && !replacingFinalSymlink {
 					return fmt.Errorf("restore target contains a symlink: %s", name)
 				}
+				final := current == filepath.Join(target, filepath.FromSlash(name))
+				if statErr == nil && (info.IsDir() && final && header.Typeflag != tar.TypeDir || !info.IsDir() && (!final || header.Typeflag == tar.TypeDir)) {
+					return fmt.Errorf("restore target has a conflicting file or directory: %s", name)
+				}
 				if statErr == nil && !info.IsDir() && !info.Mode().IsRegular() && !(replacingFinalSymlink && info.Mode()&os.ModeSymlink != 0) {
 					return errors.New("restore target contains a special file")
 				}
@@ -199,6 +203,20 @@ func ExtractArchive(ctx context.Context, archivePath, targetPath string, preserv
 		}
 		tarTarget = "/proc/self/fd/3"
 	}
+	return extractArchivePinned(ctx, archivePath, targetPath, tarTarget, pinnedDirectory, preserveOwner)
+}
+
+// ExtractArchivePinned keeps every extraction pass on the directory descriptor
+// already authorized by the helper, even if its pathname is renamed or replaced.
+func ExtractArchivePinned(ctx context.Context, archivePath string, directory *os.File, preserveOwner bool) error {
+	if runtime.GOOS != "linux" {
+		return errors.New("descriptor-pinned privileged extraction requires Linux")
+	}
+	validationTarget := fmt.Sprintf("/proc/self/fd/%d", directory.Fd())
+	return extractArchivePinned(ctx, archivePath, validationTarget, "/proc/self/fd/3", directory, preserveOwner)
+}
+
+func extractArchivePinned(ctx context.Context, archivePath, targetPath, tarTarget string, pinnedDirectory *os.File, preserveOwner bool) error {
 	file, err := os.Open(archivePath)
 	if err != nil {
 		return err
@@ -264,7 +282,7 @@ func archiveMemberLists(ctx context.Context, archive *os.File) (string, string, 
 		}
 	}
 	for range 2 {
-		file, err := os.CreateTemp("", ".stacklab-recovery-members-*")
+		file, err := os.CreateTemp(filepath.Dir(archive.Name()), ".stacklab-recovery-members-*")
 		if err != nil {
 			cleanup()
 			return "", "", nil, err
@@ -303,6 +321,7 @@ type RestoreMapping struct {
 	SourceID   string `json:"source_id"`
 	Target     string `json:"target"`
 	VolumeName string `json:"volume_name,omitempty"`
+	Mode       string `json:"mode,omitempty"`
 }
 type RestorePreview struct {
 	Mappings   []RestoreMapping `json:"mappings"`
@@ -314,7 +333,7 @@ type RestorePreview struct {
 // PreviewRestore requires a mapping for each selected source; Stacklab state
 // is recovered offline because replacing the running SQLite database is unsafe.
 func (c *NativeCapture) PreviewRestore(ctx context.Context, manifest Manifest, mappings []RestoreMapping) (RestorePreview, error) {
-	preview := RestorePreview{Mappings: append([]RestoreMapping{}, mappings...), Writers: []Writer{}, Warnings: []string{"Restore merges selected archive content; unrelated files are retained. Targets are extraction directories; file sources restore their original basename. Services remain stopped after an interrupted or failed write; starting previously running services requires explicit selection."}}
+	preview := RestorePreview{Mappings: append([]RestoreMapping{}, mappings...), Writers: []Writer{}, Warnings: []string{"Complete-source restore replaces all content inside each selected target by default; files absent from the archive are removed. Explicit merge retains unrelated files. Replacement preserves the target directory/mountpoint and is not atomic across sources. Failed replacements retain recovery records and rollback data for inspection. Targets are extraction directories; file sources restore their original basename. Services remain stopped after an interrupted or failed write; starting previously running services requires explicit selection."}}
 	if manifest.Version != 1 {
 		return preview, errors.New("unsupported recovery manifest version")
 	}
@@ -334,9 +353,26 @@ func (c *NativeCapture) PreviewRestore(ctx context.Context, manifest Manifest, m
 	}
 	seen := map[string]bool{}
 	for index, mapping := range mappings {
+		if mapping.Mode == "" {
+			mapping.Mode = "replace"
+		}
+		if mapping.Mode != "replace" && mapping.Mode != "merge" {
+			return preview, errors.New("restore mode must be replace or merge")
+		}
+		preview.Mappings[index].Mode = mapping.Mode
 		source, ok := sourceByID[mapping.SourceID]
 		if !ok {
 			return preview, errors.New("unknown restore source")
+		}
+		if source.FileName != "" {
+			// A file source maps to its containing directory. Replacing that entire
+			// directory would delete unrelated siblings which were never captured.
+			mapping.Mode = "merge"
+			preview.Mappings[index].Mode = "merge"
+			preview.Warnings = append(preview.Warnings, "Single-file source "+source.Source.ID+" replaces only its archived basename; neighboring files are retained.")
+		}
+		if len(source.RecoveryRestrictions) > 0 {
+			return preview, errors.New("source requires operator-controlled offline recovery: " + strings.Join(source.RecoveryRestrictions, "; "))
 		}
 		if source.Source.Kind == "stacklab" {
 			return preview, errors.New("Stacklab state must be recovered offline using the documented procedure")
@@ -360,6 +396,11 @@ func (c *NativeCapture) PreviewRestore(ctx context.Context, manifest Manifest, m
 		}
 		if !filepath.IsAbs(mapping.Target) || filepath.Clean(mapping.Target) == "/" {
 			return preview, errors.New("invalid restore target")
+		}
+		for previous := 0; previous < index; previous++ {
+			if pathsOverlapData(preview.Mappings[previous].Target, mapping.Target) {
+				return preview, errors.New("restore target mappings must not overlap")
+			}
 		}
 		allowed := mapping.VolumeName != ""
 		roots := append([]string{filepath.Join(c.cfg.RootDir, "stacks"), filepath.Join(c.cfg.RootDir, "config"), filepath.Join(c.cfg.RootDir, "data")}, c.cfg.BackupAllowedPaths...)
@@ -397,43 +438,117 @@ func (c *NativeCapture) PreviewRestore(ctx context.Context, manifest Manifest, m
 					if container.State.Paused {
 						return preview, errors.New("restore writer is paused")
 					}
-					preview.Writers = append(preview.Writers, Writer{ContainerID: container.ID, StackID: container.Config.Labels["com.docker.compose.project"], Service: container.Config.Labels["com.docker.compose.service"], Running: container.State.Running})
+					preview.Writers = append(preview.Writers, Writer{ContainerID: container.ID, StackID: container.Config.Labels["com.docker.compose.project"], Service: container.Config.Labels["com.docker.compose.service"], Running: container.State.Running, StopTimeoutSeconds: container.Config.StopTimeout})
 					break
 				}
+			}
+		}
+	}
+	for _, writer := range preview.Writers {
+		if writer.Running {
+			if _, err = writerStopTimeout(writer); err != nil {
+				return preview, err
 			}
 		}
 	}
 	return preview, nil
 }
 
+func (c *NativeCapture) prepareRestoreArchive(ctx context.Context, archive string, mapping RestoreMapping) (string, error) {
+	input, err := os.Open(archive)
+	if err != nil {
+		return "", err
+	}
+	defer input.Close()
+	info, err := input.Stat()
+	if err != nil {
+		return "", err
+	}
+	args := []string{"prepare-restore", "--path", mapping.Target, "--mode", mapping.Mode, "--size", fmt.Sprint(info.Size())}
+	name, args := c.helperInvocation(args...)
+	cmd := exec.CommandContext(ctx, name, args...)
+	configureCaptureProcess(cmd)
+	cmd.Stdin = input
+	output := limitedio.NewBuffer(4096)
+	diagnostic := limitedio.NewBuffer(8192)
+	cmd.Stdout = output
+	cmd.Stderr = diagnostic
+	if err = cmd.Run(); err != nil {
+		return "", fmt.Errorf("recovery preflight failed: %s: %w", strings.TrimSpace(diagnostic.String()), err)
+	}
+	token := strings.TrimSpace(output.String())
+	if len(token) != 48 || strings.Trim(token, "0123456789abcdef") != "" {
+		return "", errors.New("helper returned an invalid prepared recovery token")
+	}
+	return token, nil
+}
+
+func (c *NativeCapture) preparedRestoreCommand(ctx context.Context, action, token string) error {
+	name, args := c.helperInvocation(action, "--token", token)
+	output, err := c.command(ctx, name, args...)
+	if err != nil {
+		return fmt.Errorf("%s failed: %s: %w", action, strings.TrimSpace(string(output)), err)
+	}
+	return nil
+}
+
+func (c *NativeCapture) checkPreparedRestores(ctx context.Context, mappings []RestoreMapping, tokens map[string]string) error {
+	args := []string{"check-restores"}
+	for _, mapping := range mappings {
+		args = append(args, "--token", tokens[mapping.SourceID])
+	}
+	name, args := c.helperInvocation(args...)
+	output, err := c.command(ctx, name, args...)
+	if err != nil {
+		return fmt.Errorf("recovery preflight failed: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+	return nil
+}
+
 func (c *NativeCapture) ApplyRestore(ctx context.Context, manifest Manifest, mappings []RestoreMapping, restoredDirectory, runID string, resumeServices bool) (err error) {
+	if err = c.Recover(ctx); err != nil {
+		return err
+	}
 	preview, err := c.PreviewRestore(ctx, manifest, mappings)
 	if err != nil {
 		return err
 	}
 	sources := map[string]ManifestSource{}
-	archives := map[string]string{}
 	for _, source := range manifest.Sources {
 		sources[source.Source.ID] = source
 	}
+	tokens := map[string]string{}
+	keepPrepared := false
+	defer func() {
+		if keepPrepared {
+			return
+		}
+		releaseCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		for _, token := range tokens {
+			err = errors.Join(err, c.preparedRestoreCommand(releaseCtx, "release-restore", token))
+		}
+	}()
+	// The root helper reads caller-opened bytes through stdin. Custom isolated
+	// targets are supported without granting arbitrary root archive reads.
 	for _, mapping := range preview.Mappings {
 		archive, pathErr := ManifestArchivePath(restoredDirectory, sources[mapping.SourceID])
 		if pathErr != nil {
 			return pathErr
 		}
-		file, openErr := os.Open(archive)
-		if openErr != nil {
-			return openErr
+		token, prepareErr := c.prepareRestoreArchive(ctx, archive, mapping)
+		if prepareErr != nil {
+			return prepareErr
 		}
-		validateErr := ValidateArchive(captureContextReader{ctx: ctx, reader: file}, "")
-		closeErr := file.Close()
-		if err = errors.Join(validateErr, closeErr); err != nil {
-			return err
-		}
-		archives[mapping.SourceID] = archive
+		tokens[mapping.SourceID] = token
+	}
+	if err = c.checkPreparedRestores(ctx, preview.Mappings, tokens); err != nil {
+		return err
 	}
 	writers := uniqueRunningWriters([]ManifestSource{{Writers: preview.Writers}})
-	if err = c.saveJournal(runID, writers); err != nil {
+	journal := newStopJournal(runID, writers)
+	journal.PreparedTokens = tokens
+	if err = c.saveStopJournal(journal); err != nil {
 		return err
 	}
 	writesStarted := false
@@ -441,26 +556,32 @@ func (c *NativeCapture) ApplyRestore(ctx context.Context, manifest Manifest, map
 		if !writesStarted || err == nil && resumeServices {
 			resumeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
-			err = errors.Join(err, c.resume(resumeCtx, stopJournal{Version: 1, RunID: runID, Writers: writers}))
+			journal.HoldStopped = false
+			err = errors.Join(err, c.resume(resumeCtx, journal))
+		} else if err == nil {
+			err = c.removeJournal(runID)
 		} else {
-			err = errors.Join(err, c.removeJournal(runID))
-			if err != nil {
-				err = fmt.Errorf("restore incomplete; affected services remain stopped for inspection: %w", err)
-			}
+			keepPrepared = true
+			err = fmt.Errorf("restore incomplete; affected services remain stopped; recovery journal and helper rollback records are retained: %w", err)
 		}
 	}()
 	for _, writer := range writers {
-		if err = c.stopWriter(ctx, writer); err != nil {
+		if err = c.stopJournalWriter(ctx, &journal, writer); err != nil {
 			return err
 		}
 	}
-	if err = c.saveStopJournal(stopJournal{Version: 1, RunID: runID, Writers: writers, HoldStopped: true}); err != nil {
+	// Recheck every target and combined filesystem budget after writers stop,
+	// before the durable write intent. Inputs are immutable root-owned archives.
+	if err = c.checkPreparedRestores(ctx, preview.Mappings, tokens); err != nil {
+		return err
+	}
+	journal.HoldStopped = true
+	if err = c.saveStopJournal(journal); err != nil {
 		return err
 	}
 	writesStarted = true
 	for _, mapping := range preview.Mappings {
-		archive := archives[mapping.SourceID]
-		if err = c.RestoreArchive(ctx, archive, mapping.Target, true); err != nil {
+		if err = c.preparedRestoreCommand(ctx, "apply-restore", tokens[mapping.SourceID]); err != nil {
 			return err
 		}
 	}

@@ -20,7 +20,7 @@ func parseTestTime(t *testing.T, value string) time.Time {
 	return result
 }
 func completedTestRun(plan Plan, destination Destination, id string, captured, uploaded time.Time) Run {
-	return Run{ID: id, PlanID: plan.ID, PlanName: plan.Name, State: "succeeded", CaptureState: "succeeded", CapturedAt: &captured, CreatedAt: captured, ExpiresAt: captured.Add(time.Hour), Copies: []CopyResult{{DestinationID: destination.ID, State: "succeeded", SnapshotID: "aabbccddeeff0011", UploadedAt: &uploaded, Verification: "snapshot_metadata_verified", Retention: "succeeded"}}}
+	return Run{ID: id, PlanID: plan.ID, PlanName: plan.Name, State: "succeeded", CaptureState: "succeeded", CapturedAt: &captured, CreatedAt: captured, ExpiresAt: captured.Add(time.Hour), Copies: []CopyResult{{DestinationID: destination.ID, State: "succeeded", SnapshotID: "aabbccddeeff0011", UploadedAt: &uploaded, Verification: recoveryObjectsVerified, VerifiedAt: &uploaded, Retention: "succeeded"}}}
 }
 func protectionFor(t *testing.T, s *Service) PlanProtection {
 	t.Helper()

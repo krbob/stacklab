@@ -130,6 +130,19 @@ func (s *Service) recoveryPreview(ctx context.Context, destinationID string, req
 	if err != nil {
 		return manifest, preview, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
+	// Volume mappings have no target until Docker inspection resolves their
+	// mountpoint. Check normalized mappings too, including repositories other
+	// than the one supplying this restore. This runs again before apply.
+	s.mu.Lock()
+	for _, mapping := range preview.Mappings {
+		for _, destination := range s.state.Destinations {
+			if destination.Kind == "local" && overlaps(mapping.Target, destination.Repository) {
+				s.mu.Unlock()
+				return manifest, preview, fmt.Errorf("%w: resolved recovery target overlaps a repository", ErrInvalid)
+			}
+		}
+	}
+	s.mu.Unlock()
 	// Archive bytes and permissions can change between preview and commit; include
 	// their hashes in the token and validate every selected tar before stopping.
 	for _, mapping := range preview.Mappings {

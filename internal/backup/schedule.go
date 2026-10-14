@@ -120,5 +120,22 @@ func (s *Service) SchedulePreview(schedule Schedule, counts ...int) (SchedulePre
 		count = counts[0]
 	}
 	occurrences, err := PreviewSchedule(schedule, s.now(), count)
-	return SchedulePreview{NextOccurrences: occurrences, Timezone: scheduleLocation(schedule).String()}, err
+	zone := scheduleLocation(schedule).String()
+	if zone == "Local" {
+		// RFC3339 occurrences carry their exact offset even if the host timezone is
+		// an unnamed /etc/localtime rather than a resolvable IANA identifier.
+		zone = "UTC"
+		for index := range occurrences {
+			occurrences[index] = occurrences[index].UTC()
+		}
+	}
+	return SchedulePreview{NextOccurrences: occurrences, Timezone: zone}, err
+}
+
+// Future watermarks after a backwards clock correction must not suppress new
+// work until the old clock catches up. A started occurrence replaces them once.
+const clockSkewTolerance = 5 * time.Minute
+
+func occurrencePending(last *time.Time, due, now time.Time) bool {
+	return last == nil || last.After(now.Add(clockSkewTolerance)) || last.Before(due)
 }

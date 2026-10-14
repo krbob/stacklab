@@ -25,23 +25,32 @@ type PlanProtection struct {
 }
 
 type CopyProtection struct {
-	DestinationID  string     `json:"destination_id"`
-	State          string     `json:"state"`
-	LastCaptureAt  *time.Time `json:"last_capture_at,omitempty"`
-	LastUploadedAt *time.Time `json:"last_uploaded_at,omitempty"`
-	SnapshotID     string     `json:"snapshot_id,omitempty"`
-	NextRunAt      *time.Time `json:"next_run_at,omitempty"`
-	DueAt          *time.Time `json:"due_at,omitempty"`
-	LastRunID      string     `json:"last_run_id,omitempty"`
-	LastError      string     `json:"last_error,omitempty"`
+	DestinationID      string     `json:"destination_id"`
+	State              string     `json:"state"`
+	LastCaptureAt      *time.Time `json:"last_capture_at,omitempty"`
+	LastUploadedAt     *time.Time `json:"last_uploaded_at,omitempty"`
+	SnapshotID         string     `json:"snapshot_id,omitempty"`
+	NextRunAt          *time.Time `json:"next_run_at,omitempty"`
+	DueAt              *time.Time `json:"due_at,omitempty"`
+	LastRunID          string     `json:"last_run_id,omitempty"`
+	LastError          string     `json:"last_error,omitempty"`
+	EvidenceUsable     bool       `json:"evidence_usable"`
+	SnapshotStatus     string     `json:"snapshot_status"`
+	SnapshotCheckedAt  *time.Time `json:"snapshot_checked_at,omitempty"`
+	IntegrityStatus    string     `json:"integrity_status"`
+	AvailabilityStatus string     `json:"availability_status"`
+	LastRestoreTestAt  *time.Time `json:"last_restore_test_at,omitempty"`
 }
 
 type copyCheckpoint struct {
-	CapturedAt time.Time  `json:"captured_at"`
-	UploadedAt *time.Time `json:"uploaded_at,omitempty"`
-	SnapshotID string     `json:"snapshot_id"`
-	RunID      string     `json:"run_id"`
-	Selection  string     `json:"selection"`
+	CapturedAt        time.Time  `json:"captured_at"`
+	UploadedAt        *time.Time `json:"uploaded_at,omitempty"`
+	SnapshotID        string     `json:"snapshot_id"`
+	RunID             string     `json:"run_id"`
+	Selection         string     `json:"selection"`
+	Verification      string     `json:"verification,omitempty"`
+	SnapshotStatus    string     `json:"snapshot_status,omitempty"`
+	SnapshotCheckedAt *time.Time `json:"snapshot_checked_at,omitempty"`
 }
 
 type Preflight struct {
@@ -76,15 +85,25 @@ func (s *Service) recordCheckpointsLocked(run Run, plan Plan) {
 		if _, exists := s.state.Destinations[copy.DestinationID]; !exists {
 			continue
 		}
-		if copy.SnapshotID == "" || copy.Verification != "snapshot_metadata_verified" {
+		if copy.SnapshotID == "" || copy.Verification != recoveryObjectsVerified && copy.Verification != "snapshot_metadata_verified" {
 			continue
 		}
 		key := checkpointKey(run.PlanID, copy.DestinationID)
 		old, ok := s.state.CopyCheckpoints[key]
-		if ok && old.CapturedAt.After(*run.CapturedAt) {
+		oldFuture := old.CapturedAt.After(s.now().Add(clockSkewTolerance))
+		candidateFuture := run.CapturedAt.After(s.now().Add(clockSkewTolerance))
+		if ok && (!oldFuture && candidateFuture || oldFuture == candidateFuture && old.CapturedAt.After(*run.CapturedAt)) {
 			continue
 		}
-		s.state.CopyCheckpoints[key] = copyCheckpoint{CapturedAt: *run.CapturedAt, UploadedAt: copy.UploadedAt, SnapshotID: copy.SnapshotID, RunID: run.ID, Selection: selectionFingerprint(plan)}
+		if ok && old.SnapshotID == copy.SnapshotID && old.RunID == run.ID && (copy.VerifiedAt == nil || old.SnapshotCheckedAt != nil && !copy.VerifiedAt.After(*old.SnapshotCheckedAt)) {
+			continue
+		}
+		checkpoint := copyCheckpoint{CapturedAt: *run.CapturedAt, UploadedAt: copy.UploadedAt, SnapshotID: copy.SnapshotID, RunID: run.ID, Selection: selectionFingerprint(plan), Verification: copy.Verification, SnapshotStatus: "unknown"}
+		if copy.Verification == recoveryObjectsVerified && copy.VerifiedAt != nil {
+			checkpoint.SnapshotStatus = "present"
+			checkpoint.SnapshotCheckedAt = copy.VerifiedAt
+		}
+		s.state.CopyCheckpoints[key] = checkpoint
 	}
 }
 
@@ -93,7 +112,7 @@ func (s *Service) protectionLocked(plan Plan) PlanProtection {
 	result := PlanProtection{PlanID: plan.ID, PlanName: plan.Name, State: "healthy", Copies: []CopyProtection{}}
 	var latest *persistedRun
 	for _, run := range s.state.Runs {
-		if run.PlanID == plan.ID && (latest == nil || run.CreatedAt.After(latest.CreatedAt)) {
+		if run.PlanID == plan.ID && (latest == nil || newerRun(run.Run, latest.Run, now)) {
 			item := run
 			latest = &item
 		}
@@ -104,13 +123,27 @@ func (s *Service) protectionLocked(plan Plan) PlanProtection {
 	allManual := true
 	attention := false
 	for _, assignment := range plan.Destinations {
-		copy := CopyProtection{DestinationID: assignment.DestinationID, State: "unprotected"}
+		destination := s.state.Destinations[assignment.DestinationID]
+		copy := CopyProtection{DestinationID: assignment.DestinationID, State: "unprotected", SnapshotStatus: "unknown", IntegrityStatus: destination.CheckStatus, AvailabilityStatus: destination.Status}
+		if copy.IntegrityStatus == "" {
+			copy.IntegrityStatus = "unknown"
+		}
+		if copy.AvailabilityStatus == "" {
+			copy.AvailabilityStatus = "unknown"
+		}
 		checkpoint, saved := s.state.CopyCheckpoints[checkpointKey(plan.ID, assignment.DestinationID)]
 		if saved {
 			copy.LastCaptureAt = &checkpoint.CapturedAt
 			copy.LastUploadedAt = checkpoint.UploadedAt
 			copy.SnapshotID = checkpoint.SnapshotID
 			copy.LastRunID = checkpoint.RunID
+			copy.SnapshotStatus, copy.SnapshotCheckedAt = checkpoint.SnapshotStatus, checkpoint.SnapshotCheckedAt
+			if copy.SnapshotStatus == "" {
+				copy.SnapshotStatus = "unknown"
+			}
+			if destination.LastRestoreTestSnapshotID == checkpoint.SnapshotID {
+				copy.LastRestoreTestAt = destination.LastRestoreTestAt
+			}
 			if result.LastCaptureAt == nil || result.LastCaptureAt.Before(checkpoint.CapturedAt) {
 				t := checkpoint.CapturedAt
 				result.LastCaptureAt = &t
@@ -142,6 +175,26 @@ func (s *Service) protectionLocked(plan Plan) PlanProtection {
 		if saved && checkpoint.Selection != selectionFingerprint(plan) {
 			copy.State = "outdated"
 		}
+		if saved {
+			switch {
+			case checkpoint.CapturedAt.After(now.Add(clockSkewTolerance)) || assignment.LastScheduledAt != nil && assignment.LastScheduledAt.After(now.Add(clockSkewTolerance)):
+				copy.State, copy.LastError = "clock_skew", "The host clock moved backwards; this recovery point cannot establish current protection."
+			case checkpoint.SnapshotStatus == "missing":
+				copy.State = "missing"
+			case destination.CheckStatus == "failed":
+				copy.State, copy.LastError = "integrity_failed", destination.CheckError
+			case destination.Status == "error":
+				copy.State, copy.LastError = "unavailable", destination.Error
+			case destination.InventoryError != "":
+				copy.State, copy.LastError = "unverified", destination.InventoryError
+			case checkpoint.Verification != recoveryObjectsVerified || checkpoint.SnapshotCheckedAt == nil:
+				copy.State = "unverified"
+			case checkpoint.SnapshotCheckedAt.After(now.Add(clockSkewTolerance)):
+				copy.State = "clock_skew"
+			case now.Sub(*checkpoint.SnapshotCheckedAt) > 24*time.Hour:
+				copy.State = "unverified"
+			}
+		}
 		// Latest attempt is useful diagnostic evidence even while an older verified
 		// copy is still within its expected schedule.
 		var latestCopyRun *persistedRun
@@ -150,17 +203,20 @@ func (s *Service) protectionLocked(plan Plan) PlanProtection {
 				continue
 			}
 			for _, attempt := range run.Copies {
-				if attempt.DestinationID == assignment.DestinationID && (latestCopyRun == nil || run.CreatedAt.After(latestCopyRun.CreatedAt)) {
+				if attempt.DestinationID == assignment.DestinationID && (latestCopyRun == nil || newerRun(run.Run, latestCopyRun.Run, now)) {
 					item := run
 					latestCopyRun = &item
-					copy.LastError = attempt.Error
+					if copy.LastError == "" {
+						copy.LastError = attempt.Error
+					}
 					if run.CaptureState == "failed" {
 						copy.LastError = run.Error
 					}
 				}
 			}
 		}
-		usable := copy.State == "current" || copy.State == "manual"
+		copy.EvidenceUsable = saved && copy.SnapshotStatus == "present" && (copy.State == "current" || copy.State == "manual" || copy.State == "overdue")
+		usable := copy.EvidenceUsable && (copy.State == "current" || copy.State == "manual")
 		if latestCopyRun != nil {
 			copy.LastRunID = latestCopyRun.ID
 		}
@@ -227,4 +283,16 @@ func (s *Service) Preflight(ctx context.Context, planID string) (Preflight, erro
 		result.Warnings = append(result.Warnings, "Live capture does not guarantee database consistency; use prepared dumps or stop writers.")
 	}
 	return result, nil
+}
+
+func newerRun(candidate, previous Run, now time.Time) bool {
+	candidateFuture := candidate.CreatedAt.After(now.Add(clockSkewTolerance))
+	previousFuture := previous.CreatedAt.After(now.Add(clockSkewTolerance))
+	if candidateFuture != previousFuture {
+		return !candidateFuture
+	}
+	if candidate.CreatedAt.Equal(previous.CreatedAt) {
+		return candidate.ID > previous.ID
+	}
+	return candidate.CreatedAt.After(previous.CreatedAt)
 }

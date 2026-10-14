@@ -23,6 +23,147 @@ tags:
   - name: Jobs
   - name: Settings
 paths:
+  /backups/policy:
+    get:
+      tags: [Backups]
+      operationId: getBackupPolicy
+      description: Scheduling pause, recovered-host review and external protection monitoring status. Secrets are not returned.
+      responses:
+        '200':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupPolicy'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+    put:
+      tags: [Backups]
+      operationId: saveBackupPolicy
+      description: Update backup and retention pause, overdue grace and write-only external heartbeat configuration.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupPolicyInput'
+      responses:
+        '200':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupPolicy'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+  /backups/recovery:
+    get:
+      tags: [Backups]
+      operationId: getBackupRecoveryJournals
+      description: List unresolved service recovery journals, including held restores and malformed entries.
+      responses:
+        '200':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupRecoveryJournals'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+  /backups/recovery/{runId}:
+    post:
+      tags: [Backups]
+      operationId: resolveBackupRecovery
+      description: Resolve service recovery under exclusive lifecycle coordination; explicit hold acknowledgement never starts services.
+      parameters:
+      - name: runId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupRecoveryResolution'
+      responses:
+        '202':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobEnvelopeResponse'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+  /backups/restores/{restoreId}:
+    delete:
+      tags: [Backups]
+      operationId: deleteBackupRestore
+      description: Remove a recovery registration. Stacklab-owned directories are also deleted; custom directories and their files remain untouched.
+      parameters:
+      - name: restoreId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: Recovery result removed.
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+  /backups/restores/{restoreId}/archive:
+    get:
+      tags: [Backups]
+      operationId: downloadRestoredBackupArchive
+      description: Download a complete source archive for operator-controlled offline recovery. Partial-file results cannot expose whole archives.
+      parameters:
+      - name: restoreId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: source_id
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Private tar attachment; extracting preserved privileged metadata requires explicit operator care.
+          content:
+            application/x-tar:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
   /backups/coverage:
     get:
       tags:
@@ -5932,6 +6073,16 @@ components:
     BackupDestination:
       type: object
       properties:
+        last_inventory_attempt_at:
+          type: string
+          format: date-time
+        inventory_error:
+          type: string
+        last_inventory_at:
+          type: string
+          format: date-time
+        last_restore_test_snapshot_id:
+          type: string
         id:
           type: string
         name:
@@ -6078,6 +6229,11 @@ components:
     BackupAssignment:
       type: object
       properties:
+        schedule_activated_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: First activation of the current schedule; earlier occurrences are not backfilled.
         destination_id:
           type: string
         enabled:
@@ -6138,6 +6294,10 @@ components:
     BackupCopyResult:
       type: object
       properties:
+        verified_at:
+          type: string
+          format: date-time
+          description: Time the complete set of referenced recovery objects was verified.
         destination_id:
           type: string
         state:
@@ -6263,9 +6423,91 @@ components:
       - paths
       - tags
       - hostname
+    BackupPolicy:
+      type: object
+      properties:
+        paused:
+          type: boolean
+        host_review_required:
+          type: boolean
+        overdue_grace_minutes:
+          type: integer
+          minimum: 1
+          maximum: 10080
+          default: 60
+        heartbeat_configured:
+          type: boolean
+        last_heartbeat_at:
+          type: string
+          format: date-time
+        heartbeat_error:
+          type: string
+        error:
+          type: string
+      required: [paused, host_review_required, overdue_grace_minutes, heartbeat_configured]
+    BackupPolicyInput:
+      type: object
+      properties:
+        paused:
+          type: boolean
+        acknowledge_host:
+          type: boolean
+          description: Explicitly acknowledge reviewed recovered sources on this host.
+        overdue_grace_minutes:
+          type: integer
+          minimum: 1
+          maximum: 10080
+        heartbeat_url:
+          type: string
+          writeOnly: true
+          description: Optional HTTP(S) success heartbeat URL. Blank or omitted preserves the existing secret URL.
+        clear_heartbeat:
+          type: boolean
+      required: [paused, overdue_grace_minutes]
+    BackupRecoveryJournal:
+      type: object
+      properties:
+        run_id:
+          type: string
+        hold_stopped:
+          type: boolean
+        writers:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupWriter'
+        phases:
+          type: object
+          additionalProperties:
+            type: string
+        prepared_tokens:
+          type: object
+          additionalProperties:
+            type: string
+        error:
+          type: string
+      required: [run_id, hold_stopped, writers]
+    BackupRecoveryJournals:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackupRecoveryJournal'
+      required: [items]
+    BackupRecoveryResolution:
+      type: object
+      properties:
+        action:
+          type: string
+          enum: [retry, acknowledge_hold]
+          description: Acknowledgement removes a reviewed hold without starting services or deleting rollback data.
+      required: [action]
     BackupOverview:
       type: object
       properties:
+        recovery_error:
+          type: string
+          description: Unresolved service recovery or backup state issue; the panel remains available.
         destinations:
           type: array
           items:
@@ -6350,6 +6592,9 @@ components:
     BackupRestoreResult:
       type: object
       properties:
+        managed:
+          type: boolean
+          description: Stacklab owns this directory and permits explicit removal. Custom targets are operator-owned.
         available:
           type: boolean
         unavailable_reason:
@@ -6412,6 +6657,9 @@ components:
     BackupWriter:
       type: object
       properties:
+        stop_timeout_seconds:
+          type: integer
+          description: Docker container graceful stop setting, when explicitly configured.
         container_id:
           type: string
         stack_id:
@@ -6468,6 +6716,14 @@ components:
     BackupManifestSource:
       type: object
       properties:
+        index_unavailable_reason:
+          type: string
+          description: Inspection limitation; the complete source archive is still backed up.
+        recovery_restrictions:
+          type: array
+          items:
+            type: string
+          description: Metadata preserved in the archive that requires operator-controlled offline recovery.
         source:
           $ref: '#/components/schemas/BackupSource'
         saved_path:
@@ -6512,6 +6768,11 @@ components:
     BackupRestoreMapping:
       type: object
       properties:
+        mode:
+          type: string
+          enum: [replace, merge]
+          default: replace
+          description: Replace removes entries absent from the archive; merge preserves them. Applies to complete sources only.
         source_id:
           type: string
         target:
@@ -6594,6 +6855,23 @@ components:
     BackupCopyProtection:
       type: object
       properties:
+        evidence_usable:
+          type: boolean
+          description: Snapshot presence and verification evidence remain usable independently of transfer activity or schedule freshness.
+        snapshot_status:
+          type: string
+          enum: [present, missing, unknown]
+        snapshot_checked_at:
+          type: string
+          format: date-time
+        integrity_status:
+          type: string
+        availability_status:
+          type: string
+        last_restore_test_at:
+          type: string
+          format: date-time
+          description: Full recovery exercise for this exact snapshot only.
         destination_id:
           type: string
         state:
@@ -6679,6 +6957,9 @@ components:
           - directory
           - symlink
           - hardlink
+          - fifo
+          - character_device
+          - block_device
         size_bytes:
           type: integer
           format: int64
@@ -6721,6 +7002,8 @@ components:
     BackupCatalogPage:
       type: object
       properties:
+        index_unavailable_reason:
+          type: string
         items:
           type: array
           items:
@@ -6786,6 +7069,8 @@ components:
     BackupFileComparison:
       type: object
       properties:
+        index_unavailable_reason:
+          type: string
         items:
           type: array
           items:

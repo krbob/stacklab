@@ -229,8 +229,8 @@ func TestNewApplicationBuildsHandlerWithoutStartingRuntime(t *testing.T) {
 	if app.handler == nil || app.store == nil || app.workers == nil {
 		t.Fatalf("incomplete application composition: %#v", app)
 	}
-	if len(app.background) != 7 {
-		t.Fatalf("background worker count = %d, want 7", len(app.background))
+	if len(app.background) != 8 {
+		t.Fatalf("background worker count = %d, want 8", len(app.background))
 	}
 	select {
 	case <-app.workers.Context().Done():
@@ -246,5 +246,34 @@ func TestNewApplicationBuildsHandlerWithoutStartingRuntime(t *testing.T) {
 	}
 	if response.Header().Get("X-Request-ID") == "" {
 		t.Fatal("GET /api/live omitted X-Request-ID")
+	}
+}
+
+func TestNewApplicationKeepsDiagnosticPanelWithInvalidRecoveryJournal(t *testing.T) {
+	tempDir := t.TempDir()
+	cfg := config.Config{RootDir: filepath.Join(tempDir, "root"), DataDir: filepath.Join(tempDir, "var"), DatabasePath: filepath.Join(tempDir, "var", "stacklab.db"), FrontendDistDir: filepath.Join(tempDir, "frontend"), BootstrapPassword: "test-password", SessionCookieName: "stacklab_session", SessionIdleTimeout: 30 * time.Minute, SessionAbsoluteLifetime: 24 * time.Hour}
+	if err := os.MkdirAll(filepath.Join(cfg.DataDir, "backup", "journals"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(cfg.FrontendDistDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.FrontendDistDir, "index.html"), []byte("<!doctype html>"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	journal := filepath.Join(cfg.DataDir, "backup", "journals", "invalid.json")
+	if err := os.WriteFile(journal, []byte("not valid JSON"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	app, err := newApplication(context.Background(), cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("diagnostic panel unavailable because of recovery state: %v", err)
+	}
+	defer app.Shutdown(context.Background())
+	if app.handler == nil {
+		t.Fatal("diagnostic HTTP handler missing")
+	}
+	if _, err = os.Stat(journal); err != nil {
+		t.Fatalf("invalid journal discarded: %v", err)
 	}
 }

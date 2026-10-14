@@ -23,7 +23,7 @@ PrivateTmp=true
 ProtectSystem=full
 ProtectHome=true
 # Include /etc/docker because the opt-in Docker admin helper runs inside this unit sandbox.
-ReadWritePaths=/srv/stacklab /var/lib/stacklab /etc/docker
+ReadWritePaths=/srv/stacklab /var/lib/stacklab /etc/docker -/var/lib/stacklab-backup-helper
 
 [Install]
 WantedBy=multi-user.target

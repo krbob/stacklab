@@ -34,11 +34,12 @@ type Source struct {
 }
 
 type Writer struct {
-	ContainerID string `json:"container_id"`
-	StackID     string `json:"stack_id,omitempty"`
-	Service     string `json:"service,omitempty"`
-	Running     bool   `json:"running"`
-	ReadOnly    bool   `json:"read_only,omitempty"`
+	ContainerID        string `json:"container_id"`
+	StackID            string `json:"stack_id,omitempty"`
+	Service            string `json:"service,omitempty"`
+	Running            bool   `json:"running"`
+	ReadOnly           bool   `json:"read_only,omitempty"`
+	StopTimeoutSeconds *int   `json:"stop_timeout_seconds,omitempty"`
 }
 
 type Manifest struct {
@@ -55,19 +56,21 @@ type Manifest struct {
 }
 
 type ManifestSource struct {
-	Source       Source   `json:"source"`
-	SavedPath    string   `json:"saved_path"`
-	OriginalPath string   `json:"original_path"`
-	Writers      []Writer `json:"writers,omitempty"`
-	Consumers    []Writer `json:"consumers,omitempty"`
-	Aliases      []Source `json:"aliases,omitempty"`
-	Archive      bool     `json:"archive"`
-	SizeBytes    int64    `json:"size_bytes"`
-	VolumeName   string   `json:"volume_name,omitempty"`
-	FileName     string   `json:"file_name,omitempty"`
-	IndexPath    string   `json:"index_path,omitempty"`
-	IndexVersion int      `json:"index_version,omitempty"`
-	EntryCount   int      `json:"entry_count,omitempty"`
+	Source                 Source   `json:"source"`
+	SavedPath              string   `json:"saved_path"`
+	OriginalPath           string   `json:"original_path"`
+	Writers                []Writer `json:"writers,omitempty"`
+	Consumers              []Writer `json:"consumers,omitempty"`
+	Aliases                []Source `json:"aliases,omitempty"`
+	Archive                bool     `json:"archive"`
+	SizeBytes              int64    `json:"size_bytes"`
+	VolumeName             string   `json:"volume_name,omitempty"`
+	FileName               string   `json:"file_name,omitempty"`
+	IndexPath              string   `json:"index_path,omitempty"`
+	IndexVersion           int      `json:"index_version,omitempty"`
+	EntryCount             int      `json:"entry_count,omitempty"`
+	IndexUnavailableReason string   `json:"index_unavailable_reason,omitempty"`
+	RecoveryRestrictions   []string `json:"recovery_restrictions,omitempty"`
 }
 
 type captureStackReader interface {
@@ -107,8 +110,9 @@ type captureContainer struct {
 		Paused  bool
 	}
 	Config struct {
-		Image  string
-		Labels map[string]string
+		Image       string
+		StopTimeout *int
+		Labels      map[string]string
 	}
 	Mounts []struct {
 		Type, Source, Destination, Name string
@@ -418,12 +422,12 @@ func (c *NativeCapture) resolveSource(ctx context.Context, source Source, contai
 				if !matching {
 					continue
 				}
-				item.Consumers = append(item.Consumers, Writer{ContainerID: container.ID, StackID: container.Config.Labels["com.docker.compose.project"], Service: container.Config.Labels["com.docker.compose.service"], Running: container.State.Running, ReadOnly: !mount.RW})
+				item.Consumers = append(item.Consumers, Writer{ContainerID: container.ID, StackID: container.Config.Labels["com.docker.compose.project"], Service: container.Config.Labels["com.docker.compose.service"], StopTimeoutSeconds: container.Config.StopTimeout, Running: container.State.Running, ReadOnly: !mount.RW})
 				if mount.RW {
 					if container.State.Paused {
 						return item, errors.New("a selected writer is paused; resume it before backup")
 					}
-					item.Writers = append(item.Writers, Writer{ContainerID: container.ID, StackID: container.Config.Labels["com.docker.compose.project"], Service: container.Config.Labels["com.docker.compose.service"], Running: container.State.Running})
+					item.Writers = append(item.Writers, Writer{ContainerID: container.ID, StackID: container.Config.Labels["com.docker.compose.project"], Service: container.Config.Labels["com.docker.compose.service"], StopTimeoutSeconds: container.Config.StopTimeout, Running: container.State.Running})
 				}
 			}
 		}
@@ -456,7 +460,7 @@ func (c *NativeCapture) resolveSource(ctx context.Context, source Source, contai
 		for _, container := range containers {
 			for _, mount := range container.Mounts {
 				if pathsOverlapData(resolved, mount.Source) {
-					consumer := Writer{ContainerID: container.ID, StackID: container.Config.Labels["com.docker.compose.project"], Service: container.Config.Labels["com.docker.compose.service"], Running: container.State.Running, ReadOnly: !mount.RW}
+					consumer := Writer{ContainerID: container.ID, StackID: container.Config.Labels["com.docker.compose.project"], Service: container.Config.Labels["com.docker.compose.service"], StopTimeoutSeconds: container.Config.StopTimeout, Running: container.State.Running, ReadOnly: !mount.RW}
 					item.Consumers = append(item.Consumers, consumer)
 					if !mount.RW {
 						continue
@@ -464,7 +468,7 @@ func (c *NativeCapture) resolveSource(ctx context.Context, source Source, contai
 					if container.State.Paused {
 						return item, errors.New("a selected writer is paused; resume it before backup")
 					}
-					item.Writers = append(item.Writers, Writer{ContainerID: container.ID, StackID: container.Config.Labels["com.docker.compose.project"], Service: container.Config.Labels["com.docker.compose.service"], Running: container.State.Running})
+					item.Writers = append(item.Writers, Writer{ContainerID: container.ID, StackID: container.Config.Labels["com.docker.compose.project"], Service: container.Config.Labels["com.docker.compose.service"], StopTimeoutSeconds: container.Config.StopTimeout, Running: container.State.Running})
 					break
 				}
 			}

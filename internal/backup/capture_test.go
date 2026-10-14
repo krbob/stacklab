@@ -153,7 +153,7 @@ func TestRecoveryRetainsFailedJournalAndCanRetry(t *testing.T) {
 	if err := capture.Recover(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(*calls, []string{"start was-running"}) {
+	if !reflect.DeepEqual(*calls, []string{"stop --time 30 was-running", "start was-running"}) {
 		t.Fatalf("restart calls = %v", *calls)
 	}
 }
@@ -268,8 +268,11 @@ func TestRestoreRecoveryHoldDoesNotStartPartiallyRestoredWriters(t *testing.T) {
 	if err := capture.saveStopJournal(stopJournal{Version: 1, RunID: "restore", Writers: []Writer{{ContainerID: "running-app", Running: true}}, HoldStopped: true}); err != nil {
 		t.Fatal(err)
 	}
-	if err := capture.Recover(context.Background()); err != nil {
-		t.Fatal(err)
+	if err := capture.Recover(context.Background()); err == nil || !strings.Contains(err.Error(), "requires inspection") {
+		t.Fatalf("held restore was not surfaced: %v", err)
+	}
+	if _, err := os.Stat(capture.journalPath("restore")); err != nil {
+		t.Fatalf("held journal lost: %v", err)
 	}
 	if len(*calls) != 0 {
 		t.Fatalf("partially restored application restarted: %v", *calls)
@@ -467,6 +470,21 @@ func TestRestoreFailureAfterWriteNeverRestartsWriters(t *testing.T) {
 	stage := t.TempDir()
 	archive := filepath.Join(stage, "source.tar")
 	writeReviewTar(t, archive, "recovery")
+	helper := filepath.Join(t.TempDir(), "helper")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\ncat >/dev/null\nprintf '0123456789abcdef0123456789abcdef0123456789abcdef\n'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	capture.cfg.BackupHelperPath = helper
+	base := capture.command
+	capture.command = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		if args[0] == "check-restores" {
+			return nil, nil
+		}
+		if args[0] == "apply-restore" {
+			return nil, errors.New("partial write")
+		}
+		return base(ctx, name, args...)
+	}
 	manifest := Manifest{Version: 1, Sources: []ManifestSource{{Source: Source{ID: "source", Kind: "managed_config"}, SavedPath: "source.tar", Archive: true}}}
 	err := capture.ApplyRestore(context.Background(), manifest, []RestoreMapping{{SourceID: "source", Target: data}}, stage, "failed-restore", true)
 	if err == nil || !strings.Contains(err.Error(), "remain stopped") {
@@ -477,8 +495,13 @@ func TestRestoreFailureAfterWriteNeverRestartsWriters(t *testing.T) {
 			t.Fatalf("partially restored writer restarted: %s", call)
 		}
 	}
-	if _, err := os.Stat(capture.journalPath("failed-restore")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("unsafe automatic restart journal retained: %v", err)
+	dataBytes, err := os.ReadFile(capture.journalPath("failed-restore"))
+	if err != nil {
+		t.Fatalf("recovery journal lost: %v", err)
+	}
+	var journal stopJournal
+	if err = json.Unmarshal(dataBytes, &journal); err != nil || !journal.HoldStopped || len(journal.PreparedTokens) != 1 {
+		t.Fatalf("incomplete hold journal: %s, %v", dataBytes, err)
 	}
 }
 

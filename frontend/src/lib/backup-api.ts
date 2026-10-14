@@ -16,6 +16,10 @@ export type BackupRestoreRequest = components['schemas']['BackupRestoreRequest']
 export type BackupRestoreReview = components['schemas']['BackupRestoreReview']
 export type BackupRestoreMapping = components['schemas']['BackupRestoreMapping']
 export type BackupJobResponse = components['schemas']['BackupJobResponse'] & { run?: BackupRun }
+export type BackupPolicy = components['schemas']['BackupPolicy']
+export type BackupPolicyInput = components['schemas']['BackupPolicyInput']
+export type BackupRecoveryJournal = components['schemas']['BackupRecoveryJournal']
+export type BackupRecoveryResolution = components['schemas']['BackupRecoveryResolution']
 const base = '/api/backups'
 const encode = encodeURIComponent
 const post = (body: unknown = {}) => ({ method: 'POST', body: JSON.stringify(body) })
@@ -27,6 +31,13 @@ export const getBackupRestoreManifest = (path: string) =>
 export const previewBackupRestore = (id: string, input: BackupRestoreRequest) =>
   request<BackupRestoreReview>(`${base}/destinations/${encode(id)}/restore-preview`, post(input))
 export const getBackups = (signal?: AbortSignal) => request<BackupOverview>(base, { signal })
+export const getBackupPolicy = (signal?: AbortSignal) => request<BackupPolicy>(`${base}/policy`, { signal })
+export const saveBackupPolicy = (input: BackupPolicyInput) =>
+  request<BackupPolicy>(`${base}/policy`, { ...post(input), method: 'PUT' })
+export const getBackupRecoveryJournals = (signal?: AbortSignal) =>
+  request<{ items: BackupRecoveryJournal[] }>(`${base}/recovery`, { signal })
+export const resolveBackupRecovery = (id: string, input: BackupRecoveryResolution) =>
+  request<BackupJobResponse>(`${base}/recovery/${encode(id)}`, post(input))
 export const getBackupSources = (stackId?: string) =>
   request<{ items: BackupSource[] }>(`${base}/sources${stackId ? `?stack_id=${encode(stackId)}` : ''}`)
 export const getStackBackups = (stackId: string) =>
@@ -89,6 +100,9 @@ export const pruneBackupDestination = (id: string) =>
   request<BackupJobResponse>(`${base}/destinations/${encode(id)}/prune`, post())
 export const getBackupRestores = (signal?: AbortSignal) =>
   request<{ items: BackupRestoreResult[] }>(`${base}/restores`, { signal })
+export const deleteBackupRestore = (id: string) => request<void>(`${base}/restores/${encode(id)}`, { method: 'DELETE' })
+export const backupArchiveURL = (id: string, sourceId: string) =>
+  `${base}/restores/${encode(id)}/archive?${query({ source_id: sourceId })}`
 export const getBackupCatalog = (id: string, snapshotId: string, params: BackupCatalogQuery, signal?: AbortSignal) =>
   request<BackupCatalog>(`${base}/destinations/${encode(id)}/snapshots/${encode(snapshotId)}/files?${query(params)}`, {
     signal,

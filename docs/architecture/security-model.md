@@ -446,6 +446,13 @@ paths and inspected plain local Docker volumes. Its root-owned
 `/etc/stacklab/stacklab.env` defines roots; browser input cannot select a generic
 root command. Archive extraction validates traversal, link and special-file
 metadata and seals privileged input before use. Repository credentials never
-reach the helper. Reviewed restoration can overwrite application data and has
-no automatic rollback; interruption after writes leaves affected services
-stopped. See [backup architecture](backup-and-recovery.md).
+reach the helper. Full-source replacement pins the authorized target directory,
+preserves its mountpoint, and retains the previous children on the same
+filesystem while extracting. Extraction failure attempts rollback; process
+interruption or incomplete rollback retains recovery evidence and leaves
+affected services stopped for operator inspection. This is not an atomic
+transaction across sources. Single-file sources merge only their captured file.
+Root-owned sealed inputs and rollback records are separate from the service's
+writable state. Faithful capture may preserve metadata that automated extraction
+refuses; those archives remain available for offline recovery. See
+[backup architecture](backup-and-recovery.md).

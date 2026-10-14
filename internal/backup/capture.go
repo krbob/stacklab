@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -20,10 +21,12 @@ import (
 )
 
 type stopJournal struct {
-	Version     int      `json:"version"`
-	RunID       string   `json:"run_id"`
-	Writers     []Writer `json:"writers"`
-	HoldStopped bool     `json:"hold_stopped,omitempty"`
+	Version        int               `json:"version"`
+	RunID          string            `json:"run_id"`
+	Writers        []Writer          `json:"writers"`
+	HoldStopped    bool              `json:"hold_stopped,omitempty"`
+	Phases         map[string]string `json:"phases,omitempty"`
+	PreparedTokens map[string]string `json:"prepared_tokens,omitempty"`
 }
 
 func (c *NativeCapture) journalPath(runID string) string {
@@ -31,7 +34,31 @@ func (c *NativeCapture) journalPath(runID string) string {
 }
 
 func (c *NativeCapture) saveJournal(runID string, writers []Writer) error {
-	return c.saveStopJournal(stopJournal{Version: 1, RunID: runID, Writers: writers})
+	journal := newStopJournal(runID, writers)
+	for _, writer := range writers {
+		journal.Phases[writer.ContainerID] = "stop_requested"
+	}
+	return c.saveStopJournal(journal)
+}
+
+func newStopJournal(runID string, writers []Writer) stopJournal {
+	journal := stopJournal{Version: 2, RunID: runID, Writers: writers, Phases: map[string]string{}}
+	for _, writer := range writers {
+		journal.Phases[writer.ContainerID] = "planned"
+	}
+	return journal
+}
+
+func (c *NativeCapture) stopJournalWriter(ctx context.Context, journal *stopJournal, writer Writer) error {
+	journal.Phases[writer.ContainerID] = "stop_requested"
+	if err := c.saveStopJournal(*journal); err != nil {
+		return err
+	}
+	if err := c.stopWriter(ctx, writer); err != nil {
+		return err
+	}
+	journal.Phases[writer.ContainerID] = "stopped"
+	return c.saveStopJournal(*journal)
 }
 
 func (c *NativeCapture) saveStopJournal(journal stopJournal) error {
@@ -49,11 +76,29 @@ func (c *NativeCapture) saveStopJournal(journal stopJournal) error {
 func (c *NativeCapture) resume(ctx context.Context, journal stopJournal) error {
 	var failures []error
 	for _, writer := range journal.Writers {
-		if !writer.Running {
+		phase := journal.Phases[writer.ContainerID]
+		if !writer.Running || phase == "planned" || phase == "resumed" {
 			continue
 		}
+		// A killed Docker CLI does not cancel the daemon's stop. Reissuing and
+		// waiting for the bounded stop fences any outstanding daemon-side stop,
+		// including an intent persisted before the original request was delivered.
+		if phase != "stopped" {
+			if err := c.fenceWriterStop(ctx, writer); err != nil {
+				failures = append(failures, fmt.Errorf("resolve stop of writer %s (journal retained): %w", writer.ContainerID, err))
+				continue
+			}
+		}
 		if _, err := c.command(ctx, "docker", "start", writer.ContainerID); err != nil {
-			failures = append(failures, fmt.Errorf("restart writer %s: %w", writer.ContainerID, err))
+			failures = append(failures, fmt.Errorf("restart writer %s (journal retained): %w", writer.ContainerID, err))
+			continue
+		}
+		if journal.Phases == nil {
+			journal.Phases = map[string]string{}
+		}
+		journal.Phases[writer.ContainerID] = "resumed"
+		if err := c.saveStopJournal(journal); err != nil {
+			failures = append(failures, err)
 		}
 	}
 	if len(failures) > 0 {
@@ -76,7 +121,7 @@ func (c *NativeCapture) removeJournal(runID string) error {
 }
 
 func (c *NativeCapture) validJournal(journal stopJournal, filename string) bool {
-	if journal.Version != 1 || journal.RunID == "" || filepath.Base(c.journalPath(journal.RunID)) != filename {
+	if (journal.Version != 1 && journal.Version != 2) || journal.RunID == "" || filepath.Base(c.journalPath(journal.RunID)) != filename {
 		return false
 	}
 	seen := map[string]bool{}
@@ -84,6 +129,13 @@ func (c *NativeCapture) validJournal(journal stopJournal, filename string) bool 
 		id := writer.ContainerID
 		if len(id) == 0 || len(id) > 128 || strings.HasPrefix(id, "-") || strings.ContainsAny(id, " /\\\x00\r\n\t") || seen[id] {
 			return false
+		}
+		if journal.Version == 2 {
+			switch journal.Phases[id] {
+			case "planned", "stop_requested", "stopped", "resumed":
+			default:
+				return false
+			}
 		}
 		seen[id] = true
 	}
@@ -121,9 +173,7 @@ func (c *NativeCapture) Recover(ctx context.Context) error {
 			continue
 		}
 		if journal.HoldStopped {
-			if removeErr := c.removeJournal(journal.RunID); removeErr != nil {
-				failures = append(failures, removeErr)
-			}
+			failures = append(failures, fmt.Errorf("recovery %s requires inspection; services remain stopped and the journal is retained", journal.RunID))
 			continue
 		}
 		if err = c.resume(ctx, journal); err != nil {
@@ -158,15 +208,41 @@ func configureCaptureProcess(cmd *exec.Cmd) {
 	cmd.WaitDelay = 5 * time.Second
 }
 
+func writerStopTimeout(writer Writer) (int, error) {
+	seconds := 30
+	if writer.StopTimeoutSeconds != nil {
+		seconds = *writer.StopTimeoutSeconds
+	}
+	if seconds < 0 || seconds > 3600 {
+		return 0, errors.New("writer stop timeout must be bounded between 0 and 3600 seconds")
+	}
+	return seconds, nil
+}
+
 func (c *NativeCapture) stopWriter(ctx context.Context, writer Writer) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	// A Docker stop request continues inside the daemon if its CLI is killed.
-	// Wait for that bounded request before compensation can issue docker start.
-	stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 40*time.Second)
+	seconds, err := writerStopTimeout(writer)
+	if err != nil {
+		return err
+	}
+	stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Duration(seconds+10)*time.Second)
 	defer cancel()
-	_, err := c.command(stopCtx, "docker", "stop", "--time", "30", writer.ContainerID)
+	_, err = c.command(stopCtx, "docker", "stop", "--time", strconv.Itoa(seconds), writer.ContainerID)
+	return err
+}
+
+// Recovery fences remain cancellable. If the deadline expires, the durable
+// stop intent stays pending and no start is issued; a later retry fences again.
+func (c *NativeCapture) fenceWriterStop(ctx context.Context, writer Writer) error {
+	seconds, err := writerStopTimeout(writer)
+	if err != nil {
+		return err
+	}
+	fenceCtx, cancel := context.WithTimeout(ctx, time.Duration(seconds+10)*time.Second)
+	defer cancel()
+	_, err = c.command(fenceCtx, "docker", "stop", "--time", strconv.Itoa(seconds), writer.ContainerID)
 	return err
 }
 
@@ -192,7 +268,7 @@ func (c *NativeCapture) Prepare(ctx context.Context, plan Plan, runID, stagingDi
 	if maxBytes <= 0 {
 		maxBytes = 10 * 1024 * 1024 * 1024
 	}
-	if err = checkCaptureSpace(stagingDir, maxBytes); err != nil {
+	if err = checkCaptureSpace(stagingDir, 0); err != nil {
 		return manifest, err
 	}
 	captureCtx := ctx
@@ -206,8 +282,14 @@ func (c *NativeCapture) Prepare(ctx context.Context, plan Plan, runID, stagingDi
 		captureCtx, cancel = context.WithTimeout(ctx, time.Duration(seconds)*time.Second)
 		defer cancel()
 		writers := uniqueRunningWriters(sources)
+		for _, writer := range writers {
+			if _, err = writerStopTimeout(writer); err != nil {
+				return manifest, err
+			}
+		}
 		if len(writers) > 0 {
-			if err = c.saveJournal(runID, writers); err != nil {
+			journal := newStopJournal(runID, writers)
+			if err = c.saveStopJournal(journal); err != nil {
 				return manifest, err
 			}
 			stoppedAt := time.Now()
@@ -218,7 +300,7 @@ func (c *NativeCapture) Prepare(ctx context.Context, plan Plan, runID, stagingDi
 				}
 				resumeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 				defer cancel()
-				resumeErr := c.resume(resumeCtx, stopJournal{Version: 1, RunID: runID, Writers: writers})
+				resumeErr := c.resume(resumeCtx, journal)
 				manifest.ServiceDowntimeSeconds = int64(time.Since(stoppedAt).Seconds())
 				resumed = resumeErr == nil
 				return resumeErr
@@ -227,7 +309,7 @@ func (c *NativeCapture) Prepare(ctx context.Context, plan Plan, runID, stagingDi
 				err = errors.Join(err, resumeCapturedWriters())
 			}()
 			for _, writer := range writers {
-				if stopErr := c.stopWriter(captureCtx, writer); stopErr != nil {
+				if stopErr := c.stopJournalWriter(captureCtx, &journal, writer); stopErr != nil {
 					return manifest, fmt.Errorf("stop selected writer: %w", stopErr)
 				}
 			}
@@ -261,9 +343,10 @@ func (c *NativeCapture) Prepare(ctx context.Context, plan Plan, runID, stagingDi
 		if openErr != nil {
 			return manifest, openErr
 		}
-		validationErr := ValidateArchive(captureContextReader{ctx: captureCtx, reader: file}, "")
+		restrictions, validationErr := ValidateCapturedArchive(captureContextReader{ctx: captureCtx, reader: file})
+		sources[index].RecoveryRestrictions = restrictions
 		if err = errors.Join(validationErr, file.Close()); err != nil {
-			return manifest, fmt.Errorf("captured source uses unsupported recovery metadata: %w", err)
+			return manifest, fmt.Errorf("captured source archive is invalid: %w", err)
 		}
 		used += size
 	}

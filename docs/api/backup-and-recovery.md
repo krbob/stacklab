@@ -13,10 +13,10 @@ Configuration writes return the saved destination or plan. Run, retry,
 repository initialization, access test, integrity check, prune and restore return
 `202` with a normal job envelope. Follow the existing job detail/event API and
 global activity for completion; HTTP acceptance is not success. Cancellation
-uses the existing job endpoint. Backup operations take the global mutation lock
-and may return conflict while another operation owns resources. Remote snapshot
-and catalog reads reserve a repository read lease and can return conflict while
-a backup mutation is active. Concurrent reads are allowed; destination edits
+uses the existing job endpoint. Capture and apply take exclusive lifecycle
+coordination; upload and repository work reserve the affected repository resources.
+Remote snapshot and catalog reads conflict with mutations of the same repository,
+while unrelated repositories and stack operations remain available during upload. Concurrent reads are allowed; destination edits
 return conflict until those leases are released.
 
 A run's durable capture and per-destination records are separate from the job
@@ -42,19 +42,23 @@ An absent mount or symlink/path drift is an error, not a fallback to root storag
 
 ## Verification And Recovery
 
-A copy's `snapshot_metadata_verified` result means restic can read the snapshot
-metadata. It does not assert that every data pack or application record was
-verified. Explicit repository checks support metadata-only, full data read, or
+A copy's `recovery_objects_verified` result means the saved manifest and all
+expected recovery objects were checked for presence, type and size. Run-tag
+adoption uses the same check; incomplete snapshots cannot satisfy retry. Legacy
+`snapshot_metadata_verified` evidence remains unverified until reconciled. Neither
+result asserts that every data pack or application record was verified. Explicit repository checks support metadata-only, full data read, or
 a 10% data sample. The last successful check records its read policy. An
 isolated restore test verifies downloaded content and extracts its source
-archives; application startup/semantic checks remain an operator exercise.
+archives; application startup/semantic checks remain an operator exercise. A
+full restore test applies only to that exact snapshot. Sources requiring offline
+extraction can be retrieved normally, but cannot pass an automatic restore test.
 
 Isolated restore requires a new directory outside live workspace and repository
 paths. Restic include patterns select saved archives/paths, not arbitrary files
 inside a tar archive. New clients select `source_ids` or regular `files`
 (`source_id`, relative `path`); these modes cannot be combined with legacy
 `includes`. The complete manifest accompanies partial selection. Recovered source archives
-are also extracted into `files/<sourceID>` beneath the isolated target for
+with supported metadata are also extracted into `files/<sourceID>` beneath the isolated target for
 inspection and individual file recovery. The archives remain available for
 reviewed apply. Inspection files belong to the service account; original numeric
 ownership remains in the archives and is restored by the privileged apply helper.
@@ -75,8 +79,10 @@ offset/limit (default 100, maximum 500 entries). Listings show immediate directo
 children, while a search scans descendants. Comparison takes `base_snapshot_id`,
 covers the full source or selected subtree, and separates content and metadata
 changes, including ACL/xattr digests. Source indexes are bounded to 100,000
-entries and 12 MiB; oversized indexes fail explicitly. Old snapshots return `index_available=false`;
-restore them first, then use `/restores/{restoreId}/files`. Download via
+entries and 12 MiB. An oversized index preserves capture and reports
+`index_available=false` with `index_unavailable_reason`; no partial index is shown
+as complete. Old snapshots can build a bounded local index after isolated restore;
+that fallback also reports limitations instead of promising unlimited browsing. Download via
 `/restores/{restoreId}/download?source_id=…&path=…` returns an authenticated
 `application/octet-stream` attachment with `private, no-store` and `nosniff`.
 Only selected regular members are downloadable. Remote downloads always go
@@ -100,13 +106,14 @@ Online apply has a separate preview/commit boundary:
    writer state or resume choice invalidate the review. The job reacquires the
    global resource and revalidates the target before writing.
 
-Apply merges selected archive content; unrelated target files remain. It stops
-current writers and preserves ownership through the privileged helper. It
-validates restored Compose definitions before an explicitly requested service
-resume. The default leaves services stopped. Failure before data modification
-can compensate stopped writers. Once writes begin, interruption or failure
-leaves them stopped for operator inspection, including after Stacklab restart.
-There is no automatic rollback of a partially overwritten application dataset.
+Mappings default to `mode=replace` for complete directories; explicit `merge`
+retains unrelated files. Single-file sources only replace their selected basename.
+The helper prepares all archives before downtime and repeats safety checks before
+writing. Replace preserves mountpoints and retains rollback data while extraction
+is in progress. It is not an atomic multi-source transaction. Failed/interrupted
+writes leave services stopped and expose a recovery journal, even if an immediate
+rollback succeeded. The default leaves services stopped; requested resume also
+requires validated Compose definitions.
 
 Stacklab's private SQLite/state scope cannot be applied while the server is
 running. Use the [offline recovery procedure](../ops/backup-and-recovery.md).
@@ -122,9 +129,11 @@ Repository locking serializes uploads, forget/prune, checks and restore.
 
 Staging has a per-plan byte budget and a one-to-168-hour lifetime. The service
 keeps live/retryable run summaries and the newest 200 expired terminal summaries.
-Older repository snapshots remain browsable. The newest 200 successful isolated
-restore directories remain registered for apply; older directories stay on disk
-under operator control. Restore again to register a fresh recovery set. Neither
+Older repository snapshots remain browsable. The recovery library retains up to 200 registrations and rejects new restores
+until space is made by explicit deletion; it never silently evicts ownership
+metadata. `DELETE /backups/restores/{restoreId}` removes only a Stacklab-owned
+directory and registration, never a custom target. Failed internal restore targets
+are cleaned automatically. Neither
 metadata retention nor deleting a destination destroys a restic repository.
 
 Schedules use explicit timezone-aware calendar occurrences. At startup, at most
@@ -162,3 +171,34 @@ sources, shared writers and consistency warnings; execution revalidates them.
 Run/copy records add phases, timestamps, duration and available byte/file
 counters. Progress is bounded structured data, never raw credential-bearing
 command output.
+
+
+## Reliability And Operational Controls
+
+- `GET/PUT /backups/policy` exposes scheduling pause, recovered-host review,
+  overdue grace and heartbeat status. `heartbeat_url` is write-only; blank/omitted
+  preserves it and `clear_heartbeat` removes it. Resuming after a host change
+  requires `acknowledge_host=true`. Pause also suppresses automatic retention.
+  Existing plans without saved host identity require the same one-time review.
+- `GET /backups/recovery` lists durable service-recovery journals. Malformed
+  journals remain visible for manual inspection. `POST /backups/recovery/{runId}`
+  returns a job: `retry` retries the recorded service identities; explicit
+  `acknowledge_hold` removes a reviewed restore hold without starting services or
+  deleting helper rollback data. Both use exclusive lifecycle coordination.
+- Overview `recovery_error` explains degraded backup operation while the panel
+  remains available. Unsafe capture/apply is blocked until recovery is resolved.
+- Copy protection includes `snapshot_status`, `snapshot_checked_at`,
+  `integrity_status`, `availability_status` and snapshot-scoped
+  `last_restore_test_at`. Inventory failure or expired evidence is not silently
+  treated as a healthy current copy. Clock anomalies require attention.
+  `evidence_usable` separates verification evidence from a currently running
+  transfer. `schedule_activated_at` excludes occurrences before a new schedule
+  was configured from overdue alerts.
+- `DELETE /backups/restores/{restoreId}` removes a library registration. For
+  `managed=true`, it also deletes the isolated directory. For custom targets it
+  forgets the result and preserves all files; the operator owns cleanup.
+- `GET /backups/restores/{restoreId}/archive?source_id=…` downloads original tar
+  bytes from a complete-source registered result. Partial-file results cannot
+  expose unselected archive content. Authentication and private attachment headers
+  match individual-file downloads. `recovery_restrictions` describes metadata
+  requiring operator-controlled offline extraction.

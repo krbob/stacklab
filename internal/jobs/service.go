@@ -751,6 +751,45 @@ func (s *Service) lockMany(jobID string, resources []Resource, draining bool) er
 	return nil
 }
 
+// ReplaceResources changes a running job's phase atomically. A rejected change
+// leaves all existing locks in place, including a capture's host exclusion.
+func (s *Service) ReplaceResources(jobID string, requested ...Resource) error {
+	resources, err := normalizeResources("", requested)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	old, exists := s.resourcesByJob[jobID]
+	if !exists {
+		return fmt.Errorf("job resource lease is no longer active")
+	}
+	if s.drainingJobID != "" && s.drainingJobID != jobID {
+		return &ResourceConflictError{Reason: ConflictReasonDrainActive, Requested: resources[0], Conflicting: s.drainingResource, ConflictingJobID: s.drainingJobID}
+	}
+	for _, requested := range resources {
+		for resource, holder := range s.lockedByResource {
+			if holder != jobID && ResourcesConflict(requested, resource) {
+				return &ResourceConflictError{Reason: ConflictReasonResourceHeld, Requested: requested, Conflicting: resource, ConflictingJobID: holder}
+			}
+		}
+	}
+	for _, resource := range old {
+		if s.lockedByResource[resource] == jobID {
+			delete(s.lockedByResource, resource)
+		}
+	}
+	for _, resource := range resources {
+		s.lockedByResource[resource] = jobID
+	}
+	s.resourcesByJob[jobID] = resources
+	if s.drainingJobID == jobID {
+		s.drainingJobID = ""
+		s.drainingResource = Resource{}
+	}
+	return nil
+}
+
 func (s *Service) firstLockedResourceLocked() (Resource, string, bool) {
 	var selected Resource
 	selectedJobID := ""

@@ -54,6 +54,7 @@ ensure_workspace_dirs() {
 }
 
 ensure_runtime_dirs() {
+  install -d -o root -g root -m 0700 /var/lib/stacklab-backup-helper
   install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0700 "${DATA_DIR}"
   install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0700 "${DATA_DIR}/home"
   install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0700 "${DATA_DIR}/docker"

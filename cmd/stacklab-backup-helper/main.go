@@ -57,6 +57,12 @@ func run(args []string) error {
 		_, err = os.Stdout.Write(content)
 		return err
 	}
+	if action == "check-restores" {
+		return checkPreparedRestores(ctx, args[1:])
+	}
+	if action == "prepare-restore" || action == "check-restore" || action == "apply-restore" || action == "release-restore" {
+		return runPreparedRestore(ctx, action, args[1:])
+	}
 	if action != "archive" && action != "restore" && action != "check-target" {
 		return errors.New("unsupported backup helper action")
 	}
@@ -93,6 +99,11 @@ func run(args []string) error {
 			if action == "archive" || !isLocalVolumePath(target) {
 				return err
 			}
+		}
+	}
+	if action != "archive" {
+		if err = rejectRecoveryPrivateTarget(target, stateRoot); err != nil {
+			return err
 		}
 	}
 	if action == "check-target" {
@@ -167,24 +178,12 @@ func run(args []string) error {
 		return err
 	}
 	defer input.Close()
-	// Copy into a root-owned descriptor before validating so the service user
-	// cannot change a header between validation and privileged extraction.
-	private, err := os.MkdirTemp("", "stacklab-restore-")
+	token, err := prepareRestore(ctx, input, info.Size(), target, "merge")
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(private)
-	sealed := filepath.Join(private, "source.tar")
-	output, err := os.OpenFile(sealed, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-	if err != nil {
-		return err
-	}
-	_, copyErr := io.CopyN(output, helperContextReader{ctx: ctx, reader: input}, info.Size())
-	closeErr := output.Close()
-	if err = errors.Join(copyErr, closeErr); err != nil {
-		return err
-	}
-	return backup.ExtractArchive(ctx, sealed, target, true)
+	defer func() { _ = runPreparedRestore(context.Background(), "release-restore", []string{"--token", token}) }()
+	return runPreparedRestore(ctx, "apply-restore", []string{"--token", token})
 }
 
 type helperContextReader struct {

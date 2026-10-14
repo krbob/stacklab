@@ -133,6 +133,7 @@ beforeEach(() => {
   vi.mocked(api.backupDownloadURL).mockReturnValue(
     '/api/backups/restores/restore/download?source_id=database&path=record.txt',
   )
+  vi.mocked(api.backupArchiveURL).mockReturnValue('/api/backups/restores/restore/archive?source_id=database')
 })
 
 function workspace() {
@@ -386,7 +387,7 @@ describe('Continuous recovery workspace', () => {
     await waitFor(() =>
       expect(api.previewBackupRestore).toHaveBeenCalledWith('nas', {
         restore_id: 'restore',
-        mappings: [{ source_id: 'database', target: '/recovered/db' }],
+        mappings: [{ source_id: 'database', target: '/recovered/db', mode: 'replace' }],
         resume_services: false,
       }),
     )
@@ -482,6 +483,128 @@ describe('Destination onboarding and schedules', () => {
 })
 
 describe('Backup review regressions', () => {
+  it('uses only a recovery test of the exact protected snapshot as evidence', async () => {
+    render(
+      <MemoryRouter>
+        <ProtectionDashboard
+          data={{
+            ...overview,
+            destinations: [{ ...destination, last_restore_test_at: '2026-10-14T12:00:00Z' }],
+            protection: [
+              {
+                plan_id: 'plan',
+                plan_name: 'Database',
+                state: 'integrity_failed',
+                current_copies: 0,
+                expected_copies: 1,
+                copies: [
+                  {
+                    destination_id: 'nas',
+                    state: 'integrity_failed',
+                    snapshot_id: 'snap',
+                    snapshot_status: 'present',
+                    integrity_status: 'failed',
+                    availability_status: 'available',
+                  },
+                ],
+              },
+            ],
+          }}
+          onCreatePlan={vi.fn()}
+          onAddDestination={vi.fn()}
+          onRun={vi.fn()}
+          onRecovery={vi.fn()}
+        />
+      </MemoryRouter>,
+    )
+    expect(await screen.findByText('Recovery test of this snapshot')).toBeInTheDocument()
+    expect(screen.getByText('Recovery test of this snapshot').parentElement).toHaveTextContent('Never')
+    expect(screen.getByText('Repository integrity').parentElement).toHaveTextContent('failed')
+    expect(screen.getByText('Copies needing attention').parentElement).toHaveTextContent('1')
+    expect(screen.getByText('Copies meeting schedule').parentElement).toHaveTextContent('0')
+  })
+
+  it('shows unavailable index reasons while retaining original archive download for offline recovery', async () => {
+    const restricted = {
+      ...manifestSource,
+      recovery_restrictions: ['absolute symlink'],
+      index_unavailable_reason: 'Index limit reached',
+    }
+    vi.mocked(api.getBackupRestores).mockResolvedValue({
+      items: [{ ...result, manifest: { ...manifest, sources: [restricted] } }],
+    })
+    vi.mocked(api.getBackupRestoreCatalog).mockResolvedValue({
+      ...catalog,
+      sources: [restricted],
+      items: [],
+      index_available: false,
+      index_unavailable_reason: 'Index limit reached',
+    })
+    workspace()
+    fireEvent.change(await screen.findByLabelText('Completed isolated restore'), { target: { value: 'restore' } })
+    expect(await screen.findByText(/Offline recovery required: absolute symlink/)).toBeInTheDocument()
+    expect(screen.getByText(/Index limit reached/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Download original source archive' })).toHaveAttribute(
+      'href',
+      '/api/backups/restores/restore/archive?source_id=database',
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Review applying recovered data' }))
+    expect(screen.getByRole('checkbox', { name: /db → \/data/ })).toBeDisabled()
+  })
+
+  it('retrieves a full set for offline recovery without claiming a successful recovery test', async () => {
+    workspace()
+    fireEvent.change(await screen.findByLabelText('Recovery set'), { target: { value: 'snap' } })
+    fireEvent.click(await screen.findByRole('button', { name: 'Retrieve complete set for offline recovery' }))
+    await waitFor(() =>
+      expect(api.restoreBackupSnapshot).toHaveBeenCalledWith('nas', { snapshot_id: 'snap', test: false }),
+    )
+  })
+
+  it('requires reviewing local restore deletion and keeps repository snapshots out of the request', async () => {
+    vi.mocked(api.getBackupRestores).mockResolvedValue({ items: [{ ...result, managed: true }] })
+    vi.mocked(api.deleteBackupRestore).mockResolvedValue(undefined)
+    workspace()
+    fireEvent.change(await screen.findByLabelText('Completed isolated restore'), { target: { value: 'restore' } })
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete isolated restore' }))
+    expect(api.deleteBackupRestore).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toHaveTextContent('Repository snapshots remain unchanged')
+    fireEvent.click(screen.getByRole('button', { name: 'Delete restored data' }))
+    await waitFor(() => expect(api.deleteBackupRestore).toHaveBeenCalledWith('restore'))
+  })
+
+  it('forgets custom recovery registrations with an explicit promise to preserve their files', async () => {
+    vi.mocked(api.getBackupRestores).mockResolvedValue({
+      items: [{ ...result, managed: false, target: '/operator/recovered-data' }],
+    })
+    vi.mocked(api.deleteBackupRestore).mockResolvedValue(undefined)
+    workspace()
+    fireEvent.change(await screen.findByLabelText('Completed isolated restore'), { target: { value: 'restore' } })
+    expect(screen.queryByRole('button', { name: 'Delete isolated restore' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Forget result' }))
+    const dialog = screen.getByRole('dialog', { name: 'Forget recovery result' })
+    expect(dialog).toHaveTextContent('Its custom directory and every file remain on this host')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Forget result' }))
+    await waitFor(() => expect(api.deleteBackupRestore).toHaveBeenCalledWith('restore'))
+  })
+
+  it('preserves neighboring files by choosing merge for a single-file source', () => {
+    render(
+      <ApplyRecoveryDialog
+        destination={destination}
+        restored={{
+          ...result,
+          manifest: { ...manifest, sources: [{ ...manifestSource, file_name: 'settings.yaml' }] },
+        }}
+        onStarted={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    )
+    fireEvent.click(screen.getByRole('checkbox', { name: /db → \/data/ }))
+    expect(screen.getByLabelText('Recovery mode for db')).toHaveValue('merge')
+    expect(screen.getByLabelText('Recovery mode for db')).toBeDisabled()
+  })
+
   it('keeps the focused search mounted throughout debounced requests and errors', async () => {
     workspace()
     await chooseSnapshotSource()
