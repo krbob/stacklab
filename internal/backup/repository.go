@@ -400,6 +400,11 @@ func (s *Service) Snapshots(ctx context.Context, id string) ([]Snapshot, error) 
 	s.mu.Lock()
 	for i := range result {
 		result[i].RestoreTestedAt = s.restoreTestedAtLocked(d, result[i].ID)
+		result[i].RecoveryStatus, result[i].ClassifiedAt = "unknown", nil
+		if classification, found := s.snapshotClassificationLocked(d.ID, result[i].ID); found {
+			result[i].RecoveryStatus = classification.Status
+			result[i].ClassifiedAt = &classification.ClassifiedAt
+		}
 	}
 	s.mu.Unlock()
 	return result, nil

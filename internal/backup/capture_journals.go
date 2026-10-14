@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"stacklab/internal/atomicfile"
 	"stacklab/internal/limitedio"
@@ -167,7 +168,8 @@ func (c *NativeCapture) validateRecoveryResolution(ctx context.Context, runID st
 			return journal, nil, fmt.Errorf("%w: journal is not a held restore; retry recovery or inspect missing writers", ErrInvalid)
 		}
 	case "acknowledge_missing":
-		if !input.Inspected || len(strings.TrimSpace(input.Reason)) < 8 || len(input.Reason) > 1000 {
+		reasonLength := utf8.RuneCountInString(strings.TrimSpace(input.Reason))
+		if !input.Inspected || reasonLength < 8 || reasonLength > 1000 {
 			return journal, nil, fmt.Errorf("%w: confirm inspection and provide a reason of 8 to 1000 characters", ErrInvalid)
 		}
 		discoveryCtx, cancel := context.WithTimeout(ctx, 10*time.Second)

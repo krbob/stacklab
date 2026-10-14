@@ -28,16 +28,19 @@ type persistedRun struct {
 	PlanSnapshot Plan `json:"plan_snapshot"`
 }
 type state struct {
-	VerifiedSnapshots map[string]time.Time      `json:"verified_snapshots,omitempty"`
-	RestoreTests      map[string]time.Time      `json:"restore_tests,omitempty"`
-	CopyCheckpoints   map[string]copyCheckpoint `json:"copy_checkpoints,omitempty"`
-	RestoreOrder      []string                  `json:"restore_order,omitempty"`
-	Restores          map[string]RestoreResult  `json:"restores"`
-	InstanceID        string                    `json:"instance_id"`
-	Version           int                       `json:"version"`
-	Destinations      map[string]Destination    `json:"destinations"`
-	Plans             map[string]Plan           `json:"plans"`
-	Runs              map[string]persistedRun   `json:"runs"`
+	SnapshotClassifications map[string]snapshotClassification `json:"snapshot_classifications,omitempty"`
+	RetentionCursors        map[string]string                 `json:"retention_cursors,omitempty"`
+	CopyAttempts            map[string]copyAttempt            `json:"copy_attempts,omitempty"`
+	VerifiedSnapshots       map[string]time.Time              `json:"verified_snapshots,omitempty"`
+	RestoreTests            map[string]time.Time              `json:"restore_tests,omitempty"`
+	CopyCheckpoints         map[string]copyCheckpoint         `json:"copy_checkpoints,omitempty"`
+	RestoreOrder            []string                          `json:"restore_order,omitempty"`
+	Restores                map[string]RestoreResult          `json:"restores"`
+	InstanceID              string                            `json:"instance_id"`
+	Version                 int                               `json:"version"`
+	Destinations            map[string]Destination            `json:"destinations"`
+	Plans                   map[string]Plan                   `json:"plans"`
+	Runs                    map[string]persistedRun           `json:"runs"`
 }
 
 type Service struct {
@@ -123,6 +126,7 @@ func NewService(cfg config.Config, jobService *jobs.Service, capture Capturer) *
 		s.state.Runs = map[string]persistedRun{}
 	}
 	for id, destination := range s.state.Destinations {
+		normalizeCheckEvidence(&destination)
 		if destination.LastRestoreTestAt != nil && snapshotID.MatchString(destination.LastRestoreTestSnapshotID) {
 			key := snapshotEvidenceKey(id, destination.LastRestoreTestSnapshotID)
 			if _, exists := s.state.RestoreTests[key]; !exists {
@@ -151,6 +155,16 @@ func NewService(cfg config.Config, jobService *jobs.Service, capture Capturer) *
 	if s.state.CopyCheckpoints == nil {
 		s.state.CopyCheckpoints = map[string]copyCheckpoint{}
 	}
+	if s.state.CopyAttempts == nil {
+		s.state.CopyAttempts = map[string]copyAttempt{}
+	}
+	for key, at := range s.state.VerifiedSnapshots {
+		parts := strings.SplitN(key, "/", 2)
+		if len(parts) == 2 {
+			s.rememberSnapshotClassificationLocked(parts[0], parts[1], "complete", at)
+		}
+	}
+	s.state.VerifiedSnapshots = nil
 	for _, run := range s.state.Runs {
 		s.recordCheckpointsLocked(run.Run, run.PlanSnapshot)
 	}
@@ -186,7 +200,7 @@ func clone[T any](value T) T {
 func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	result := Overview{Destinations: []Destination{}, Plans: []Plan{}, Runs: []Run{}, Protection: []PlanProtection{}, StagingDirectory: filepath.Join(s.directory, "staging"), RecoveryError: s.recoveryError, HelperReady: s.helperReady, HelperError: s.helperError}
+	result := Overview{Destinations: []Destination{}, Plans: []Plan{}, Runs: []Run{}, Protection: []PlanProtection{}, StagingDirectory: filepath.Join(s.directory, "staging"), RecoveryError: s.recoveryError, HelperConfigured: s.cfg.BackupHelperPath != "", HelperReady: s.helperReady, HelperError: s.helperError}
 	if s.initErr != nil {
 		result.RecoveryError = "Backup module is unavailable: " + s.initErr.Error() + ". Inspect the saved backup state; other Stacklab features remain available."
 		return result, nil
@@ -196,6 +210,7 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	_, err = exec.LookPath("rclone")
 	result.RcloneAvailable = err == nil
 	for _, d := range s.state.Destinations {
+		normalizeCheckEvidence(&d)
 		result.Destinations = append(result.Destinations, d)
 	}
 	for _, p := range s.state.Plans {
@@ -270,6 +285,7 @@ func (s *Service) SaveDestination(ctx context.Context, id string, input Destinat
 		return Destination{}, fmt.Errorf("%w: credentials and repository password are required", ErrInvalid)
 	}
 	d := previous
+	normalizeCheckEvidence(&d)
 	d.ID, d.Name, d.Kind, d.Repository = id, strings.TrimSpace(input.Name), input.Kind, input.Repository
 	d.ExpectedFilesystem, d.Region, d.CredentialsConfigured = input.ExpectedFilesystem, input.Region, true
 	d.CheckSchedule, d.CheckReadData, d.PruneSchedule = input.CheckSchedule, input.CheckReadData, input.PruneSchedule
@@ -348,6 +364,13 @@ func (s *Service) DeleteDestination(ctx context.Context, id string) error {
 		}
 	}
 	delete(s.state.Destinations, id)
+	removedAttempts := map[string]copyAttempt{}
+	for key, attempt := range s.state.CopyAttempts {
+		if strings.HasSuffix(key, "/"+id) {
+			removedAttempts[key] = attempt
+			delete(s.state.CopyAttempts, key)
+		}
+	}
 	removedCheckpoints := map[string]copyCheckpoint{}
 	for key, checkpoint := range s.state.CopyCheckpoints {
 		if strings.HasSuffix(key, "/"+id) {
@@ -357,6 +380,9 @@ func (s *Service) DeleteDestination(ctx context.Context, id string) error {
 	}
 	if err := s.persist(ctx); err != nil {
 		s.state.Destinations[id] = d
+		for key, attempt := range removedAttempts {
+			s.state.CopyAttempts[key] = attempt
+		}
 		for key, checkpoint := range removedCheckpoints {
 			s.state.CopyCheckpoints[key] = checkpoint
 		}
@@ -513,6 +539,13 @@ func (s *Service) DeletePlan(ctx context.Context, id string) error {
 		return ErrNotFound
 	}
 	delete(s.state.Plans, id)
+	removedAttempts := map[string]copyAttempt{}
+	for key, attempt := range s.state.CopyAttempts {
+		if strings.HasPrefix(key, id+"/") {
+			removedAttempts[key] = attempt
+			delete(s.state.CopyAttempts, key)
+		}
+	}
 	removedCheckpoints := map[string]copyCheckpoint{}
 	for key, checkpoint := range s.state.CopyCheckpoints {
 		if strings.HasPrefix(key, id+"/") {
@@ -522,6 +555,9 @@ func (s *Service) DeletePlan(ctx context.Context, id string) error {
 	}
 	if err := s.persist(ctx); err != nil {
 		s.state.Plans[id] = p
+		for key, attempt := range removedAttempts {
+			s.state.CopyAttempts[key] = attempt
+		}
 		for key, checkpoint := range removedCheckpoints {
 			s.state.CopyCheckpoints[key] = checkpoint
 		}
@@ -612,7 +648,7 @@ func (s *Service) StartRetry(ctx context.Context, runID string, request RunReque
 	pending := 0
 	for i := range run.Copies {
 		copy := &run.Copies[i]
-		if copy.State != "succeeded" && (len(request.DestinationIDs) == 0 || selected[copy.DestinationID]) {
+		if (copy.State != "succeeded" || copy.Retention == "failed") && (len(request.DestinationIDs) == 0 || selected[copy.DestinationID]) {
 			copy.State = "pending"
 			copy.Error = ""
 			delete(selected, copy.DestinationID)
@@ -853,7 +889,15 @@ func (s *Service) ExecuteRun(ctx context.Context, job store.Job, runID string) {
 	}
 	for _, copy := range run.Copies {
 		if copy.State != "succeeded" && operationErr == nil {
-			operationErr = fmt.Errorf("one or more configured copies are missing")
+			operationErr = fmt.Errorf("one or more configured copies failed to upload or verify; inspect each copy result")
+		}
+	}
+	if operationErr == nil {
+		for _, copy := range run.Copies {
+			if copy.Retention == "failed" {
+				operationErr = fmt.Errorf("configured copies are verified; retention requires attention")
+				break
+			}
 		}
 	}
 }
@@ -861,7 +905,8 @@ func (s *Service) ExecuteRun(ctx context.Context, job store.Job, runID string) {
 // Reconcile preserves successful copies and marks interrupted work for an
 // explicit retry. Capture recovery must run before accepting mutations.
 func (s *Service) Reconcile(ctx context.Context) error {
-	s.CheckHelperReadiness(ctx)
+	// Operational monitoring probes the helper immediately after startup.
+	// Writer recovery owns this entire context and must not wait for sudo probes.
 	var recoveryErr error
 	if s.capture != nil {
 		recoveryErr = s.capture.Recover(ctx)

@@ -290,20 +290,23 @@ func (s *Service) observeProtection(ctx context.Context) {
 				}
 			}
 			fresh := copy.LastCaptureAt != nil && !copy.LastCaptureAt.After(now.Add(clockSkewTolerance))
-			pastGrace := false
-			if copy.DueAt != nil && (copy.LastCaptureAt == nil || copy.LastCaptureAt.Before(*copy.DueAt)) {
-				firstFuture := assignment.ScheduleActivatedAt != nil && copy.DueAt.Before(*assignment.ScheduleActivatedAt)
-				if !firstFuture && now.After(copy.DueAt.Add(grace)) {
-					fresh = false
-					pastGrace = true
-				}
-			}
+			due, outstanding := firstOutstandingDue(assignment, copy.LastCaptureAt, now, grace)
+			pastGrace := outstanding && !now.Before(due.Add(grace))
+			fresh = fresh && !pastGrace
 			if !fresh || !copy.EvidenceUsable {
 				heartbeatHealthy = false
 			}
 			resolved[key] = fresh && copy.EvidenceUsable
+			if previous, exists := s.operationalAlerts.Notified[key]; exists && !previous.DueAt.After(now.Add(clockSkewTolerance)) {
+				// Schedule edits and a new grace window alone do not resolve an
+				// already delivered alert. Its original deadline needs a new copy.
+				resolved[key] = resolved[key] && copy.LastCaptureAt != nil && !copy.LastCaptureAt.Before(previous.DueAt)
+				if !resolved[key] {
+					heartbeatHealthy = false
+				}
+			}
 			if pastGrace {
-				active[key] = OperationalAlert{Event: "backup_copy_overdue", PlanID: plan.ID, PlanName: plan.Name, DestinationID: assignment.DestinationID, DestinationName: s.state.Destinations[assignment.DestinationID].Name, DueAt: *copy.DueAt}
+				active[key] = OperationalAlert{Event: "backup_copy_overdue", PlanID: plan.ID, PlanName: plan.Name, DestinationID: assignment.DestinationID, DestinationName: s.state.Destinations[assignment.DestinationID].Name, DueAt: due}
 			} else if previous, exists := s.operationalAlerts.Notified[key]; exists && !resolved[key] {
 				// A fresh upload with missing/corrupt evidence does not resolve an alarm.
 				active[key] = previous

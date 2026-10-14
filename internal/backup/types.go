@@ -26,37 +26,51 @@ type Secrets struct {
 }
 
 type Destination struct {
-	ID                        string     `json:"id"`
-	Name                      string     `json:"name"`
-	Kind                      string     `json:"kind"` // local, s3, sftp, rclone
-	Repository                string     `json:"repository"`
-	ExpectedFilesystem        string     `json:"expected_filesystem,omitempty"`
-	Region                    string     `json:"region,omitempty"`
-	RepositorySizeBytes       *int64     `json:"repository_size_bytes,omitempty"`
-	CredentialsConfigured     bool       `json:"credentials_configured"`
-	LastCheckAttemptAt        *time.Time `json:"last_check_attempt_at,omitempty"`
-	LastCheckAt               *time.Time `json:"last_check_at,omitempty"`
-	LastCheckPolicy           string     `json:"last_check_policy,omitempty"`
-	CheckSchedule             Schedule   `json:"check_schedule"`
-	CheckReadData             string     `json:"check_read_data"`
-	PruneSchedule             Schedule   `json:"prune_schedule"`
-	LastCheckScheduledAt      *time.Time `json:"last_check_scheduled_at,omitempty"`
-	LastPruneScheduledAt      *time.Time `json:"last_prune_scheduled_at,omitempty"`
-	LastPruneAt               *time.Time `json:"last_prune_at,omitempty"`
-	CheckStatus               string     `json:"check_status,omitempty"`
-	CheckError                string     `json:"check_error,omitempty"`
-	LastOperation             string     `json:"last_operation,omitempty"`
-	LastOperationStatus       string     `json:"last_operation_status,omitempty"`
-	LastOperationError        string     `json:"last_operation_error,omitempty"`
-	LastOperationAt           *time.Time `json:"last_operation_at,omitempty"`
-	LastRestoreTestAt         *time.Time `json:"last_restore_test_at,omitempty"`
-	LastRestoreTestSnapshotID string     `json:"last_restore_test_snapshot_id,omitempty"`
-	LastInventoryAt           *time.Time `json:"last_inventory_at,omitempty"`
-	LastInventoryAttemptAt    *time.Time `json:"last_inventory_attempt_at,omitempty"`
-	InventoryError            string     `json:"inventory_error,omitempty"`
-	LastSuccessAt             *time.Time `json:"last_success_at,omitempty"`
-	Status                    string     `json:"status"`
-	Error                     string     `json:"error,omitempty"`
+	ID                        string        `json:"id"`
+	Name                      string        `json:"name"`
+	Kind                      string        `json:"kind"` // local, s3, sftp, rclone
+	Repository                string        `json:"repository"`
+	ExpectedFilesystem        string        `json:"expected_filesystem,omitempty"`
+	Region                    string        `json:"region,omitempty"`
+	RepositorySizeBytes       *int64        `json:"repository_size_bytes,omitempty"`
+	CredentialsConfigured     bool          `json:"credentials_configured"`
+	LastCheckAttemptAt        *time.Time    `json:"last_check_attempt_at,omitempty"`
+	LastCheckAttemptPolicy    string        `json:"last_check_attempt_policy,omitempty"`
+	LastCheckAttemptStatus    string        `json:"last_check_attempt_status,omitempty"`
+	LastCheckAttemptError     string        `json:"last_check_attempt_error,omitempty"`
+	MetadataCheck             CheckEvidence `json:"metadata_check"`
+	DataCheck                 CheckEvidence `json:"data_check"`
+	LastCheckAt               *time.Time    `json:"last_check_at,omitempty"`
+	LastCheckPolicy           string        `json:"last_check_policy,omitempty"`
+	CheckSchedule             Schedule      `json:"check_schedule"`
+	CheckReadData             string        `json:"check_read_data"`
+	PruneSchedule             Schedule      `json:"prune_schedule"`
+	LastCheckScheduledAt      *time.Time    `json:"last_check_scheduled_at,omitempty"`
+	LastPruneScheduledAt      *time.Time    `json:"last_prune_scheduled_at,omitempty"`
+	LastPruneAt               *time.Time    `json:"last_prune_at,omitempty"`
+	CheckStatus               string        `json:"check_status,omitempty"`
+	CheckError                string        `json:"check_error,omitempty"`
+	LastOperation             string        `json:"last_operation,omitempty"`
+	LastOperationStatus       string        `json:"last_operation_status,omitempty"`
+	LastOperationError        string        `json:"last_operation_error,omitempty"`
+	LastOperationAt           *time.Time    `json:"last_operation_at,omitempty"`
+	LastRestoreTestAt         *time.Time    `json:"last_restore_test_at,omitempty"`
+	LastRestoreTestSnapshotID string        `json:"last_restore_test_snapshot_id,omitempty"`
+	LastInventoryAt           *time.Time    `json:"last_inventory_at,omitempty"`
+	LastInventoryAttemptAt    *time.Time    `json:"last_inventory_attempt_at,omitempty"`
+	InventoryError            string        `json:"inventory_error,omitempty"`
+	LastSuccessAt             *time.Time    `json:"last_success_at,omitempty"`
+	Status                    string        `json:"status"`
+	Error                     string        `json:"error,omitempty"`
+}
+
+// CheckEvidence describes durable proof, independently of the latest attempt.
+// A successful sample cannot resolve a previously established data failure.
+type CheckEvidence struct {
+	Status    string     `json:"status"`
+	Scope     string     `json:"scope"`
+	CheckedAt *time.Time `json:"checked_at,omitempty"`
+	Error     string     `json:"error,omitempty"`
 }
 
 type DestinationInput struct {
@@ -114,6 +128,7 @@ type CopyResult struct {
 	Verification    string     `json:"verification"`
 	VerifiedAt      *time.Time `json:"verified_at,omitempty"`
 	Retention       string     `json:"retention"`
+	RetentionError  string     `json:"retention_error,omitempty"`
 	Error           string     `json:"error,omitempty"`
 	StartedAt       *time.Time `json:"started_at,omitempty"`
 	CompletedAt     *time.Time `json:"completed_at,omitempty"`
@@ -147,6 +162,8 @@ type Run struct {
 }
 
 type Snapshot struct {
+	RecoveryStatus  string     `json:"recovery_status"`
+	ClassifiedAt    *time.Time `json:"classified_at,omitempty"`
 	RestoreTestedAt *time.Time `json:"restore_tested_at,omitempty"`
 	ID              string     `json:"id"`
 	ShortID         string     `json:"short_id"`
@@ -157,6 +174,7 @@ type Snapshot struct {
 }
 
 type Overview struct {
+	HelperConfigured bool             `json:"helper_configured"`
 	HelperReady      bool             `json:"helper_ready"`
 	HelperError      string           `json:"helper_error,omitempty"`
 	RecoveryError    string           `json:"recovery_error,omitempty"`

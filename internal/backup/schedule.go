@@ -139,3 +139,32 @@ const clockSkewTolerance = 5 * time.Minute
 func occurrencePending(last *time.Time, due, now time.Time) bool {
 	return last == nil || last.After(now.Add(clockSkewTolerance)) || last.Before(due)
 }
+
+// The scheduler coalesces missed runs to the latest occurrence, but monitoring
+// must retain the first unsatisfied deadline. Advancing the calendar cannot
+// renew grace for a copy that has not been replaced.
+func firstOutstandingDue(assignment Assignment, captured *time.Time, now time.Time, grace time.Duration) (time.Time, bool) {
+	var from time.Time
+	if captured != nil && !captured.After(now.Add(clockSkewTolerance)) {
+		from = *captured
+	}
+	if activated := assignment.ScheduleActivatedAt; activated != nil && !activated.After(now.Add(clockSkewTolerance)) {
+		// A capture at the occurrence satisfies it; an activation at the
+		// occurrence includes it, matching the existing activation contract.
+		activation := activated.Add(-time.Nanosecond)
+		if from.IsZero() || activation.After(from) {
+			from = activation
+		}
+	}
+	if from.IsZero() {
+		// Legacy state without activation or capture cannot prove a fresh grace
+		// period. Treat an already expired occurrence as outstanding rather than
+		// inventing a new deadline on each tick or service restart.
+		return latestDue(assignment.Schedule, now.Add(-grace).Add(-time.Nanosecond))
+	}
+	next, err := PreviewSchedule(assignment.Schedule, from, 1)
+	if err != nil || len(next) == 0 || next[0].After(now) {
+		return time.Time{}, false
+	}
+	return next[0], true
+}

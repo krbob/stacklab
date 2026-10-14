@@ -55,6 +55,71 @@ type copyCheckpoint struct {
 	SnapshotCheckedAt *time.Time `json:"snapshot_checked_at,omitempty"`
 }
 
+// Completed attempt evidence is independent from a mutable run. Retrying that
+// run clears its current error and timestamps, but cannot erase the last result
+// before the replacement attempt has actually completed.
+type copyAttempt struct {
+	RunID       string    `json:"run_id"`
+	CompletedAt time.Time `json:"completed_at"`
+	Error       string    `json:"error,omitempty"`
+}
+
+func completedCopyAttempt(run Run, copy CopyResult) (copyAttempt, bool) {
+	captureFailed := run.CaptureState == "failed" && run.State != "running" && run.State != "queued"
+	if copy.State != "succeeded" && copy.State != "failed" && !captureFailed {
+		return copyAttempt{}, false
+	}
+	at := run.CreatedAt
+	if run.CompletedAt != nil {
+		at = *run.CompletedAt
+	}
+	if copy.CompletedAt != nil {
+		at = *copy.CompletedAt
+	}
+	message := copy.Error
+	if message == "" && copy.Retention == "failed" {
+		message = copy.RetentionError
+	}
+	if captureFailed {
+		message = run.Error
+	}
+	return copyAttempt{RunID: run.ID, CompletedAt: at, Error: message}, true
+}
+
+func newerCopyAttempt(candidate, previous copyAttempt, now time.Time) bool {
+	candidateFuture := candidate.CompletedAt.After(now.Add(clockSkewTolerance))
+	previousFuture := previous.CompletedAt.After(now.Add(clockSkewTolerance))
+	if candidateFuture != previousFuture {
+		return !candidateFuture
+	}
+	if candidate.CompletedAt.Equal(previous.CompletedAt) {
+		return candidate.RunID >= previous.RunID
+	}
+	return candidate.CompletedAt.After(previous.CompletedAt)
+}
+
+func (s *Service) recordCopyAttemptsLocked(run Run) {
+	if s.state.CopyAttempts == nil {
+		s.state.CopyAttempts = map[string]copyAttempt{}
+	}
+	for _, copy := range run.Copies {
+		if _, exists := s.state.Plans[run.PlanID]; !exists {
+			continue
+		}
+		if _, exists := s.state.Destinations[copy.DestinationID]; !exists {
+			continue
+		}
+		attempt, complete := completedCopyAttempt(run, copy)
+		if !complete {
+			continue
+		}
+		key := checkpointKey(run.PlanID, copy.DestinationID)
+		if previous, exists := s.state.CopyAttempts[key]; !exists || newerCopyAttempt(attempt, previous, s.now()) {
+			s.state.CopyAttempts[key] = attempt
+		}
+	}
+}
+
 type Preflight struct {
 	Sources  []ManifestSource `json:"sources"`
 	Writers  []Writer         `json:"writers"`
@@ -74,6 +139,7 @@ func selectionFingerprint(plan Plan) string {
 func checkpointKey(planID, destinationID string) string { return planID + "/" + destinationID }
 
 func (s *Service) recordCheckpointsLocked(run Run, plan Plan) {
+	s.recordCopyAttemptsLocked(run)
 	if run.CapturedAt == nil {
 		return
 	}
@@ -107,7 +173,7 @@ func (s *Service) recordCheckpointsLocked(run Run, plan Plan) {
 		}
 		s.state.CopyCheckpoints[key] = checkpoint
 		if copy.Verification == recoveryObjectsVerified {
-			rememberSnapshotEvidence(&s.state.VerifiedSnapshots, snapshotEvidenceKey(copy.DestinationID, copy.SnapshotID), s.now())
+			s.rememberSnapshotClassificationLocked(copy.DestinationID, copy.SnapshotID, "complete", s.now())
 		}
 	}
 }
@@ -203,10 +269,9 @@ func (s *Service) protectionLocked(plan Plan) PlanProtection {
 				copy.State = "unverified"
 			}
 		}
-		// Latest attempt is useful diagnostic evidence even while an older verified
-		// copy is still within its expected schedule.
-		var latestCopyRun *persistedRun
-		var latestAttempt CopyResult
+		// Keep completed diagnostic evidence while a replacement is pending or
+		// running. Activity is computed independently from every active run.
+		latestAttempt, hasAttempt := s.state.CopyAttempts[checkpointKey(plan.ID, assignment.DestinationID)]
 		for _, run := range s.state.Runs {
 			if run.PlanID != plan.ID {
 				continue
@@ -224,22 +289,17 @@ func (s *Service) protectionLocked(plan Plan) PlanProtection {
 						copy.Activity = "queued"
 					}
 				}
-				if latestCopyRun == nil || newerRun(run.Run, latestCopyRun.Run, now) {
-					item := run
-					latestCopyRun = &item
-					latestAttempt = attempt
+				if completed, ok := completedCopyAttempt(run.Run, attempt); ok && (!hasAttempt || newerCopyAttempt(completed, latestAttempt, now)) {
+					latestAttempt, hasAttempt = completed, true
 				}
 			}
 		}
 		copy.EvidenceUsable = saved && copy.SnapshotStatus == "present" && (copy.State == "current" || copy.State == "manual" || copy.State == "overdue")
 		usable := copy.EvidenceUsable && (copy.State == "current" || copy.State == "manual")
-		if latestCopyRun != nil {
-			copy.LastRunID = latestCopyRun.ID
+		if hasAttempt {
+			copy.LastRunID = latestAttempt.RunID
 			if copy.LastError == "" {
 				copy.LastError = latestAttempt.Error
-				if latestCopyRun.CaptureState == "failed" {
-					copy.LastError = latestCopyRun.Error
-				}
 			}
 		}
 		if !plan.Enabled || !assignment.Enabled {

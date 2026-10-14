@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -107,11 +108,10 @@ func (s *Service) recoveryPreview(ctx context.Context, destinationID string, req
 	}
 	if checker, supported := s.capture.(recoveryHelperChecker); supported {
 		if err := checker.CheckRecoveryHelper(ctx); err != nil {
-			s.mu.Lock()
-			s.helperReady, s.helperError, s.helperCheckedAt = false, err.Error(), s.now()
-			s.mu.Unlock()
+			s.recordHelperReadiness(false, err.Error())
 			return manifest, preview, fmt.Errorf("%w: %v", ErrBusy, err)
 		}
+		s.recordHelperReadiness(true, "")
 	}
 	if !filepath.IsAbs(request.RestoredDirectory) || len(request.Mappings) == 0 {
 		return manifest, preview, fmt.Errorf("%w: restored_directory and mappings are required", ErrInvalid)
@@ -162,6 +162,7 @@ func (s *Service) recoveryPreview(ctx context.Context, destinationID string, req
 			if source.Source.ID != mapping.SourceID {
 				continue
 			}
+			preview.Warnings = append(preview.Warnings, restoreMappingWarnings(s.cfg.RootDir, source, mapping)...)
 			archive := filepath.Join(request.RestoredDirectory, filepath.FromSlash(source.SavedPath))
 			if !isWithin(request.RestoredDirectory, archive) {
 				return manifest, preview, fmt.Errorf("invalid recovery archive path")
@@ -183,6 +184,28 @@ func (s *Service) recoveryPreview(ctx context.Context, destinationID string, req
 		}
 	}
 	return manifest, preview, nil
+}
+
+// These warnings describe identities present in the manifest and the resolved
+// managed path. They deliberately do not infer ownership from container names
+// or prevent an intentional recovery into a replacement stack.
+func restoreMappingWarnings(root string, source ManifestSource, mapping RestoreMapping) []string {
+	warnings := []string{}
+	if mapping.Mode == "replace" && source.OriginalPath != "" && filepath.Clean(mapping.Target) != filepath.Clean(source.OriginalPath) {
+		warnings = append(warnings, fmt.Sprintf("Source %s will replace %s instead of its captured path %s. Confirm the destination: all existing contents there are subject to replacement.", source.Source.ID, mapping.Target, source.OriginalPath))
+	}
+	for _, managed := range []struct{ directory, kind string }{{"stacks", "stack_definition"}, {"config", "managed_config"}, {"data", "service_mount"}} {
+		relative, err := filepath.Rel(filepath.Join(root, managed.directory), mapping.Target)
+		if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+			continue
+		}
+		stackID := strings.Split(relative, string(filepath.Separator))[0]
+		if source.Source.Kind != managed.kind || source.Source.StackID != "" && source.Source.StackID != stackID {
+			warnings = append(warnings, fmt.Sprintf("Source %s (%s, captured stack %q) targets managed %s scope for stack %q. Confirm the source type and intended stack before recovery.", source.Source.ID, source.Source.Kind, source.Source.StackID, managed.directory, stackID))
+		}
+		break
+	}
+	return warnings
 }
 func (s *Service) PreviewRestore(ctx context.Context, destinationID string, request RestoreRequest) (RestoreReview, error) {
 	request, err := s.normalizeRecoveryRequest(ctx, destinationID, request)

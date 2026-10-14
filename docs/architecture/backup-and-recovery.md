@@ -96,7 +96,9 @@ restic version range rather than assuming new exit codes on older versions.
 A run records capture outcome separately from each destination's upload,
 verification and retention. A failed remote copy does not erase successful
 copies. Overall failure remains visible through the parent job. A retry uses
-the same prepared set and targets failed copies; it never recaptures silently.
+the same prepared set and targets failed copies or failed retention; it never recaptures silently.
+A verified copy remains successful when retention fails, with a separate maintenance
+error. Retrying maintenance reuses the verified snapshot without another upload.
 Expired or removed staging requires a new run. Fully successful staging is removed
 promptly; expiry cleanup skips active runs. Retry lifetime is independent of the
 24-hour execution deadline. Plans carry explicit staging
@@ -105,8 +107,12 @@ plan-scoped snapshots; foreign/adopted snapshots are not subject to new retentio
 policies. Only complete verified snapshots compete for UTC day/ISO-week/month
 retention buckets; explicit immutable IDs are forgotten. Partial, unknown, legacy
 and future-dated snapshots are preserved and cannot displace verified recovery
-points. Verification evidence is bounded to 4096 IDs, and each pass inspects at
-most 64 unknown candidates. Eviction requires revalidation, never blind deletion.
+points. Versioned classification evidence is bounded to 4096 IDs, and each pass
+inspects at most 64 unknown candidates. A durable cursor advances through larger
+inventories rather than repeatedly examining one prefix. Complete, incomplete,
+legacy, unsupported and invalid classifications are distinct; temporary transport
+failures are not permanent classifications. Eviction requires revalidation, never
+blind deletion. Known integrity failure blocks automatic destructive retention.
 Checks inspect the repository, and prune reclaims unreferenced packs
 without forgetting foreign snapshots.
 
@@ -160,6 +166,11 @@ point objective; disabled assignments do not count as expected copies.
 Complete-object-verified snapshots remain useful if subsequent retention fails, while
 that failure stays visible. Repository access, integrity check and last-operation
 outcomes have separate fields; an invalid recovery review is not an access test.
+Metadata and data checks each retain scope/time/status, independently of the latest
+attempt. Metadata success and successful data sampling cannot clear a known data
+failure; a successful full-data check can. Transport failures preserve existing
+proof. Ambiguous legacy failures require a full successful check. See
+[ADR 0008](../adr/0008-backup-integrity-evidence.md).
 A run-tag match is only an adoption candidate: compare the prepared manifest and
 every expected recovery object's path/type/size before recording success. Restic
 partial snapshots are retained for inspection but cannot satisfy a retry. This
@@ -172,7 +183,7 @@ Legacy metadata-only checkpoints require complete-object verification. Recovery
 exercise evidence belongs to its exact snapshot. Bounded history retains up to
 4096 complete-exercise proofs rather than a single slot per repository. Activity
 is independent of protection state, and the latest operation error is selected
-after identifying the latest run. Future occurrence/checkpoint
+from the latest completed copy attempt, retained across a queued/running retry. Future occurrence/checkpoint
 markers cannot silently suppress future work after a clock correction.
 
 
@@ -237,12 +248,18 @@ metadata remains preserved in the archive with an explicit offline-recovery
 restriction. Retrieving that archive is not a successful full restore exercise.
 Archives with set-user-ID metadata, set-group-ID files or Linux file
 capabilities are rejected before privileged extraction. Set-group-ID directories,
-ordinary ownership/modes, ACLs and user xattrs remain supported.
+ordinary ownership/modes, ACLs and user xattrs remain supported. GNU tar restores
+POSIX ACLs through its ACL handler; generic xattr extraction excludes their raw
+`system.posix_acl_*` representation to avoid reopening read-only files.
 Before downtime, the helper seals and validates input into root-owned disk
 storage at `/var/lib/stacklab-backup-helper` and binds a preparation token to the
 target, mode and complete/filtered capture scope (protocol 2). Every privileged
 recovery action supports an independent readiness probe, including its sudo
-permission, before review and during operational monitoring. It rechecks target
+permission, before review and during operational monitoring. Successful readiness
+is cached for 15 minutes, failures for one minute; review probes synchronously.
+Background readiness does not consume the startup writer-recovery budget. Probes
+only validate the existing root-owned private spool; they never create it, change
+permissions or expire preparations. It rechecks target
 safety immediately before mutation. Successful
 operations release prepared data; interrupted writes retain journal/token evidence
 for operator inspection. Default temporary storage and unsealed mutable file
@@ -283,7 +300,11 @@ containers with matching Compose labels are displayed but never started by it.
 An independent background worker detects overdue copies even while execution is
 paused or transfers run,
 delivers transition alerts through the existing failure-notification channels,
-and sends a success heartbeat at most once a minute only while enabled scheduled
+and measures grace from the first unsatisfied occurrence after a valid capture or
+schedule activation. Later occurrences do not reset grace. Missing legacy activation
+is treated conservatively. This calculation is independent of notification delivery,
+so disabled alerts cannot create false healthy heartbeats. The worker sends a success
+heartbeat at most once a minute only while enabled scheduled
 copies have acceptable current protection evidence. No scheduled assignments means
 no heartbeat. Pausing stops heartbeats; an external monitor's expected interval
 must account for grace and operator maintenance. Redirects are not followed and

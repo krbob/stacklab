@@ -13,9 +13,12 @@ import (
 // compete for retention buckets. Partial, unknown, legacy and future snapshots
 // are preserved, and cannot displace a usable recovery point. Explicit IDs keep
 // deletion independent of restic's arbitrary ordering of equal capture times.
-func (s *Service) retain(ctx context.Context, d Destination, planID string, policy Retention) error {
+func (s *Service) retain(ctx context.Context, d Destination, planID string, policy Retention) (retentionErr error) {
 	if policy.Daily == 0 && policy.Weekly == 0 && policy.Monthly == 0 {
 		return nil
+	}
+	if d.CheckStatus == "failed" {
+		return fmt.Errorf("retention is blocked by unresolved repository integrity failure; preserve existing snapshots and run a full data check after repair")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
@@ -27,35 +30,62 @@ func (s *Service) retain(ctx context.Context, d Destination, planID string, poli
 	if err := json.Unmarshal(output, &snapshots); err != nil {
 		return fmt.Errorf("invalid retention snapshot inventory")
 	}
-	sort.Slice(snapshots, func(i, j int) bool { return snapshots[i].Time.After(snapshots[j].Time) })
+	// Walk immutable IDs cyclically. A bounded cache may evict older entries;
+	// always restarting at the newest snapshot would then starve older unknowns.
+	sort.Slice(snapshots, func(i, j int) bool { return snapshots[i].ID < snapshots[j].ID })
+	s.mu.Lock()
+	cursor := s.state.RetentionCursors[checkpointKey(planID, d.ID)]
+	s.mu.Unlock()
+	start := sort.Search(len(snapshots), func(i int) bool { return snapshots[i].ID > cursor })
+	if start == len(snapshots) {
+		start = 0
+	}
+	// Persist every immutable classification, including those gathered before
+	// a later transport failure. A failed availability probe is never cached as
+	// evidence of an incomplete snapshot.
+	evidencePersisted := false
+	defer func() {
+		if evidencePersisted {
+			return
+		}
+		s.mu.Lock()
+		err := s.persist(context.Background())
+		s.mu.Unlock()
+		retentionErr = errors.Join(retentionErr, err)
+	}()
 	verified := []Snapshot{}
 	remainingChecks := 64
-	for _, snapshot := range snapshots {
+	for offset := 0; offset < len(snapshots); offset++ {
+		snapshot := snapshots[(start+offset)%len(snapshots)]
 		if !snapshotID.MatchString(snapshot.ID) || snapshot.Time.IsZero() || snapshot.Time.After(s.now().Add(clockSkewTolerance)) {
 			continue
 		}
-		key := snapshotEvidenceKey(d.ID, snapshot.ID)
 		s.mu.Lock()
-		_, known := s.state.VerifiedSnapshots[key]
+		classification, known := s.snapshotClassificationLocked(d.ID, snapshot.ID)
 		s.mu.Unlock()
 		if !known {
 			if remainingChecks == 0 {
 				continue
 			}
 			remainingChecks--
-			if err := s.verifySavedSnapshot(ctx, d, snapshot.ID); err != nil {
-				if errors.Is(err, errIncompleteSnapshot) || errors.Is(err, errLegacySnapshot) {
-					continue
-				}
+			verificationErr := s.verifySavedSnapshot(ctx, d, snapshot.ID)
+			status, classified := savedSnapshotClassification(verificationErr)
+			s.mu.Lock()
+			s.rememberRetentionCursorLocked(planID, d.ID, snapshot.ID)
+			if classified {
+				s.rememberSnapshotClassificationLocked(d.ID, snapshot.ID, status, s.now())
+			}
+			s.mu.Unlock()
+			if !classified {
 				// Availability failures are not proof of incompleteness. Do not
 				// run destructive retention with a partially inspected inventory.
-				return fmt.Errorf("retention verification unavailable: %w", err)
+				return fmt.Errorf("retention verification unavailable: %w", verificationErr)
 			}
-			s.mu.Lock()
-			rememberSnapshotEvidence(&s.state.VerifiedSnapshots, key, s.now())
-			s.mu.Unlock()
+			classification.Status = status
 		}
-		verified = append(verified, snapshot)
+		if classification.Status == "complete" {
+			verified = append(verified, snapshot)
+		}
 	}
 	keep := retainedSnapshotIDs(verified, policy)
 	s.mu.Lock()
@@ -69,6 +99,7 @@ func (s *Service) retain(ctx context.Context, d Destination, planID string, poli
 	if err != nil {
 		return err
 	}
+	evidencePersisted = true
 	remove := []string{}
 	for _, snapshot := range verified {
 		if !keep[snapshot.ID] {

@@ -29,6 +29,9 @@ func (s *Service) StartRepositoryJob(ctx context.Context, id, action, requestedB
 	default:
 		return store.Job{}, fmt.Errorf("%w: unsupported repository operation", ErrInvalid)
 	}
+	if action == "backup_prune" && requestedBy == "scheduler" && d.CheckStatus == "failed" {
+		return store.Job{}, fmt.Errorf("%w: scheduled pruning is blocked by unresolved repository integrity failure", ErrBusy)
+	}
 	key := repositoryKey(d)
 	if s.repositoryReads[key] > 0 || s.repositoryJobs[key] != "" {
 		return store.Job{}, ErrBusy
@@ -78,11 +81,7 @@ func (s *Service) ExecuteRepositoryJob(ctx context.Context, job store.Job, id, a
 				}
 			}
 			if action == "backup_check" {
-				d.CheckStatus, d.CheckError = "verified", ""
-				if operationErr != nil {
-					d.CheckStatus = "failed"
-					d.CheckError = operationErr.Error()
-				} else {
+				if operationErr == nil {
 					d.Status = "available"
 					d.Error = ""
 				}
@@ -105,15 +104,10 @@ func (s *Service) ExecuteRepositoryJob(ctx context.Context, job store.Job, id, a
 	case "backup_destination_test":
 		_, operationErr = s.restic(ctx, d, "", "cat", "config")
 	case "backup_check":
-		d.LastCheckAttemptAt = s.timePointer()
 		operationErr = s.check(ctx, d, check.ReadData)
+		recordCheckAttempt(&d, check.ReadData, s.now(), operationErr)
 		if operationErr == nil {
 			_ = s.refreshInventory(ctx, d)
-			d.LastCheckAt = s.timePointer()
-			d.LastCheckPolicy = check.ReadData
-			if d.LastCheckPolicy == "" {
-				d.LastCheckPolicy = "metadata"
-			}
 		}
 	case "backup_prune":
 		_, operationErr = s.restic(ctx, d, "", "prune")
@@ -152,7 +146,7 @@ func (s *Service) ExecuteRepositoryJob(ctx context.Context, job store.Job, id, a
 		}
 		if operationErr == nil {
 			if restore.RestoredDirectory != "" || restore.RestoreID != "" || len(restore.Mappings) > 0 {
-				s.event(ctx, job, "Reviewed recovery was applied to the selected destinations.")
+				s.event(ctx, job, "Reviewed recovery was applied to the selected targets.")
 			} else {
 				s.event(ctx, job, "Recovered files are available in "+result.Target+".")
 			}

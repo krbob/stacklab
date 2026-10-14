@@ -50,14 +50,23 @@ func (s *Service) CheckHelperReadiness(ctx context.Context) {
 			ready, message = true, ""
 		}
 	}
+	s.recordHelperReadiness(ready, message)
+}
+
+func (s *Service) recordHelperReadiness(ready bool, message string) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.helperReady, s.helperError, s.helperCheckedAt = ready, message, s.now()
-	s.mu.Unlock()
 }
 
 func (s *Service) RefreshHelperReadiness(ctx context.Context) {
 	s.mu.Lock()
-	if s.helperChecking || !s.helperCheckedAt.IsZero() && s.now().Sub(s.helperCheckedAt) >= 0 && s.now().Sub(s.helperCheckedAt) < time.Minute {
+	interval := time.Minute
+	if s.helperReady {
+		interval = 15 * time.Minute
+	}
+	age := s.now().Sub(s.helperCheckedAt)
+	if s.helperChecking || !s.helperCheckedAt.IsZero() && age >= 0 && age < interval {
 		s.mu.Unlock()
 		return
 	}

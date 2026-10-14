@@ -59,18 +59,21 @@ func (s *Service) executeCopy(ctx context.Context, job store.Job, run Run, plan 
 		err = update(copy, "retention")
 		if err == nil {
 			if s.SchedulingPaused() {
-				copy.Retention = "skipped"
+				if copy.Retention != "failed" {
+					copy.Retention, copy.RetentionError = "skipped", ""
+				}
 				s.event(ctx, job, "Retention skipped while automatic backup operations are paused.")
 			} else {
 				for _, assignment := range plan.Destinations {
 					if assignment.DestinationID == d.ID {
-						err = s.retain(ctx, d, plan.ID, assignment.Retention)
+						retentionErr := s.retain(ctx, d, plan.ID, assignment.Retention)
+						copy.Retention, copy.RetentionError = "succeeded", ""
+						if retentionErr != nil {
+							copy.Retention, copy.RetentionError = "failed", retentionErr.Error()
+							s.event(ctx, job, "Recovery objects verified in "+d.Name+"; retention requires attention: "+copy.RetentionError)
+						}
 						break
 					}
-				}
-				copy.Retention = "succeeded"
-				if err != nil {
-					copy.Retention = "failed"
 				}
 			}
 		}

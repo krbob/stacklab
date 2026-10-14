@@ -16,6 +16,25 @@ const recoveryObjectsVerified = "recovery_objects_verified"
 
 var errIncompleteSnapshot = errors.New("snapshot recovery objects are incomplete")
 var errLegacySnapshot = errors.New("legacy recovery object requires a new verified backup")
+var errUnsupportedSnapshot = errors.New("snapshot recovery format is unsupported")
+var errInvalidSnapshot = errors.New("snapshot recovery manifest is invalid")
+
+func savedSnapshotClassification(err error) (string, bool) {
+	switch {
+	case err == nil:
+		return "complete", true
+	case errors.Is(err, errIncompleteSnapshot):
+		return "incomplete", true
+	case errors.Is(err, errLegacySnapshot):
+		return "legacy", true
+	case errors.Is(err, errUnsupportedSnapshot):
+		return "unsupported", true
+	case errors.Is(err, errInvalidSnapshot):
+		return "invalid", true
+	default:
+		return "", false
+	}
+}
 
 type verificationContextKey struct{}
 

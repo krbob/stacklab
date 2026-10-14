@@ -309,21 +309,27 @@ func decodeIndex(data []byte, source ManifestSource) (FileIndex, error) {
 }
 
 func validateCatalogManifest(manifest Manifest) error {
-	if manifest.Version != 1 || len(manifest.Sources) > 10000 {
-		return errors.New("unsupported recovery manifest")
+	if manifest.Version != 1 {
+		return fmt.Errorf("%w: unsupported recovery manifest", errUnsupportedSnapshot)
+	}
+	if len(manifest.Sources) > 10000 {
+		return fmt.Errorf("%w: too many sources in recovery manifest", errInvalidSnapshot)
 	}
 	seen := map[string]bool{}
 	for _, source := range manifest.Sources {
 		if !safeID.MatchString(source.Source.ID) || seen[source.Source.ID] || source.SizeBytes < 0 || source.SizeBytes > 1<<60 {
-			return errors.New("invalid source in recovery manifest")
+			return fmt.Errorf("%w: invalid source in recovery manifest", errInvalidSnapshot)
 		}
 		seen[source.Source.ID] = true
 		relative, err := catalogPath(source.SavedPath, false)
 		if err != nil || relative != source.SavedPath {
-			return errors.New("invalid saved source path")
+			return fmt.Errorf("%w: invalid saved source path", errInvalidSnapshot)
 		}
-		if source.IndexPath != "" && (source.IndexVersion != 1 || source.IndexPath != "indexes/"+source.Source.ID+".json") {
-			return errors.New("unsupported source file index")
+		if source.IndexPath != "" && source.IndexVersion != 1 {
+			return fmt.Errorf("%w: unsupported source file index", errUnsupportedSnapshot)
+		}
+		if source.IndexPath != "" && source.IndexPath != "indexes/"+source.Source.ID+".json" {
+			return fmt.Errorf("%w: invalid source file index path", errInvalidSnapshot)
 		}
 	}
 	return nil
@@ -339,7 +345,7 @@ func (s *Service) snapshotManifest(ctx context.Context, d Destination, id string
 		return manifest, err
 	}
 	if len(output) > 16<<20 || json.Unmarshal(output, &manifest) != nil {
-		return manifest, errors.New("invalid snapshot recovery manifest")
+		return manifest, fmt.Errorf("%w: invalid snapshot recovery manifest", errInvalidSnapshot)
 	}
 	if err = validateCatalogManifest(manifest); err != nil {
 		return manifest, err

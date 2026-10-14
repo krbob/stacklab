@@ -18,6 +18,12 @@ func (s *Service) ValidateRepositoryRequest(ctx context.Context, id, action stri
 		return nil
 	}
 	if request.RestoreID != "" || request.RestoredDirectory != "" {
+		s.mu.Lock()
+		recoveryError := s.recoveryError
+		s.mu.Unlock()
+		if recoveryError != "" {
+			return fmt.Errorf("%w: backup recovery requires attention: %s", ErrBusy, recoveryError)
+		}
 		_, err := s.normalizeRecoveryRequest(ctx, id, request)
 		return err
 	}

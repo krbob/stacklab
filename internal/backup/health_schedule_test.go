@@ -220,6 +220,9 @@ type failOperationRunner struct {
 func (r failOperationRunner) Run(ctx context.Context, name string, args, env []string, dir string) ([]byte, error) {
 	for _, arg := range args {
 		if arg == r.command {
+			if arg == "check" {
+				return nil, &repositoryCommandError{Code: "integrity_failed", message: "repository integrity verification failed"}
+			}
 			return nil, fmt.Errorf("simulated %s failure", r.command)
 		}
 	}
