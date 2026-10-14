@@ -5,6 +5,9 @@ the product is heading.
 
 ## Current documents
 
+- [Backup operational recovery](backup-operational-recovery.md) — accepted
+  fourth-round transport, stale-lock, maintenance retry and recovery UI contract.
+
 - [Backup evidence and recovery corrections](backup-evidence-and-recovery.md) —
   implemented third-round integrity, ACL restore, overdue observation and UI corrections.
 
