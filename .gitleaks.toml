@@ -21,3 +21,10 @@ regexTarget = "secret"
 regexes = [
   '''^(?:safe-token|secret-token|should-not-be-read|stacklab-(?:dev|e2e|smoke)|smoke-pass|change-me(?:-test-password)?)$''',
 ]
+
+[[rules.allowlists]]
+description = "Hexadecimal character alphabet used to validate helper tokens"
+condition = "AND"
+paths = ['''^internal/backup/capture_restore\.go$''']
+regexTarget = "secret"
+regexes = ['''^0123456789abcdef$''']
