@@ -17,6 +17,9 @@ review date.
 Second-round backup review repairs are implemented and exercised under the
 [reliability acceptance contract](product/backup-reliability-completion.md).
 Its retained limits and regression requirements apply to further backup work.
+Third-round findings reopen backup release acceptance under the
+[evidence and recovery correction plan](product/backup-evidence-and-recovery.md),
+currently the immediate implementation priority.
 
 ## Current Baseline
 

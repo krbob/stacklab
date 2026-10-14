@@ -5,6 +5,9 @@ the product is heading.
 
 ## Current documents
 
+- [Backup evidence and recovery corrections](backup-evidence-and-recovery.md) —
+  third-round integrity, ACL restore, overdue observation and UI acceptance plan.
+
 - [Backup reliability and recovery hardening](backup-reliability.md) — accepted
   repair plan and release gate following the backup review.
 - [Backup reliability completion](backup-reliability-completion.md) — second-round

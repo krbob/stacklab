@@ -9,6 +9,8 @@ snapshots, archive representation and additive `backup.v1` state remain supporte
 The [validation record](../quality/backup-validation.md) records commands, source
 revision, environment, executed scenarios and remaining measurement limits. The
 acceptance scenarios below remain regression requirements for subsequent releases.
+Third-round findings add the [evidence and recovery correction gate](backup-evidence-and-recovery.md);
+this historical completion record does not close those newly identified cases.
 
 ## Delivery Order And Acceptance
 
