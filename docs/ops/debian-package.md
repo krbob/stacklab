@@ -82,8 +82,11 @@ secure cookies for the expected HTTPS reverse-proxy deployment.
 
 Privileged helpers are installed but disabled by default. Enabling one requires
 an explicit environment setting and a narrow sudoers rule based on the example
-under `/usr/share/doc/stacklab/examples`; the package never installs a broad
-privilege grant automatically.
+under `/usr/share/stacklab/examples`; the package never installs a broad
+privilege grant automatically. These operational examples are also copied to the
+legacy documentation path, but `/usr/share/stacklab/examples` survives minimal-image
+rules excluding `/usr/share/doc`. Upgrades warn when the installed backup sudoers
+file appears to omit recovery protocol actions; they never overwrite that policy.
 
 See [systemd Deployment](systemd.md) for the runtime and reverse-proxy model.
 

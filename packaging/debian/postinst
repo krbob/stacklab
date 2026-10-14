@@ -112,6 +112,19 @@ maybe_enable_service() {
   fi
 }
 
+warn_legacy_backup_sudoers() {
+  installed=/etc/sudoers.d/stacklab-backup
+  example=/usr/share/stacklab/examples/stacklab-backup.sudoers.example
+  [ -f "${installed}" ] || return 0
+  # Advisory only: custom policy and included aliases remain operator-owned.
+  for action in prepare-restore check-restore check-restores apply-restore release-restore check-target; do
+    if ! grep -Eq "stacklab-backup-helper[[:space:]]+${action}[[:space:]]" "${installed}"; then
+      echo "stacklab: backup sudoers may predate the recovery protocol; review ${example} with visudo and check Backup recovery readiness. Existing policy was preserved." >&2
+      break
+    fi
+  done
+}
+
 print_bootstrap_hint() {
   if [ -f "${ENV_FILE}" ] && ! grep -q '^STACKLAB_BOOTSTRAP_PASSWORD=' "${ENV_FILE}"; then
     echo "stacklab: set STACKLAB_BOOTSTRAP_PASSWORD in ${ENV_FILE} and restart ${SERVICE_NAME} before first login if auth is not configured." >&2
@@ -126,6 +139,7 @@ case "$1" in
     ensure_runtime_dirs
     ensure_sensitive_file_modes
     ensure_groups
+    warn_legacy_backup_sudoers
     maybe_enable_service "$@"
     # The bootstrap secret is normally removed after the first password is set.
     if [ -z "${2:-}" ]; then

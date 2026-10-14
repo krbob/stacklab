@@ -3,7 +3,7 @@
 `run-linux.sh` builds the current working tree for Linux, copies Go test binaries
 and a dedicated helper to a disposable Docker host, and records source revision,
 working-tree patch, toolchain, host versions, binary hashes and raw test logs.
-The host needs GNU tar, restic, Python 3, Docker, `debian:trixie-slim` and
+The host needs GNU tar, restic, POSIX ACL/xattr tools (`acl`, `attr`), Python 3, Docker, `debian:trixie-slim` and
 `postgres:17-alpine`. It does not need Go. Run the native backup suite as a
 non-root account so the real restic exit-code-3 permission fixture remains valid.
 The account must be allowed to administer Docker: the runner explicitly uses
@@ -33,7 +33,9 @@ The suite checks:
   non-root incomplete/partial snapshot retry and retention;
 - the helper test binary as root, including descriptor, capacity and rollback
   regressions;
-- each privileged recovery action's protocol probe;
+- each privileged recovery action's read-only protocol probe;
+- read-only files with inherited POSIX ACLs under the non-root service identity,
+  plus privileged replacement preserving ACLs, xattrs, hardlinks and a mode-000 directory;
 - stopped PostgreSQL capture followed by a populated exact replacement: restored
   row checksum/count, removal of later rows and a table, and unchanged target
   directory inode;
@@ -85,11 +87,14 @@ python3 scripts/dev/backup-e2e/upgrade-installed.py \
   --deb /tmp/stacklab_candidate_arm64.deb \
   --backup-dir /root/stacklab-backup-upgrade-unique-run-id \
   --backup-test /tmp/backup.test \
-  --browser-host test-vm
+  --password-file /root/private-test-password
 ```
 
-The existing `STACKLAB_BOOTSTRAP_PASSWORD` must still authenticate; the script
-uses it only in memory and refuses to reset the installed password. If invoking
+Supply the current login password through a root-only file or `--password-stdin`.
+If neither is specified, an existing `STACKLAB_BOOTSTRAP_PASSWORD` is a fallback;
+it must still authenticate. The script uses the credential only in memory and
+refuses to reset the installed password. Sessions are revoked at completion by
+default. If invoking
 through a Docker/chroot administration shell, add `--network host` so the local
 API URL reaches the VM rather than the container's loopback interface. The API
 URL can be changed using `--base-url`.
@@ -100,10 +105,25 @@ for the periodic probe to report ready without another application restart. It
 checks preserved configuration bytes, plan/destination IDs, pause and host-review
 state, then runs the protected-configuration integration test as `stacklab`.
 The result and package hash are recorded in `result.json`; package output and
-test output remain in the root-only backup directory. Its `browser-auth.json` is
-private session material for an optional live browser check: never commit it or
+test output remain in the root-only backup directory. Only `--export-browser-session --browser-host test-vm` creates `browser-auth.json`
+and retains that session for an optional live browser check. Log out and remove
+the file after the check; it is private session material: never commit it or
 include it in public evidence bundles. The upgraded package and corrected
-sudoers remain installed. The previous state archive is retained for recovery.
+sudoers remain installed. The previous state archive is retained for recovery. This script does not roll
+back a package on failure: stop Stacklab, inspect `result.json` and `dpkg.log`, then
+use the recorded source version to obtain the original `.deb`. Reinstall that
+version before restoring matching configuration/state/helper-spool from `before.tar`
+with ownership, ACLs and xattrs intact. Keep the current failed state separately
+for diagnosis, and do not start either version until its state and policy match.
+The archive also contains old application binaries for emergency recovery, but
+restoring them alone does not reconcile dpkg's installed-version database.
+
+Evidence directories from a local invocation are **not published CI artifacts**.
+Share only reviewed result summaries, versions/hashes and redacted test logs.
+Never upload `before.tar`, overview/policy exports, cookies or credentials. The
+PR Quality workflow separately publishes its native/race/helper logs and coverage
+under the exact checked source SHA; backup coverage is reported, not a dedicated
+package percentage gate.
 
 ## Real transfer watchdog
 

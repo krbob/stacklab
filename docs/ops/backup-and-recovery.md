@@ -12,7 +12,7 @@ that Stacklab can read the source or access a repository.
 The backend stays non-root. For protected managed paths and local Docker named
 volumes, install the release's `stacklab-backup-helper`, copy and review the
 shipped sudoers example at
-`/usr/share/doc/stacklab/examples/stacklab-backup.sudoers.example` with `visudo`, then set:
+`/usr/share/stacklab/examples/stacklab-backup.sudoers.example` with `visudo`, then set:
 
 ```ini
 STACKLAB_BACKUP_HELPER_PATH=/usr/lib/stacklab/bin/stacklab-backup-helper
@@ -32,7 +32,12 @@ sources; use managed workspace paths. Ensure private staging has space for
 capture, retained retries and a recovery exercise. Helper-backed recovery also
 uses root-owned disk storage at `/var/lib/stacklab-backup-helper`; custom units
 need this writable path and `NoNewPrivileges=false` for sudo. Do not put this
-storage on an undersized tmpfs.
+storage on an undersized tmpfs. Debian installation creates it automatically.
+For tarball deployment, create it before enabling recovery:
+
+```sh
+sudo install -d -o root -g root -m 0700 /var/lib/stacklab-backup-helper
+```
 
 After every helper upgrade, compare `/etc/sudoers.d/stacklab-backup` with the
 current packaged example. The package preserves operator-managed sudoers files;
@@ -40,7 +45,10 @@ older rules may permit capture but omit prepared recovery actions. Install the
 reviewed rule root:root with mode 0440, run `visudo -cf` on it, and verify **In-place
 recovery helper** in Backups. Stacklab probes every required action at startup,
 before review and periodically; an incompatible helper or denied action reports
-how to repair the installation. Do not replace the allowlist with unrestricted sudo.
+how to repair the installation. Healthy readiness is cached for 15 minutes, failed
+readiness for one minute; opening a recovery review performs a fresh check. An
+unconfigured helper is informational. Probes do not repair permissions or delete
+old preparations. Do not replace the allowlist with unrestricted sudo.
 Prepared recovery protocol 2 binds capture scope as well as mode and target;
 old, unused preparations must be prepared again. Interrupted writes still require
 inspection and their retained evidence must not be removed during upgrade.
@@ -86,7 +94,9 @@ repository does not authorize pruning unrelated snapshots.
 Create a plan, explicitly select sources and exclusions, and choose file or stop
 mode. An active database directory copied in file mode is not an
 application-consistent backup. Select prepared database dumps or stop its
-writers. Review newly added service mounts in the stack's **Backups** tab.
+writers. Avoid excludes on physical database directories: excluding one required
+file can make even a stopped capture unusable. Prefer a complete database source,
+and separate cache/configuration sources if they need filters. Review newly added service mounts in the stack's **Backups** tab.
 Assign destinations with independent schedules and retention. Run the plan
 manually before relying on its schedule and perform an isolated restore test.
 
@@ -118,9 +128,14 @@ one missed occurrence after restart, resume or a long-running job.
 
 Review the parent job and each destination result. Upload, verification and
 retention are separate stages; one successful copy does not hide another failed
-copy. Retry while the prepared recovery set remains within its configured
+copy. A completed verified copy stays usable when retention fails; its maintenance
+error appears separately. Retry maintenance reuses that snapshot without uploading
+another copy. Retry while the prepared recovery set remains within its configured
 lifetime. When staging expires, start a new capture. A failed repository check
-needs investigation even if upload succeeded.
+needs investigation even if upload succeeded. Metadata verification and sampled
+reads do not clear known data corruption. After repairing the repository, run a
+successful full-data check to clear that failure. Automatic forget/prune stays
+blocked while integrity has failed; explicit operator maintenance remains deliberate.
 
 In notification settings, enable **Job failed** for failed backups and backup
 timeouts and overdue-copy alerts, including scheduled runs. Overdue alerts include
@@ -170,6 +185,16 @@ appropriate file data; it does not promise exact database recovery. Managed
 stacks/config/data roots, configured path boundaries and their ancestors cannot
 be replacement targets. Select the individual source directory or an inspected
 local volume. Review the target and all-content deletion scope before confirming.
+
+For offline recovery of a filtered source, stop all writers and extract into a
+**new, empty, private target**, preserving archived metadata. Check the database's
+own completeness and recovery requirements before changing any mount. An empty
+target avoids mixing old/new files but cannot reconstruct excluded required files;
+if those are missing, use a complete backup or a valid database dump instead.
+Validate ownership, ACLs, modes and application data with the database's tools,
+then explicitly switch the Compose bind mount or volume to the recovered target.
+Keep the original target for rollback and start services only after validation.
+Do not treat a successful tar extraction as a database integrity check.
 
 The helper prepares immutable input before downtime, retains the target mountpoint,
 rejects nested mounts, and keeps prior contents for rollback during replacement.

@@ -51,6 +51,7 @@ def exercise(args):
     (work / "stacklab.env").write_text(
         f"STACKLAB_ROOT={managed}\nSTACKLAB_DATA_DIR={work / 'state'}\n", encoding="utf-8")
     (work / "stacklab.env").chmod(0o600)
+    (work / "helper-spool").mkdir(mode=0o700)
     container = work.name + "-postgres"
     evidence = {"workspace": str(work), "helper_sha256": digest(helper), "checks": []}
     created_container = False
@@ -99,6 +100,34 @@ def exercise(args):
             probe = json.loads(helper_run(action, "--probe").stdout)
             assert probe == {"protocol": 2, "action": action}, probe
         check("helper_protocol_and_all_required_actions")
+
+        acl_source = data / "acl-source"
+        acl_source.mkdir()
+        run(["setfacl", "-m", "u:1000:rwx,d:u:1000:rwx", str(acl_source)])
+        readonly = acl_source / "readonly"
+        readonly.write_text("read-only ACL payload")
+        run(["setfattr", "-n", "user.stacklab-test", "-v", "preserved", str(readonly)])
+        os.link(readonly, acl_source / "hardlink")
+        readonly.chmod(0o444)
+        closed = acl_source / "closed"
+        closed.mkdir(mode=0o000)
+        acl_archive = work / "acl.tar"
+        archive(acl_source, acl_archive)
+        acl_target = data / "acl-target"
+        acl_target.mkdir()
+        (acl_target / "newer").write_text("removed by replacement")
+        acl_token = prepare(acl_archive, acl_target)
+        helper_run("apply-restore", "--token", acl_token)
+        assert (acl_target / "readonly").read_text() == "read-only ACL payload"
+        assert not (acl_target / "newer").exists()
+        assert (acl_target / "readonly").stat().st_ino == (acl_target / "hardlink").stat().st_ino
+        for relative in (".", "readonly", "closed"):
+            original, recovered = acl_source / relative, acl_target / relative
+            assert original.stat().st_mode == recovered.stat().st_mode
+            assert run(["getfacl", "-cn", str(original)]).stdout == run(["getfacl", "-cn", str(recovered)]).stdout
+        assert os.getxattr(acl_target / "readonly", "user.stacklab-test") == b"preserved"
+        helper_run("release-restore", "--token", acl_token)
+        check("replacement_preserves_readonly_acl_xattrs_hardlinks_and_zero_mode_directory")
 
         pg = data / "postgres"
         pg.mkdir()

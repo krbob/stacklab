@@ -542,6 +542,10 @@ func (h *Handler) withAuth(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (h *Handler) writeSessionAuthenticationError(w http.ResponseWriter, err error) {
+	if errors.Is(err, context.Canceled) {
+		// A disconnected caller is not an authentication backend failure.
+		return
+	}
 	if errors.Is(err, auth.ErrUnauthorized) {
 		http.SetCookie(w, h.auth.ClearSessionCookie())
 		writeError(w, http.StatusUnauthorized, "unauthorized", "Authentication required.", nil)

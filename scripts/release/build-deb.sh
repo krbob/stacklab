@@ -66,6 +66,7 @@ mkdir -p \
   "${pkg_root}/usr/lib/stacklab/frontend" \
   "${pkg_root}/usr/lib/stacklab/metadata" \
   "${doc_dir}/examples" \
+  "${pkg_root}/usr/share/stacklab/examples" \
   "${pkg_root}/lib/systemd/system" \
   "${pkg_root}/etc/stacklab"
 
@@ -83,6 +84,10 @@ install -m 0600 "${repo_root}/packaging/debian/stacklab.env" "${pkg_root}/etc/st
 install -m 0644 "${repo_root}/packaging/systemd/stacklab-docker-admin.sudoers.example" "${doc_dir}/examples/stacklab-docker-admin.sudoers.example"
 install -m 0644 "${repo_root}/packaging/systemd/stacklab-workspace-admin.sudoers.example" "${doc_dir}/examples/stacklab-workspace-admin.sudoers.example"
 install -m 0644 "${repo_root}/packaging/systemd/stacklab-self-update.sudoers.example" "${doc_dir}/examples/stacklab-self-update.sudoers.example"
+# Operational examples must survive minimal-image /usr/share/doc exclusions.
+for example in "${doc_dir}/examples/"*.example; do
+  install -m 0644 "${example}" "${pkg_root}/usr/share/stacklab/examples/"
+done
 install -m 0644 "${artifact_dir}/NOTICE" "${doc_dir}/NOTICE"
 
 cat > "${doc_dir}/copyright" <<'EOF'

@@ -116,10 +116,10 @@ flow instead:
   - `/usr/lib/stacklab/bin/stacklab-backup-helper`
   - root-owned preparation storage at `/var/lib/stacklab-backup-helper`
 - A sample `sudoers` allowlist is installed at:
-  - `/usr/share/doc/stacklab/examples/stacklab-docker-admin.sudoers.example`
-  - `/usr/share/doc/stacklab/examples/stacklab-workspace-admin.sudoers.example`
-  - `/usr/share/doc/stacklab/examples/stacklab-self-update.sudoers.example`
-  - `/usr/share/doc/stacklab/examples/stacklab-backup.sudoers.example`
+  - `/usr/share/stacklab/examples/stacklab-docker-admin.sudoers.example`
+  - `/usr/share/stacklab/examples/stacklab-workspace-admin.sudoers.example`
+  - `/usr/share/stacklab/examples/stacklab-self-update.sudoers.example`
+  - `/usr/share/stacklab/examples/stacklab-backup.sudoers.example`
 - Project and third-party licensing information is installed at:
   - `/usr/share/doc/stacklab/copyright`
   - `/usr/share/doc/stacklab/NOTICE`
@@ -196,7 +196,7 @@ package versions in that channel.
 
 The package updates the helper and its example, but does not overwrite an
 operator-managed `/etc/sudoers.d/stacklab-backup`. Compare it with
-`/usr/share/doc/stacklab/examples/stacklab-backup.sudoers.example` after upgrading,
+`/usr/share/stacklab/examples/stacklab-backup.sudoers.example` after upgrading,
 review the narrow action list, install root:root 0440 and validate with `visudo -cf`.
 Old rules can allow backups while denying recovery preparation. The Backups
 helper readiness indicator probes every required action and identifies this

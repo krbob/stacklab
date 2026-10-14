@@ -40,6 +40,10 @@ assert_service_identity() {
   local process_user
 
   systemctl is-enabled --quiet stacklab.service || die "stacklab.service is not enabled"
+  for helper in backup docker-admin workspace-admin self-update; do
+    test -f "/usr/share/stacklab/examples/stacklab-${helper}.sudoers.example" \
+      || die "operational sudoers example missing for ${helper}"
+  done
   test -x /usr/lib/stacklab/monitoring/setup.py
   test -f /usr/lib/stacklab/monitoring/assets/compose.standalone.yaml
   python3 /usr/lib/stacklab/monitoring/setup.py --help >/dev/null
