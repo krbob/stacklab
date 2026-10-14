@@ -39,7 +39,7 @@ func (s *Service) repositoryResourcesLocked(copies []CopyResult) ([]jobs.Resourc
 	resources := []jobs.Resource{}
 	seen := map[string]bool{}
 	for _, copy := range copies {
-		if copy.State != "pending" {
+		if !copyWorkPending(copy) {
 			continue
 		}
 		d, exists := s.state.Destinations[copy.DestinationID]
@@ -64,7 +64,7 @@ func (s *Service) reserveRepositoriesLocked(jobID string, copies []CopyResult) {
 		s.repositoryJobs = map[string]string{}
 	}
 	for _, copy := range copies {
-		if copy.State == "pending" {
+		if copyWorkPending(copy) {
 			s.repositoryJobs[repositoryKey(s.state.Destinations[copy.DestinationID])] = jobID
 		}
 	}

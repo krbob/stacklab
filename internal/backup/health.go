@@ -26,22 +26,24 @@ type PlanProtection struct {
 }
 
 type CopyProtection struct {
-	Activity           string     `json:"activity"`
-	DestinationID      string     `json:"destination_id"`
-	State              string     `json:"state"`
-	LastCaptureAt      *time.Time `json:"last_capture_at,omitempty"`
-	LastUploadedAt     *time.Time `json:"last_uploaded_at,omitempty"`
-	SnapshotID         string     `json:"snapshot_id,omitempty"`
-	NextRunAt          *time.Time `json:"next_run_at,omitempty"`
-	DueAt              *time.Time `json:"due_at,omitempty"`
-	LastRunID          string     `json:"last_run_id,omitempty"`
-	LastError          string     `json:"last_error,omitempty"`
-	EvidenceUsable     bool       `json:"evidence_usable"`
-	SnapshotStatus     string     `json:"snapshot_status"`
-	SnapshotCheckedAt  *time.Time `json:"snapshot_checked_at,omitempty"`
-	IntegrityStatus    string     `json:"integrity_status"`
-	AvailabilityStatus string     `json:"availability_status"`
-	LastRestoreTestAt  *time.Time `json:"last_restore_test_at,omitempty"`
+	Activity            string     `json:"activity"`
+	DestinationID       string     `json:"destination_id"`
+	State               string     `json:"state"`
+	LastCaptureAt       *time.Time `json:"last_capture_at,omitempty"`
+	LastUploadedAt      *time.Time `json:"last_uploaded_at,omitempty"`
+	SnapshotID          string     `json:"snapshot_id,omitempty"`
+	NextRunAt           *time.Time `json:"next_run_at,omitempty"`
+	DueAt               *time.Time `json:"due_at,omitempty"`
+	FirstOutstandingDue *time.Time `json:"first_outstanding_due,omitempty"`
+	OverdueSince        *time.Time `json:"overdue_since,omitempty"`
+	LastRunID           string     `json:"last_run_id,omitempty"`
+	LastError           string     `json:"last_error,omitempty"`
+	EvidenceUsable      bool       `json:"evidence_usable"`
+	SnapshotStatus      string     `json:"snapshot_status"`
+	SnapshotCheckedAt   *time.Time `json:"snapshot_checked_at,omitempty"`
+	IntegrityStatus     string     `json:"integrity_status"`
+	AvailabilityStatus  string     `json:"availability_status"`
+	LastRestoreTestAt   *time.Time `json:"last_restore_test_at,omitempty"`
 }
 
 type copyCheckpoint struct {
@@ -65,6 +67,9 @@ type copyAttempt struct {
 }
 
 func completedCopyAttempt(run Run, copy CopyResult) (copyAttempt, bool) {
+	if verifiedCopy(copy) && (copy.Retention == "pending" || copy.Retention == "running") {
+		return copyAttempt{}, false
+	}
 	captureFailed := run.CaptureState == "failed" && run.State != "running" && run.State != "queued"
 	if copy.State != "succeeded" && copy.State != "failed" && !captureFailed {
 		return copyAttempt{}, false
@@ -75,6 +80,9 @@ func completedCopyAttempt(run Run, copy CopyResult) (copyAttempt, bool) {
 	}
 	if copy.CompletedAt != nil {
 		at = *copy.CompletedAt
+	}
+	if copy.RetentionCompletedAt != nil && copy.RetentionCompletedAt.After(at) {
+		at = *copy.RetentionCompletedAt
 	}
 	message := copy.Error
 	if message == "" && copy.Retention == "failed" {
@@ -245,6 +253,15 @@ func (s *Service) protectionLocked(plan Plan) PlanProtection {
 					result.NextRunAt = &t
 				}
 			}
+			if plan.Enabled && assignment.Enabled {
+				if due, outstanding := firstOutstandingDue(assignment, copy.LastCaptureAt, now, s.overdueGraceLocked()); outstanding {
+					copy.FirstOutstandingDue = &due
+					overdueSince := due.Add(s.overdueGraceLocked())
+					if !now.Before(overdueSince) {
+						copy.OverdueSince = &overdueSince
+					}
+				}
+			}
 		}
 		if saved && checkpoint.Selection != selectionFingerprint(plan) {
 			copy.State = "outdated"
@@ -283,9 +300,9 @@ func (s *Service) protectionLocked(plan Plan) PlanProtection {
 				// A retry keeps its original capture time. Activity therefore scans
 				// every active attempt independently from newest protection evidence.
 				if run.State == "running" || run.State == "queued" {
-					if attempt.State == "running" || run.CaptureState == "running" {
+					if attempt.State == "running" || attempt.Retention == "running" || run.CaptureState == "running" {
 						copy.Activity = "running"
-					} else if attempt.State == "pending" && copy.Activity == "idle" {
+					} else if copyWorkPending(attempt) && copy.Activity == "idle" {
 						copy.Activity = "queued"
 					}
 				}

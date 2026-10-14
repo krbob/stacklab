@@ -122,7 +122,7 @@ func TestIntegrityFailureBlocksAutomaticDestruction(t *testing.T) {
 	if _, err := s.StartRepositoryJob(context.Background(), d.ID, "backup_prune", "scheduler"); !errors.Is(err, ErrBusy) {
 		t.Fatalf("scheduled prune admitted: %v", err)
 	}
-	job, err := s.StartRepositoryJob(context.Background(), d.ID, "backup_prune", "operator")
+	job, err := s.StartRepositoryJob(context.Background(), d.ID, "backup_prune", "operator", PruneRequest{AcknowledgeIntegrityFailure: true})
 	if err != nil {
 		t.Fatal("explicit operator prune unexpectedly blocked", err)
 	}

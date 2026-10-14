@@ -142,6 +142,16 @@ func (s *Service) recoveryPreview(ctx context.Context, destinationID string, req
 	if err != nil {
 		return manifest, preview, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
+	s.mu.Lock()
+	provenance := s.state.Restores[filepath.Clean(request.RestoredDirectory)]
+	s.mu.Unlock()
+	preview.RecoveryStatus, preview.ClassifiedAt = provenance.RecoveryStatus, provenance.ClassifiedAt
+	if preview.RecoveryStatus == "" {
+		preview.RecoveryStatus = "unknown"
+	}
+	if preview.RecoveryStatus != "complete" {
+		preview.Warnings = append(preview.Warnings, "The original snapshot was not proven complete ("+preview.RecoveryStatus+"). This review validates only the selected recovered sources; other sources or indexes may be unavailable.")
+	}
 	// Volume mappings have no target until Docker inspection resolves their
 	// mountpoint. Check normalized mappings too, including repositories other
 	// than the one supplying this restore. This runs again before apply.
@@ -171,6 +181,15 @@ func (s *Service) recoveryPreview(ctx context.Context, destinationID string, req
 			canonical, canonicalErr := filepath.EvalSymlinks(archive)
 			if statErr != nil || !info.Mode().IsRegular() || canonicalErr != nil || canonical != archive {
 				return manifest, preview, fmt.Errorf("recovery archive must be a regular file")
+			}
+			if source.SizeBytes > 0 && info.Size() != source.SizeBytes {
+				return manifest, preview, fmt.Errorf("%w: recovered source %s size does not match its captured archive; restore the source again", ErrInvalid, source.Source.ID)
+			}
+			if source.SizeBytes <= 0 {
+				if mapping.Mode == "replace" {
+					return manifest, preview, fmt.Errorf("%w: exact replacement requires a recorded archive size for source %s; inspect the archive and recover offline or choose merge", ErrInvalid, source.Source.ID)
+				}
+				preview.Warnings = append(preview.Warnings, "Source "+source.Source.ID+" has no recorded archive size; completeness cannot be established from this legacy manifest.")
 			}
 			file, openErr := os.Open(archive)
 			if openErr != nil {

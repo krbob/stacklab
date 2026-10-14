@@ -2,20 +2,55 @@ package backup
 
 import (
 	"errors"
+	"strings"
 	"time"
 )
 
-// Older versions stored the last successful scope alongside a later failed
-// check. It cannot identify the scope of that failure. Preserve it as unresolved
-// data evidence until a complete data check succeeds.
-func normalizeCheckEvidence(d *Destination) {
-	if d.CheckStatus == "failed" && d.MetadataCheck.Status != "failed" && d.DataCheck.Status != "failed" {
-		d.DataCheck = CheckEvidence{Status: "failed", Scope: "unknown", CheckedAt: d.LastCheckAttemptAt, Error: d.CheckError}
+// These suffixes were produced by Stacklab's fixed diagnostic classifier. An
+// arbitrary legacy message, or the old integrity_failed catch-all, cannot prove
+// that a historical failure was only a transport problem.
+func knownNonIntegrityFailure(message string) bool {
+	message = strings.TrimSpace(message)
+	for _, code := range []string{"unavailable", "timeout", "cancelled", "repository_locked", "repository_missing", "credentials_rejected", "permission_denied", "storage_full"} {
+		if strings.HasSuffix(message, "("+code+")") {
+			return true
+		}
 	}
-	if d.MetadataCheck.Status == "" && d.DataCheck.Status == "" {
-		switch d.CheckStatus {
-		case "verified":
+	return false
+}
+
+// Older versions stored the last successful scope alongside a later failed
+// check. Known non-integrity failures are attempts only, including erroneous
+// failed/unknown evidence already migrated by round 3. Ambiguous failures remain
+// unresolved data evidence until a complete data check succeeds.
+func normalizeCheckEvidence(d *Destination) {
+	legacyStatus, legacyError := d.CheckStatus, d.CheckError
+	repairedNonIntegrity := false
+	for _, evidence := range []*CheckEvidence{&d.MetadataCheck, &d.DataCheck} {
+		if evidence.Status == "failed" && evidence.Scope == "unknown" && knownNonIntegrityFailure(evidence.Error) {
+			*evidence = CheckEvidence{}
+			repairedNonIntegrity = true
+		}
+	}
+	if d.CheckStatus == "failed" && d.MetadataCheck.Status != "failed" && d.DataCheck.Status != "failed" {
+		if knownNonIntegrityFailure(d.CheckError) {
+			repairedNonIntegrity = true
+		} else {
+			d.DataCheck = CheckEvidence{Status: "failed", Scope: "unknown", CheckedAt: d.LastCheckAttemptAt, Error: d.CheckError}
+		}
+	}
+	if repairedNonIntegrity && d.LastCheckAttemptStatus == "" && knownNonIntegrityFailure(legacyError) {
+		d.LastCheckAttemptStatus, d.LastCheckAttemptError = "failed", legacyError
+		// LastCheckPolicy described the last success, not this failed attempt.
+		if d.LastCheckAttemptPolicy == "" {
+			d.LastCheckAttemptPolicy = "unknown"
+		}
+	}
+	if legacyStatus == "verified" || repairedNonIntegrity && d.LastCheckAt != nil {
+		if d.MetadataCheck.Status == "" || d.MetadataCheck.Status == "unknown" {
 			d.MetadataCheck = CheckEvidence{Status: "verified", Scope: "metadata", CheckedAt: d.LastCheckAt}
+		}
+		if d.DataCheck.Status == "" || d.DataCheck.Status == "unknown" {
 			if d.LastCheckPolicy == "all" {
 				d.DataCheck = CheckEvidence{Status: "verified", Scope: "all", CheckedAt: d.LastCheckAt}
 			} else if d.LastCheckPolicy == "subset" {

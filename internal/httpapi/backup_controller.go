@@ -27,6 +27,7 @@ func (c *backupController) registerRoutes(mux *http.ServeMux) {
 		"POST /api/backups/schedule-preview":                                           c.schedulePreview,
 		"GET /api/backups/plans/{planId}/preflight":                                    c.preflight,
 		"POST /api/backups/destinations/{destinationId}/prune":                         c.repositoryJob,
+		"POST /api/backups/destinations/{destinationId}/unlock":                        c.repositoryJob,
 		"GET /api/backups/destinations/{destinationId}/snapshots/{snapshotId}/files":   c.snapshotCatalog,
 		"GET /api/backups/destinations/{destinationId}/snapshots/{snapshotId}/compare": c.compareSnapshots,
 		"GET /api/backups/restores":                                                    c.restoreLibrary,
@@ -206,11 +207,27 @@ func (c *backupController) run(w http.ResponseWriter, r *http.Request) {
 }
 func (c *backupController) repositoryJob(w http.ResponseWriter, r *http.Request) {
 	var check backup.CheckRequest
+	var prune backup.PruneRequest
 	var restore backup.RestoreRequest
 	action := "backup_destination_test"
 	switch r.Pattern {
 	case "POST /api/backups/destinations/{destinationId}/prune":
 		action = "backup_prune"
+		if r.Body != nil && r.Body != http.NoBody && r.ContentLength != 0 {
+			if e := decodeJSON(w, r, &prune); e != nil {
+				writeDecodeJSONError(w, e)
+				return
+			}
+		}
+	case "POST /api/backups/destinations/{destinationId}/unlock":
+		action = "backup_unlock"
+		// No force-unlock flag is accepted, including from non-UI clients.
+		if r.Body != nil && r.Body != http.NoBody && r.ContentLength != 0 {
+			if e := decodeJSON(w, r, &struct{}{}); e != nil {
+				writeDecodeJSONError(w, e)
+				return
+			}
+		}
 	case "POST /api/backups/destinations/{destinationId}/initialize":
 		action = "backup_repository_init"
 	case "POST /api/backups/destinations/{destinationId}/check":
@@ -231,13 +248,13 @@ func (c *backupController) repositoryJob(w http.ResponseWriter, r *http.Request)
 		c.fail(w, err)
 		return
 	}
-	job, e := c.backups.StartRepositoryJob(r.Context(), id, action, "local")
+	job, e := c.backups.StartRepositoryJob(r.Context(), id, action, "local", prune)
 	if e != nil {
 		c.fail(w, e)
 		return
 	}
 	c.startWorker(func() {
-		_, _ = c.backups.ExecuteRepositoryJob(c.appContext(), job, id, action, check, restore)
+		_, _ = c.backups.ExecuteRepositoryJob(c.appContext(), job, id, action, check, restore, prune)
 	})
 	writeJSON(w, 202, map[string]any{"job": job})
 }

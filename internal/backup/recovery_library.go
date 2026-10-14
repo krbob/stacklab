@@ -44,6 +44,9 @@ func restoreIdentity(result RestoreResult) string {
 }
 func normalizeRestoreResult(result RestoreResult) RestoreResult {
 	result.ID = restoreIdentity(result)
+	if result.RecoveryStatus == "" {
+		result.RecoveryStatus = "unknown"
+	}
 	if result.CreatedAt.IsZero() && result.Manifest != nil {
 		result.CreatedAt = result.Manifest.CapturedAt
 	}
@@ -98,6 +101,16 @@ func (s *Service) registerRestoreResult(ctx context.Context, result RestoreResul
 		s.state.Restores = map[string]RestoreResult{}
 	}
 	result.ID = restoreIdentity(result)
+	// Freeze the evidence available when this result was created. Later inventory
+	// eviction or snapshot deletion must not erase its provenance.
+	if result.RecoveryStatus == "" {
+		result.RecoveryStatus = "unknown"
+		if evidence, found := s.snapshotClassificationLocked(result.DestinationID, result.SnapshotID); found {
+			result.RecoveryStatus = evidence.Status
+			at := evidence.ClassifiedAt
+			result.ClassifiedAt = &at
+		}
+	}
 	if _, exists := s.state.Restores[filepath.Clean(result.Target)]; !exists && len(s.state.Restores) >= 200 {
 		return fmt.Errorf("%w: recovery library is full; remove an old recovery result first", ErrInvalid)
 	}

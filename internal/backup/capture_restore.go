@@ -338,10 +338,12 @@ type RestoreMapping struct {
 	sourceScope string
 }
 type RestorePreview struct {
-	Mappings   []RestoreMapping `json:"mappings"`
-	Writers    []Writer         `json:"writers"`
-	Warnings   []string         `json:"warnings"`
-	Overwrites bool             `json:"overwrites"`
+	RecoveryStatus string           `json:"recovery_status"`
+	ClassifiedAt   *time.Time       `json:"classified_at,omitempty"`
+	Mappings       []RestoreMapping `json:"mappings"`
+	Writers        []Writer         `json:"writers"`
+	Warnings       []string         `json:"warnings"`
+	Overwrites     bool             `json:"overwrites"`
 }
 
 // PreviewRestore requires a mapping for each selected source; Stacklab state

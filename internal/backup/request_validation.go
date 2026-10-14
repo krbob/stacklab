@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"time"
 )
 
 // Reject local input errors before reserving a repository or accepting a job.
@@ -34,9 +35,62 @@ func (s *Service) ValidateRepositoryRequest(ctx context.Context, id, action stri
 		return err
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(s.state.Restores) >= 200 {
+	libraryFull := len(s.state.Restores) >= 200
+	s.mu.Unlock()
+	if libraryFull {
 		return fmt.Errorf("%w: recovery library is full; remove an old result first", ErrInvalid)
+	}
+	if len(request.Files) > 0 {
+		return s.validateSelectedFileEntries(ctx, id, request)
+	}
+	return nil
+}
+
+// Consult each bounded authenticated index once before accepting a costly job.
+// Unindexed legacy archives retain execution-time validation after retrieval.
+func (s *Service) validateSelectedFileEntries(ctx context.Context, id string, request RestoreRequest) error {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	d, release, err := s.beginRepositoryRead(ctx, id)
+	if err != nil {
+		return err
+	}
+	defer release()
+	manifest, err := s.snapshotManifest(ctx, d, request.SnapshotID)
+	if err != nil {
+		return err
+	}
+	indexes := map[string]map[string]FileEntry{}
+	for _, selected := range request.Files {
+		entries, loaded := indexes[selected.SourceID]
+		if !loaded {
+			source, sourceErr := catalogSource(manifest, selected.SourceID)
+			if sourceErr != nil {
+				return fmt.Errorf("%w: unknown selected source", ErrInvalid)
+			}
+			index, available, indexErr := s.snapshotIndex(ctx, d, request.SnapshotID, source)
+			if indexErr != nil {
+				return indexErr
+			}
+			if available {
+				entries = map[string]FileEntry{}
+				for _, entry := range index.Entries {
+					entries[entry.Path] = entry
+				}
+			}
+			indexes[selected.SourceID] = entries
+		}
+		if entries == nil {
+			continue
+		}
+		name, _ := catalogPath(selected.Path, false)
+		entry, found := entries[name]
+		if !found {
+			return fmt.Errorf("%w: selected file is not in the captured index", ErrInvalid)
+		}
+		if entry.Type != "file" {
+			return fmt.Errorf("%w: selected entry is %s, not a regular file; choose its regular-file target or restore the whole source", ErrInvalid, entry.Type)
+		}
 	}
 	return nil
 }

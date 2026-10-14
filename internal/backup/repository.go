@@ -489,6 +489,36 @@ func commandIn(args []string, wanted string) bool {
 	}
 	return false
 }
+
+var resticEOFDiagnostic = regexp.MustCompile(`\beof\b`)
+var resticHTTPFailureDiagnostic = regexp.MustCompile(`\b(?:http(?:/[^ ]+)?[ :]+|status(?: code)?[ :=]+)(?:500|502|503|504)\b`)
+var resticMissingPackDiagnostic = regexp.MustCompile(`pack [a-f0-9]{8,64}: (?:does not exist|unexpected file size:)`)
+
+func containsDiagnostic(diagnostic string, patterns ...string) bool {
+	for _, pattern := range patterns {
+		if strings.Contains(diagnostic, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func resticTransportFailure(diagnostic string) bool {
+	return containsDiagnostic(diagnostic, "connection refused", "connection reset", "connection closed", "connection lost", "no such host", "timeout", "timed out", "network is unreachable", "no route to host", "broken pipe", "server closed idle connection", "service unavailable", "serviceunavailable", "internal server error", "bad gateway", "slowdown", "requesttimeout") || resticEOFDiagnostic.MatchString(diagnostic) || resticHTTPFailureDiagnostic.MatchString(diagnostic)
+}
+
+func resticIntegrityFailure(diagnostic string, readFailure bool) bool {
+	// Authentication, decoded-object and hash errors establish bad repository
+	// data even when another pack failed to download in the same check. Avoid the
+	// generic "does not match": SSH host keys and TLS identities use it too.
+	if containsDiagnostic(diagnostic, "ciphertext verification failed", "invalid data returned", "unexpected pack id", "pack id does not match", "pack header size does not match", "hash does not match", "checksum does not match", "index for pack contains gaps / overlapping blobs", "has nil blob list", "has null id", "has no subtree", "subtree id is null", "node with empty name") {
+		return true
+	}
+	// Restic can report absent packs and index references after a failed partial
+	// listing/index load. Without a successful read these are not decisive proof.
+	return !readFailure && (resticMissingPackDiagnostic.MatchString(diagnostic) || containsDiagnostic(diagnostic, "not found in index", "pack is empty or not indexed", "is not contained in index or position is incorrect"))
+}
+
 func classifyCommandError(name string, err error, diagnostic string) error {
 	code := -1
 	var exit *exec.ExitError
@@ -498,23 +528,33 @@ func classifyCommandError(name string, err error, diagnostic string) error {
 	lower := strings.ToLower(diagnostic)
 	kind, message := "operation_failed", "operation failed; check destination access and retry"
 	if filepath.Base(name) == "restic" {
+		transportFailure := resticTransportFailure(lower)
+		readFailure := transportFailure || containsDiagnostic(lower, "permission denied", "access denied", "no space left on device", "quota exceeded")
 		switch {
 		case code == 3:
 			kind, message = "incomplete_snapshot", "backup could not read all recovery objects; an incomplete snapshot may exist and is not a verified copy"
-		case code == 10 || strings.Contains(lower, "is there a repository at") || strings.Contains(lower, "unable to open config file"):
+		case code == 10:
 			kind, message = "repository_missing", "repository is missing or uninitialized; verify the address before initializing"
-		case code == 11 || strings.Contains(lower, "repository is already locked") || strings.Contains(lower, "unable to create lock"):
+		case code == 11:
 			kind, message = "repository_locked", "repository is locked by another operation; wait for it to finish and inspect stale locks before retrying"
-		case code == 12 || strings.Contains(lower, "wrong password") || strings.Contains(lower, "no key found"):
+		case code == 12:
+			kind, message = "credentials_rejected", "repository rejected the encryption password; verify its saved credentials"
+		case resticIntegrityFailure(lower, readFailure):
+			kind, message = "integrity_failed", "repository integrity verification failed; inspect the repository and preserve existing copies"
+		case strings.Contains(lower, "repository is already locked") || strings.Contains(lower, "unable to create lock"):
+			kind, message = "repository_locked", "repository is locked by another operation; wait for it to finish and inspect stale locks before retrying"
+		case strings.Contains(lower, "wrong password") || strings.Contains(lower, "no key found"):
 			kind, message = "credentials_rejected", "repository rejected the encryption password; verify its saved credentials"
 		case strings.Contains(lower, "no space left on device") || strings.Contains(lower, "quota exceeded"):
 			kind, message = "storage_full", "destination storage or quota is full"
-		case strings.Contains(lower, "repository contains errors") || strings.Contains(lower, "does not match") || strings.Contains(lower, "pack") && strings.Contains(lower, "does not exist") || strings.Contains(lower, "invalid data returned"):
-			kind, message = "integrity_failed", "repository integrity verification failed; inspect the repository and preserve existing copies"
-		case strings.Contains(lower, "connection refused") || strings.Contains(lower, "no such host") || strings.Contains(lower, "timeout") || strings.Contains(lower, "network is unreachable"):
+		case transportFailure:
 			kind, message = "unavailable", "destination connection failed; check its address, network and availability"
 		case strings.Contains(lower, "permission denied") || strings.Contains(lower, "access denied"):
 			kind, message = "permission_denied", "destination denied access; verify transport credentials and directory permissions"
+		case strings.Contains(lower, "is there a repository at") || strings.Contains(lower, "unable to open config file"):
+			kind, message = "repository_missing", "repository is missing or uninitialized; verify the address before initializing"
+		case strings.Contains(lower, "repository contains errors"):
+			message = "repository check was inconclusive; inspect repository access and retry a full data check before relying on it"
 		}
 	}
 	// Diagnostics select fixed, actionable text only. Neither remote error bodies

@@ -635,10 +635,7 @@ func (s *Service) StartRetry(ctx context.Context, runID string, request RunReque
 	if run.State == "running" {
 		return store.Job{}, Run{}, ErrBusy
 	}
-	if run.CaptureState != "succeeded" || run.CapturedAt == nil || run.Manifest == nil || !s.now().Before(run.ExpiresAt) {
-		return store.Job{}, Run{}, ErrExpired
-	}
-	if _, err := os.Stat(filepath.Join(s.directory, "staging", runID, "manifest.json")); err != nil {
+	if run.CaptureState != "succeeded" || run.CapturedAt == nil {
 		return store.Job{}, Run{}, ErrExpired
 	}
 	selected := map[string]bool{}
@@ -646,17 +643,37 @@ func (s *Service) StartRetry(ctx context.Context, runID string, request RunReque
 		selected[id] = true
 	}
 	pending := 0
+	transfers := 0
 	for i := range run.Copies {
 		copy := &run.Copies[i]
 		if (copy.State != "succeeded" || copy.Retention == "failed") && (len(request.DestinationIDs) == 0 || selected[copy.DestinationID]) {
-			copy.State = "pending"
-			copy.Error = ""
+			if verifiedCopy(*copy) {
+				copy.Retention = "pending"
+				if copy.RetentionError == "" {
+					copy.RetentionError = "Retention requires attention."
+				}
+				copy.RetentionStartedAt, copy.RetentionCompletedAt = nil, nil
+			} else {
+				copy.State = "pending"
+				copy.Error = ""
+				transfers++
+			}
 			delete(selected, copy.DestinationID)
 			pending++
 		}
 	}
 	if pending == 0 || len(selected) > 0 {
 		return store.Job{}, Run{}, fmt.Errorf("%w: no failed destination selected", ErrInvalid)
+	}
+	// Retention works on repository snapshots. Only a transfer needs the
+	// original capture, which may already have been cleaned up or expired.
+	if transfers > 0 {
+		if run.Manifest == nil || !s.now().Before(run.ExpiresAt) {
+			return store.Job{}, Run{}, ErrExpired
+		}
+		if _, err := os.Stat(filepath.Join(s.directory, "staging", runID, "manifest.json")); err != nil {
+			return store.Job{}, Run{}, ErrExpired
+		}
 	}
 	resources, err := s.repositoryResourcesLocked(run.Copies)
 	if err != nil {
@@ -670,6 +687,9 @@ func (s *Service) StartRetry(ctx context.Context, runID string, request RunReque
 	run.JobID = job.ID
 	run.State = "running"
 	run.Phase = "upload"
+	if transfers == 0 {
+		run.Phase = "retention"
+	}
 	run.CompletedAt = nil
 	run.Error = ""
 	s.state.Runs[runID] = persistedRun{Run: run, PlanSnapshot: stored.PlanSnapshot}
@@ -734,13 +754,20 @@ func (s *Service) ExecuteRun(ctx context.Context, job store.Job, runID string) {
 		if operationErr != nil {
 			run.State = "failed"
 			run.Error = operationErr.Error()
+			for i := range run.Copies {
+				copy := &run.Copies[i]
+				if verifiedCopy(*copy) && (copy.Retention == "pending" || copy.Retention == "running") {
+					copy.Retention, copy.RetentionError = "failed", operationErr.Error()
+					copy.RetentionCompletedAt = s.timePointer()
+				}
+			}
 		} else {
 			run.State = "succeeded"
 		}
 		if err := s.saveRun(run, p); err != nil {
 			operationErr = fmt.Errorf("backup state persistence failed")
 		}
-		if operationErr == nil || run.CaptureState != "succeeded" {
+		if !runNeedsStaging(run) || run.CaptureState != "succeeded" {
 			_ = os.RemoveAll(stage)
 		}
 		s.finish(ctx, job, operationErr)
@@ -837,7 +864,7 @@ func (s *Service) ExecuteRun(ctx context.Context, job store.Job, runID string) {
 	resources := []jobs.Resource{}
 	s.mu.Lock()
 	for _, copy := range run.Copies {
-		if copy.State == "pending" {
+		if copyWorkPending(copy) {
 			resources = append(resources, jobs.BackupRepositoryResource(repositoryKey(s.state.Destinations[copy.DestinationID])))
 		}
 	}
@@ -853,7 +880,7 @@ func (s *Service) ExecuteRun(ctx context.Context, job store.Job, runID string) {
 	slots := make(chan struct{}, 2)
 	immutableRun := clone(run)
 	for i, copy := range immutableRun.Copies {
-		if copy.State != "pending" {
+		if !copyWorkPending(copy) {
 			continue
 		}
 		transfers.Add(1)
@@ -877,8 +904,12 @@ func (s *Service) ExecuteRun(ctx context.Context, job store.Job, runID string) {
 			runMu.Lock()
 			run.Copies[index] = result
 			if releaseErr := s.releaseCompletedRepository(job.ID, initial.DestinationID); releaseErr != nil {
-				run.Copies[index].State = "failed"
-				run.Copies[index].Error = "Could not release completed repository reservation: " + releaseErr.Error()
+				message := "Could not release completed repository reservation: " + releaseErr.Error()
+				if verifiedCopy(initial) {
+					run.Copies[index].Retention, run.Copies[index].RetentionError = "failed", message
+				} else {
+					run.Copies[index].State, run.Copies[index].Error = "failed", message
+				}
 			}
 			runMu.Unlock()
 		}(i, copy)
@@ -933,6 +964,10 @@ func (s *Service) Reconcile(ctx context.Context) error {
 		}
 		for i := range stored.Copies {
 			copy := &stored.Copies[i]
+			if verifiedCopy(*copy) && (copy.Retention == "pending" || copy.Retention == "running") {
+				copy.Retention, copy.RetentionError = "failed", "Retention interrupted by service restart."
+				copy.RetentionCompletedAt = s.timePointer()
+			}
 			if copy.State == "running" || copy.State == "pending" {
 				copy.State = "failed"
 				copy.Error = "Operation interrupted by service restart."

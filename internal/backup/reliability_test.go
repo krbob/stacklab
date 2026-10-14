@@ -241,7 +241,7 @@ func TestUploadAllowsHostMutationIndependentCopyAndUnrelatedRepositoryRead(t *te
 }
 
 func TestRepositoryDiagnosticsAreActionableWithoutEchoingSecrets(t *testing.T) {
-	for _, fixture := range []struct{ diagnostic, code string }{{"Fatal: repository is already locked at https://user:SECRET@example.test", "repository_locked"}, {"Fatal: wrong password SECRET", "credentials_rejected"}, {"Fatal: repository contains errors; SECRET", "integrity_failed"}, {"Fatal: no space left on device SECRET", "storage_full"}} {
+	for _, fixture := range []struct{ diagnostic, code string }{{"Fatal: repository is already locked at https://user:SECRET@example.test", "repository_locked"}, {"Fatal: wrong password SECRET", "credentials_rejected"}, {"Fatal: repository contains errors; SECRET", "operation_failed"}, {"Fatal: no space left on device SECRET", "storage_full"}} {
 		err := classifyCommandError("restic", errors.New("exit"), fixture.diagnostic)
 		if !strings.Contains(err.Error(), fixture.code) || strings.Contains(err.Error(), "SECRET") || strings.Contains(err.Error(), "example.test") {
 			t.Fatalf("unsafe/non-actionable diagnostic: %v", err)

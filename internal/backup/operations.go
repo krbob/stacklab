@@ -14,7 +14,25 @@ import (
 	"stacklab/internal/store"
 )
 
-func (s *Service) StartRepositoryJob(ctx context.Context, id, action, requestedBy string) (store.Job, error) {
+type PruneRequest struct {
+	AcknowledgeIntegrityFailure bool `json:"acknowledge_integrity_failure,omitempty"`
+}
+
+func validatePruneAcknowledgement(d Destination, requestedBy string, options []PruneRequest) error {
+	normalizeCheckEvidence(&d)
+	if d.CheckStatus != "failed" {
+		return nil
+	}
+	if requestedBy == "scheduler" {
+		return fmt.Errorf("%w: scheduled pruning is blocked by unresolved repository integrity failure", ErrBusy)
+	}
+	if len(options) != 1 || !options[0].AcknowledgeIntegrityFailure {
+		return fmt.Errorf("%w: pruning a repository with unresolved integrity failure requires acknowledge_integrity_failure=true; preserve existing copies and inspect the repository first", ErrBusy)
+	}
+	return nil
+}
+
+func (s *Service) StartRepositoryJob(ctx context.Context, id, action, requestedBy string, prune ...PruneRequest) (store.Job, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.initErr != nil {
@@ -25,12 +43,14 @@ func (s *Service) StartRepositoryJob(ctx context.Context, id, action, requestedB
 		return store.Job{}, ErrNotFound
 	}
 	switch action {
-	case "backup_destination_test", "backup_repository_init", "backup_check", "backup_restore", "backup_prune":
+	case "backup_destination_test", "backup_repository_init", "backup_check", "backup_restore", "backup_prune", "backup_unlock":
 	default:
 		return store.Job{}, fmt.Errorf("%w: unsupported repository operation", ErrInvalid)
 	}
-	if action == "backup_prune" && requestedBy == "scheduler" && d.CheckStatus == "failed" {
-		return store.Job{}, fmt.Errorf("%w: scheduled pruning is blocked by unresolved repository integrity failure", ErrBusy)
+	if action == "backup_prune" {
+		if err := validatePruneAcknowledgement(d, requestedBy, prune); err != nil {
+			return store.Job{}, err
+		}
 	}
 	key := repositoryKey(d)
 	if s.repositoryReads[key] > 0 || s.repositoryJobs[key] != "" {
@@ -46,7 +66,7 @@ func (s *Service) StartRepositoryJob(ctx context.Context, id, action, requestedB
 	return job, err
 }
 
-func (s *Service) ExecuteRepositoryJob(ctx context.Context, job store.Job, id, action string, check CheckRequest, restore RestoreRequest) (result RestoreResult, operationErr error) {
+func (s *Service) ExecuteRepositoryJob(ctx context.Context, job store.Job, id, action string, check CheckRequest, restore RestoreRequest, prune ...PruneRequest) (result RestoreResult, operationErr error) {
 	defer s.releaseRepositories(job.ID)
 	ctx, cancel := context.WithTimeout(ctx, 24*time.Hour)
 	defer cancel()
@@ -110,9 +130,21 @@ func (s *Service) ExecuteRepositoryJob(ctx context.Context, job store.Job, id, a
 			_ = s.refreshInventory(ctx, d)
 		}
 	case "backup_prune":
+		if operationErr = validatePruneAcknowledgement(d, job.RequestedBy, prune); operationErr != nil {
+			break
+		}
+		if d.CheckStatus == "failed" {
+			s.event(ctx, job, "Operator acknowledged unresolved repository integrity failure before pruning.")
+		}
 		_, operationErr = s.restic(ctx, d, "", "prune")
 		if operationErr == nil {
 			d.LastPruneAt = s.timePointer()
+		}
+	case "backup_unlock":
+		s.event(ctx, job, "Removing only locks restic identifies as stale; active locks are preserved.")
+		_, operationErr = s.restic(ctx, d, "", "unlock")
+		if operationErr == nil {
+			s.event(ctx, job, "Stale-lock removal completed. Repository integrity evidence is unchanged.")
 		}
 	case "backup_restore":
 		restore.jobID = job.ID
@@ -178,7 +210,7 @@ func (s *Service) restore(ctx context.Context, d Destination, request RestoreReq
 	if err := validateRestoreSelection(request); err != nil {
 		return result, err
 	}
-	if request.Test && len(request.SnapshotID) < 64 {
+	if len(request.SnapshotID) < 64 {
 		// A short ID is accepted as input, but durable proof is bound to the
 		// unique immutable full ID returned by this repository before restore.
 		output, err := s.restic(ctx, d, "", "snapshots", request.SnapshotID)
@@ -187,7 +219,7 @@ func (s *Service) restore(ctx context.Context, d Destination, request RestoreReq
 		}
 		var snapshots []Snapshot
 		if err := json.Unmarshal(output, &snapshots); err != nil || len(snapshots) != 1 || len(snapshots[0].ID) != 64 || !snapshotID.MatchString(snapshots[0].ID) || !strings.HasPrefix(snapshots[0].ID, request.SnapshotID) {
-			return result, fmt.Errorf("%w: restore test requires a uniquely resolved snapshot ID", ErrInvalid)
+			return result, fmt.Errorf("%w: restore requires a uniquely resolved snapshot ID", ErrInvalid)
 		}
 		request.SnapshotID, result.SnapshotID = snapshots[0].ID, snapshots[0].ID
 	}
@@ -375,6 +407,14 @@ func (s *Service) restore(ctx context.Context, d Destination, request RestoreReq
 	if len(manifest.Sources) > 0 && extractedSources == 0 {
 		return result, fmt.Errorf("%w: restore selection contains no recovery archives", ErrInvalid)
 	}
+	s.mu.Lock()
+	result.RecoveryStatus = "unknown"
+	if evidence, found := s.snapshotClassificationLocked(d.ID, result.SnapshotID); found {
+		result.RecoveryStatus = evidence.Status
+		at := evidence.ClassifiedAt
+		result.ClassifiedAt = &at
+	}
+	s.mu.Unlock()
 	if err = s.registerRestoreResult(context.Background(), result); err != nil {
 		return result, err
 	}

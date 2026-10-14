@@ -121,23 +121,25 @@ type Plan struct {
 }
 
 type CopyResult struct {
-	DestinationID   string     `json:"destination_id"`
-	State           string     `json:"state"`
-	SnapshotID      string     `json:"snapshot_id,omitempty"`
-	UploadedAt      *time.Time `json:"uploaded_at,omitempty"`
-	Verification    string     `json:"verification"`
-	VerifiedAt      *time.Time `json:"verified_at,omitempty"`
-	Retention       string     `json:"retention"`
-	RetentionError  string     `json:"retention_error,omitempty"`
-	Error           string     `json:"error,omitempty"`
-	StartedAt       *time.Time `json:"started_at,omitempty"`
-	CompletedAt     *time.Time `json:"completed_at,omitempty"`
-	DurationSeconds float64    `json:"duration_seconds,omitempty"`
-	BytesProcessed  int64      `json:"bytes_processed,omitempty"`
-	BytesTotal      int64      `json:"bytes_total,omitempty"`
-	FilesProcessed  int64      `json:"files_processed,omitempty"`
-	FilesTotal      int64      `json:"files_total,omitempty"`
-	BytesAdded      int64      `json:"bytes_added,omitempty"`
+	DestinationID        string     `json:"destination_id"`
+	State                string     `json:"state"`
+	SnapshotID           string     `json:"snapshot_id,omitempty"`
+	UploadedAt           *time.Time `json:"uploaded_at,omitempty"`
+	Verification         string     `json:"verification"`
+	VerifiedAt           *time.Time `json:"verified_at,omitempty"`
+	Retention            string     `json:"retention"`
+	RetentionError       string     `json:"retention_error,omitempty"`
+	RetentionStartedAt   *time.Time `json:"retention_started_at,omitempty"`
+	RetentionCompletedAt *time.Time `json:"retention_completed_at,omitempty"`
+	Error                string     `json:"error,omitempty"`
+	StartedAt            *time.Time `json:"started_at,omitempty"`
+	CompletedAt          *time.Time `json:"completed_at,omitempty"`
+	DurationSeconds      float64    `json:"duration_seconds,omitempty"`
+	BytesProcessed       int64      `json:"bytes_processed,omitempty"`
+	BytesTotal           int64      `json:"bytes_total,omitempty"`
+	FilesProcessed       int64      `json:"files_processed,omitempty"`
+	FilesTotal           int64      `json:"files_total,omitempty"`
+	BytesAdded           int64      `json:"bytes_added,omitempty"`
 }
 
 type Run struct {
@@ -215,6 +217,8 @@ type RestoreRequest struct {
 }
 
 type RestoreResult struct {
+	RecoveryStatus    string          `json:"recovery_status"`
+	ClassifiedAt      *time.Time      `json:"classified_at,omitempty"`
 	Managed           bool            `json:"managed"`
 	Available         bool            `json:"available"`
 	UnavailableReason string          `json:"unavailable_reason,omitempty"`

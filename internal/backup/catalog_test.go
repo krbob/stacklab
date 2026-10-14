@@ -313,12 +313,15 @@ func TestNativeEncryptedCatalogComparePartialRestoreDownload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := s.ExecuteRepositoryJob(ctx, job, d.ID, "backup_restore", CheckRequest{}, RestoreRequest{SnapshotID: second, Files: []FileSelection{{SourceID: "source-a", Path: "data.txt"}}})
+	result, err := s.ExecuteRepositoryJob(ctx, job, d.ID, "backup_restore", CheckRequest{}, RestoreRequest{SnapshotID: second[:8], Files: []FileSelection{{SourceID: "source-a", Path: "data.txt"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.ID == "" || result.JobID != job.ID || len(result.SelectedFiles) != 1 {
 		t.Fatalf("restore result %+v", result)
+	}
+	if result.SnapshotID != second || result.RecoveryStatus != "complete" || result.ClassifiedAt == nil {
+		t.Fatalf("short snapshot ID lost full identity or provenance: %+v", result)
 	}
 	download, err := s.OpenRestoredFile(ctx, result.ID, "source-a", "data.txt")
 	if err != nil {

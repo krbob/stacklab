@@ -253,15 +253,18 @@ func alertSignature(alert OperationalAlert) string {
 	}
 	return strings.Join(codes, "/")
 }
-func (s *Service) observeProtection(ctx context.Context) {
-	s.mu.Lock()
-	s.initializeOperationalAlertsLocked(ctx)
-	now := s.now()
+func (s *Service) overdueGraceLocked() time.Duration {
 	graceMinutes := s.policy.OverdueGraceMinutes
 	if graceMinutes < 1 || graceMinutes > 10080 {
 		graceMinutes = 60
 	}
-	grace := time.Duration(graceMinutes) * time.Minute
+	return time.Duration(graceMinutes) * time.Minute
+}
+
+func (s *Service) observeProtection(ctx context.Context) {
+	s.mu.Lock()
+	s.initializeOperationalAlertsLocked(ctx)
+	now := s.now()
 	active := map[string]OperationalAlert{}
 	monitored := map[string]bool{}
 	resolved := map[string]bool{}
@@ -290,8 +293,7 @@ func (s *Service) observeProtection(ctx context.Context) {
 				}
 			}
 			fresh := copy.LastCaptureAt != nil && !copy.LastCaptureAt.After(now.Add(clockSkewTolerance))
-			due, outstanding := firstOutstandingDue(assignment, copy.LastCaptureAt, now, grace)
-			pastGrace := outstanding && !now.Before(due.Add(grace))
+			pastGrace := copy.OverdueSince != nil
 			fresh = fresh && !pastGrace
 			if !fresh || !copy.EvidenceUsable {
 				heartbeatHealthy = false
@@ -306,7 +308,7 @@ func (s *Service) observeProtection(ctx context.Context) {
 				}
 			}
 			if pastGrace {
-				active[key] = OperationalAlert{Event: "backup_copy_overdue", PlanID: plan.ID, PlanName: plan.Name, DestinationID: assignment.DestinationID, DestinationName: s.state.Destinations[assignment.DestinationID].Name, DueAt: due}
+				active[key] = OperationalAlert{Event: "backup_copy_overdue", PlanID: plan.ID, PlanName: plan.Name, DestinationID: assignment.DestinationID, DestinationName: s.state.Destinations[assignment.DestinationID].Name, DueAt: *copy.FirstOutstandingDue}
 			} else if previous, exists := s.operationalAlerts.Notified[key]; exists && !resolved[key] {
 				// A fresh upload with missing/corrupt evidence does not resolve an alarm.
 				active[key] = previous
