@@ -1,0 +1,7 @@
+FROM debian:trixie-slim
+
+# Preload this image on an offline test VM. The native SFTP recovery fixture
+# creates its own host/client keys, sshd configuration and temporary account.
+RUN apt-get update -qq \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends openssh-server \
+    && rm -rf /var/lib/apt/lists/*

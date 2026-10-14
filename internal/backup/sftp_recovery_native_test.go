@@ -59,6 +59,10 @@ func TestNativeSFTPInterruptedCheckRecovery(t *testing.T) {
 	serverAddress := portProbe.Addr().String()
 	_ = portProbe.Close()
 	name := fmt.Sprintf("stacklab-sftp-recovery-%d-%d", os.Getpid(), time.Now().UnixNano())
+	image := os.Getenv("STACKLAB_TEST_SFTP_IMAGE")
+	if image == "" {
+		image = "debian:trixie-slim"
+	}
 	bootstrap := `
 if ! test -x /usr/sbin/sshd; then
   apt-get update -qq
@@ -71,7 +75,7 @@ fi
 mkdir -p /run/sshd
 exec /usr/sbin/sshd -D -e -f /fixture/sshd_config
 `
-	call("docker", "run", "-d", "--name", name, "--label", "stacklab.fixture=sftp-recovery", "-p", serverAddress+":22", "-v", base+":/fixture", "debian:trixie-slim", "sh", "-eu", "-c", bootstrap, "--", strconv.Itoa(os.Getuid()))
+	call("docker", "run", "-d", "--name", name, "--label", "stacklab.fixture=sftp-recovery", "-p", serverAddress+":22", "-v", base+":/fixture", image, "sh", "-eu", "-c", bootstrap, "--", strconv.Itoa(os.Getuid()))
 	defer func() {
 		cleanup, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cleanupCancel()
