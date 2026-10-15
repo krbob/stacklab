@@ -878,3 +878,58 @@ describe('Round four recovery evidence and maintenance', () => {
     else expect(screen.getByText('attention')).toBeVisible()
   })
 })
+
+describe('Current repository maintenance eligibility', () => {
+  const copy: api.BackupCopy = { destination_id: 'nas', state: 'succeeded', verification: 'recovery_objects_verified', verified_at: '2026-10-01T00:00:00Z', snapshot_id: 'snap', retention: 'failed', retention_error: 'Previous cleanup failed.' }
+  const run: api.BackupRun = { id: 'maintenance', job_id: 'job', plan_id: 'plan', plan_name: 'Database', state: 'failed', capture_state: 'succeeded', phase: 'finished', created_at: '2026-10-01T00:00:00Z', expires_at: '2026-10-02T00:00:00Z', copies: [copy] }
+  const common = { clock: Date.parse('2026-10-15T00:00:00Z'), pending: false, onJob: vi.fn(), onRetry: vi.fn() }
+
+  it.each(['metadata', 'all'] as const)('blocks held %s cleanup, directs the proper check, and still retries the healthy sibling', (scope) => {
+    const blocked: api.BackupDestination = { ...destination, check_hold: { scope, error: 'Inconclusive repository check' } }
+    const healthy = { ...destination, id: 'cloud', name: 'Cloud' }
+    const onCheck = vi.fn()
+    const onRetry = vi.fn()
+    const mixed = { ...run, copies: [copy, { ...copy, destination_id: 'cloud' }] }
+    const currentPlan = { ...plan, destinations: [...plan.destinations, { ...plan.destinations[0], destination_id: 'cloud' }] }
+    render(<RunHistory {...common} runs={[mixed]} plans={[currentPlan]} destinations={[blocked, healthy]} onCheck={onCheck} onRetry={onRetry} />)
+    const help = screen.getByText(/Retention stays blocked/)
+    expect(help).toHaveTextContent(scope === 'all' ? 'full data read' : 'metadata check')
+    if (scope === 'metadata') expect(help).not.toHaveTextContent('full data read')
+    fireEvent.click(screen.getByRole('button', { name: 'Check NAS repository' }))
+    expect(onCheck).toHaveBeenCalledWith(blocked)
+    fireEvent.click(screen.getByRole('button', { name: 'Retry retention cleanup' }))
+    expect(onRetry).toHaveBeenCalledWith(mixed, ['cloud'])
+    expect(screen.getByText(/Only eligible destinations will be retried/)).toBeVisible()
+  })
+
+  it('uses one retained run against changing current policy, including disabled, deleted, and keep-all configurations', () => {
+    const damaged: api.BackupDestination = { ...destination, data_check: { status: 'failed', scope: 'all', error: 'Damaged pack' } }
+    const props = { ...common, runs: [run], destinations: [damaged] }
+    const view = render(<RunHistory {...props} plans={[plan]} />)
+    expect(screen.getByRole('button', { name: 'Retry retention cleanup' })).toBeDisabled()
+    expect(screen.getByText(/Retention stays blocked/)).toHaveTextContent('full data read')
+    const keepAll = { ...plan, destinations: [{ ...plan.destinations[0], retention: { daily: 0, weekly: 0, monthly: 0 } }] }
+    view.rerender(<RunHistory {...props} plans={[keepAll]} />)
+    expect(screen.getByRole('button', { name: 'Retry retention cleanup' })).toBeEnabled()
+    expect(screen.getByText(/current keep-all policy/)).toHaveTextContent('without deleting snapshots or clearing repository warnings')
+    for (const currentPlans of [[], [{ ...keepAll, enabled: false }], [{ ...keepAll, destinations: [{ ...keepAll.destinations[0], enabled: false }] }], [{ ...keepAll, destinations: [] }]]) {
+      view.rerender(<RunHistory {...props} plans={currentPlans} />)
+      expect(screen.getByRole('button', { name: 'Retry retention cleanup' })).toBeDisabled()
+      expect(screen.getByText(/requires an enabled current plan/)).toBeVisible()
+    }
+    view.rerender(<RunHistory {...props} plans={[plan]} destinations={[destination]} />)
+    expect(screen.getByRole('button', { name: 'Retry retention cleanup' })).toBeEnabled()
+  })
+
+  it.each(['pending', 'running'] as const)('labels retained failure as a previous attempt while retention is %s', (retention) => {
+    render(<RunHistory {...common} runs={[{ ...run, state: 'running', phase: 'retention', copies: [{ ...copy, retention }] }]} plans={[plan]} destinations={[destination]} />)
+    expect(screen.getByText('Previous retention attempt: Previous cleanup failed.')).toBeVisible()
+    expect(screen.queryByText(/retention cleanup failed:/)).not.toBeInTheDocument()
+  })
+
+  it('does not call a legacy metadata-only copy verified when displaying its retention failure', () => {
+    render(<RunHistory {...common} runs={[{ ...run, copies: [{ ...copy, verification: 'snapshot_metadata_verified', verified_at: undefined }] }]} plans={[plan]} destinations={[destination]} />)
+    expect(screen.getByText('Retention cleanup failed: Previous cleanup failed.')).toBeVisible()
+    expect(screen.queryByText(/Copy verified/)).not.toBeInTheDocument()
+  })
+})

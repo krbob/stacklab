@@ -40,7 +40,7 @@ export interface paths {
     post: operations["initializeBackupRepository"];
   };
   "/backups/destinations/{destinationId}/prune": {
-    /** @description Queue repository prune under the existing repository and native restic locks. Known integrity failure requires explicit acknowledgement; scheduled prune remains blocked. */
+    /** @description Queue repository prune under the existing repository and native restic locks. Known integrity failure or an inconclusive-check hold requires explicit acknowledgement tied to the current maintenance_review_token; scheduled prune remains blocked. Missing or stale acknowledgement returns maintenance_acknowledgement_required (409). */
     post: operations["pruneBackupDestination"];
   };
   "/backups/destinations/{destinationId}/restore": {
@@ -64,7 +64,7 @@ export interface paths {
     post: operations["testBackupRepository"];
   };
   "/backups/destinations/{destinationId}/unlock": {
-    /** @description Queue ordinary restic unlock under Stacklab repository admission. Removes only locks restic considers stale, never forces active locks or clears integrity evidence. A live owner's lock may remain. */
+    /** @description Inspect locks under Stacklab repository admission and refuse foreign-host locks or a same-host owner that is alive or cannot be established safely, then run ordinary restic unlock. External repository clients must stay stopped throughout the operation. Never uses force removal and does not check or clear integrity evidence. Job events report remaining locks. */
     post: operations["unlockBackupDestination"];
   };
   "/backups/filesystem": {
@@ -122,6 +122,7 @@ export interface paths {
     get: operations["getRestoredBackupFiles"];
   };
   "/backups/runs/{runId}/retry": {
+    /** @description Retry selected failed copies. Verified maintenance-only copies require an enabled current plan and destination assignment, and use the current retention policy at admission and execution. Destructive policies remain blocked by failed integrity evidence or check_hold. Keep-all settles maintenance without restic or clearing repository evidence. Explicit destination_ids may select healthy siblings; an implicit all-failed retry refuses atomically when any selected copy is blocked. Only transfers require retained capture staging. */
     post: operations["retryBackupRun"];
   };
   "/backups/schedule-preview": {
@@ -494,6 +495,17 @@ export interface components {
       /** Format: int64 */
       transfer_bytes: number;
     };
+    /** @description Current inconclusive repository check, separate from historical verification. Blocks recovery protection and destructive automatic maintenance. A successful check at the required scope clears it; transport, lock and cancellation errors neither create nor clear it. */
+    BackupCheckHold: {
+      /** Format: date-time */
+      checked_at?: string;
+      error: string;
+      /**
+       * @description Minimum successful check required to clear this hold. A full check clears either scope; metadata or sampled success clears only a metadata hold.
+       * @enum {string}
+       */
+      scope: "metadata" | "all";
+    };
     BackupCheckRequest: {
       /** @enum {string} */
       read_data: "metadata" | "all" | "subset";
@@ -519,10 +531,10 @@ export interface components {
        */
       first_outstanding_due?: string;
       /**
-       * @description Compatibility aggregate; verified can mean only metadata or a sampled read. Inspect destination metadata_check and data_check for actual scope and time.
+       * @description Compatibility aggregate; check_hold makes historical evidence unverified. Verified can mean only metadata or a sampled read. Inspect destination metadata_check, data_check and check_hold for scope and time.
        * @enum {string}
        */
-      integrity_status?: "unknown" | "verified" | "failed";
+      integrity_status?: "unknown" | "verified" | "failed" | "unverified";
       /** Format: date-time */
       last_capture_at?: string;
       last_error?: string;
@@ -573,7 +585,7 @@ export interface components {
       retention: "pending" | "running" | "succeeded" | "failed" | "skipped";
       /** Format: date-time */
       retention_completed_at?: string;
-      /** @description Cleanup failure after a verified copy; retry reuses the existing snapshot without uploading again. */
+      /** @description Last cleanup failure. Preserved as historical context while a retry is pending or running, and cleared on successful maintenance. A fully verified copy retries maintenance without uploading again. */
       retention_error?: string;
       /** Format: date-time */
       retention_started_at?: string;
@@ -600,13 +612,14 @@ export interface components {
     };
     BackupDestination: {
       check_error?: string;
+      check_hold?: components["schemas"]["BackupCheckHold"];
       check_read_data: string;
       check_schedule: components["schemas"]["BackupSchedule"];
       /**
-       * @description Conservative compatibility aggregate of metadata_check and data_check; verified does not imply a full data read.
+       * @description Conservative compatibility aggregate. Known failures take priority; an unresolved check_hold makes historical verification unverified. Verified does not imply a full data read.
        * @enum {string}
        */
-      check_status?: "unknown" | "verified" | "failed";
+      check_status?: "unknown" | "verified" | "failed" | "unverified";
       credentials_configured: boolean;
       data_check: components["schemas"]["BackupIntegrityEvidence"];
       error?: string;
@@ -648,6 +661,8 @@ export interface components {
       last_restore_test_snapshot_id?: string;
       /** Format: date-time */
       last_success_at?: string;
+      /** @description Opaque fingerprint of current failed integrity evidence and inconclusive-check hold. Returned only when acknowledgement is needed; not a credential. A changed token requires a new explicit prune acknowledgement. */
+      maintenance_review_token?: string;
       metadata_check: components["schemas"]["BackupIntegrityEvidence"];
       name: string;
       prune_schedule: components["schemas"]["BackupSchedule"];
@@ -878,10 +893,12 @@ export interface components {
     };
     BackupPruneRequest: {
       /**
-       * @description Explicitly accept pruning despite known repository integrity failure. This does not repair the repository or clear its evidence.
+       * @description Explicitly accept pruning despite known repository integrity failure or an inconclusive check hold. Also requires acknowledgement_review_token. This does not repair the repository or clear its evidence.
        * @default false
        */
       acknowledge_integrity_failure?: boolean;
+      /** @description Current Destination.maintenance_review_token explicitly reviewed by the operator. Missing or stale acknowledgement returns HTTP409 maintenance_acknowledgement_required. Checked again when the job executes. */
+      acknowledgement_review_token?: string;
     };
     BackupRecoveryJournal: {
       can_acknowledge_missing: boolean;
@@ -2779,7 +2796,7 @@ export interface operations {
       503: components["responses"]["ErrorInvalidState"];
     };
   };
-  /** @description Queue repository prune under the existing repository and native restic locks. Known integrity failure requires explicit acknowledgement; scheduled prune remains blocked. */
+  /** @description Queue repository prune under the existing repository and native restic locks. Known integrity failure or an inconclusive-check hold requires explicit acknowledgement tied to the current maintenance_review_token; scheduled prune remains blocked. Missing or stale acknowledgement returns maintenance_acknowledgement_required (409). */
   pruneBackupDestination: {
     parameters: {
       path: {
@@ -2959,7 +2976,7 @@ export interface operations {
       503: components["responses"]["ErrorInvalidState"];
     };
   };
-  /** @description Queue ordinary restic unlock under Stacklab repository admission. Removes only locks restic considers stale, never forces active locks or clears integrity evidence. A live owner's lock may remain. */
+  /** @description Inspect locks under Stacklab repository admission and refuse foreign-host locks or a same-host owner that is alive or cannot be established safely, then run ordinary restic unlock. External repository clients must stay stopped throughout the operation. Never uses force removal and does not check or clear integrity evidence. Job events report remaining locks. */
   unlockBackupDestination: {
     parameters: {
       path: {
@@ -3316,6 +3333,7 @@ export interface operations {
       409: components["responses"]["ErrorConflict"];
     };
   };
+  /** @description Retry selected failed copies. Verified maintenance-only copies require an enabled current plan and destination assignment, and use the current retention policy at admission and execution. Destructive policies remain blocked by failed integrity evidence or check_hold. Keep-all settles maintenance without restic or clearing repository evidence. Explicit destination_ids may select healthy siblings; an implicit all-failed retry refuses atomically when any selected copy is blocked. Only transfers require retained capture staging. */
   retryBackupRun: {
     parameters: {
       path: {

@@ -5,6 +5,7 @@ import { getBackupCoverage, type BackupOverview, type BackupPlan } from '@/lib/b
 import { BackupDate, BackupError, BackupPanel, BackupStatus, buttonClass, primaryClass } from './backup-primitives'
 import { SourceLabel } from './source-label'
 import { sourceCoverage } from './source-coverage'
+import { CheckHoldWarning } from './check-hold-warning'
 
 export function ProtectionDashboard({
   data,
@@ -126,6 +127,7 @@ export function ProtectionDashboard({
                             {copy.evidence_usable ? 'Saved copy has usable recovery evidence.' : 'Saved copy does not have usable recovery evidence.'}
                           </p>
                         )}
+                        {destination && <CheckHoldWarning destination={destination} />}
                         <dl className="mt-2 grid gap-2 text-xs sm:grid-cols-3">
                           <div>
                             <dt className="text-[var(--muted)]">Latest data captured</dt>

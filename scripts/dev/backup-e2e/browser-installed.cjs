@@ -76,8 +76,14 @@ const record = (name) => summary.assertions.push(name);
     record('Authenticated real overview/policy contract exposes helper readiness, activity and effective pause reasons');
     await page.goto(`${base}/backups?view=protection`);
     await expect(page.getByRole('heading', { name: 'Protection status', exact: true })).toBeVisible();
-    if (policy.effective_paused) await expect(page.getByText('Automatic backups, integrity checks and retention cleanup are paused.', { exact: false })).toBeVisible();
-    if (!overview.helper_ready) await expect(page.getByText(overview.helper_configured ? 'In-place recovery is unavailable:' : 'In-place recovery is not configured.', { exact: false }).first()).toBeVisible();
+    if (policy.effective_paused) {
+      await expect(page.getByText('Automatic backups, integrity checks and retention cleanup are paused.', { exact: false })).toBeVisible();
+      record('Effective automatic pause is shown in the installed UI');
+    } else summary.skipped.push('Effective pause banner: automatic work is not paused');
+    if (!overview.helper_ready) {
+      await expect(page.getByText(overview.helper_configured ? 'In-place recovery is unavailable:' : 'In-place recovery is not configured.', { exact: false }).first()).toBeVisible();
+      record('Unavailable in-place recovery helper has an explicit warning');
+    } else summary.skipped.push('Unavailable helper warning: installed helper is ready');
     const screenshot = async name => {
       await page.screenshot({ path: path.join(artifact, name), fullPage: true });
       summary.screenshots.push(name);
@@ -106,12 +112,16 @@ const record = (name) => summary.assertions.push(name);
       if (await actions.count()) {
         for (const action of await actions.all()) await expect(action).toBeEnabled();
         record('Persisted user pause leaves manual capture available in the installed UI');
-      }
-    } else if (policy.pause_reasons.some(reason => reason.code !== 'user_paused')) {
+      } else summary.skipped.push('Manual capture during operator pause: no plan action exists');
+    } else summary.skipped.push('Manual capture during operator pause: no isolated user-pause fixture with available backup tools');
+    if (policy.pause_reasons.some(reason => reason.code !== 'user_paused')) {
       await page.getByRole('tab', { name: 'Plans', exact: true }).click();
-      for (const action of await page.getByRole('button', { name: 'Back up now', exact: true }).all()) await expect(action).toBeDisabled();
-      record('System pause blocks new captures in the installed UI');
-    }
+      const actions = page.getByRole('button', { name: 'Back up now', exact: true });
+      if (await actions.count()) {
+        for (const action of await actions.all()) await expect(action).toBeDisabled();
+        record('System pause blocks new captures in the installed UI');
+      } else summary.skipped.push('System pause blocks new captures: no plan action exists');
+    } else summary.skipped.push('System pause blocks new captures: no active system-pause fixture');
     await page.getByRole('tab', { name: 'Destinations', exact: true }).click();
     if (overview.destinations.length) await expect(page.getByText('Snapshot inventory confirmed', { exact: true }).first()).toBeVisible();
     const destinationPanel = page.locator('#backup-panel-destinations');
@@ -119,6 +129,8 @@ const record = (name) => summary.assertions.push(name);
       const article = destinationPanel.locator('article').filter({ has: page.getByRole('heading', { name: destination.name, exact: true }) });
       await expect(article.getByRole('button', { name: 'Initialize', exact: true })).toBeDisabled();
     }
+    if (overview.destinations.some(item => item.status === 'available')) record('Available repositories cannot be initialized in the installed UI');
+    else summary.skipped.push('Initialized repository protection: no available destination fixture');
     await expect(page.getByText('Repository metadata evidence', { exact: true }).first()).toBeVisible();
     await expect(page.getByText('Stored data evidence', { exact: true }).first()).toBeVisible();
     await screenshot('destinations-desktop.png');
@@ -133,12 +145,12 @@ const record = (name) => summary.assertions.push(name);
       await screenshot('immutable-destination-desktop.png');
       await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
       record('Installed destination editor keeps type and repository address immutable');
-    }
-    const integrityFailure = item => [item.metadata_check.status, item.data_check.status].includes('failed');
+    } else summary.skipped.push('Immutable destination editor: no configured destination');
+    const integrityFailure = item => !!item.check_hold || [item.metadata_check.status, item.data_check.status].includes('failed');
     const failedDestination = args['--integrity-destination-id']
       ? overview.destinations.find(item => item.id === args['--integrity-destination-id'])
       : overview.destinations.find(item => item.data_check.status === 'failed') || overview.destinations.find(integrityFailure);
-    if (args['--integrity-destination-id'] && (!failedDestination || !integrityFailure(failedDestination))) throw new Error('Requested integrity fixture is missing or has no recorded failure');
+    if (args['--integrity-destination-id'] && (!failedDestination || !integrityFailure(failedDestination))) throw new Error('Requested integrity fixture is missing or has no recorded failure/hold');
     const inspectionDestination = failedDestination || overview.destinations.find(item => item.id === args['--destination-id']) || overview.destinations[0];
     if (inspectionDestination && overview.restic_available && (inspectionDestination.kind !== 'rclone' || overview.rclone_available)) {
       summary.repositoryReview = { destination_id: inspectionDestination.id, metadata_status: inspectionDestination.metadata_check.status, data_status: inspectionDestination.data_check.status };
@@ -153,16 +165,22 @@ const record = (name) => summary.assertions.push(name);
         await checkDialog.getByLabel('Data-read policy').selectOption('all');
         record('Known stored-data failure defaults to a full read and explains why metadata checks cannot clear it');
       } else summary.skipped.push('Full-check failure default: no preexisting stored-data failure fixture');
+      if (inspectionDestination.check_hold) {
+        await expect(checkDialog).toContainText('Saved verification evidence is historical');
+        await expect(checkDialog).toContainText(inspectionDestination.check_hold.error);
+        record('Inconclusive check hold is visible separately from historical verification');
+      } else summary.skipped.push('Inconclusive check hold: selected destination has no hold fixture');
       await expect(checkDialog.getByText('A full data read downloads', { exact: false })).toBeVisible();
       await expect(checkDialog).toContainText('provider download charges');
       await screenshot('check-review-desktop.png');
       await checkDialog.getByRole('button', { name: 'Cancel', exact: true }).click();
       await article.getByRole('button', { name: 'Remove stale locks', exact: true }).click();
-      await expect(page.getByRole('dialog')).toContainText('Active locks remain in place');
+      await expect(page.getByRole('dialog')).toContainText('refuses removal when a local lock owner is alive');
       await expect(page.getByRole('dialog')).toContainText('reserves this destination');
+      await expect(page.getByRole('dialog')).toContainText('does not check or repair repository data');
       await screenshot('unlock-review-desktop.png');
       await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
-      record('Explicit stale-lock review preserves active locks and is cancelled without repository mutation');
+      record('Explicit stale-lock review explains the owner guard and unchanged integrity evidence, and is cancelled without mutation');
       await article.getByRole('button', { name: 'Run retention cleanup', exact: true }).click();
       const cleanupDialog = page.getByRole('dialog');
       if (integrityFailure(inspectionDestination)) {
@@ -170,6 +188,10 @@ const record = (name) => summary.assertions.push(name);
         await expect(submit).toBeDisabled();
         await expect(cleanupDialog).toContainText('unresolved integrity failure');
         await expect(cleanupDialog).toContainText('remove recovery material needed for repair');
+        expect(inspectionDestination.maintenance_review_token).toMatch(/^[a-f0-9]{64}$/);
+        for (const evidence of [inspectionDestination.metadata_check, inspectionDestination.data_check].filter(item => item.status === 'failed')) {
+          if (evidence.error) await expect(cleanupDialog.getByRole('alert').first()).toContainText(evidence.error);
+        }
         await cleanupDialog.getByRole('textbox').fill(`${inspectionDestination.name} incorrect`);
         await expect(submit).toBeDisabled();
         await cleanupDialog.getByRole('textbox').fill(inspectionDestination.name);
@@ -183,7 +205,7 @@ const record = (name) => summary.assertions.push(name);
       if (args['--integrity-destination-id']) throw new Error('Required integrity review fixture lacks repository tools');
       summary.skipped.push('Repository decision dialogs: no destination with available backup tools');
     }
-    record('Destination inventory/check-attempt details render and available repositories cannot be initialized');
+    record('Destination inventory and check-attempt details render');
     await page.getByRole('tab', { name: 'Recovery', exact: true }).click();
     const preferred = overview.destinations.filter(item => args['--destination-id'] ? item.id === args['--destination-id'] : item.status === 'available').sort((a, b) => Number(b.kind === 'local') - Number(a.kind === 'local'));
     for (const destination of preferred) {
@@ -213,7 +235,7 @@ const record = (name) => summary.assertions.push(name);
         await page.getByLabel('Recovery destination', { exact: true }).selectOption(destination.id);
         await expect(page.getByRole('combobox', { name: 'Recovery set', exact: true })).toHaveValue(snapshots.items[0].id);
         record('Selected recovery snapshot survives switching to another real destination and back');
-      }
+      } else summary.skipped.push('Recovery selection across destinations: no alternate destination in the selected fixture set');
       record('Live recovery snapshot loads, survives explicit Refresh and tab navigation');
       break;
     }
@@ -241,7 +263,10 @@ const record = (name) => summary.assertions.push(name);
         } else summary.skipped.push('Apply provenance dialog: in-place recovery is currently blocked');
       } else summary.skipped.push('Apply provenance dialog: chosen restore is unavailable or contains selected files only');
       await page.getByLabel('Recovery destination', { exact: true }).selectOption(summary.recovery.destination_id);
-    } else summary.skipped.push('Restore provenance: no retained restore result for an existing destination');
+    } else {
+      summary.skipped.push('Restore provenance: no retained restore result for an existing destination');
+      summary.skipped.push('Apply provenance dialog: no retained restore result for an existing destination');
+    }
     await page.setViewportSize({ width: 390, height: 844 });
     for (const [tab, name] of [['Protection', 'protection-mobile.png'], ['Destinations', 'destinations-mobile.png'], ['Recovery', 'recovery-mobile.png']]) {
       const mobileTab = page.getByRole('tab', { name: tab, exact: true });

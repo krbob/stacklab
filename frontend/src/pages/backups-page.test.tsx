@@ -571,7 +571,7 @@ describe('Backup workflow round four regressions', () => {
   })
 
   it('requires explicit integrity acknowledgment before cleanup', async () => {
-    vi.mocked(api.getBackups).mockResolvedValue({ ...overview, destinations: [{ ...destination, data_check: { status: 'failed', scope: 'all', error: 'Damaged pack' } }] })
+    vi.mocked(api.getBackups).mockResolvedValue({ ...overview, destinations: [{ ...destination, maintenance_review_token: 'failed-proof', data_check: { status: 'failed', scope: 'all', error: 'Damaged pack' } }] })
     vi.mocked(api.pruneBackupDestination).mockResolvedValue(jobResponse)
     renderPage('destinations')
     fireEvent.click(await screen.findByRole('button', { name: 'Run retention cleanup' }))
@@ -579,7 +579,7 @@ describe('Backup workflow round four regressions', () => {
     expect(screen.getByRole('dialog')).toHaveTextContent('remove recovery material needed for repair')
     fireEvent.change(within(screen.getByRole('dialog')).getByRole('textbox'), { target: { value: 'NAS' } })
     fireEvent.click(screen.getByRole('button', { name: 'Start cleanup' }))
-    await waitFor(() => expect(api.pruneBackupDestination).toHaveBeenCalledWith('nas', true))
+    await waitFor(() => expect(api.pruneBackupDestination).toHaveBeenCalledWith('nas', 'failed-proof'))
   })
 
   it('offers an explicit stale-lock operation without force-unlock semantics', async () => {
@@ -587,7 +587,10 @@ describe('Backup workflow round four regressions', () => {
     renderPage('destinations')
     fireEvent.click((await screen.findAllByRole('button', { name: 'Remove stale locks' }))[0])
     const dialog = screen.getByRole('dialog')
-    expect(dialog).toHaveTextContent('Active locks remain in place')
+    expect(dialog).toHaveTextContent('refuses removal when a local lock owner is alive')
+    expect(dialog).toHaveTextContent('does not check or repair repository data')
+    expect(dialog).toHaveTextContent('Keep external repository clients stopped throughout this operation')
+    expect(dialog).toHaveTextContent('refuses locks from another host')
     expect(api.unlockBackupDestination).not.toHaveBeenCalled()
     fireEvent.click(within(dialog).getByRole('button', { name: 'Remove stale locks' }))
     await waitFor(() => expect(api.unlockBackupDestination).toHaveBeenCalledWith('nas'))
@@ -622,5 +625,96 @@ describe('Backup workflow round four regressions', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Back up now' })).toBeDisabled())
     expect(screen.getByRole('alert')).toHaveTextContent(message)
     expect(screen.queryByText(/Service recovery needs attention/)).not.toBeInTheDocument()
+  })
+})
+
+describe('Backup repository decision regressions', () => {
+  it('shows the imported failed check status and scope even when its timestamp is unavailable', async () => {
+    vi.mocked(api.getBackups).mockResolvedValue({ ...overview, destinations: [{ ...destination, last_check_attempt_status: 'failed', last_check_attempt_policy: 'unknown', last_check_attempt_error: 'Imported check failure' }] })
+    renderPage('destinations')
+    const details = (await screen.findByText('Latest check attempt')).parentElement!
+    expect(details).toHaveTextContent('Time not recorded')
+    expect(details).toHaveTextContent('Scope not recorded')
+    expect(details).toHaveTextContent('failed')
+  })
+  it.each(['metadata', 'all'] as const)('keeps historical proof visible beside an inconclusive %s check and selects the resolving scope', async (scope) => {
+    const held: api.BackupDestination = { ...destination, metadata_check: { status: 'verified', scope: 'metadata', checked_at: '2026-10-01T00:00:00Z' }, data_check: { status: 'verified', scope: 'all', checked_at: '2026-10-01T00:00:00Z' }, check_status: 'unverified', check_hold: { scope, error: 'Check did not establish repository integrity', checked_at: '2026-10-02T00:00:00Z' } }
+    vi.mocked(api.getBackups).mockResolvedValue({ ...overview, destinations: [held] })
+    renderPage('destinations')
+    expect(await screen.findByText(/Saved verification evidence is historical/)).toBeVisible()
+    expect(screen.getAllByText('verified')).toHaveLength(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Check repository' }))
+    expect(screen.getByLabelText('Data-read policy')).toHaveValue(scope)
+    expect(within(screen.getByRole('dialog')).getByText(held.check_hold!.error)).toBeVisible()
+  })
+
+  it('resets typed cleanup acknowledgment when current evidence changes while the dialog is open', async () => {
+    let current: api.BackupDestination = { ...destination, maintenance_review_token: 'proof-a', data_check: { status: 'failed', scope: 'all', error: 'First damaged pack', checked_at: '2026-10-01T00:00:00Z' } }
+    vi.mocked(api.getBackups).mockImplementation(async () => ({ ...overview, destinations: [current] }))
+    vi.mocked(api.pruneBackupDestination).mockResolvedValue(jobResponse)
+    renderPage('destinations')
+    fireEvent.click(await screen.findByRole('button', { name: 'Run retention cleanup' }))
+    fireEvent.change(within(screen.getByRole('dialog')).getByRole('textbox'), { target: { value: 'NAS' } })
+    expect(screen.getByRole('button', { name: 'Start cleanup' })).toBeEnabled()
+    current = { ...current, maintenance_review_token: 'proof-b', data_check: { status: 'failed', scope: 'all', error: 'Second damaged pack', checked_at: '2026-10-02T00:00:00Z' } }
+    fireEvent(window, new Event('focus'))
+    await waitFor(() => expect(within(screen.getByRole('dialog')).getByText('Second damaged pack')).toBeVisible())
+    expect(within(screen.getByRole('dialog')).getByRole('textbox')).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'Start cleanup' })).toBeDisabled()
+    expect(api.pruneBackupDestination).not.toHaveBeenCalled()
+    fireEvent.change(within(screen.getByRole('dialog')).getByRole('textbox'), { target: { value: 'NAS' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Start cleanup' }))
+    await waitFor(() => expect(api.pruneBackupDestination).toHaveBeenCalledWith('nas', 'proof-b'))
+  })
+
+  it('refreshes a stale cleanup review after the dedicated conflict and requires new acknowledgment', async () => {
+    let current = destination
+    vi.mocked(api.getBackups).mockImplementation(async () => ({ ...overview, destinations: [current] }))
+    vi.mocked(api.pruneBackupDestination).mockImplementationOnce(async () => {
+      current = { ...destination, maintenance_review_token: 'new-hold', check_hold: { scope: 'metadata', error: 'Index discovery was inconclusive' } }
+      throw Object.assign(new Error('raw API acknowledgement details'), { code: 'maintenance_acknowledgement_required' })
+    }).mockResolvedValue(jobResponse)
+    renderPage('destinations')
+    fireEvent.click(await screen.findByRole('button', { name: 'Run retention cleanup' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start cleanup' }))
+    await waitFor(() => expect(within(screen.getByRole('dialog')).getByText('Index discovery was inconclusive')).toBeVisible())
+    expect(screen.getByRole('dialog')).toHaveTextContent('Review the latest evidence and confirm')
+    expect(screen.queryByText('raw API acknowledgement details')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Start cleanup' })).toBeDisabled()
+    fireEvent.change(within(screen.getByRole('dialog')).getByRole('textbox'), { target: { value: 'NAS' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Start cleanup' }))
+    await waitFor(() => expect(api.pruneBackupDestination).toHaveBeenLastCalledWith('nas', 'new-hold'))
+  })
+
+  it('offers lock recovery beside persisted errors without inferring locks from arbitrary prose', async () => {
+    vi.mocked(api.getBackups).mockResolvedValue({ ...overview, destinations: [{ ...destination, inventory_error: 'Repository locked (repository_locked)' }, { ...destination, id: 'cloud', name: 'Cloud', inventory_error: 'The old repository_locked label is unavailable' }] })
+    renderPage('destinations')
+    expect(await screen.findAllByRole('button', { name: 'Review stale locks' })).toHaveLength(1)
+  })
+
+  it('keeps unlock refusal in review and refreshes a recently loaded Recovery list after successful unlock', async () => {
+    let completed = false
+    vi.mocked(useJobStream).mockImplementation(({ jobId }) => ({ state: jobId ? completed ? 'succeeded' : 'running' : null, events: [], clear: vi.fn() }))
+    vi.mocked(api.getBackups).mockImplementation(async () => ({ ...overview, destinations: [{ ...destination, last_check_attempt_error: 'Previous check was locked (repository_locked)', ...(completed ? { last_operation: 'backup_unlock', last_operation_status: 'succeeded', last_operation_at: '2026-10-15T09:00:00Z' } : {}) }] }))
+    vi.mocked(api.getBackupRestores).mockResolvedValue({ items: [] })
+    vi.mocked(api.getBackupSnapshots).mockResolvedValueOnce({ items: [] }).mockRejectedValueOnce(Object.assign(new Error('Repository is locked'), { code: 'repository_locked' })).mockResolvedValue({ items: [] })
+    vi.mocked(api.unlockBackupDestination).mockRejectedValueOnce(new Error('Local lock owner is still running')).mockResolvedValue(jobResponse)
+    renderPage('recovery')
+    await screen.findByText('No snapshots found in this repository.')
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh snapshots' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Review stale locks' }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove stale locks' }))
+    expect(await within(screen.getByRole('dialog')).findByText('Local lock owner is still running')).toBeVisible()
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove stale locks' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    completed = true
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    await waitFor(() => expect(api.getBackupSnapshots).toHaveBeenCalledTimes(3))
+    expect(screen.queryByText('Repository is locked')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: 'Destinations' }))
+    expect(await screen.findByText(/Stale-lock removal completed/)).toHaveTextContent('repository data was not checked')
+    expect(screen.getByText(/A repository operation reported a lock/)).toHaveTextContent('Review the latest job result')
+    expect(screen.queryByText(/A repository client holds a lock/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Unlock job details' })).toBeVisible()
   })
 })

@@ -96,8 +96,8 @@ export const previewBackupSchedule = (schedule: BackupSchedule, signal?: AbortSi
     ...post({ schedule, count: 3 }),
     signal,
   })
-export const pruneBackupDestination = (id: string, acknowledgeIntegrityFailure = false) =>
-  request<BackupJobResponse>(`${base}/destinations/${encode(id)}/prune`, post(acknowledgeIntegrityFailure ? { acknowledge_integrity_failure: true } : {}))
+export const pruneBackupDestination = (id: string, reviewToken?: string) =>
+  request<BackupJobResponse>(`${base}/destinations/${encode(id)}/prune`, post(reviewToken ? { acknowledge_integrity_failure: true, acknowledgement_review_token: reviewToken } : {}))
 export const unlockBackupDestination = (id: string) =>
   request<BackupJobResponse>(`${base}/destinations/${encode(id)}/unlock`, post())
 export const getBackupRestores = (signal?: AbortSignal) =>

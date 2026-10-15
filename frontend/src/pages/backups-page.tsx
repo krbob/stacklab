@@ -46,6 +46,9 @@ import { SourceLabel } from './backups/source-label'
 import { BackupOperations } from './backups/backup-operations'
 import { useBackupRefresh, type BackupJobEffects } from './backups/use-backup-refresh'
 import { useVisibleRefresh } from './backups/use-visible-refresh'
+import { checkScopeLabel, repositoryLocked, requiredCheckScope } from './backups/repository-evidence'
+import { CheckHoldWarning } from './backups/check-hold-warning'
+import { PruneReviewDialog } from './backups/prune-review-dialog'
 
 type Editor =
   | { kind: 'destination'; value?: BackupDestination }
@@ -57,8 +60,6 @@ type Review =
   | null
 const tabs = ['protection', 'recovery', 'history', 'plans', 'destinations'] as const
 type Tab = (typeof tabs)[number]
-const checkScopeLabel = (scope?: string) => ({ metadata: 'Metadata', subset: 'Sampled data read', all: 'Full data read' } as Record<string, string>)[scope ?? ''] ?? 'Scope not recorded'
-const hasIntegrityFailure = (destination: BackupDestination) => destination.metadata_check?.status === 'failed' || destination.data_check?.status === 'failed'
 
 export function BackupsPage() {
   const [search, setSearch] = useSearchParams()
@@ -73,6 +74,8 @@ export function BackupsPage() {
   const { openJob } = useJobDrawer()
   const [editor, setEditor] = useState<Editor>(null)
   const [review, setReview] = useState<Review>(null)
+  const [pruneReviewRevision, setPruneReviewRevision] = useState(0)
+  const [unlockJobs, setUnlockJobs] = useState<Record<string, string>>({})
   const [runPlan, setRunPlan] = useState<BackupPlan | null>(null)
   const [check, setCheck] = useState<BackupDestination | null>(null)
   const [readData, setReadData] = useState<'metadata' | 'subset' | 'all'>('metadata')
@@ -122,7 +125,11 @@ export function BackupsPage() {
       else state.refetch()
       return true
     } catch (cause) {
-      reportError(cause instanceof Error ? cause.message : 'Backup operation failed', scope)
+      if (cause && typeof cause === 'object' && 'code' in cause && cause.code === 'maintenance_acknowledgement_required') {
+        reportError('Repository check evidence changed. Review the latest evidence and confirm the cleanup risk again.', scope)
+        setPruneReviewRevision((value) => value + 1)
+        state.refetch()
+      } else reportError(cause instanceof Error ? cause.message : 'Backup operation failed', scope)
       return false
     } finally {
       setPending(false)
@@ -163,6 +170,12 @@ export function BackupsPage() {
     reportError(null)
     setReview(value)
   }
+  const openCheck = (destination: BackupDestination) => {
+    reportError(null)
+    setReadData(requiredCheckScope(destination) ?? (destination.check_read_data === 'all' || destination.check_read_data === 'subset' ? destination.check_read_data : 'metadata'))
+    setCheck(destination)
+  }
+  const currentPruneDestination = review?.kind === 'prune' ? destinations.find((item) => item.id === review.destination.id) : undefined
   const hasDialog = !!runPlan || !!check || !!review || !!editor
   useEffect(() => {
     const id = search.get('plan')
@@ -322,6 +335,7 @@ export function BackupsPage() {
                       )
                     }
                     onStarted={(result, id, test) => started(result, true, { destinationIds: [id], snapshots: test, restores: true })}
+                    onUnlock={(destination) => openReview({ kind: 'unlock', destination })}
                   />
                 )}
               </div>
@@ -399,9 +413,10 @@ export function BackupsPage() {
                             </div>
                             <div>
                               <dt className="text-[var(--muted)]">Latest check attempt</dt>
-                              <dd className="mt-1">{destination.last_check_attempt_at ? <><BackupDate value={destination.last_check_attempt_at} /> · {checkScopeLabel(destination.last_check_attempt_policy)}{destination.last_check_attempt_status && <> · <BackupStatus value={destination.last_check_attempt_status} /></>}</> : 'Not recorded'}</dd>
+                              <dd className="mt-1">{destination.last_check_attempt_at || destination.last_check_attempt_status || destination.last_check_attempt_policy ? <>{destination.last_check_attempt_at ? <BackupDate value={destination.last_check_attempt_at} /> : 'Time not recorded'} · {checkScopeLabel(destination.last_check_attempt_policy)}{destination.last_check_attempt_status && <> · <BackupStatus value={destination.last_check_attempt_status} /></>}</> : 'Not recorded'}</dd>
                             </div>
                           </dl>
+                          <CheckHoldWarning destination={destination} />
                           <dl className="grid gap-2 text-xs sm:grid-cols-2">
                             {([['Repository metadata evidence', destination.metadata_check], ['Stored data evidence', destination.data_check]] as const).map(([label, evidence]) => <div key={label}>
                               <dt className="text-[var(--muted)]">{label}</dt>
@@ -410,19 +425,21 @@ export function BackupsPage() {
                             </div>)}
                           </dl>
                           {destination.data_check?.status === 'failed' && <p className="text-xs text-[var(--warning)]">Stored data has a known failure. A metadata or sampled check cannot resolve it; repair the repository and run a full data check.</p>}
-                          {destination.last_check_attempt_error && ![destination.metadata_check?.error, destination.data_check?.error].includes(destination.last_check_attempt_error) && <p className="text-xs text-[var(--warning)]">Latest check attempt: {destination.last_check_attempt_error}</p>}
+                          {destination.last_check_attempt_error && ![destination.metadata_check?.error, destination.data_check?.error, destination.check_hold?.error].includes(destination.last_check_attempt_error) && <p className="text-xs text-[var(--warning)]">Latest check attempt: {destination.last_check_attempt_error}</p>}
                           {destination.inventory_error && (
                             <p className="text-sm text-[var(--warning)]">Snapshot inventory: {destination.inventory_error}</p>
                           )}
                           {destination.check_error && !destination.metadata_check && !destination.data_check && (
                             <p className="text-sm text-[var(--warning)]">Integrity check: {destination.check_error}</p>
                           )}
-                          {destination.last_operation_error && ![destination.error, destination.last_check_attempt_error, destination.metadata_check?.error, destination.data_check?.error].includes(destination.last_operation_error) && (
+                          {destination.last_operation_error && ![destination.error, destination.last_check_attempt_error, destination.metadata_check?.error, destination.data_check?.error, destination.check_hold?.error].includes(destination.last_operation_error) && (
                             <p className="text-xs text-[var(--warning)]">
                               Last {destination.last_operation?.replaceAll('_', ' ')} operation:{' '}
                               {destination.last_operation_error}
                             </p>
                           )}
+                          {destination.last_operation === 'backup_unlock' && destination.last_operation_status === 'succeeded' && <p role="status" className="text-sm text-[var(--text)]">Stale-lock removal completed · <BackupDate value={destination.last_operation_at} />. Remaining lock counts are recorded in job details; repository data was not checked.{unlockJobs[destination.id] && <button className={`${buttonClass} ml-2`} onClick={() => openJob(unlockJobs[destination.id])}>Unlock job details</button>}</p>}
+                          {[destination.last_check_attempt_error, destination.inventory_error, destination.last_operation_error, destination.error].some(repositoryLocked) && <p className="text-sm text-[var(--warning)]">A repository operation reported a lock. Review the latest job result. If access is still blocked, wait for the client to finish or inspect stale locks. <button className={buttonClass} disabled={pending || !data.restic_available || (destination.kind === 'rclone' && !data.rclone_available)} onClick={() => openReview({ kind: 'unlock', destination })}>Review stale locks</button></p>}
                           <p className="text-xs text-[var(--muted)]">
                             Checks: {scheduleDescription(destination.check_schedule ?? { frequency: 'manual' })} ·
                             Cleanup: {scheduleDescription(destination.prune_schedule ?? { frequency: 'manual' })}
@@ -464,11 +481,7 @@ export function BackupsPage() {
                                 !data.restic_available ||
                                 (destination.kind === 'rclone' && !data.rclone_available)
                               }
-                              onClick={() => {
-                                reportError(null)
-                                setReadData(destination.data_check?.status === 'failed' ? 'all' : destination.check_read_data === 'all' || destination.check_read_data === 'subset' ? destination.check_read_data : 'metadata')
-                                setCheck(destination)
-                              }}
+                              onClick={() => openCheck(destination)}
                             >
                               Check repository
                             </button>
@@ -613,6 +626,7 @@ export function BackupsPage() {
                     clock={clock}
                     pending={pending}
                     onJob={openJob}
+                    onCheck={openCheck}
                     onRetry={(run, ids) => {
                       void command(() => retryBackupRun(run.id, ids), 'history', { destinationIds: ids, snapshots: true })
                     }}
@@ -683,7 +697,10 @@ export function BackupsPage() {
         >
           <div className="mt-4 space-y-4">
             <BackupError error={error} />
+            <CheckHoldWarning destination={check} />
             {check.data_check?.status === 'failed' && <p className="text-sm text-[var(--warning)]">Stored data has a known failure. Only a successful full data read can clear it after the repository is repaired.{readData !== 'all' && ' A metadata or sampled check leaves this data-failure evidence unchanged.'}</p>}
+            {check.data_check?.status !== 'failed' && check.metadata_check.status === 'failed' && <p className="text-sm text-[var(--warning)]">Repository metadata has a known failure. After repair, a successful metadata check can clear it; a full data read is only required for stored-data failures or a full-read hold.</p>}
+            {check.check_hold?.scope === 'all' && readData !== 'all' && <p className="text-sm text-[var(--warning)]">A metadata or sampled check leaves this inconclusive full-read hold unchanged.</p>}
             <Field label="Data-read policy">
               <select
                 className={inputClass}
@@ -725,14 +742,28 @@ export function BackupsPage() {
           </div>
         </Dialog>
       )}
-      {review && (
+      {review?.kind === 'prune' && currentPruneDestination && (
+        <PruneReviewDialog
+          key={`${currentPruneDestination.id}:${currentPruneDestination.name}:${currentPruneDestination.maintenance_review_token ?? 'clear'}:${pruneReviewRevision}`}
+          destination={currentPruneDestination}
+          pending={pending}
+          refreshing={state.loading || !!state.error}
+          error={error ?? state.error?.message ?? null}
+          onCancel={() => { if (!pending) { setReview(null); reportError(null) } }}
+          onConfirm={(token) => {
+            void command(() => token ? pruneBackupDestination(currentPruneDestination.id, token) : pruneBackupDestination(currentPruneDestination.id), null, { destinationIds: [currentPruneDestination.id], snapshots: true }).then((ok) => {
+              if (ok) { setReview(null); configurationChanged() }
+            })
+          }}
+        />
+      )}
+      {review?.kind === 'prune' && !currentPruneDestination && <Dialog title="Run retention cleanup" onClose={() => { setReview(null); reportError(null) }}><p className="mt-4 text-sm text-[var(--warning)]">This destination is no longer configured. Cleanup cannot continue.</p><button className={`${buttonClass} mt-4`} onClick={() => { setReview(null); reportError(null) }}>Close</button></Dialog>}
+      {review && review.kind !== 'prune' && (
         <ConfirmDialog
           title={
             review.kind === 'initialize'
               ? 'Initialize new repository'
-              : review.kind === 'prune'
-                ? 'Run retention cleanup'
-                : review.kind === 'unlock'
+              : review.kind === 'unlock'
                   ? 'Remove stale repository locks'
                 : review.kind === 'deletePlan'
                   ? 'Remove backup plan'
@@ -741,25 +772,21 @@ export function BackupsPage() {
           message={
             review.kind === 'initialize'
               ? 'Create an encrypted restic repository at the configured location. Only initialize a new repository; test access to an existing one.'
-              : review.kind === 'prune'
-                ? `Reclaim storage no longer referenced by retained snapshots. Cleanup locks this repository and may take time or incur provider transfer charges.${hasIntegrityFailure(review.destination) ? ' This repository has an unresolved integrity failure. Cleanup can remove recovery material needed for repair. Inspect the failure and keep an independent repository copy before continuing. Type the destination name to acknowledge this risk.' : ''}`
-                : review.kind === 'unlock'
-                  ? 'Remove only locks that restic identifies as stale. Active locks remain in place. Stacklab reserves this destination while the operation runs. Check that other repository clients are not recovering from an interruption before continuing.'
+              : review.kind === 'unlock'
+                  ? 'Inspect repository locks, then remove only locks identified as stale. Stacklab refuses removal when a local lock owner is alive or its state cannot be established, and also refuses locks from another host. Keep external repository clients stopped throughout this operation. Stacklab reserves this destination while the operation runs. This does not check or repair repository data and leaves integrity evidence unchanged. Job details report any remaining locks.'
                 : 'Remove this configuration from Stacklab. Existing repository snapshots remain available with independently saved credentials.'
           }
           error={error}
           confirmLabel={
             review.kind === 'initialize'
               ? 'Initialize repository'
-              : review.kind === 'prune'
-                ? 'Start cleanup'
-                : review.kind === 'unlock'
+              : review.kind === 'unlock'
                   ? 'Remove stale locks'
                 : 'Remove configuration'
           }
           confirming={pending}
           requireText={
-            review.kind === 'initialize' || review.kind === 'unlock' || (review.kind === 'prune' && !hasIntegrityFailure(review.destination))
+            review.kind === 'initialize' || review.kind === 'unlock'
               ? undefined
               : review.kind === 'deletePlan'
                 ? review.plan.name
@@ -776,14 +803,16 @@ export function BackupsPage() {
             const action =
               review.kind === 'initialize'
                 ? () => initializeBackupDestination(review.destination.id)
-                : review.kind === 'prune'
-                  ? () => hasIntegrityFailure(review.destination) ? pruneBackupDestination(review.destination.id, true) : pruneBackupDestination(review.destination.id)
-                  : review.kind === 'unlock'
-                    ? () => unlockBackupDestination(review.destination.id)
+                : review.kind === 'unlock'
+                    ? async () => {
+                      const result = await unlockBackupDestination(review.destination.id)
+                      setUnlockJobs((previous) => ({ ...previous, [review.destination.id]: result.job.id }))
+                      return result
+                    }
                   : review.kind === 'deletePlan'
                     ? () => deleteBackupPlan(review.plan.id)
                     : () => deleteBackupDestination(review.destination.id)
-            void command(action, null, review.kind === 'prune' || review.kind === 'initialize' ? { destinationIds: [review.destination.id], snapshots: true } : {}).then((ok) => {
+            void command(action, null, review.kind === 'unlock' || review.kind === 'initialize' ? { destinationIds: [review.destination.id], snapshots: true } : {}).then((ok) => {
               if (ok) { setReview(null); configurationChanged() }
             })
           }}

@@ -38,6 +38,8 @@ import { ApplyRecoveryDialog } from './apply-recovery-dialog'
 import { SourceLabel } from './source-label'
 import { formatBackupDate } from './backup-formatters'
 import { useVisibleRefresh } from './use-visible-refresh'
+import { repositoryLocked } from './repository-evidence'
+import { CheckHoldWarning } from './check-hold-warning'
 
 type SelectedFile = { source_id: string; path: string }
 const terminal = ['succeeded', 'failed', 'cancelled', 'timed_out']
@@ -57,6 +59,7 @@ export function RecoveryWorkspace({
   helperReady,
   helperError,
   onStarted,
+  onUnlock,
 }: {
   destinations: BackupDestination[]
   initialDestinationId?: string
@@ -72,6 +75,7 @@ export function RecoveryWorkspace({
   helperReady?: boolean
   helperError?: string
   onStarted: (result: BackupJobResponse, destinationId: string, test: boolean) => void
+  onUnlock?: (destination: BackupDestination) => void
 }) {
   const [destinationId, setDestinationId] = useState(
     initialDestinationId ?? destinations.find((item) => item.kind === 'local')?.id ?? '',
@@ -127,6 +131,7 @@ export function RecoveryWorkspace({
             helperError={helperError}
             toolsAvailable={toolsAvailable && (destination.kind !== 'rclone' || rcloneAvailable)}
             onStarted={(result, test) => onStarted(result, destination.id, test)}
+            onUnlock={onUnlock ? () => onUnlock(destination) : undefined}
           />
         </div>
       ))}
@@ -146,6 +151,7 @@ function DestinationRecovery({
   helperReady,
   helperError,
   onStarted,
+  onUnlock,
 }: {
   destination: BackupDestination
   plans: BackupPlan[]
@@ -158,6 +164,7 @@ function DestinationRecovery({
   helperReady?: boolean
   helperError?: string
   onStarted: (result: BackupJobResponse, test: boolean) => void
+  onUnlock?: () => void
 }) {
   const snapshots = useApi(
     (signal) => (toolsAvailable ? getBackupSnapshots(destination.id, signal) : Promise.resolve({ items: [] })),
@@ -226,6 +233,8 @@ function DestinationRecovery({
         }
       >
         <BackupError error={error ?? snapshots.error?.message ?? null} />
+        {repositoryLocked(snapshots.error) && onUnlock && <p className="mb-3 text-sm text-[var(--warning)]">Snapshot listing is blocked by a repository lock. Wait for the client to finish, or inspect stale locks. <button className={buttonClass} disabled={!toolsAvailable} onClick={onUnlock}>Review stale locks</button></p>}
+        <CheckHoldWarning destination={destination} />
         {!toolsAvailable && (
           <p className="text-sm text-[var(--warning)]">
             Install the required backup tools before accessing this repository.

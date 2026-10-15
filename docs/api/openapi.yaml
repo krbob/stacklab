@@ -249,7 +249,7 @@ paths:
       tags:
       - Backups
       operationId: pruneBackupDestination
-      description: Queue repository prune under the existing repository and native restic locks. Known integrity failure requires explicit acknowledgement; scheduled prune remains blocked.
+      description: Queue repository prune under the existing repository and native restic locks. Known integrity failure or an inconclusive-check hold requires explicit acknowledgement tied to the current maintenance_review_token; scheduled prune remains blocked. Missing or stale acknowledgement returns maintenance_acknowledgement_required (409).
       requestBody:
         required: false
         content:
@@ -282,7 +282,7 @@ paths:
       tags:
       - Backups
       operationId: unlockBackupDestination
-      description: Queue ordinary restic unlock under Stacklab repository admission. Removes only locks restic considers stale, never forces active locks or clears integrity evidence. A live owner's lock may remain.
+      description: Inspect locks under Stacklab repository admission and refuse foreign-host locks or a same-host owner that is alive or cannot be established safely, then run ordinary restic unlock. External repository clients must stay stopped throughout the operation. Never uses force removal and does not check or clear integrity evidence. Job events report remaining locks.
       parameters:
       - name: destinationId
         in: path
@@ -2945,6 +2945,7 @@ paths:
       tags:
       - Backups
       operationId: retryBackupRun
+      description: Retry selected failed copies. Verified maintenance-only copies require an enabled current plan and destination assignment, and use the current retention policy at admission and execution. Destructive policies remain blocked by failed integrity evidence or check_hold. Keep-all settles maintenance without restic or clearing repository evidence. Explicit destination_ids may select healthy siblings; an implicit all-failed retry refuses atomically when any selected copy is blocked. Only transfers require retained capture staging.
       responses:
         '202':
           description: Backup operation accepted.
@@ -6108,6 +6109,11 @@ components:
     BackupDestination:
       type: object
       properties:
+        check_hold:
+          $ref: '#/components/schemas/BackupCheckHold'
+        maintenance_review_token:
+          type: string
+          description: Opaque fingerprint of current failed integrity evidence and inconclusive-check hold. Returned only when acknowledgement is needed; not a credential. A changed token requires a new explicit prune acknowledgement.
         metadata_check:
           $ref: '#/components/schemas/BackupIntegrityEvidence'
         data_check:
@@ -6178,8 +6184,8 @@ components:
           format: date-time
         check_status:
           type: string
-          enum: [unknown, verified, failed]
-          description: Conservative compatibility aggregate of metadata_check and data_check; verified does not imply a full data read.
+          enum: [unknown, verified, failed, unverified]
+          description: Conservative compatibility aggregate. Known failures take priority; an unresolved check_hold makes historical verification unverified. Verified does not imply a full data read.
         check_error:
           type: string
         last_operation:
@@ -6213,6 +6219,20 @@ components:
       - check_read_data
       - prune_schedule
       - status
+    BackupCheckHold:
+      type: object
+      description: Current inconclusive repository check, separate from historical verification. Blocks recovery protection and destructive automatic maintenance. A successful check at the required scope clears it; transport, lock and cancellation errors neither create nor clear it.
+      required: [scope, error]
+      properties:
+        scope:
+          type: string
+          enum: [metadata, all]
+          description: Minimum successful check required to clear this hold. A full check clears either scope; metadata or sampled success clears only a metadata hold.
+        checked_at:
+          type: string
+          format: date-time
+        error:
+          type: string
     BackupIntegrityEvidence:
       type: object
       description: Evidence at one check depth. A metadata or sampled success cannot clear a known data failure; only a successful full data check resolves it.
@@ -6387,7 +6407,10 @@ components:
         acknowledge_integrity_failure:
           type: boolean
           default: false
-          description: Explicitly accept pruning despite known repository integrity failure. This does not repair the repository or clear its evidence.
+          description: Explicitly accept pruning despite known repository integrity failure or an inconclusive check hold. Also requires acknowledgement_review_token. This does not repair the repository or clear its evidence.
+        acknowledgement_review_token:
+          type: string
+          description: Current Destination.maintenance_review_token explicitly reviewed by the operator. Missing or stale acknowledgement returns HTTP409 maintenance_acknowledgement_required. Checked again when the job executes.
     BackupCopyResult:
       type: object
       properties:
@@ -6399,7 +6422,7 @@ components:
           format: date-time
         retention_error:
           type: string
-          description: Cleanup failure after a verified copy; retry reuses the existing snapshot without uploading again.
+          description: Last cleanup failure. Preserved as historical context while a retry is pending or running, and cleared on successful maintenance. A fully verified copy retries maintenance without uploading again.
         verified_at:
           type: string
           format: date-time
@@ -7077,8 +7100,8 @@ components:
           format: date-time
         integrity_status:
           type: string
-          enum: [unknown, verified, failed]
-          description: Compatibility aggregate; verified can mean only metadata or a sampled read. Inspect destination metadata_check and data_check for actual scope and time.
+          enum: [unknown, verified, failed, unverified]
+          description: Compatibility aggregate; check_hold makes historical evidence unverified. Verified can mean only metadata or a sampled read. Inspect destination metadata_check, data_check and check_hold for scope and time.
         availability_status:
           type: string
         last_restore_test_at:

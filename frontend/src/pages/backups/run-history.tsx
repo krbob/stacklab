@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { backupDuration as duration } from './backup-formatters'
 import type { BackupCopy, BackupDestination, BackupPlan, BackupRun } from '@/lib/backup-api'
 import { BackupDate, BackupError, BackupPanel, BackupSize, BackupStatus, buttonClass, Field, inputClass } from './backup-primitives'
+import { requiredCheckScope } from './repository-evidence'
 
 const pageSize = 10
 const verifiedCopy = (copy: BackupCopy) => copy.state === 'succeeded' && copy.verification === 'recovery_objects_verified' && !!copy.verified_at && !!copy.snapshot_id
@@ -15,6 +16,7 @@ export function RunHistory({
   error,
   onJob,
   onRetry,
+  onCheck,
 }: {
   runs: BackupRun[]
   plans: BackupPlan[]
@@ -24,6 +26,7 @@ export function RunHistory({
   error?: string | null
   onJob: (id: string) => void
   onRetry: (run: BackupRun, ids: string[]) => void
+  onCheck?: (destination: BackupDestination) => void
 }) {
   const [filters, setFilters] = useState({ query: '', plan: '', state: '', destination: '', from: '', to: '' })
   const [page, setPage] = useState(0)
@@ -139,7 +142,25 @@ export function RunHistory({
           const expired = new Date(run.expires_at).getTime() <= clock
           const failed = run.copies.filter((copy) => copy.state !== 'succeeded' || copy.retention === 'failed')
           const active = ['running', 'queued'].includes(run.state)
-          const retryable = failed.filter((copy) => run.capture_state === 'succeeded' && (verifiedCopy(copy) || !expired))
+          const currentPlan = plans.find((item) => item.id === run.plan_id)
+          const maintenanceBlock = (copy: BackupCopy) => {
+            if (!verifiedCopy(copy)) return undefined
+            const assignment = currentPlan?.destinations.find((item) => item.destination_id === copy.destination_id)
+            if (!currentPlan?.enabled || !assignment?.enabled) return { reason: 'Retention retry requires an enabled current plan and destination assignment. Review the current plan configuration.' }
+            const destination = destinations.find((item) => item.id === copy.destination_id)
+            if (!destination) return { reason: 'The repository destination is no longer configured.' }
+            // Keep-all only settles the failed maintenance record; it invokes no
+            // destructive command and cannot clear repository evidence.
+            if (!assignment.retention.daily && !assignment.retention.weekly && !assignment.retention.monthly) return undefined
+            const scope = requiredCheckScope(destination)
+            if (scope) return { destination, reason: `Retention stays blocked until a successful ${scope === 'all' ? 'full data read' : 'metadata check'} resolves the repository evidence. Inspect and repair the cause before checking again.` }
+          }
+          const retryable = failed.filter((copy) => run.capture_state === 'succeeded' && (verifiedCopy(copy) ? !maintenanceBlock(copy) : !expired))
+          const needsNewCapture = failed.some((copy) => !verifiedCopy(copy) && (expired || run.capture_state !== 'succeeded'))
+          const keepingAll = retryable.some((copy) => {
+            const retention = currentPlan?.destinations.find((item) => item.destination_id === copy.destination_id)?.retention
+            return verifiedCopy(copy) && retention && !retention.daily && !retention.weekly && !retention.monthly
+          })
           const maintenanceOnly = failed.length > 0 && failed.every(verifiedCopy)
           const retryMaintenanceOnly = retryable.length > 0 && retryable.every(verifiedCopy)
           return (
@@ -175,45 +196,49 @@ export function RunHistory({
               </p>
               {run.error && <p className="text-sm text-[var(--danger)]">{run.error}</p>}
               <div className="space-y-2">
-                {run.copies.map((copy) => (
-                  <div key={copy.destination_id} className="rounded-md bg-[var(--bg)] p-3">
-                    <div className="flex flex-wrap justify-between gap-2 text-sm text-[var(--text)]">
-                      <span>{destinationName(copy.destination_id)}</span>
-                      <BackupStatus value={copy.state} />
-                    </div>
-                    <p className="mt-1 text-xs text-[var(--muted)]">
-                      Verification: {copy.verification.replaceAll('_', ' ')} · Retention: {copy.retention} · Uploaded{' '}
-                      <BackupDate value={copy.uploaded_at} />
-                    </p>
-                    {(copy.bytes_processed !== undefined || copy.files_processed !== undefined) && (
+                {run.copies.map((copy) => {
+                  const block = !active && copy.retention === 'failed' ? maintenanceBlock(copy) : undefined
+                  return (
+                    <div key={copy.destination_id} className="rounded-md bg-[var(--bg)] p-3">
+                      <div className="flex flex-wrap justify-between gap-2 text-sm text-[var(--text)]">
+                        <span>{destinationName(copy.destination_id)}</span>
+                        <BackupStatus value={copy.state} />
+                      </div>
                       <p className="mt-1 text-xs text-[var(--muted)]">
-                        Processed <BackupSize value={copy.bytes_processed} />
-                        {copy.bytes_total !== undefined && (
-                          <>
-                            {' '}
-                            / <BackupSize value={copy.bytes_total} />
-                          </>
-                        )}{' '}
-                        · {copy.files_processed ?? 0} repository items
-                        {copy.files_total !== undefined && ` / ${copy.files_total}`} · Added{' '}
-                        <BackupSize value={copy.bytes_added} /> · {duration(copy.duration_seconds)}
+                        Verification: {copy.verification.replaceAll('_', ' ')} · Retention: {copy.retention} · Uploaded{' '}
+                        <BackupDate value={copy.uploaded_at} />
                       </p>
-                    )}
-                    {copy.bytes_total !== undefined && copy.bytes_total > 0 && copy.state === 'running' && (
-                      <progress
-                        aria-label={`Upload progress to ${destinationName(copy.destination_id)}`}
-                        className="mt-2 w-full"
-                        max={copy.bytes_total}
-                        value={copy.bytes_processed ?? 0}
-                      />
-                    )}
-                    {copy.snapshot_id && (
-                      <p className="mt-1 break-all font-mono text-xs text-[var(--muted)]">{copy.snapshot_id}</p>
-                    )}
-                    {copy.retention_error && <p className="mt-1 text-sm text-[var(--warning)]">Copy verified; retention cleanup failed: {copy.retention_error}.</p>}
-                    {copy.error && <p className="mt-1 text-sm text-[var(--danger)]">{copy.error}</p>}
-                  </div>
-                ))}
+                      {(copy.bytes_processed !== undefined || copy.files_processed !== undefined) && (
+                        <p className="mt-1 text-xs text-[var(--muted)]">
+                          Processed <BackupSize value={copy.bytes_processed} />
+                          {copy.bytes_total !== undefined && (
+                            <>
+                              {' '}
+                              / <BackupSize value={copy.bytes_total} />
+                            </>
+                          )}{' '}
+                          · {copy.files_processed ?? 0} repository items
+                          {copy.files_total !== undefined && ` / ${copy.files_total}`} · Added{' '}
+                          <BackupSize value={copy.bytes_added} /> · {duration(copy.duration_seconds)}
+                        </p>
+                      )}
+                      {copy.bytes_total !== undefined && copy.bytes_total > 0 && copy.state === 'running' && (
+                        <progress
+                          aria-label={`Upload progress to ${destinationName(copy.destination_id)}`}
+                          className="mt-2 w-full"
+                          max={copy.bytes_total}
+                          value={copy.bytes_processed ?? 0}
+                        />
+                      )}
+                      {copy.snapshot_id && (
+                        <p className="mt-1 break-all font-mono text-xs text-[var(--muted)]">{copy.snapshot_id}</p>
+                      )}
+                      {copy.retention_error && <p className="mt-1 text-sm text-[var(--warning)]">{['pending', 'running'].includes(copy.retention) ? 'Previous retention attempt: ' : `${verifiedCopy(copy) ? 'Copy verified; retention' : 'Retention'} cleanup failed: `}{copy.retention_error}</p>}
+                      {block && <p className="mt-2 text-sm text-[var(--warning)]">{block.reason}{onCheck && block.destination && <button className={`${buttonClass} ml-2`} disabled={pending} onClick={() => onCheck(block.destination!)}>Check {destinationName(copy.destination_id)} repository</button>}</p>}
+                      {copy.error && <p className="mt-1 text-sm text-[var(--danger)]">{copy.error}</p>}
+                    </div>
+                  )
+                })}
               </div>
               {run.manifest && (
                 <details>
@@ -274,9 +299,11 @@ export function RunHistory({
               {failed.length > 0 && !active && (
                 <p className="text-xs text-[var(--muted)]">
                   {retryMaintenanceOnly ? (
-                    <>Retention retries use the verified repository snapshot and do not require retained staging.{retryable.length < failed.length && ' Other failed copies need a new capture.'}</>
-                  ) : expired || run.capture_state !== 'succeeded' ? (
+                    <>Retention retries use the verified repository snapshot and the current plan policy; they do not require retained staging.{needsNewCapture && ' Other failed copies need a new capture.'}{retryable.length < failed.length && !needsNewCapture && ' Only eligible destinations will be retried.'}{keepingAll && ' The current keep-all policy settles maintenance without deleting snapshots or clearing repository warnings.'}</>
+                  ) : needsNewCapture ? (
                     'A new capture is required; start the plan again.'
+                  ) : maintenanceOnly ? (
+                    'Resolve the maintenance blockers above before retrying. The saved copy is preserved.'
                   ) : (
                     <>Prepared data available for retries until <BackupDate value={run.expires_at} />. Successful copies are preserved.</>
                   )}

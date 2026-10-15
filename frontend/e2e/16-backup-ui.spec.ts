@@ -274,7 +274,7 @@ test.describe('Backup round four repository decisions', () => {
   test('requires cleanup risk acknowledgment and defaults recovery checks to all data', async ({ page }) => {
     await mockBackupUI(page)
     await page.route('**/api/backups', route => route.fulfill({ json: {
-      destinations: [{ ...destination, data_check: { status: 'failed', scope: 'all', error: 'Damaged pack' }, last_check_attempt_error: 'Damaged pack', check_error: 'Damaged pack' }], plans: [], runs: [], protection: [], helper_ready: true, helper_configured: true, restic_available: true, rclone_available: true, staging_directory: '/staging',
+      destinations: [{ ...destination, maintenance_review_token: 'proof-a', data_check: { status: 'failed', scope: 'all', error: 'Damaged pack' }, last_check_attempt_error: 'Damaged pack', check_error: 'Damaged pack' }], plans: [], runs: [], protection: [], helper_ready: true, helper_configured: true, restic_available: true, rclone_available: true, staging_directory: '/staging',
     } }))
     await page.goto('/backups?view=destinations')
     await expect(page.getByText('Damaged pack', { exact: true })).toHaveCount(1)
@@ -289,6 +289,33 @@ test.describe('Backup round four repository decisions', () => {
     await expect(page.getByRole('button', { name: 'Start cleanup', exact: true })).toBeEnabled()
     await page.getByRole('button', { name: 'Cancel', exact: true }).click()
     await page.getByRole('button', { name: 'Remove stale locks', exact: true }).click()
-    await expect(page.getByRole('dialog')).toContainText('Active locks remain in place')
+    await expect(page.getByRole('dialog')).toContainText('refuses removal when a local lock owner is alive')
+  })
+
+  test('refreshes a raced cleanup review and sends the newly acknowledged fingerprint on mobile', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await mockBackupUI(page)
+    let changed = false
+    const requests: unknown[] = []
+    await page.route('**/api/backups', route => route.fulfill({ json: {
+      destinations: [{ ...destination, ...(changed ? { maintenance_review_token: 'proof-b', check_hold: { scope: 'metadata', error: 'Index discovery was inconclusive', checked_at: '2026-10-15T09:00:00Z' } } : {}) }], plans: [], runs: [], protection: [], helper_ready: true, helper_configured: true, restic_available: true, rclone_available: true, staging_directory: '/staging',
+    } }))
+    await page.route('**/api/backups/destinations/nas/prune', async route => {
+      requests.push(route.request().postDataJSON())
+      changed = true
+      await route.fulfill({ status: 409, json: { error: { code: requests.length === 1 ? 'maintenance_acknowledgement_required' : 'busy', message: requests.length === 1 ? 'Raw acknowledgement contract' : 'Repository busy' } } })
+    })
+    await page.goto('/backups?view=destinations')
+    await page.getByRole('button', { name: 'Run retention cleanup', exact: true }).click()
+    await page.getByRole('button', { name: 'Start cleanup', exact: true }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toContainText('Review the latest evidence and confirm')
+    await expect(dialog.getByRole('alert').filter({ hasText: 'Cleanup can remove recovery material' })).toContainText('Index discovery was inconclusive')
+    await expect(dialog.getByRole('button', { name: 'Start cleanup', exact: true })).toBeDisabled()
+    await dialog.getByRole('textbox').fill('NAS')
+    await dialog.getByRole('button', { name: 'Start cleanup', exact: true }).click()
+    await expect(dialog).toContainText('Repository busy')
+    expect(requests).toEqual([{}, { acknowledge_integrity_failure: true, acknowledgement_review_token: 'proof-b' }])
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false)
   })
 })
