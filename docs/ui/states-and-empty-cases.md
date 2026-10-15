@@ -420,8 +420,12 @@ Metadata evidence, stored-data evidence and the latest check attempt show their
 own scope and time. Failed attempts do not manufacture corruption; a metadata or
 sampled success cannot clear known data failure. The check dialog defaults to a
 full data read after that failure, with its transfer-cost explanation. Manual
-prune requires a specific integrity-risk acknowledgement. Stale-lock removal
-explains that active owners remain protected and does not imply verified data.
+prune requires an acknowledgement tied to the current failure/hold; new evidence
+resets typed confirmation even while its review stays open. A persistent check hold
+is shown alongside dated historical proof and the required check scope. Stale-lock
+removal explains owner checks, conservative refusal and external-client coordination;
+completion links to job details and refreshes recovery inventory without implying
+verified data.
 
 Protection displays the first outstanding deadline and elapsed grace independently
 of missing, unavailable or unverified evidence. A maintenance-only retry retains

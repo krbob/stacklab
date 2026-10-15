@@ -261,11 +261,41 @@ A healthy full check establishes evidence over 64 MiB of random data. A byte gat
 interrupts the next full read after at least 8 MiB, then the fixture restarts its
 SSH server, verifies the remaining stale lock, invokes Stacklab's ordinary unlock
 job and requires a successful full check. The previous evidence must survive the
-transport failure and unlock. This exercises native repository service jobs, not
+transport failure and unlock. It then truncates an actual encrypted pack on the
+SFTP backend, requires an integrity failure, restores the exact bytes and requires
+a successful full check. This exercises native repository service jobs, not
 HTTP or browser admission. The fixture removes its own container and temporary
 files; it never touches installed Stacklab state or existing Docker workloads.
 The normal `TestNativeUnlockPreservesActiveLockAndRemovesKilledOwnerLock` fixture
-separately verifies that a live owner's lock is not removed.
+separately verifies that a live owner's lock is refused.
+
+`STACKLAB_TEST_FOREIGN_UID_UNLOCK=1 ./backup.test -test.run
+'^TestNativeUnlockRefusesForeignUIDOwner$' -test.v` adds a Linux/Docker fixture with
+root restic in host PID/UTS namespaces and Stacklab as the unprivileged test user.
+It confirms EPERM preserves the live lock and removal works after that owner exits.
+It owns only its temporary repository and container. Old-lock timestamps, malformed
+owners, PID overflow, remote hosts and uncertain probes have deterministic tests.
+
+The installed API ACL harness additionally truncates one of its own encrypted
+packs, observes failed integrity through HTTP, rejects missing/stale prune review,
+restores the exact bytes, accepts current acknowledgement, and confirms only a full
+successful check clears the saved failure. These mutations never touch an existing
+operator repository.
+
+## Isolated S3 corruption check
+
+`STACKLAB_TEST_NATIVE_S3_CORRUPTION=1 ./backup.test -test.run
+'^TestNativeS3TruncatedPackIsIntegrityFailure$' -test.v -test.timeout=5m` owns an
+HTTPS S3 server, pinned temporary CA, bucket and repository. It requires a fixture
+rclone with `serve s3` and `--no-cleanup` (tested with 1.75.2); this is not a new
+Stacklab runtime minimum. An isolated binary on the fixture process's PATH can be
+used when the installed rclone is older.
+
+The fixture prepares an encrypted snapshot locally, serves it through S3 and
+exercises healthy full check, physical pack truncation, failed full check and
+restored bytes followed by successful full check. Server restart after each
+mutation clears its caches. This proves S3 read/check classification, not the
+complete S3 upload pipeline or behavior of every cloud provider.
 
 ## Installed browser smoke
 

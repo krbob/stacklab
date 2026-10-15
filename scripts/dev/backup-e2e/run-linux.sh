@@ -36,7 +36,7 @@ trap cleanup_connection EXIT
 cd "${repo_root}"
 git rev-parse HEAD >"${artifacts}/revision.txt"
 git diff --binary >"${artifacts}/working-tree.patch"
-git ls-files -z --cached --others --exclude-standard -- '*.go' go.mod go.sum 'scripts/dev/backup-e2e/*' | tar -czf "${artifacts}/source.tar.gz" --null -T -
+git ls-files -z --cached --others --exclude-standard -- '*.go' go.mod go.sum 'scripts/dev/backup-e2e/*' 'internal/backup/testdata/**' | tar -czf "${artifacts}/source.tar.gz" --null -T -
 go version >"${artifacts}/toolchain.txt"
 GOOS=linux GOARCH="${architecture}" CGO_ENABLED=0 go test -c -o "${artifacts}/backup.test" ./internal/backup
 GOOS=linux GOARCH="${architecture}" CGO_ENABLED=0 go test -c -o "${artifacts}/helper.test" ./cmd/stacklab-backup-helper

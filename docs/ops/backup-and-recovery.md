@@ -137,24 +137,37 @@ retention are separate stages; one successful copy does not hide another failed
 copy. A completed verified copy stays usable when retention fails; its maintenance
 error appears separately. Retry maintenance reuses that snapshot without uploading
 or verifying the copy again, even after staging has been removed or expired.
+It uses the current enabled plan and destination assignment, not the retention
+policy captured by the old run. Removing or disabling either blocks retry;
+changing to keep-all resolves the old maintenance attempt without deleting data.
+An old retention retry cannot supersede the outcome of a newer upload.
 Retrying a failed transfer still requires the original prepared recovery set
 within its configured lifetime; otherwise start a new capture. A failed repository check
 needs investigation even if upload succeeded. Metadata verification and sampled
 reads do not clear known data corruption. After repairing the repository, run a
 successful full-data check to clear that failure. Automatic forget/prune stays
-blocked while integrity has failed. Manual prune requires acknowledgement of that
-specific failure in the dialog and API; it is not a repair operation.
+blocked while integrity has failed or a check hold is unresolved. Manual prune
+requires acknowledgement bound to the current failure/hold in the dialog and API;
+changed evidence invalidates the review. Prune is not a repair operation.
 
 ### Interrupted Remote Operations And Stale Locks
 
 A lost SFTP connection or restarted NAS can leave a restic lock after the owning
 process exits. Wait for legitimate work to finish, restore connectivity, then use
 **Remove stale locks** on the destination. This queues ordinary `restic unlock`
-under Stacklab's repository reservation and records the result in Jobs. It never
-uses `--remove-all`; another client's active lock can remain. Retry the failed
-operation afterward. Unlock does not clear integrity evidence or imply successful
-verification. If an external client still owns the repository, coordinate with
-that client instead of forcing lock removal.
+under Stacklab's repository reservation and records the result in Jobs. Before
+unlock, Stacklab reads lock metadata and probes local PIDs without signalling them.
+A live process, including a root process inaccessible to the service user, blocks
+unlock even if its lock is old. Malformed metadata, an uncertain probe or another
+hostname also blocks removal. PID reuse may cause a conservative refusal. Resolve
+remote-host locks on their owning host after confirming all clients have stopped.
+
+Keep external clients stopped throughout this operation. The preflight is not
+atomic with external restic commands, and identical hostnames across PID namespaces
+cannot establish ownership reliably. Stacklab never uses `--remove-all` or runs
+restic as root. Jobs report remaining locks; remaining or unreadable locks make the
+operation unsuccessful. Retry the failed operation after reviewing the result.
+Unlock does not clear integrity evidence or imply successful verification.
 
 ### Repository Integrity Failure
 
@@ -163,11 +176,18 @@ Network, permission and cancellation errors do not establish corruption; previou
 dated evidence remains visible alongside the failed attempt. Upgrades preserve
 ambiguous historical failures, but recognize stored non-integrity codes, including
 already migrated unknown-scope failures, as unsuccessful attempts instead.
+Unexplained repository diagnostics create a persistent **check hold**: dated proof
+remains visible, but current protection is unverified and automatic deletion stops.
+A successful full check clears any hold; a metadata check clears only a metadata
+hold. A later transport error cannot clear it. Known data corruption still needs
+a full successful check, even after a successful metadata or sampled check.
 
 For confirmed damage:
 
-1. Pause automatic backups/maintenance and stop or wait for other clients using the
-   repository. Investigate storage, hardware and transport reliability first.
+1. Pause schedules, wait for Stacklab jobs to finish, and stop the Stacklab service
+   with `sudo systemctl stop stacklab` before manual repair. Pausing schedules alone
+   still permits manual jobs. Stop or coordinate every other repository client.
+   Investigate storage, hardware and transport reliability first.
 2. Retrieve the independently saved repository password and transport credentials
    from the [recovery credential bundle](#recovery-kit-and-fresh-host-ui). Use a
    private password file or secure environment setup for restic; never paste secrets
@@ -176,11 +196,17 @@ For confirmed damage:
    snapshots, before repair. Keep diagnostic output private until reviewed.
 4. Run restic checks with the installed version and follow its diagnosis-specific
    instructions. Consult the [upstream recovery guide](https://restic.readthedocs.io/en/stable/077_troubleshooting.html).
-   `repair index`, `repair packs` and `repair snapshots` are different operations;
-   do not run them as a generic sequence. Some versions use different commands.
+   Restic 0.14 uses `rebuild-index`; restic 0.18 offers `repair index`, `repair packs`
+   and `repair snapshots`.
+   Check `restic version` and each command's `--help` against that version's guide;
+   these are diagnosis-specific tools, not a generic sequence. Older installations
+   may need a separately reviewed restic upgrade for a particular repair. Stacklab's
+   supported minimum remains 0.14; backup/check support is not a promise that every
+   modern repair command exists in that version.
    Snapshot repair can remove inaccessible data, and prune/forget can remove
    material needed for recovery. Stacklab intentionally does not automate repair.
-5. After repair, run a full data check in Stacklab. Only successful full reading
+5. After repair, restart Stacklab with `sudo systemctl start stacklab`, keep schedules
+   paused and run a full data check in Stacklab. Only successful full reading
    clears known data failure. This may download the entire repository and incur
    transfer charges. Review protection and maintenance outcomes before resuming.
 

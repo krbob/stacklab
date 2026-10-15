@@ -33,6 +33,10 @@ before implementation (`680d437`). Backend changes are in `93f5d44`, `5e598c4` a
 `f6f9be7`; the UI is in `3094cf7`, with final explanatory copy and maintained
 installed fixtures in `86ad7dc`. The final production revision exercised on the
 VM is `86ad7dca88efb99141fa1dec0a87311f2ca5ca9d`.
+The round-four delivery ended at `78f8764acf1c5f04b42441a7999d9504fc12de6b`;
+all four jobs passed in [CI run 38587596008](https://github.com/krbob/stacklab/actions/runs/38587596008).
+The final commits changed validation/browser tooling and documentation, not the
+production revision exercised above.
 
 | Exercise | Evidence type | Result |
 | --- | --- | --- |

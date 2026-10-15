@@ -80,7 +80,17 @@ the final reservation survives until the job finishes so drain still observes it
 Unrelated stack operations and repository reads remain available.
 Native restic locks remain authoritative, including external processes and aliases
 that cannot be recognized as the same remote repository locally. Self-update still
-drains active jobs. No automatic force-unlock is performed.
+drains active jobs. No automatic force-unlock is performed. Explicit unlock checks
+lock metadata and local PID existence without signalling; live/uncertain/remote
+owners are refused. External clients must remain quiescent because this guard and
+ordinary unlock cannot form an atomic distributed operation.
+
+[ADR 0009](../adr/0009-backup-maintenance-safety.md) separates durable unresolved
+check holds from historical integrity proof. Automatic deletion uses current active
+retention policy and requires no unresolved failure/hold. Keep-all never deletes.
+Prune risk acknowledgement is bound to the unresolved-evidence revision at admission
+and execution. Independent copy/maintenance observations keep an old maintenance
+retry from replacing the latest transfer outcome.
 
 Ordinary snapshots/cat/dump/ls/stats/init commands have a 90-second deadline;
 verification and retry lookup allow 15 minutes per command. Retention has a

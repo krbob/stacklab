@@ -162,13 +162,32 @@ complete, incomplete, legacy, unsupported, invalid or unknown. Unknown means no
 current classification; it is neither corruption nor proof of completeness. The
 versioned cache has a global 4096-entry bound and a per-scan classification budget.
 
-`POST /backups/destinations/{id}/prune` accepts optional
-`acknowledge_integrity_failure`. Known integrity failure requires explicit `true`
-for manual execution; scheduled prune remains blocked. Acknowledgement does not
-clear evidence or repair data. `POST /backups/destinations/{id}/unlock` queues
-ordinary `restic unlock`, never force-unlock. Active repository jobs conflict with
-admission. Locks that restic still considers active remain in place; job success
-does not certify repository integrity or the absence of every lock.
+A destination can expose `check_hold` (`scope`, `checked_at`, `error`) independently
+of historical metadata/data proof. A hold makes aggregate `check_status=unverified`
+and current evidence unusable unless known corruption already makes it failed.
+A full successful check clears any hold; metadata/sample success clears only a
+metadata hold. Transport errors neither create nor clear holds.
+
+`POST /backups/destinations/{id}/prune` accepts `acknowledge_integrity_failure` and
+`acknowledgement_review_token`. Known failure or a check hold requires explicit
+`true` and the current destination's `maintenance_review_token`; omission or a
+stale token returns 409 `maintenance_acknowledgement_required`. The token identifies
+unresolved evidence, is not a credential, and is validated at admission and execution.
+Healthy repositories still accept an empty request. Scheduled prune remains blocked
+by failure/hold. Acknowledgement does not clear evidence or repair data.
+
+`POST /backups/destinations/{id}/unlock` queues guarded ordinary `restic unlock`,
+never force-unlock. Active Stacklab repository jobs conflict with admission. Execution
+inspects owners and refuses live local PIDs (including EPERM), malformed/uncertain
+metadata and remote-host locks. Jobs report remaining locks; nonzero/unreadable
+remaining inventory fails the operation. External clients must remain stopped:
+preflight and unlock are not atomic across clients. Integrity evidence is unchanged.
+
+Retention retry uses the current enabled plan/assignment and policy, revalidated
+under reservation; captured run configuration still determines capture/transfer
+identity. Keep-all performs no listing/deletion and can resolve maintenance failure
+without clearing an integrity hold. Maintenance chronology cannot supersede a newer
+copy failure or its run identity. Explicit healthy subsets remain retryable.
 
 Staging has a per-plan byte budget and a one-to-168-hour lifetime. The service
 keeps live/retryable run summaries and the newest 200 expired terminal summaries.

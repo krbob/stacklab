@@ -111,7 +111,7 @@ def main():
     def save_report():
         (evidence / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
 
-    def wait_job(started, name):
+    def wait_job(started, name, expected_state="succeeded"):
         job_id = started['job']['id']
         deadline = time.monotonic() + 180
         while time.monotonic() < deadline:
@@ -120,7 +120,7 @@ def main():
                 report['jobs'].append({'name': name, 'id': job_id, 'state': job['state']})
                 events = request('/api/jobs/' + job_id + '/events')
                 (evidence / (name + '-events.json')).write_text(json.dumps(events, indent=2) + '\n')
-                if job['state'] != 'succeeded':
+                if job['state'] != expected_state:
                     save_report()
                     raise AssertionError(name + ' job failed: ' + json.dumps(job))
                 return job_id
@@ -264,6 +264,58 @@ def main():
         if (target / 'unarchived.txt').exists():
             raise AssertionError('reviewed replace did not remove unarchived fixture file')
         report['checks'].append({'name': 'replace_removed_unarchived_fixture', 'result': 'passed'})
+        # A real truncated encrypted pack verifies the installed integrity gate
+        # and evidence-bound API review. Only this fixture repository is touched.
+        endpoint = '/api/backups/destinations/' + destination_id
+        wait_job(request(endpoint + '/check', {'read_data': 'all'}), 'healthy-full-check')
+        pack = max((item for item in (workspace / 'repository' / 'data').rglob('*') if item.is_file()),
+                   key=lambda item: item.stat().st_size)
+        original_pack = pack.read_bytes()
+        if len(original_pack) <= 64:
+            raise AssertionError('fixture has no encrypted pack to truncate')
+        pack.write_bytes(original_pack[:64])
+        wait_job(request(endpoint + '/check', {'read_data': 'all'}), 'truncated-pack-check', 'failed')
+
+        def current_destination():
+            return next(item for item in request('/api/backups')['destinations'] if item['id'] == destination_id)
+
+        first_failure = current_destination()
+        first_token = first_failure.get('maintenance_review_token')
+        if first_failure.get('data_check', {}).get('status') != 'failed' or not first_token:
+            raise AssertionError('native damage did not publish failure and a review revision')
+
+        def refused_prune(payload):
+            req = urllib.request.Request(args.base_url + endpoint + '/prune', data=json.dumps(payload).encode(),
+                headers={'Content-Type': 'application/json', 'Origin': args.base_url})
+            try:
+                with api.open(req, timeout=15) as response:
+                    raise AssertionError('missing/stale acknowledgement was admitted: ' + str(response.status))
+            except urllib.error.HTTPError as error:
+                body = error.read().decode(errors='replace')
+                if error.code != 409 or 'maintenance_acknowledgement_required' not in body:
+                    raise AssertionError('unexpected acknowledgement rejection: ' + str(error.code) + ' ' + body) from None
+
+        refused_prune({})
+        refused_prune({'acknowledge_integrity_failure': True})
+        wait_job(request(endpoint + '/check', {'read_data': 'all'}), 'new-truncated-pack-check', 'failed')
+        second_failure = current_destination()
+        second_token = second_failure.get('maintenance_review_token')
+        if not second_token or second_token == first_token:
+            raise AssertionError('new failed check did not invalidate the old review')
+        refused_prune({'acknowledge_integrity_failure': True, 'acknowledgement_review_token': first_token})
+        # Restore the exact original bytes before deliberate cleanup. The saved
+        # failure must remain until a successful full check, even after prune.
+        pack.write_bytes(original_pack)
+        wait_job(request(endpoint + '/prune', {'acknowledge_integrity_failure': True,
+            'acknowledgement_review_token': second_token}), 'current-evidence-prune')
+        if current_destination().get('data_check', {}).get('status') != 'failed':
+            raise AssertionError('prune erased unresolved integrity evidence')
+        wait_job(request(endpoint + '/check', {'read_data': 'all'}), 'repaired-full-check')
+        repaired = current_destination()
+        if repaired.get('check_status') != 'verified' or repaired.get('maintenance_review_token') or repaired.get('check_hold'):
+            raise AssertionError('full successful check did not resolve the saved failure')
+        report['checks'].append({'name': 'native_corruption_and_current_evidence_prune_acknowledgement', 'result': 'passed'})
+        save_report()
         for restore_id in restore_ids:
             request('/api/backups/restores/' + restore_id, method='DELETE')
         request('/api/backups/plans/' + plan_id, method='DELETE')
