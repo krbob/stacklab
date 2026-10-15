@@ -23,9 +23,10 @@ ACLs. The [validation record](quality/backup-validation.md) identifies source
 revisions, successful checks and retained limits.
 
 Fifth-round [repository safety corrections](product/backup-repository-safety.md)
-are accepted: unresolved check holds, current retention policy, guarded unlock and
-prune acknowledgement bound to current evidence. This safety round takes priority
-over further backup features.
+are implemented: unresolved check holds, current retention policy, guarded unlock
+and prune acknowledgement bound to current evidence. Native transport/corruption
+fixtures and installed API/browser validation are recorded in the
+[fifth-round validation record](quality/backup-validation.md#round-five-repository-safety-validation--2026-10-15).
 
 Fourth-round [operational recovery corrections](product/backup-operational-recovery.md)
 cover transient transport failures, stale locks, deliberate prune, independent

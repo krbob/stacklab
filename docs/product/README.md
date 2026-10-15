@@ -5,7 +5,7 @@ the product is heading.
 
 ## Current documents
 
-- [Backup repository safety](backup-repository-safety.md) — accepted fifth-round
+- [Backup repository safety](backup-repository-safety.md) — implemented fifth-round
   classification, maintenance policy, guarded unlock and current-evidence review.
 
 - [Backup operational recovery](backup-operational-recovery.md) — implemented

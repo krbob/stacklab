@@ -26,6 +26,95 @@ file modes and Linux file capabilities are rejected; shared set-group-ID
 directories remain supported. Restore preview rejects paths outside managed or explicitly approved
 roots before stopping any service.
 
+## Round-Five Repository Safety Validation — 2026-10-15
+
+The [fifth-round contract](../product/backup-repository-safety.md) and
+[ADR 0009](../adr/0009-backup-maintenance-safety.md) were committed before code
+(`c78e70d`). Backend safety and regressions are in `c433beb`; UI and generated
+contract changes are in `21b8e12`. The clean package and Linux fixture source is
+`cae4cdbe66d639c66ff51f07953aaab3f04cd606`, including native S3 and installed API
+regressions. The Linux runner recorded an empty working-tree patch and archived
+its source, diagnostic corpus, binaries and hashes.
+
+| Exercise | Evidence type | Result |
+| --- | --- | --- |
+| Full backend tests and package coverage gates | macOS, Go 1.27.1 | Passed; global reported coverage 71.7%, HTTP API 54.1% |
+| Backup, jobs and notifications race tests | Native restic 0.19.1 plus deterministic coordination | Passed; backup package 166.372 s |
+| Formatting/vet, generated API, docs, repository hygiene and monitoring tests | Canonical repository checks | Passed; monitoring explicitly skips its optional privileged/container cases |
+| Durable hold, legacy migration, scope-sensitive clearing, mixed diagnostics and late cancellation | Go regressions plus captured native stderr | Passed; historical proof retained independently of current usability |
+| Current retention after changed/deleted/disabled plan or assignment, keep-all and healthy subsets | Go service regressions | Passed; admission and execution both revalidate policy |
+| Three real snapshots from different UTC days, daily 1 → 30 → 1 | Native restic | Passed; expansion preserves all three, later reduction actually forgets two; no duplicate capture/upload |
+| Old maintenance retry after a newer upload failure, including restart/pruned history | Go regressions | Passed; maintenance cannot replace copy chronology |
+| Changed failure time/scope/hold between prune admission and execution | Service and HTTP tests | Passed; missing/stale review returns dedicated 409 |
+| Linux archive/backup suite and privileged helper tests | Maintained `run-linux.sh`, Debian 13 arm64 | Passed |
+| ACL/xattr/hardlink/mode-000 replacement, PostgreSQL exact replacement, scope refusal and SIGKILL during extraction | Maintained privileged Linux fixture | All five assertions passed |
+| Live root-owned lock versus non-root Stacklab; same-UID live/dead lock | Native restic and service jobs | Passed; EPERM blocks unlock and the dead owner's lock is removable |
+| SFTP interruption → stale exclusive lock → guarded unlock → full check → truncated encrypted pack → restored bytes/full check | Owned sshd, TCP fault gate, 64 MiB data, restic 0.18.0 | Passed, 39.31 s; operational failure and actual corruption have different effects |
+| HTTPS S3 full check → truncated pack → integrity failure → restored bytes/full check | Owned rclone 1.75.2 server and pinned fixture CA | Passed on macOS/restic 0.19.1 and Debian/restic 0.18.0; final Linux run 10.78 s |
+| UI current evidence, token invalidation, stale-review 409, unlock refresh and maintenance eligibility | Vitest plus Chromium Playwright | New regressions passed; Playwright 10/10 passed, including mobile submitted request payload |
+| Supported minimum restic 0.14.0: missing index, truncated local/S3 pack, live/dead same/foreign UID lock, actual current-policy retention | Isolated official Linux binary on PATH | Passed; installed restic 0.18.0 unchanged |
+| Supported minimum restic 0.14.0: interrupted SFTP with explicit cancellation, stale-lock recovery, actual pack truncation and repair | Same native SFTP fixture with version-specific interruption handling | Passed, 134.46 s; cancellation preserves proof without creating a hold, corruption records failure |
+| Installed `.deb` upgrade from review5; legacy/current sudoers readiness and protected configuration recovery | Maintained upgrade harness | All five checks passed; nine plans/eight destinations and operator policy preserved |
+| Actual capture, unlock, full/test/selected recovery, reviewed ACL apply and native corruption with stale/current prune review | Maintained installed API harness | Ten assertions across 12 jobs passed; two check jobs intentionally failed on damaged data |
+| Installed desktop/mobile inspection including real failed integrity, exact-name cleanup acknowledgement, refresh/selection and restore provenance | Maintained browser harness, no API mocks | 21 assertions passed, 16 screenshots; session revoked and local credential file removed |
+
+The local full frontend run passed 664/665 tests: only the existing 101-interaction
+selection-boundary test exceeded its 15-second limit on the heavily loaded host.
+The same test passed alone without changes to its assertions or timeout. Typecheck,
+lint, production build, bundle gate and generated-client consistency passed. This
+local limitation is separate from the required clean CI run on the final pushed
+revision; it is not reported as an all-green local suite.
+
+The package is `2026.10.0~review5fix` (runtime `2026.10.0-review5fix`). SHA256:
+
+- Debian package: `17b5b8668e867107a4c8c62918eab4982fee22c9a706163e46b1a21aa76b8fad`.
+- Linux backup test binary: `3983b64fcf7834967799bd19af320669a52d64f486d2f0abe0731e2e7d687ed1`.
+
+The installed backend SHA256 is
+`bcbd2a0dbb8f7c2e87f89cc88d9069edb26a37afbc972babe1d876230ae24fd6`.
+The API fixture removed only its own plans, destination, restores and files, and
+confirmed existing configuration/pause unchanged. The browser explicitly skipped
+three absent states: unavailable helper, system-caused pause and a check hold.
+Hold behavior remains covered by UI/service regressions; its absence is not a
+passed installed-browser assertion. Desktop/mobile screenshots were inspected.
+
+The final SFTP fixture refinement (`044d686`) is test-only. Restic 0.14 can keep retrying
+interrupted pack reads beyond the fixture's 60-second outage budget; only that
+version is explicitly cancelled at the deadline. The fixture waits for command
+exit before restarting SSH, then verifies guarded unlock, a successful full check,
+real pack corruption and recovery. This proves cancellation and recovery on 0.14,
+not a naturally returned transport error within 60 seconds. Production deadlines
+were not changed. Its binary SHA256 is
+`04880f5fc972570d4e65a32495a98c1024a685eb9dde22525dabb481734c3b9c`, built from
+`cae4cdbe66d639c66ff51f07953aaab3f04cd606` plus the recorded SFTP-test patch.
+The same binary passed again on installed restic 0.18.0 in 39.34 s, including
+the natural `unavailable` outcome without the legacy cancellation branch.
+
+Local evidence lives under `/tmp/stacklab-r5-linux`, `/tmp/stacklab-r5-release`,
+`/tmp/stacklab-r5-coverage`, `/tmp/stacklab-r5-browser`,
+`/tmp/stacklab-r5-restic014-sftp`, `/tmp/stacklab-r5-restic018-sftp`,
+`/tmp/stacklab-r5-api-result.json` and
+`/tmp/stacklab-r5-*.log`. Frontend agent commands
+were captured in the development session; their stdout was not separately saved.
+The Playwright last-run artifact is `/tmp/stacklab-r5-playwright/.last-run.json`.
+Private installed upgrade/API archives remain on the disposable VM under their
+run-specific `/root/stacklab-backup-*` directories. Credentials/session files are
+not committed or included in shareable evidence.
+
+### Retained Interpretation Limits
+
+S3 fixtures verify actual HTTPS read/check diagnostics using a local S3 server;
+they do not establish every cloud provider's behavior or repeat the full upload
+pipeline. The newer rclone is an isolated fixture binary on PATH, not an installed
+runtime upgrade. Native checks cover the tested restic versions; future diagnostic
+wording remains guarded by unresolved-check holds when recognized as inconclusive.
+
+Unlock preflight is not atomic with external clients. Unknown/foreign-host owners
+and live local PIDs are conservatively refused; PID reuse or different namespaces
+with identical hostnames require operator coordination. No force unlock, privileged
+restic invocation or automatic repair was added. Historical proof remains dated;
+manual acknowledged prune never clears failed integrity or a hold.
+
 ## Round-Four Operational Recovery Validation — 2026-10-14
 
 The [fourth-round contract](../product/backup-operational-recovery.md) was committed
