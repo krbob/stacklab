@@ -12,4 +12,3 @@ export function repositoryLocked(error: unknown): boolean {
   const message = error instanceof Error ? error.message : typeof error === 'string' ? error : ''
   return /\(repository_locked\)/.test(message)
 }
-

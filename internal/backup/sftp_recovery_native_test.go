@@ -47,6 +47,9 @@ func TestNativeSFTPInterruptedCheckRecovery(t *testing.T) {
 		}
 		return strings.TrimSpace(string(output))
 	}
+	resticVersion := call("restic", "version")
+	legacyRetries := strings.HasPrefix(resticVersion, "restic 0.14.")
+	t.Logf("native SFTP fixture: %s", resticVersion)
 	call("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", filepath.Join(base, "client_key"))
 	call("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", filepath.Join(base, "host_key"))
 	configuration := "Port 22\nListenAddress 0.0.0.0\nHostKey /fixture/host_key\nAuthorizedKeysFile /fixture/client_key.pub\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nUsePAM no\nStrictModes no\nAllowUsers fixture\nPidFile /run/sshd.pid\nSubsystem sftp internal-sftp\n"
@@ -112,14 +115,15 @@ exec /usr/sbin/sshd -D -e -f /fixture/sshd_config
 	if err != nil {
 		t.Fatal(err)
 	}
-	operation := func(action string) error {
-		job, err := s.StartRepositoryJob(ctx, d.ID, action, "native-sftp-fixture")
+	operationContext := func(operationCtx context.Context, action string) error {
+		job, err := s.StartRepositoryJob(operationCtx, d.ID, action, "native-sftp-fixture")
 		if err != nil {
 			return err
 		}
-		_, err = s.ExecuteRepositoryJob(ctx, job, d.ID, action, CheckRequest{ReadData: "all"}, RestoreRequest{})
+		_, err = s.ExecuteRepositoryJob(operationCtx, job, d.ID, action, CheckRequest{ReadData: "all"}, RestoreRequest{})
 		return err
 	}
+	operation := func(action string) error { return operationContext(ctx, action) }
 	if err := operation("backup_repository_init"); err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +154,9 @@ exec /usr/sbin/sshd -D -e -f /fixture/sshd_config
 	defer gate.Release()
 	result := make(chan error, 1)
 	checkFinished := make(chan struct{})
-	go func() { defer close(checkFinished); result <- operation("backup_check") }()
+	interruptedCtx, cancelInterrupted := context.WithCancel(ctx)
+	defer cancelInterrupted()
+	go func() { defer close(checkFinished); result <- operationContext(interruptedCtx, "backup_check") }()
 	defer func() {
 		cancel()
 		gate.Release()
@@ -170,18 +176,35 @@ exec /usr/sbin/sshd -D -e -f /fixture/sshd_config
 	}
 	call("docker", "stop", "--time", "1", name)
 	gate.Release()
+	var interruptedErr error
+	cancelledLegacyRetry := false
 	select {
-	case err := <-result:
-		var commandErr *repositoryCommandError
-		if !errors.As(err, &commandErr) || commandErr.Code != "unavailable" {
-			t.Fatalf("SFTP drop was not classified as transport unavailability: %v", err)
-		}
-		t.Logf("native interrupted check: %v", err)
+	case interruptedErr = <-result:
 	case <-time.After(60 * time.Second):
-		t.Fatal("interrupted native check did not finish while server was down")
+		if !legacyRetries {
+			t.Fatal("interrupted native check did not finish while server was down")
+		}
+		// Restic 0.14 wraps every backend call in ten exponential-backoff
+		// retries (cmd/restic/global.go and internal/backend/backend_retry.go).
+		// Several interrupted packs can outlast this fixture's outage budget.
+		// Exercise operator cancellation instead of imposing a production limit
+		// or misreporting an unavailable result that restic has not returned.
+		cancelledLegacyRetry = true
+		cancelInterrupted()
+		select {
+		case interruptedErr = <-result:
+		case <-time.After(20 * time.Second):
+			t.Fatal("restic 0.14 interrupted retry did not stop after cancellation")
+		}
 	}
+	<-checkFinished
+	var interruptedCommandErr *repositoryCommandError
+	if !errors.As(interruptedErr, &interruptedCommandErr) || (interruptedCommandErr.Code != "unavailable" && !(cancelledLegacyRetry && interruptedCommandErr.Code == "cancelled")) {
+		t.Fatalf("SFTP drop produced neither transport failure nor explicit legacy cancellation: %v", interruptedErr)
+	}
+	t.Logf("native interrupted check (legacy retry cancelled=%t): %v", cancelledLegacyRetry, interruptedErr)
 	afterFailure := s.state.Destinations[d.ID]
-	if !reflect.DeepEqual(verified, afterFailure.DataCheck) || afterFailure.CheckStatus != "verified" || afterFailure.LastCheckAttemptStatus != "failed" {
+	if !reflect.DeepEqual(verified, afterFailure.DataCheck) || afterFailure.CheckStatus != "verified" || afterFailure.CheckHold != nil || afterFailure.LastCheckAttemptStatus != "failed" {
 		t.Fatalf("transport failure changed integrity proof: %+v", afterFailure)
 	}
 	call("docker", "start", name)
