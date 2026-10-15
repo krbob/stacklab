@@ -31,6 +31,8 @@ type state struct {
 	SnapshotClassifications map[string]snapshotClassification `json:"snapshot_classifications,omitempty"`
 	RetentionCursors        map[string]string                 `json:"retention_cursors,omitempty"`
 	CopyAttempts            map[string]copyAttempt            `json:"copy_attempts,omitempty"`
+	CopyAttemptsVersion     int                               `json:"copy_attempts_version,omitempty"`
+	MaintenanceAttempts     map[string]copyAttempt            `json:"maintenance_attempts,omitempty"`
 	VerifiedSnapshots       map[string]time.Time              `json:"verified_snapshots,omitempty"`
 	RestoreTests            map[string]time.Time              `json:"restore_tests,omitempty"`
 	CopyCheckpoints         map[string]copyCheckpoint         `json:"copy_checkpoints,omitempty"`
@@ -155,9 +157,7 @@ func NewService(cfg config.Config, jobService *jobs.Service, capture Capturer) *
 	if s.state.CopyCheckpoints == nil {
 		s.state.CopyCheckpoints = map[string]copyCheckpoint{}
 	}
-	if s.state.CopyAttempts == nil {
-		s.state.CopyAttempts = map[string]copyAttempt{}
-	}
+	s.initializeCopyAttemptsLocked()
 	for key, at := range s.state.VerifiedSnapshots {
 		parts := strings.SplitN(key, "/", 2)
 		if len(parts) == 2 {
@@ -371,6 +371,13 @@ func (s *Service) DeleteDestination(ctx context.Context, id string) error {
 			delete(s.state.CopyAttempts, key)
 		}
 	}
+	removedMaintenance := map[string]copyAttempt{}
+	for key, attempt := range s.state.MaintenanceAttempts {
+		if strings.HasSuffix(key, "/"+id) {
+			removedMaintenance[key] = attempt
+			delete(s.state.MaintenanceAttempts, key)
+		}
+	}
 	removedCheckpoints := map[string]copyCheckpoint{}
 	for key, checkpoint := range s.state.CopyCheckpoints {
 		if strings.HasSuffix(key, "/"+id) {
@@ -382,6 +389,9 @@ func (s *Service) DeleteDestination(ctx context.Context, id string) error {
 		s.state.Destinations[id] = d
 		for key, attempt := range removedAttempts {
 			s.state.CopyAttempts[key] = attempt
+		}
+		for key, attempt := range removedMaintenance {
+			s.state.MaintenanceAttempts[key] = attempt
 		}
 		for key, checkpoint := range removedCheckpoints {
 			s.state.CopyCheckpoints[key] = checkpoint
@@ -546,6 +556,13 @@ func (s *Service) DeletePlan(ctx context.Context, id string) error {
 			delete(s.state.CopyAttempts, key)
 		}
 	}
+	removedMaintenance := map[string]copyAttempt{}
+	for key, attempt := range s.state.MaintenanceAttempts {
+		if strings.HasPrefix(key, id+"/") {
+			removedMaintenance[key] = attempt
+			delete(s.state.MaintenanceAttempts, key)
+		}
+	}
 	removedCheckpoints := map[string]copyCheckpoint{}
 	for key, checkpoint := range s.state.CopyCheckpoints {
 		if strings.HasPrefix(key, id+"/") {
@@ -557,6 +574,9 @@ func (s *Service) DeletePlan(ctx context.Context, id string) error {
 		s.state.Plans[id] = p
 		for key, attempt := range removedAttempts {
 			s.state.CopyAttempts[key] = attempt
+		}
+		for key, attempt := range removedMaintenance {
+			s.state.MaintenanceAttempts[key] = attempt
 		}
 		for key, checkpoint := range removedCheckpoints {
 			s.state.CopyCheckpoints[key] = checkpoint
@@ -648,6 +668,9 @@ func (s *Service) StartRetry(ctx context.Context, runID string, request RunReque
 		copy := &run.Copies[i]
 		if (copy.State != "succeeded" || copy.Retention == "failed") && (len(request.DestinationIDs) == 0 || selected[copy.DestinationID]) {
 			if verifiedCopy(*copy) {
+				if _, _, err := s.currentRetentionLocked(run.PlanID, copy.DestinationID); err != nil {
+					return store.Job{}, Run{}, err
+				}
 				copy.Retention = "pending"
 				if copy.RetentionError == "" {
 					copy.RetentionError = "Retention requires attention."

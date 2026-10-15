@@ -12,7 +12,7 @@ import (
 func TestRepositoryCheckDiagnosticsDistinguishDataFromTransport(t *testing.T) {
 	pack := strings.Repeat("a", 64)
 	for _, test := range []struct{ name, diagnostic, code string }{
-		{"summary alone", "Fatal: repository contains errors", "operation_failed"},
+		{"summary alone", "Fatal: repository contains errors", "check_inconclusive"},
 		{"SFTP reset", "download error: read tcp: connection reset by peer\nFatal: repository contains errors", "unavailable"},
 		{"SFTP EOF", "pack " + pack + " contains 1 errors: [partial download error: EOF]\nFatal: repository contains errors", "unavailable"},
 		{"S3 HTTP", "Load(<data/abcdef>): unexpected status code: 503\nFatal: repository contains errors", "unavailable"},
@@ -128,11 +128,11 @@ func TestPruneRequiresExplicitAcknowledgementAtAdmissionAndExecution(t *testing.
 	s.state.Destinations[d.ID] = d
 	ctx := context.Background()
 	for _, requestedBy := range []string{"operator", "scheduler"} {
-		if _, err := s.StartRepositoryJob(ctx, d.ID, "backup_prune", requestedBy); !errors.Is(err, ErrBusy) {
+		if _, err := s.StartRepositoryJob(ctx, d.ID, "backup_prune", requestedBy); !errors.Is(err, ErrBusy) && !errors.Is(err, ErrMaintenanceAcknowledgement) {
 			t.Fatalf("%s admitted without acknowledgement: %v", requestedBy, err)
 		}
 	}
-	ack := PruneRequest{AcknowledgeIntegrityFailure: true}
+	ack := PruneRequest{AcknowledgeIntegrityFailure: true, AcknowledgementReviewToken: repositoryReviewFingerprint(d)}
 	if _, err := s.StartRepositoryJob(ctx, d.ID, "backup_prune", "scheduler", ack); !errors.Is(err, ErrBusy) {
 		t.Fatalf("scheduler bypassed integrity gate: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestPruneRequiresExplicitAcknowledgementAtAdmissionAndExecution(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.ExecuteRepositoryJob(ctx, job, d.ID, "backup_prune", CheckRequest{}, RestoreRequest{}); !errors.Is(err, ErrBusy) || runner.count("prune", d.Repository) != 0 {
+	if _, err := s.ExecuteRepositoryJob(ctx, job, d.ID, "backup_prune", CheckRequest{}, RestoreRequest{}); !errors.Is(err, ErrMaintenanceAcknowledgement) || runner.count("prune", d.Repository) != 0 {
 		t.Fatalf("execution bypassed acknowledgement: %v", err)
 	}
 	job, err = s.StartRepositoryJob(ctx, d.ID, "backup_prune", "operator", ack)
@@ -188,7 +188,7 @@ func TestUnlockUsesNormalRepositoryReservationAndNeverForcesLocks(t *testing.T) 
 	if _, err := s.ExecuteRepositoryJob(ctx, job, d.ID, "backup_unlock", CheckRequest{}, RestoreRequest{}); err != nil {
 		t.Fatal(err)
 	}
-	if runner.count("unlock", d.Repository) != 1 || len(runner.calls) != 1 || commandIn(runner.calls[0], "--remove-all") {
+	if runner.count("unlock", d.Repository) != 1 || len(runner.calls) != 3 || commandIn(runner.calls[1], "--remove-all") {
 		t.Fatalf("unexpected unlock commands: %v", runner.calls)
 	}
 	saved, err := s.jobs.Get(ctx, job.ID)

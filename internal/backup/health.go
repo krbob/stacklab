@@ -57,9 +57,9 @@ type copyCheckpoint struct {
 	SnapshotCheckedAt *time.Time `json:"snapshot_checked_at,omitempty"`
 }
 
-// Completed attempt evidence is independent from a mutable run. Retrying that
-// run clears its current error and timestamps, but cannot erase the last result
-// before the replacement attempt has actually completed.
+// Transfer and maintenance attempts have separate durable timelines. Retrying
+// either cannot erase its last result before the replacement finishes, and
+// maintenance on an old capture cannot supersede a newer failed transfer.
 type copyAttempt struct {
 	RunID       string    `json:"run_id"`
 	CompletedAt time.Time `json:"completed_at"`
@@ -67,31 +67,87 @@ type copyAttempt struct {
 }
 
 func completedCopyAttempt(run Run, copy CopyResult) (copyAttempt, bool) {
-	if verifiedCopy(copy) && (copy.Retention == "pending" || copy.Retention == "running") {
-		return copyAttempt{}, false
-	}
 	captureFailed := run.CaptureState == "failed" && run.State != "running" && run.State != "queued"
 	if copy.State != "succeeded" && copy.State != "failed" && !captureFailed {
 		return copyAttempt{}, false
 	}
 	at := run.CreatedAt
-	if run.CompletedAt != nil {
+	switch {
+	case copy.CompletedAt != nil:
+		at = *copy.CompletedAt
+	case copy.VerifiedAt != nil && copy.State == "succeeded":
+		at = *copy.VerifiedAt
+	case copy.UploadedAt != nil && copy.State == "succeeded":
+		at = *copy.UploadedAt
+	case run.CompletedAt != nil:
 		at = *run.CompletedAt
 	}
-	if copy.CompletedAt != nil {
-		at = *copy.CompletedAt
-	}
-	if copy.RetentionCompletedAt != nil && copy.RetentionCompletedAt.After(at) {
-		at = *copy.RetentionCompletedAt
-	}
 	message := copy.Error
-	if message == "" && copy.Retention == "failed" {
-		message = copy.RetentionError
-	}
 	if captureFailed {
 		message = run.Error
 	}
 	return copyAttempt{RunID: run.ID, CompletedAt: at, Error: message}, true
+}
+
+func completedMaintenanceAttempt(run Run, copy CopyResult) (copyAttempt, bool) {
+	if !verifiedCopy(copy) || copy.Retention != "succeeded" && copy.Retention != "failed" {
+		return copyAttempt{}, false
+	}
+	at := run.CreatedAt
+	switch {
+	case copy.RetentionCompletedAt != nil:
+		at = *copy.RetentionCompletedAt
+	case copy.CompletedAt != nil:
+		at = *copy.CompletedAt
+	case copy.VerifiedAt != nil:
+		at = *copy.VerifiedAt
+	}
+	message := ""
+	if copy.Retention == "failed" {
+		message = copy.RetentionError
+	}
+	return copyAttempt{RunID: run.ID, CompletedAt: at, Error: message}, true
+}
+
+func (s *Service) initializeCopyAttemptsLocked() {
+	if s.state.CopyAttempts == nil {
+		s.state.CopyAttempts = map[string]copyAttempt{}
+	}
+	if s.state.MaintenanceAttempts == nil {
+		s.state.MaintenanceAttempts = map[string]copyAttempt{}
+	}
+	if s.state.CopyAttemptsVersion >= 1 {
+		return
+	}
+	// Older summaries mixed retention completion into transfer chronology.
+	// Correct entries with retained source evidence before scanning all runs.
+	// An orphaned error remains conservative diagnostic evidence; an orphaned
+	// success cannot establish a newer transfer without its source timestamps.
+	for key, old := range s.state.CopyAttempts {
+		run, exists := s.state.Runs[old.RunID]
+		if !exists {
+			if old.Error == "" {
+				delete(s.state.CopyAttempts, key)
+			}
+			continue
+		}
+		for _, copy := range run.Copies {
+			if checkpointKey(run.PlanID, copy.DestinationID) != key {
+				continue
+			}
+			if verifiedCopy(copy) {
+				if attempt, complete := completedCopyAttempt(run.Run, copy); complete {
+					s.state.CopyAttempts[key] = attempt
+				}
+				// A retry may already have cleared its mutable maintenance result.
+				if copy.Retention == "pending" || copy.Retention == "running" {
+					s.state.MaintenanceAttempts[key] = old
+				}
+			}
+			break
+		}
+	}
+	s.state.CopyAttemptsVersion = 1
 }
 
 func newerCopyAttempt(candidate, previous copyAttempt, now time.Time) bool {
@@ -110,6 +166,9 @@ func (s *Service) recordCopyAttemptsLocked(run Run) {
 	if s.state.CopyAttempts == nil {
 		s.state.CopyAttempts = map[string]copyAttempt{}
 	}
+	if s.state.MaintenanceAttempts == nil {
+		s.state.MaintenanceAttempts = map[string]copyAttempt{}
+	}
 	for _, copy := range run.Copies {
 		if _, exists := s.state.Plans[run.PlanID]; !exists {
 			continue
@@ -117,13 +176,16 @@ func (s *Service) recordCopyAttemptsLocked(run Run) {
 		if _, exists := s.state.Destinations[copy.DestinationID]; !exists {
 			continue
 		}
-		attempt, complete := completedCopyAttempt(run, copy)
-		if !complete {
-			continue
-		}
 		key := checkpointKey(run.PlanID, copy.DestinationID)
-		if previous, exists := s.state.CopyAttempts[key]; !exists || newerCopyAttempt(attempt, previous, s.now()) {
-			s.state.CopyAttempts[key] = attempt
+		if attempt, complete := completedCopyAttempt(run, copy); complete {
+			if previous, exists := s.state.CopyAttempts[key]; !exists || newerCopyAttempt(attempt, previous, s.now()) {
+				s.state.CopyAttempts[key] = attempt
+			}
+		}
+		if attempt, complete := completedMaintenanceAttempt(run, copy); complete {
+			if previous, exists := s.state.MaintenanceAttempts[key]; !exists || newerCopyAttempt(attempt, previous, s.now()) {
+				s.state.MaintenanceAttempts[key] = attempt
+			}
 		}
 	}
 }
@@ -212,6 +274,9 @@ func (s *Service) protectionLocked(plan Plan) PlanProtection {
 		if copy.IntegrityStatus == "" {
 			copy.IntegrityStatus = "unknown"
 		}
+		if destination.CheckHold != nil && copy.IntegrityStatus != "failed" {
+			copy.IntegrityStatus = "unverified"
+		}
 		if copy.AvailabilityStatus == "" {
 			copy.AvailabilityStatus = "unknown"
 		}
@@ -274,6 +339,11 @@ func (s *Service) protectionLocked(plan Plan) PlanProtection {
 				copy.State = "missing"
 			case destination.CheckStatus == "failed":
 				copy.State, copy.LastError = "integrity_failed", destination.CheckError
+			case destination.CheckHold != nil:
+				copy.State, copy.LastError = "unverified", "Repository check requires review before this recovery evidence can be used."
+				if destination.CheckHold.Error != "" {
+					copy.LastError += " " + destination.CheckHold.Error
+				}
 			case destination.Status == "error":
 				copy.State, copy.LastError = "unavailable", destination.Error
 			case destination.InventoryError != "":
@@ -289,6 +359,7 @@ func (s *Service) protectionLocked(plan Plan) PlanProtection {
 		// Keep completed diagnostic evidence while a replacement is pending or
 		// running. Activity is computed independently from every active run.
 		latestAttempt, hasAttempt := s.state.CopyAttempts[checkpointKey(plan.ID, assignment.DestinationID)]
+		latestMaintenance, hasMaintenance := s.state.MaintenanceAttempts[checkpointKey(plan.ID, assignment.DestinationID)]
 		for _, run := range s.state.Runs {
 			if run.PlanID != plan.ID {
 				continue
@@ -309,6 +380,9 @@ func (s *Service) protectionLocked(plan Plan) PlanProtection {
 				if completed, ok := completedCopyAttempt(run.Run, attempt); ok && (!hasAttempt || newerCopyAttempt(completed, latestAttempt, now)) {
 					latestAttempt, hasAttempt = completed, true
 				}
+				if completed, ok := completedMaintenanceAttempt(run.Run, attempt); ok && (!hasMaintenance || newerCopyAttempt(completed, latestMaintenance, now)) {
+					latestMaintenance, hasMaintenance = completed, true
+				}
 			}
 		}
 		copy.EvidenceUsable = saved && copy.SnapshotStatus == "present" && (copy.State == "current" || copy.State == "manual" || copy.State == "overdue")
@@ -318,6 +392,9 @@ func (s *Service) protectionLocked(plan Plan) PlanProtection {
 			if copy.LastError == "" {
 				copy.LastError = latestAttempt.Error
 			}
+		}
+		if hasMaintenance && copy.LastError == "" {
+			copy.LastError = latestMaintenance.Error
 		}
 		if !plan.Enabled || !assignment.Enabled {
 			copy.State = "disabled"

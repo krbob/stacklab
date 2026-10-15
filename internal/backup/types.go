@@ -40,6 +40,8 @@ type Destination struct {
 	LastCheckAttemptError     string        `json:"last_check_attempt_error,omitempty"`
 	MetadataCheck             CheckEvidence `json:"metadata_check"`
 	DataCheck                 CheckEvidence `json:"data_check"`
+	CheckHold                 *CheckHold    `json:"check_hold,omitempty"`
+	MaintenanceReviewToken    string        `json:"maintenance_review_token,omitempty"`
 	LastCheckAt               *time.Time    `json:"last_check_at,omitempty"`
 	LastCheckPolicy           string        `json:"last_check_policy,omitempty"`
 	CheckSchedule             Schedule      `json:"check_schedule"`
@@ -71,6 +73,15 @@ type CheckEvidence struct {
 	Scope     string     `json:"scope"`
 	CheckedAt *time.Time `json:"checked_at,omitempty"`
 	Error     string     `json:"error,omitempty"`
+}
+
+// CheckHold preserves an unresolved repository check without claiming that
+// objects are corrupt or discarding historical proof. Scope names the check
+// required to resolve it: metadata, or all (also for an inconclusive sample).
+type CheckHold struct {
+	Scope     string     `json:"scope"`
+	CheckedAt *time.Time `json:"checked_at,omitempty"`
+	Error     string     `json:"error"`
 }
 
 type DestinationInput struct {
@@ -159,7 +170,8 @@ type Run struct {
 	Copies                 []CopyResult `json:"copies"`
 	Manifest               *Manifest    `json:"manifest,omitempty"`
 	Error                  string       `json:"error,omitempty"`
-	// Plan preserves selection and retention when the operator edits a plan later.
+	// Plan preserves capture selection when the operator edits a plan later;
+	// maintenance uses current policy.
 	Plan Plan `json:"-"`
 }
 

@@ -74,6 +74,8 @@ func (c *backupController) guard(next http.HandlerFunc) http.HandlerFunc {
 func (c *backupController) fail(w http.ResponseWriter, err error) {
 	status, code := http.StatusInternalServerError, "backup_failed"
 	switch {
+	case errors.Is(err, backup.ErrMaintenanceAcknowledgement):
+		status, code = 409, "maintenance_acknowledgement_required"
 	case errors.Is(err, backup.ErrInvalid):
 		status, code = 400, "validation_failed"
 	case errors.Is(err, backup.ErrNotFound):

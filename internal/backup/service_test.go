@@ -57,6 +57,9 @@ func (r *recordingRunner) Run(ctx context.Context, name string, args, env []stri
 		repo = args[1]
 	}
 	r.repositories = append(r.repositories, repo)
+	if commandIn(args, "list") && commandIn(args, "locks") {
+		return nil, nil
+	}
 	for _, arg := range args {
 		if arg == "dump" || arg == "ls" {
 			stages, _ := os.ReadDir(r.stagingDirectory)

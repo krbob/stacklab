@@ -9,16 +9,63 @@ import (
 	"time"
 )
 
+func keepAllSnapshots(policy Retention) bool {
+	return policy.Daily == 0 && policy.Weekly == 0 && policy.Monthly == 0
+}
+
+func retentionBlockedError(d Destination) error {
+	if !repositoryMaintenanceBlocked(d) {
+		return nil
+	}
+	scope := "metadata"
+	if d.DataCheck.Status == "failed" || d.CheckHold != nil && d.CheckHold.Scope != "metadata" || d.CheckStatus == "failed" && d.MetadataCheck.Status != "failed" {
+		scope = "full data"
+	}
+	if d.CheckStatus == "failed" || d.MetadataCheck.Status == "failed" || d.DataCheck.Status == "failed" {
+		return fmt.Errorf("%w: retention is blocked by unresolved repository integrity failure; preserve existing snapshots and run a successful %s check after repair", ErrBusy, scope)
+	}
+	return fmt.Errorf("%w: retention is blocked by an unresolved repository check; run a successful %s check before destructive maintenance", ErrBusy, scope)
+}
+
+// Capture selection remains immutable on the run, but deletion always follows
+// current operator policy. Configuration is locked while the caller owns its
+// repository reservation, so this execution-time policy remains stable.
+func (s *Service) currentRetentionLocked(planID, destinationID string) (Destination, Retention, error) {
+	plan, exists := s.state.Plans[planID]
+	if !exists || !plan.Enabled {
+		return Destination{}, Retention{}, fmt.Errorf("%w: retention requires an existing enabled plan", ErrInvalid)
+	}
+	for _, assignment := range plan.Destinations {
+		if assignment.DestinationID != destinationID {
+			continue
+		}
+		if !assignment.Enabled {
+			return Destination{}, Retention{}, fmt.Errorf("%w: retention requires an enabled destination assignment", ErrInvalid)
+		}
+		destination, exists := s.state.Destinations[destinationID]
+		if !exists {
+			return Destination{}, Retention{}, fmt.Errorf("%w: retention destination no longer exists", ErrInvalid)
+		}
+		if !keepAllSnapshots(assignment.Retention) {
+			if err := retentionBlockedError(destination); err != nil {
+				return Destination{}, Retention{}, err
+			}
+		}
+		return destination, assignment.Retention, nil
+	}
+	return Destination{}, Retention{}, fmt.Errorf("%w: retention destination is no longer assigned to this plan", ErrInvalid)
+}
+
 // Only recovery sets whose authenticated manifest and objects were verified
 // compete for retention buckets. Partial, unknown, legacy and future snapshots
 // are preserved, and cannot displace a usable recovery point. Explicit IDs keep
 // deletion independent of restic's arbitrary ordering of equal capture times.
 func (s *Service) retain(ctx context.Context, d Destination, planID string, policy Retention) (retentionErr error) {
-	if policy.Daily == 0 && policy.Weekly == 0 && policy.Monthly == 0 {
+	if keepAllSnapshots(policy) {
 		return nil
 	}
-	if d.CheckStatus == "failed" {
-		return fmt.Errorf("retention is blocked by unresolved repository integrity failure; preserve existing snapshots and run a full data check after repair")
+	if err := retentionBlockedError(d); err != nil {
+		return err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()

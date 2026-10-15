@@ -117,21 +117,21 @@ func (s *Service) executeRetention(ctx context.Context, job store.Job, plan Plan
 		}
 		if err == nil {
 			s.mu.Lock()
-			d, exists := s.state.Destinations[copy.DestinationID]
+			d, policy, policyErr := s.currentRetentionLocked(plan.ID, copy.DestinationID)
 			// The immutable verification result on this run is durable proof
 			// even if its classification was evicted from the bounded cache.
-			if _, known := s.snapshotClassificationLocked(copy.DestinationID, copy.SnapshotID); !known {
-				s.rememberSnapshotClassificationLocked(copy.DestinationID, copy.SnapshotID, "complete", *copy.VerifiedAt)
+			if policyErr == nil && !keepAllSnapshots(policy) {
+				if _, known := s.snapshotClassificationLocked(copy.DestinationID, copy.SnapshotID); !known {
+					s.rememberSnapshotClassificationLocked(copy.DestinationID, copy.SnapshotID, "complete", *copy.VerifiedAt)
+				}
 			}
 			s.mu.Unlock()
-			err = ErrNotFound
-			if exists {
-				for _, assignment := range plan.Destinations {
-					if assignment.DestinationID == copy.DestinationID {
-						err = s.retain(ctx, d, plan.ID, assignment.Retention)
-						break
-					}
+			err = policyErr
+			if err == nil {
+				if keepAllSnapshots(policy) {
+					s.event(ctx, job, "Current retention policy keeps all snapshots; no repository cleanup is needed.")
 				}
+				err = s.retain(ctx, d, plan.ID, policy)
 			}
 		}
 		if err == nil {

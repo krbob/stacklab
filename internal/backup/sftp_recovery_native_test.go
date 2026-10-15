@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"errors"
@@ -214,6 +215,61 @@ exec /usr/sbin/sshd -D -e -f /fixture/sshd_config
 		t.Fatalf("full-data proof was not refreshed after recovery: %+v", recovered)
 	}
 	t.Log("Stacklab unlock removed stale lock; recovered SFTP full-data check succeeded")
+	// Reuse the same remote backend to distinguish genuine short reads from a
+	// dropped transport. The local fixture owns the bind-mounted encrypted data.
+	var pack string
+	var size int64
+	if err := filepath.WalkDir(filepath.Join(base, "repository", "data"), func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.Size() > size {
+			pack, size = path, info.Size()
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if size < 1<<20 {
+		t.Fatal("fixture did not create a substantial encrypted data pack")
+	}
+	original, err := os.ReadFile(pack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(pack, 64); err != nil {
+		t.Fatal(err)
+	}
+	captured := &sftpDiagnosticRunner{base: s.runner}
+	s.runner = captured
+	err = operation("backup_check")
+	var commandErr *repositoryCommandError
+	if !errors.As(err, &commandErr) || commandErr.Code != "integrity_failed" {
+		t.Fatalf("SFTP truncated pack was not corruption: %v\n%s", err, captured.diagnostic)
+	}
+	t.Logf("native SFTP truncated-pack check diagnostics (fixture paths only):\n%s", captured.diagnostic)
+	damaged := s.state.Destinations[d.ID]
+	if damaged.DataCheck.Status != "failed" || !repositoryMaintenanceBlocked(damaged) {
+		t.Fatalf("truncation did not block maintenance: %+v", damaged)
+	}
+	if err := os.WriteFile(pack, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := operation("backup_check"); err != nil {
+		t.Fatal(err)
+	}
+	if repaired := s.state.Destinations[d.ID]; repaired.DataCheck.Status != "verified" || repositoryMaintenanceBlocked(repaired) {
+		t.Fatalf("repaired full check did not clear failure: %+v", repaired)
+	}
+	t.Log("real SFTP truncation blocked deletion; restoring encrypted bytes and full check recovered integrity")
+
 }
 
 func waitSFTPBanner(t *testing.T, ctx context.Context, address string, timeout time.Duration) {
@@ -348,4 +404,28 @@ func (p *sftpCheckFaultProxy) Close() {
 	}
 	p.mu.Unlock()
 	p.workers.Wait()
+}
+
+// Capture diagnostics only in this disposable fixture, never in production logs.
+type sftpDiagnosticRunner struct {
+	base       CommandRunner
+	diagnostic string
+}
+
+func (r *sftpDiagnosticRunner) Run(ctx context.Context, name string, args, env []string, dir string) ([]byte, error) {
+	if !commandIn(args, "check") {
+		return r.base.Run(ctx, name, args, env, dir)
+	}
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = env
+	cmd.Dir = dir
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	r.diagnostic = stderr.String()
+	if err != nil {
+		return nil, classifyCommandError(name, err, r.diagnostic)
+	}
+	return stdout.Bytes(), nil
 }

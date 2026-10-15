@@ -134,9 +134,9 @@ func TestBackupHTTPPruneIntegrityAcknowledgementAndUnlockReservation(t *testing.
 	h.backups = backup.NewService(cfg, h.jobs, h.backupCapture)
 	cookies := loginInternalTestUser(t, served, "test-password")
 	base := "/api/backups/destinations/" + destination.ID
-	for _, body := range []any{nil, map[string]any{}, map[string]any{"acknowledge_integrity_failure": false}} {
+	for _, body := range []any{nil, map[string]any{}, map[string]any{"acknowledge_integrity_failure": false}, map[string]any{"acknowledge_integrity_failure": true}, map[string]any{"acknowledge_integrity_failure": true, "acknowledgement_review_token": "stale"}} {
 		response := performInternalJSONRequest(t, served, http.MethodPost, base+"/prune", body, cookies)
-		if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "acknowledge_integrity_failure") {
+		if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "maintenance_acknowledgement_required") {
 			t.Fatalf("unacknowledged prune admitted: %d %s", response.Code, response.Body.String())
 		}
 	}
@@ -151,7 +151,20 @@ func TestBackupHTTPPruneIntegrityAcknowledgementAndUnlockReservation(t *testing.
 	// Execution releases the reservation even when this uninitialized fixture's
 	// check fails. No valid repository or installed restic is needed by this test.
 	_, _ = h.backups.ExecuteRepositoryJob(context.Background(), reserved, destination.ID, "backup_check", backup.CheckRequest{}, backup.RestoreRequest{})
-	response = performInternalJSONRequest(t, served, http.MethodPost, base+"/prune", map[string]any{"acknowledge_integrity_failure": true}, cookies)
+	overview, err := h.backups.Overview(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := ""
+	for _, current := range overview.Destinations {
+		if current.ID == destination.ID {
+			token = current.MaintenanceReviewToken
+		}
+	}
+	if token == "" {
+		t.Fatal("missing current maintenance review token")
+	}
+	response = performInternalJSONRequest(t, served, http.MethodPost, base+"/prune", map[string]any{"acknowledge_integrity_failure": true, "acknowledgement_review_token": token}, cookies)
 	if response.Code != http.StatusAccepted || !strings.Contains(response.Body.String(), "backup_prune") {
 		t.Fatalf("acknowledged prune rejected: %d %s", response.Code, response.Body.String())
 	}

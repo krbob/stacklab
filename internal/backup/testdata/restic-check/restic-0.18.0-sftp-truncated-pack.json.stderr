@@ -1,0 +1,8 @@
+{"message_type":"error","message":"pack 1ad0b3879b1c40f3d245f6e08794b903550d1413d95a27427434d1c84d09fb83: unexpected file size: got 64, expected 6779890\n"}
+Load(<data/1ad0b3879b>, 6779890, 0) failed: file is too short: readFull: unexpected EOF
+Load(<data/1ad0b3879b>, 6779890, 0) failed: file is too short: readFull: unexpected EOF
+{"message_type":"error","message":"download error: file is too short: readFull: unexpected EOF\n"}
+{"message_type":"error","message":"\nThe repository contains damaged pack files. These damaged files must be removed to repair the repository. This can be done using the following commands. Please read the troubleshooting guide at https://restic.readthedocs.io/en/stable/077_troubleshooting.html first.\n\n"}
+{"message_type":"error","message":"restic repair packs 1ad0b3879b1c40f3d245f6e08794b903550d1413d95a27427434d1c84d09fb83\nrestic repair snapshots --forget\n\n"}
+{"message_type":"error","message":"Damaged pack files can be caused by backend problems, hardware problems or bugs in restic. Please open an issue at https://github.com/restic/restic/issues/new/choose for further troubleshooting!\n"}
+{"message_type":"exit_error","code":1,"message":"Fatal: repository contains errors"}

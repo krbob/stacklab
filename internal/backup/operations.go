@@ -14,20 +14,23 @@ import (
 	"stacklab/internal/store"
 )
 
+var ErrMaintenanceAcknowledgement = errors.New("maintenance acknowledgement required")
+
 type PruneRequest struct {
-	AcknowledgeIntegrityFailure bool `json:"acknowledge_integrity_failure,omitempty"`
+	AcknowledgeIntegrityFailure bool   `json:"acknowledge_integrity_failure,omitempty"`
+	AcknowledgementReviewToken  string `json:"acknowledgement_review_token,omitempty"`
 }
 
 func validatePruneAcknowledgement(d Destination, requestedBy string, options []PruneRequest) error {
 	normalizeCheckEvidence(&d)
-	if d.CheckStatus != "failed" {
+	if !repositoryMaintenanceBlocked(d) {
 		return nil
 	}
 	if requestedBy == "scheduler" {
-		return fmt.Errorf("%w: scheduled pruning is blocked by unresolved repository integrity failure", ErrBusy)
+		return fmt.Errorf("%w: scheduled pruning is blocked by unresolved repository integrity failure or check hold", ErrBusy)
 	}
-	if len(options) != 1 || !options[0].AcknowledgeIntegrityFailure {
-		return fmt.Errorf("%w: pruning a repository with unresolved integrity failure requires acknowledge_integrity_failure=true; preserve existing copies and inspect the repository first", ErrBusy)
+	if len(options) != 1 || !options[0].AcknowledgeIntegrityFailure || options[0].AcknowledgementReviewToken == "" || options[0].AcknowledgementReviewToken != repositoryReviewFingerprint(d) {
+		return fmt.Errorf("%w: review the current repository integrity failure or check hold, then submit acknowledge_integrity_failure=true and its current acknowledgement_review_token; preserve existing copies and inspect the repository first", ErrMaintenanceAcknowledgement)
 	}
 	return nil
 }
@@ -133,19 +136,15 @@ func (s *Service) ExecuteRepositoryJob(ctx context.Context, job store.Job, id, a
 		if operationErr = validatePruneAcknowledgement(d, job.RequestedBy, prune); operationErr != nil {
 			break
 		}
-		if d.CheckStatus == "failed" {
-			s.event(ctx, job, "Operator acknowledged unresolved repository integrity failure before pruning.")
+		if repositoryMaintenanceBlocked(d) {
+			s.event(ctx, job, "Operator acknowledged unresolved repository integrity failure or check hold before pruning.")
 		}
 		_, operationErr = s.restic(ctx, d, "", "prune")
 		if operationErr == nil {
 			d.LastPruneAt = s.timePointer()
 		}
 	case "backup_unlock":
-		s.event(ctx, job, "Removing only locks restic identifies as stale; active locks are preserved.")
-		_, operationErr = s.restic(ctx, d, "", "unlock")
-		if operationErr == nil {
-			s.event(ctx, job, "Stale-lock removal completed. Repository integrity evidence is unchanged.")
-		}
+		operationErr = s.unlockRepository(ctx, job, d)
 	case "backup_restore":
 		restore.jobID = job.ID
 		if restore.RestoredDirectory != "" || restore.RestoreID != "" || len(restore.Mappings) > 0 {

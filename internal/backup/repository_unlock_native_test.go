@@ -3,6 +3,7 @@ package backup
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -13,7 +14,7 @@ import (
 )
 
 // A real restic backup waits for stdin while holding a live lock. Plain unlock
-// must preserve it, then remove that same lock after its owner is killed. This
+// must refuse it, then remove that same lock after its owner is killed. This
 // checks restic's stale-lock contract without manufacturing encrypted lock data.
 func TestNativeUnlockPreservesActiveLockAndRemovesKilledOwnerLock(t *testing.T) {
 	if _, err := exec.LookPath("restic"); err != nil {
@@ -77,20 +78,26 @@ func TestNativeUnlockPreservesActiveLockAndRemovesKilledOwnerLock(t *testing.T) 
 	if len(activeLocks) != 1 {
 		t.Fatal("restic did not acquire exactly one live lock before fixture deadline")
 	}
-	unlock := func() {
+	unlock := func(active bool) {
 		t.Helper()
 		job, err := s.StartRepositoryJob(ctx, d.ID, "backup_unlock", "test")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.ExecuteRepositoryJob(ctx, job, d.ID, "backup_unlock", CheckRequest{}, RestoreRequest{}); err != nil {
+		_, err = s.ExecuteRepositoryJob(ctx, job, d.ID, "backup_unlock", CheckRequest{}, RestoreRequest{})
+		var commandErr *repositoryCommandError
+		if active {
+			if !errors.As(err, &commandErr) || commandErr.Code != "repository_locked" {
+				t.Fatalf("live owner was not refused: %v", err)
+			}
+		} else if err != nil {
 			t.Fatal(err)
 		}
 		if !reflect.DeepEqual(s.state.Destinations[d.ID].DataCheck, d.DataCheck) {
 			t.Fatal("stale-lock removal changed existing integrity evidence")
 		}
 	}
-	unlock()
+	unlock(true)
 	if current := locks(); !reflect.DeepEqual(current, activeLocks) {
 		t.Fatalf("unlock removed active external lock: before=%v after=%v", activeLocks, current)
 	}
@@ -102,7 +109,7 @@ func TestNativeUnlockPreservesActiveLockAndRemovesKilledOwnerLock(t *testing.T) 
 	if current := locks(); !reflect.DeepEqual(current, activeLocks) {
 		t.Fatal("fixture did not leave its stale lock after SIGKILL")
 	}
-	unlock()
+	unlock(false)
 	if current := locks(); len(current) != 0 {
 		t.Fatalf("unlock did not remove killed owner's stale lock: %v", current)
 	}
