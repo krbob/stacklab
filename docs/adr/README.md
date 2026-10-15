@@ -16,3 +16,5 @@ Current ADRs:
   safe replacement scope, verified retention and observable operational recovery.
 - [0008: Backup Integrity Evidence](0008-backup-integrity-evidence.md) —
   scoped integrity evidence, snapshot classification and independent copy/retention outcomes.
+- [0009: Backup Maintenance Safety](0009-backup-maintenance-safety.md) —
+  unresolved check holds, current retention policy, evidence-bound prune and guarded unlock.

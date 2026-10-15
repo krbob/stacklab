@@ -5,7 +5,10 @@ the product is heading.
 
 ## Current documents
 
-- [Backup operational recovery](backup-operational-recovery.md) — accepted
+- [Backup repository safety](backup-repository-safety.md) — accepted fifth-round
+  classification, maintenance policy, guarded unlock and current-evidence review.
+
+- [Backup operational recovery](backup-operational-recovery.md) — implemented
   fourth-round transport, stale-lock, maintenance retry and recovery UI contract.
 
 - [Backup evidence and recovery corrections](backup-evidence-and-recovery.md) —

@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted, 2026-10-14. Supplements [ADR 0007](0007-backup-completion-and-recovery-scope.md).
+Accepted, 2026-10-14. Amended by [ADR 0009](0009-backup-maintenance-safety.md)
+on 2026-10-15 for unresolved checks, maintenance policy and unlock guarantees.
+Supplements [ADR 0007](0007-backup-completion-and-recovery-scope.md).
 Implementation follows the [evidence and recovery plan](../product/backup-evidence-and-recovery.md).
 The [operational recovery contract](../product/backup-operational-recovery.md)
 clarifies transport classification, migration and deliberate maintenance.

@@ -3,6 +3,8 @@
 ## Status And Scope
 
 Implemented and validated, 2026-10-14, following the fourth independent review.
+The fifth-round [repository safety contract](backup-repository-safety.md) amends
+classification, deletion policy and the limits of ordinary unlock.
 The [validation record](../quality/backup-validation.md#round-four-operational-recovery-validation--2026-10-14)
 separates deterministic, native, installed API and browser evidence and their limits.
 This contract extends [evidence and recovery](backup-evidence-and-recovery.md)

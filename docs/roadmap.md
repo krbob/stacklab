@@ -9,7 +9,7 @@ limited to work that is not already implemented.
 
 Status reviewed: 2026-07-12.
 
-Backup and recovery direction updated: 2026-10-14. Native backup orchestration
+Backup and recovery direction updated: 2026-10-15. Native backup orchestration
 and the [protection/recovery experience](product/backup-experience.md)
 have been implemented; the remaining baseline and goals retain their previous
 review date.
@@ -21,6 +21,11 @@ Third-round [evidence and recovery corrections](product/backup-evidence-and-reco
 are also implemented and exercised, including installed API recovery with inherited
 ACLs. The [validation record](quality/backup-validation.md) identifies source
 revisions, successful checks and retained limits.
+
+Fifth-round [repository safety corrections](product/backup-repository-safety.md)
+are accepted: unresolved check holds, current retention policy, guarded unlock and
+prune acknowledgement bound to current evidence. This safety round takes priority
+over further backup features.
 
 Fourth-round [operational recovery corrections](product/backup-operational-recovery.md)
 cover transient transport failures, stale locks, deliberate prune, independent
