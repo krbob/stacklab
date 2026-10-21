@@ -100,13 +100,23 @@ def main():
         data = json.dumps(payload).encode() if payload is not None else None
         req = urllib.request.Request(args.base_url + path, data=data, method=method,
                                      headers={'Content-Type': 'application/json', 'Origin': args.base_url})
-        try:
-            with api.open(req, timeout=60) as response:
-                body = response.read()
-                return json.loads(body) if body else None
-        except urllib.error.HTTPError as error:
-            body = error.read().decode(errors='replace')
-            raise RuntimeError(f'API {req.method} {path} returned {error.code}: {body}') from None
+        deadline = time.monotonic() + 180
+        while True:
+            try:
+                with api.open(req, timeout=60) as response:
+                    body = response.read()
+                    return json.loads(body) if body else None
+            except urllib.error.HTTPError as error:
+                body = error.read().decode(errors='replace')
+                # Read-only inventory refresh can hold a configuration lease
+                # after restart. A rejected DELETE performed no mutation; wait
+                # for that bounded read before retrying owned-fixture cleanup.
+                if (req.method == 'DELETE' and error.code == 409
+                        and json.loads(body).get('error', {}).get('message') == 'backup configuration is in use'
+                        and time.monotonic() < deadline):
+                    time.sleep(0.2)
+                    continue
+                raise RuntimeError(f'API {req.method} {path} returned {error.code}: {body}') from None
 
     def save_report():
         (evidence / 'result.json').write_text(json.dumps(report, indent=2) + '\n')

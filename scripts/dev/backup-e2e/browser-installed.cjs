@@ -90,6 +90,36 @@ const record = (name) => summary.assertions.push(name);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     };
     await screenshot('protection-desktop.png');
+    const heldProtection = overview.protection.flatMap(plan => plan.copies.map(copy => ({ plan, copy,
+      destination: overview.destinations.find(item => item.id === copy.destination_id) })))
+      .find(item => item.destination?.check_hold && item.copy.state === 'unverified' && item.copy.snapshot_id);
+    if (heldProtection) {
+      const planCard = page.locator('#backup-panel-protection article').filter({ has: page.getByRole('heading', { name: heldProtection.plan.plan_name, exact: true }) });
+      const copyCard = planCard.getByText(heldProtection.destination.name, { exact: true }).locator('..').locator('..');
+      await expect(copyCard).toContainText('Recovery remains available');
+      await expect(copyCard).toContainText('Required check:');
+      await expect(copyCard).not.toContainText('Create a new verified copy');
+      await expect(copyCard.getByRole('alert')).toHaveCount(0);
+      await expect(copyCard.getByRole('button', { name: 'Recover data', exact: true })).toBeEnabled();
+      await expect(copyCard.getByRole('button', { name: `Check ${heldProtection.destination.name} repository`, exact: true })).toBeEnabled();
+      record('Held protection offers the required check and recovery without duplicate alerts or a new-copy instruction');
+    } else summary.skipped.push('Held protection guidance: no unverified copy with a saved snapshot and a hold');
+    const orphan = overview.runs.find(run => !overview.plans.some(plan => plan.id === run.plan_id)
+      && !['queued', 'running'].includes(run.state) && run.copies.some(copy => copy.retention === 'failed')
+      && run.copies.every(copy => copy.state === 'succeeded' && copy.verification === 'recovery_objects_verified' && copy.verified_at && copy.snapshot_id));
+    if (orphan) {
+      await page.getByRole('tab', { name: 'History', exact: true }).click();
+      await page.getByLabel('Search history', { exact: true }).fill(orphan.id);
+      const historyCard = page.locator('#backup-panel-history article');
+      await expect(historyCard).toHaveCount(1);
+      await expect(historyCard.getByText('historical', { exact: true })).toBeVisible();
+      await expect(historyCard).toContainText('Its retention policy no longer applies');
+      await expect(historyCard.getByRole('button', { name: 'Retry retention cleanup', exact: true })).toHaveCount(0);
+      await screenshot('deleted-plan-history-desktop.png');
+      await page.getByLabel('Search history', { exact: true }).fill('');
+      await page.getByRole('tab', { name: 'Protection', exact: true }).click();
+      record('Deleted-plan cleanup remains historical and has no impossible retry action');
+    } else summary.skipped.push('Deleted-plan cleanup: no retained verified orphan with failed maintenance');
     await page.getByRole('button', { name: 'Backup settings', exact: true }).click();
     let dialog = page.getByRole('dialog', { name: 'Backup settings', exact: true });
     await expect(dialog.getByLabel('Pause automatic backups and repository maintenance')).toHaveJSProperty('checked', policy.paused);
