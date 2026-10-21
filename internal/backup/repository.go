@@ -498,126 +498,14 @@ func commandIn(args []string, wanted string) bool {
 	return false
 }
 
-var resticEOFDiagnostic = regexp.MustCompile(`\beof\b`)
-var resticHTTPFailureDiagnostic = regexp.MustCompile(`\b(?:http(?:/[^ ]+)?[ :]+|status(?: code)?[ :=]+)(?:500|502|503|504)\b`)
-var resticMissingPackDiagnostic = regexp.MustCompile(`pack [a-f0-9]{8,64}: does not exist`)
-var resticPackSizeDiagnostic = regexp.MustCompile(`pack [a-f0-9]{8,64}: unexpected file size:`)
-var resticMissingBlobDiagnostic = regexp.MustCompile(`id [a-f0-9]{8,64} not found in repository`)
-var resticInvalidNodeDiagnostic = regexp.MustCompile(`node .+ with invalid type `)
-var resticPackErrorsDiagnostic = regexp.MustCompile(`pack [a-f0-9]{8,64} contains [0-9]+ errors:`)
-
-// Restic versions emit either plain stderr or JSON error records whose message
-// can contain several lines. Retry warnings describe a recoverable attempt,
-// not the final outcome of the listing or read; terminal errors follow them.
-func resticDiagnosticText(diagnostic string) string {
-	var lines []string
-	for _, line := range strings.Split(diagnostic, "\n") {
-		var record struct {
-			Message string `json:"message"`
-		}
-		if strings.HasPrefix(strings.TrimSpace(line), "{") && json.Unmarshal([]byte(line), &record) == nil && record.Message != "" {
-			line = record.Message
-		}
-		for _, message := range strings.Split(strings.ToLower(line), "\n") {
-			if strings.Contains(message, "returned error, retrying after") {
-				continue
-			}
-			lines = append(lines, message)
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
-func containsDiagnostic(diagnostic string, patterns ...string) bool {
-	for _, pattern := range patterns {
-		if strings.Contains(diagnostic, pattern) {
-			return true
-		}
-	}
-	return false
-}
-
-func resticTransportFailure(diagnostic string) bool {
-	return containsDiagnostic(diagnostic, "connection refused", "connection reset", "connection closed", "connection lost", "no such host", "timeout", "timed out", "network is unreachable", "no route to host", "broken pipe", "server closed idle connection", "service unavailable", "serviceunavailable", "internal server error", "bad gateway", "slowdown", "requesttimeout") || resticEOFDiagnostic.MatchString(diagnostic) || resticHTTPFailureDiagnostic.MatchString(diagnostic)
-}
-
-func resticInventoryReadFailure(diagnostic string) bool {
-	for _, line := range strings.Split(diagnostic, "\n") {
-		if containsDiagnostic(line, "list(", "load indexes", "load index ", "load(<index/") && containsDiagnostic(line, "error", "failed") {
-			return true
-		}
-		if !resticTransportFailure(line) && !containsDiagnostic(line, "permission denied", "access denied", "no space left on device", "quota exceeded") {
-			continue
-		}
-		// These are reads of individual packs after inventory collection. An
-		// unrelated failed download cannot invalidate a successful listing.
-		if containsDiagnostic(line, "download error:", "load(<data/", "load(<pack/") {
-			continue
-		}
-		// A naked EOF or an unrecognised read failure may still come from a
-		// partial listing. Do not invent missing-object proof from it.
-		return true
-	}
-	return false
-}
-
-func resticIntegrityFailure(diagnostic string, inventoryReadFailure bool) bool {
-	// Authentication, decoded-object and hash errors establish bad repository
-	// data even when another pack failed to download in the same check. Avoid the
-	// generic "does not match": SSH host keys and TLS identities use it too.
-	if resticPackSizeDiagnostic.MatchString(diagnostic) || resticInvalidNodeDiagnostic.MatchString(diagnostic) || containsDiagnostic(diagnostic, "ciphertext verification failed", "invalid data returned", "unexpected pack id", "pack id does not match", "pack header size does not match", "hash does not match", "checksum does not match", "index for pack contains gaps / overlapping blobs", "has nil blob list", "has null id", "has no subtree", "subtree id is null", "node with empty name") {
-		return true
-	}
-	for _, line := range strings.Split(diagnostic, "\n") {
-		// In the local and SFTP backends this means normal EOF before the
-		// expected object length, rather than an interrupted connection.
-		if strings.Contains(line, "file is too short") && containsDiagnostic(line, "load(<data/", "download error:", "pack ") {
-			return true
-		}
-	}
-	// Restic can report absent packs and index references after a failed partial
-	// listing/index load. Without a successful read these are not decisive proof.
-	return !inventoryReadFailure && (resticMissingPackDiagnostic.MatchString(diagnostic) || resticMissingBlobDiagnostic.MatchString(diagnostic) || containsDiagnostic(diagnostic, "not found in index", "pack is empty or not indexed", "is not contained in index or position is incorrect"))
-}
-
-func resticUnknownRepositoryFailure(diagnostic string) bool {
-	treeErrors := false
-	for _, line := range strings.Split(diagnostic, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "error for tree ") {
-			treeErrors = true
-			if separator := strings.Index(trimmed, ":"); separator >= 0 {
-				trimmed = strings.TrimSpace(trimmed[separator+1:])
-			}
-			if trimmed == "" {
-				continue
-			}
-		} else if trimmed == "" || strings.HasPrefix(trimmed, "the repository ") || strings.HasPrefix(trimmed, "fatal:") {
-			treeErrors = false
-		}
-		// Missing references may be artifacts of a failed inventory read. They
-		// are handled by resticIntegrityFailure, rather than promoted from an
-		// availability failure to a new unresolved-repository condition here.
-		if resticMissingBlobDiagnostic.MatchString(trimmed) || containsDiagnostic(trimmed, "not found in index", "is not contained in index or position is incorrect") {
-			continue
-		}
-		if treeErrors && !resticTransportFailure(trimmed) && !containsDiagnostic(trimmed, "permission denied", "access denied", "no space left on device", "quota exceeded") {
-			return true
-		}
-		if resticPackErrorsDiagnostic.MatchString(line) && !resticTransportFailure(line) && !containsDiagnostic(line, "permission denied", "access denied", "no space left on device", "quota exceeded") {
-			return true
-		}
-	}
-	return false
-}
-
 func classifyCommandError(name string, err error, diagnostic string) error {
 	code := -1
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
 		code = exit.ExitCode()
 	}
-	lower := resticDiagnosticText(diagnostic)
+	diagnostics := parseResticDiagnostics(diagnostic)
+	lower := diagnostics.text()
 	kind, message := "operation_failed", "operation failed; check destination access and retry"
 	if filepath.Base(name) == "restic" {
 		transportFailure := resticTransportFailure(lower)
@@ -630,9 +518,9 @@ func classifyCommandError(name string, err error, diagnostic string) error {
 			kind, message = "repository_locked", "repository is locked by another operation; wait for it to finish and inspect stale locks before retrying"
 		case code == 12:
 			kind, message = "credentials_rejected", "repository rejected the encryption password; verify its saved credentials"
-		case resticIntegrityFailure(lower, resticInventoryReadFailure(lower)):
+		case resticIntegrityFailure(lower, diagnostics.inventoryFailure()):
 			kind, message = "integrity_failed", "repository integrity verification failed; inspect the repository and preserve existing copies"
-		case resticUnknownRepositoryFailure(lower):
+		case diagnostics.unexplainedRepositoryFailure():
 			kind, message = "check_inconclusive", "repository check was inconclusive; preserve existing copies and run the required check before resuming maintenance"
 		case strings.Contains(lower, "repository is already locked") || strings.Contains(lower, "unable to create lock"):
 			kind, message = "repository_locked", "repository is locked by another operation; wait for it to finish and inspect stale locks before retrying"

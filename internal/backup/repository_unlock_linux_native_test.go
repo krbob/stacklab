@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -21,6 +22,14 @@ import (
 // Stacklab still executes as the non-root test user: signal 0 must return EPERM.
 // This fixture owns its repository and never changes the installed service.
 func TestNativeUnlockRefusesForeignUIDOwner(t *testing.T) {
+	testNativeUnlockExternalOwner(t, false)
+}
+
+func TestNativeUnlockRefusesFreshPIDNamespaceOwner(t *testing.T) {
+	testNativeUnlockExternalOwner(t, true)
+}
+
+func testNativeUnlockExternalOwner(t *testing.T, privatePID bool) {
 	if os.Getenv("STACKLAB_TEST_FOREIGN_UID_UNLOCK") != "1" {
 		t.Skip("set STACKLAB_TEST_FOREIGN_UID_UNLOCK=1 on disposable Linux with Docker")
 	}
@@ -36,7 +45,16 @@ func TestNativeUnlockRefusesForeignUIDOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	name := "stacklab-root-lock-" + newID("")
-	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "-i", "--name", name, "--label", "stacklab.fixture=foreign-uid-unlock", "--pid=host", "--uts=host", "--network=none", "-v", "/:/host", "debian:trixie-slim", "chroot", "/host", "/usr/bin/restic", "--repo", d.Repository, "--password-file", filepath.Join(s.secretDirectory(d.ID), "password"), "backup", "--stdin", "--stdin-filename", "held-input")
+	args := []string{"run", "--rm", "-i", "--name", name, "--label", "stacklab.fixture=foreign-uid-unlock", "--uts=host", "--network=none", "-v", "/:/host"}
+	if privatePID {
+		// The high PID is local to the container's private PID namespace. Keep
+		// the host's hostname, exactly the misleading-identity case under review.
+		args = append(args, "--privileged", "debian:trixie-slim", "sh", "-ec", `echo 1000000 > /proc/sys/kernel/ns_last_pid; "$@"`, "--")
+	} else {
+		args = append(args, "--pid=host", "debian:trixie-slim")
+	}
+	args = append(args, "chroot", "/host", "/usr/bin/restic", "--repo", d.Repository, "--password-file", filepath.Join(s.secretDirectory(d.ID), "password"), "backup", "--stdin", "--stdin-filename", "held-input")
+	cmd := exec.CommandContext(ctx, "docker", args...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -87,7 +105,14 @@ func TestNativeUnlockRefusesForeignUIDOwner(t *testing.T) {
 	if err := json.Unmarshal(output, &lock); err != nil {
 		t.Fatal(err)
 	}
-	if lock.UID != 0 || !errors.Is(syscall.Kill(lock.PID, 0), syscall.EPERM) {
+	if privatePID {
+		if lock.PID <= 1000000 || !errors.Is(syscall.Kill(lock.PID, 0), syscall.ESRCH) {
+			t.Fatalf("private PID is not absent on host: %+v", lock)
+		}
+		if err := exec.CommandContext(ctx, "docker", "exec", name, "test", "-e", fmt.Sprintf("/proc/%d/status", lock.PID)).Run(); err != nil {
+			t.Fatal("private PID owner is not alive")
+		}
+	} else if lock.UID != 0 || !errors.Is(syscall.Kill(lock.PID, 0), syscall.EPERM) {
 		t.Fatalf("fixture is not a live foreign UID owner: %+v", lock)
 	}
 	job, err := s.StartRepositoryJob(ctx, d.ID, "backup_unlock", "fixture")
@@ -96,7 +121,11 @@ func TestNativeUnlockRefusesForeignUIDOwner(t *testing.T) {
 	}
 	_, err = s.ExecuteRepositoryJob(ctx, job, d.ID, "backup_unlock", CheckRequest{}, RestoreRequest{})
 	var diagnostic *repositoryCommandError
-	if !errors.As(err, &diagnostic) || diagnostic.Code != "repository_locked" || !strings.Contains(err.Error(), "still exists") {
+	reason := "still exists"
+	if privatePID {
+		reason = "30 minutes"
+	}
+	if !errors.As(err, &diagnostic) || diagnostic.Code != "unlock_refused" || !strings.Contains(err.Error(), reason) {
 		t.Fatalf("foreign owner not protected: %v", err)
 	}
 	after, err := s.repositoryLockIDs(ctx, d)
@@ -111,6 +140,9 @@ func TestNativeUnlockRefusesForeignUIDOwner(t *testing.T) {
 	for time.Now().Before(deadline) && !errors.Is(syscall.Kill(lock.PID, 0), syscall.ESRCH) {
 		time.Sleep(20 * time.Millisecond)
 	}
+	// The owner has exited; simulate the additional minimum age without changing
+	// repository bytes or waiting thirty minutes in the integration test.
+	s.now = func() time.Time { return time.Now().UTC().Add(minimumUnlockAge + time.Minute) }
 	job, err = s.StartRepositoryJob(ctx, d.ID, "backup_unlock", "fixture")
 	if err != nil {
 		t.Fatal(err)
@@ -122,5 +154,5 @@ func TestNativeUnlockRefusesForeignUIDOwner(t *testing.T) {
 	if err != nil || len(after) != 0 {
 		t.Fatalf("dead owner's lock remains: %v %v", after, err)
 	}
-	t.Log("live UID 0 owner was refused on EPERM; killed owner's stale lock was removed")
+	t.Logf("live external owner (private PID namespace=%t) refused; killed owner's lock removed after simulated 31-minute age", privatePID)
 }

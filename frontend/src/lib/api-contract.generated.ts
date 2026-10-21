@@ -64,7 +64,7 @@ export interface paths {
     post: operations["testBackupRepository"];
   };
   "/backups/destinations/{destinationId}/unlock": {
-    /** @description Inspect locks under Stacklab repository admission and refuse foreign-host locks or a same-host owner that is alive or cannot be established safely, then run ordinary restic unlock. External repository clients must stay stopped throughout the operation. Never uses force removal and does not check or clear integrity evidence. Job events report remaining locks. */
+    /** @description Inspect locks under Stacklab repository admission and refuse foreign-host locks, locks younger than 30 minutes, future timestamps, live or uncertain local owners, and a changed lock inventory before ordinary restic unlock. Guard refusals produce unlock_refused in job diagnostics. A matching hostname and sufficient age do not prove safety across PID namespaces. External repository clients must stay stopped throughout the operation. Never uses force removal and does not check or clear integrity evidence. Job events report remaining locks. */
     post: operations["unlockBackupDestination"];
   };
   "/backups/filesystem": {
@@ -2976,7 +2976,7 @@ export interface operations {
       503: components["responses"]["ErrorInvalidState"];
     };
   };
-  /** @description Inspect locks under Stacklab repository admission and refuse foreign-host locks or a same-host owner that is alive or cannot be established safely, then run ordinary restic unlock. External repository clients must stay stopped throughout the operation. Never uses force removal and does not check or clear integrity evidence. Job events report remaining locks. */
+  /** @description Inspect locks under Stacklab repository admission and refuse foreign-host locks, locks younger than 30 minutes, future timestamps, live or uncertain local owners, and a changed lock inventory before ordinary restic unlock. Guard refusals produce unlock_refused in job diagnostics. A matching hostname and sufficient age do not prove safety across PID namespaces. External repository clients must stay stopped throughout the operation. Never uses force removal and does not check or clear integrity evidence. Job events report remaining locks. */
   unlockBackupDestination: {
     parameters: {
       path: {

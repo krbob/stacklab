@@ -24,3 +24,12 @@ Debian 13 arm64 (`restic 0.18.0`, Go 1.24.4), by
 fixture truncated its largest encrypted pack to 64 bytes and ran a full check over
 SFTP. Exit status was 1; Stacklab classified the actual mixed size/EOF diagnostics
 as integrity failure. Restoring those exact bytes and a full check recovered it.
+
+`restic-0.18.0-sftp-inventory-outage.json.stderr` was captured on 2026-10-21 on
+Debian 13 arm64 by `TestNativeSFTPInterruptedInventoryRecovery`. The owned SSH
+subsystem gates the actual SFTP OPENDIR request for `repository/data`, before
+forwarding it to OpenSSH's sftp-server. The fixture then stops its sshd container.
+This deterministically interrupts inventory before pack reads, with no fabricated
+restic output. Restic exits 1 with SSH status 255, apparent missing packs and
+circuit-breaker errors. Expected classification: unavailable, historical proof
+retained, no new hold. The separate TCP-byte gate still covers pack-read outage.

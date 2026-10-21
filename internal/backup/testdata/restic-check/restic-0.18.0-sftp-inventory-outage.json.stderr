@@ -1,0 +1,56 @@
+subprocess ssh: Connection to 127.0.0.1 closed by remote host.
+List(data) returned error, retrying after 600.643983ms: Walk /fixture/repository/data: connection lost
+List(data) failed: ssh command exited: exit status 255
+{"message_type":"error","message":"ssh command exited: exit status 255\n"}
+{"message_type":"error","message":"pack 1b1f6ffebc6ffaeea721bc28d1d15518dcb951192dd8af4e723eac7de1cc0722: does not exist\n"}
+{"message_type":"error","message":"pack 27b7642f7edecc15c5e018989cd09040048a6a9cd80be1fc3029b250dc212502: does not exist\n"}
+{"message_type":"error","message":"pack a3af7ecd6dca89feffa4f96f8ca650b1bdfec88e443d9b829d1a0f709c56ac01: does not exist\n"}
+{"message_type":"error","message":"pack d46bdb4374e3410fa23d09b1b90db974a4933dd38cb2c8589c3dc73efd37628f: does not exist\n"}
+{"message_type":"error","message":"pack 103fe425fb50c5035be4905e07cbe75392f629fba66b2d8bab1a06890bf01c08: does not exist\n"}
+{"message_type":"error","message":"pack ea92401726a0c0e5449152da670cd5c887ac9ff00745c8aa59cbcc88bb2cf1df: does not exist\n"}
+{"message_type":"error","message":"pack 506590fb71a86d37ac2d73397762e9e0811f2110b69e7209058b390b1a42c79a: does not exist\n"}
+{"message_type":"error","message":"pack d58638497a3be88f900c76174dc70ad2c9a3f8a965569ce2405528c9db5dfcbe: does not exist\n"}
+{"message_type":"error","message":"pack 75e0077e1c3ef1565c119870c02e98d6a4859ad5aa2a6d2a148b3c2d7d20e7ea: does not exist\n"}
+{"message_type":"error","message":"pack ff1d56162b2792fd2f5cd2b4b366777efc795adc070c3ae4c982277978046d29: does not exist\n"}
+{"message_type":"error","message":"pack 0c8d6c6f47aba6e0cc845608c42f45ac50b5941e9e611959ba3966adc4e984d0: does not exist\n"}
+{"message_type":"error","message":"pack 5dd38e8f7110f4b51d1e695f0959ae0e97f3ac2def989685dc99d51ffddf8881: does not exist\n"}
+{"message_type":"error","message":"pack 95120e31e32a4192dd6f727f5fae8a1e2f7967fec5f14596dedcd3dd325180c8: does not exist\n"}
+{"message_type":"error","message":"pack 52e9f85936097b378a34ad0281cb76747f6c150fe45f71c72a874c2dca588665: does not exist\n"}
+{"message_type":"error","message":"pack d6fb12c77174e69da461135be2463dc210641355b9cf1de7b9bdc64003e8c36c: does not exist\n"}
+Load(<snapshot/f0b5395a5f>, 0, 0) failed: ssh command exited: exit status 255
+{"message_type":"error","message":"error: failed to load snapshot f0b5395a: circuit breaker open for file \u003csnapshot/f0b5395a5f\u003e\n"}
+Load(<data/506590fb71>, 3022808, 0) failed: ssh command exited: exit status 255
+{"message_type":"error","message":"download error: circuit breaker open for file \u003cdata/506590fb71\u003e\n"}
+Load(<data/103fe425fb>, 4933214, 0) failed: ssh command exited: exit status 255
+Load(<data/a3af7ecd6d>, 4362976, 0) failed: ssh command exited: exit status 255
+Load(<data/52e9f85936>, 5992091, 0) failed: ssh command exited: exit status 255
+Load(<data/75e0077e1c>, 1891, 0) failed: ssh command exited: exit status 255
+Load(<data/95120e31e3>, 5163977, 0) failed: ssh command exited: exit status 255
+Load(<data/d46bdb4374>, 4997753, 0) returned error, retrying after 951.929088ms: Open /fixture/repository/data/d4/d46bdb4374e3410fa23d09b1b90db974a4933dd38cb2c8589c3dc73efd37628f: connection lost
+{"message_type":"error","message":"download error: circuit breaker open for file \u003cdata/103fe425fb\u003e\n"}
+{"message_type":"error","message":"download error: circuit breaker open for file \u003cdata/a3af7ecd6d\u003e\n"}
+Load(<data/d58638497a>, 3291563, 0) failed: ssh command exited: exit status 255
+{"message_type":"error","message":"download error: circuit breaker open for file \u003cdata/52e9f85936\u003e\n"}
+{"message_type":"error","message":"download error: circuit breaker open for file \u003cdata/75e0077e1c\u003e\n"}
+{"message_type":"error","message":"download error: circuit breaker open for file \u003cdata/95120e31e3\u003e\n"}
+{"message_type":"error","message":"download error: circuit breaker open for file \u003cdata/d58638497a\u003e\n"}
+Load(<data/d6fb12c771>, 5990831, 0) failed: ssh command exited: exit status 255
+{"message_type":"error","message":"download error: circuit breaker open for file \u003cdata/d6fb12c771\u003e\n"}
+Load(<data/27b7642f7e>, 4424098, 0) failed: ssh command exited: exit status 255
+Load(<data/1b1f6ffebc>, 5547806, 0) returned error, retrying after 1.220728103s: Open /fixture/repository/data/1b/1b1f6ffebc6ffaeea721bc28d1d15518dcb951192dd8af4e723eac7de1cc0722: connection lost
+{"message_type":"error","message":"download error: circuit breaker open for file \u003cdata/27b7642f7e\u003e\n"}
+Load(<data/ea92401726>, 4243444, 0) failed: ssh command exited: exit status 255
+Load(<data/5dd38e8f71>, 4295887, 0) failed: ssh command exited: exit status 255
+{"message_type":"error","message":"download error: circuit breaker open for file \u003cdata/ea92401726\u003e\n"}
+Load(<data/0c8d6c6f47>, 6591075, 0) failed: ssh command exited: exit status 255
+{"message_type":"error","message":"download error: circuit breaker open for file \u003cdata/0c8d6c6f47\u003e\n"}
+{"message_type":"error","message":"download error: circuit breaker open for file \u003cdata/5dd38e8f71\u003e\n"}
+Load(<data/ff1d56162b>, 4257101, 0) failed: ssh command exited: exit status 255
+{"message_type":"error","message":"download error: circuit breaker open for file \u003cdata/ff1d56162b\u003e\n"}
+Load(<data/d46bdb4374>, 4997753, 0) failed: ssh command exited: exit status 255
+{"message_type":"error","message":"download error: circuit breaker open for file \u003cdata/d46bdb4374\u003e\n"}
+Load(<data/1b1f6ffebc>, 5547806, 0) failed: ssh command exited: exit status 255
+{"message_type":"error","message":"download error: circuit breaker open for file \u003cdata/1b1f6ffebc\u003e\n"}
+{"message_type":"error","message":"\nThe repository is damaged and must be repaired. Please follow the troubleshooting guide at https://restic.readthedocs.io/en/stable/077_troubleshooting.html .\n\n"}
+Remove(<lock/f06bd7f354>) failed: ssh command exited: exit status 255
+{"message_type":"exit_error","code":1,"message":"Fatal: repository contains errors"}

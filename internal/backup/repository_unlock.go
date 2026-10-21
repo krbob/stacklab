@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -23,11 +24,13 @@ type repositoryLock struct {
 	UID      uint32    `json:"uid,omitempty"` // restic omits UID 0
 }
 
+const minimumUnlockAge = 30 * time.Minute
+
 func unlockRefused(reason string) error {
-	return &repositoryCommandError{Code: "repository_locked", message: "stale-lock removal refused: " + reason + "; stop or coordinate all repository clients before retrying (repository_locked)"}
+	return &repositoryCommandError{Code: "unlock_refused", message: "stale-lock removal refused: " + reason + "; stop or coordinate all repository clients before retrying (unlock_refused)"}
 }
 
-func validateUnlockOwner(lock repositoryLock, hostname string, probe func(int) error) error {
+func validateUnlockOwner(lock repositoryLock, hostname string, now time.Time, probe func(int) error) error {
 	if hostname == "" || lock.Hostname == "" || lock.Time.IsZero() || lock.PID <= 0 || int64(lock.PID) > 1<<31-1 {
 		return unlockRefused("lock ownership metadata is incomplete or invalid")
 	}
@@ -39,6 +42,11 @@ func validateUnlockOwner(lock repositoryLock, hostname string, probe func(int) e
 	case err == nil, errors.Is(err, syscall.EPERM):
 		return unlockRefused(fmt.Sprintf("local PID %d (recorded UID %d) still exists, regardless of lock age", lock.PID, lock.UID))
 	case errors.Is(err, syscall.ESRCH):
+		// A matching hostname does not identify a PID namespace. A fresh lock
+		// can still belong to a live process outside this process's namespace.
+		if now.Sub(lock.Time) < minimumUnlockAge {
+			return unlockRefused("lock is less than 30 minutes old or has a future timestamp; an absent local PID does not prove that its owner has stopped")
+		}
 		return nil
 	default:
 		return unlockRefused("the local lock owner could not be checked reliably")
@@ -85,9 +93,18 @@ func (s *Service) unlockRepository(ctx context.Context, job store.Job, d Destina
 		if err := json.Unmarshal(output, &lock); err != nil {
 			return unlockRefused("lock metadata could not be interpreted")
 		}
-		if err := validateUnlockOwner(lock, hostname, func(pid int) error { return syscall.Kill(pid, 0) }); err != nil {
+		if err := validateUnlockOwner(lock, hostname, s.now(), func(pid int) error { return syscall.Kill(pid, 0) }); err != nil {
 			return err
 		}
+	}
+	current, err := s.repositoryLockIDs(ctx, d)
+	if err != nil {
+		return err
+	}
+	slices.Sort(ids)
+	slices.Sort(current)
+	if !slices.Equal(ids, current) {
+		return unlockRefused("lock inventory changed during ownership review")
 	}
 	if _, err := s.restic(ctx, d, "", "unlock"); err != nil {
 		return err

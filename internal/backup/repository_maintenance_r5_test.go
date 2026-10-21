@@ -23,7 +23,12 @@ func TestUnlockOwnerGuard(t *testing.T) {
 		{"active same UID", "host", 42, now, nil, false},
 		{"active foreign UID", "host", 42, now, syscall.EPERM, false},
 		{"active old lock", "host", 42, now.Add(-time.Hour), nil, false},
-		{"dead local owner", "host", 42, now, syscall.ESRCH, true},
+		{"fresh absent PID may be in another namespace", "host", 42, now.Add(-20 * time.Second), syscall.ESRCH, false},
+		{"just under minimum age", "host", 42, now.Add(-30*time.Minute + time.Nanosecond), syscall.ESRCH, false},
+		{"dead local owner at minimum age", "host", 42, now.Add(-30 * time.Minute), syscall.ESRCH, true},
+		{"dead local owner old lock", "host", 42, now.Add(-time.Hour), syscall.ESRCH, true},
+		{"future timestamp", "host", 42, now.Add(time.Hour), syscall.ESRCH, false},
+		{"active old foreign UID", "host", 42, now.Add(-time.Hour), syscall.EPERM, false},
 		{"remote old lock", "remote", 42, now.Add(-time.Hour), syscall.ESRCH, false},
 		{"missing host", "", 42, now, syscall.ESRCH, false},
 		{"missing time", "host", 42, time.Time{}, syscall.ESRCH, false},
@@ -34,7 +39,7 @@ func TestUnlockOwnerGuard(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			called := false
-			err := validateUnlockOwner(repositoryLock{Hostname: tc.host, PID: tc.pid, Time: tc.at}, "host", func(pid int) error { called = true; return tc.probe })
+			err := validateUnlockOwner(repositoryLock{Hostname: tc.host, PID: tc.pid, Time: tc.at}, "host", now, func(pid int) error { called = true; return tc.probe })
 			if (err == nil) != tc.allowed {
 				t.Fatalf("allowed=%v error=%v", tc.allowed, err)
 			}
@@ -46,15 +51,22 @@ func TestUnlockOwnerGuard(t *testing.T) {
 }
 
 type unlockGuardRunner struct {
-	base      CommandRunner
-	ids       []string
-	metadata  []byte
-	unlocks   int
-	listError error
+	base            CommandRunner
+	ids             []string
+	metadata        []byte
+	unlocks         int
+	listError       error
+	listingSequence [][]string
+	lists           int
 }
 
 func (r *unlockGuardRunner) Run(ctx context.Context, name string, args, env []string, dir string) ([]byte, error) {
 	if commandIn(args, "list") && commandIn(args, "locks") {
+		if r.lists < len(r.listingSequence) {
+			ids := r.listingSequence[r.lists]
+			r.lists++
+			return []byte(strings.Join(ids, "\n")), r.listError
+		}
 		return []byte(strings.Join(r.ids, "\n")), r.listError
 	}
 	if commandIn(args, "cat") && commandIn(args, "lock") {
@@ -65,6 +77,40 @@ func (r *unlockGuardRunner) Run(ctx context.Context, name string, args, env []st
 		return nil, nil
 	}
 	return r.base.Run(ctx, name, args, env, dir)
+}
+
+func TestUnlockRefusesChangedInventory(t *testing.T) {
+	host, _ := os.Hostname()
+	metadata, _ := json.Marshal(repositoryLock{Hostname: host, PID: 1 << 30, Time: time.Now().Add(-time.Hour)})
+	if !errors.Is(syscall.Kill(1<<30, 0), syscall.ESRCH) {
+		t.Fatal("fixture requires an absent PID")
+	}
+	a, b := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	for _, tc := range []struct {
+		name          string
+		before, after []string
+		allowed       bool
+	}{
+		{"new lock", nil, []string{a}, false},
+		{"removed lock", []string{a}, nil, false},
+		{"replaced lock", []string{a}, []string{b}, false},
+		{"reordered identical inventory", []string{a, b}, []string{b, a}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, _, base := newTestService(t)
+			d := addDestination(t, s, "Inventory race")
+			r := &unlockGuardRunner{base: base, metadata: metadata, listingSequence: [][]string{tc.before, tc.after, nil}}
+			s.runner = r
+			job, err := s.StartRepositoryJob(context.Background(), d.ID, "backup_unlock", "fixture")
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = s.ExecuteRepositoryJob(context.Background(), job, d.ID, "backup_unlock", CheckRequest{}, RestoreRequest{})
+			if (err == nil) != tc.allowed || (r.unlocks == 1) != tc.allowed {
+				t.Fatalf("changed lock set reached unlock: %v, calls=%d", err, r.unlocks)
+			}
+		})
+	}
 }
 func TestUnlockRefusesMalformedOrLiveLocksBeforeResticUnlock(t *testing.T) {
 	host, _ := os.Hostname()

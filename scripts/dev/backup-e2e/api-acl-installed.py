@@ -172,6 +172,8 @@ def main():
         before = request('/api/backups')
         before_ids = {key: {item['id'] for item in before[key]} for key in ('plans', 'destinations')}
         before_policy = request('/api/backups/policy')
+        if not before_policy['paused']:
+            raise RuntimeError('pause automatic backups before the exclusive manual-repair exercise')
         if before_policy['host_review_required'] or before.get('recovery_error'):
             raise RuntimeError('existing automatic recovery/host-review block; leave operator state unchanged')
         if before.get('helper_ready') is not True:
@@ -198,9 +200,10 @@ def main():
         nested.chmod(0o555)
         (target / 'unarchived.txt').write_text('replace must remove this fixture-only file\n')
         filesystem = request('/api/backups/filesystem?path=' + urllib.parse.quote(str(workspace), safe=''))['device']
+        repository_password = secrets.token_urlsafe(32)
         destination = request('/api/backups/destinations', {'name': 'R3 ACL API ' + args.run_id, 'kind': 'local',
             'repository': str(workspace / 'repository'), 'expected_filesystem': filesystem,
-            'secrets': {'password': secrets.token_urlsafe(32)}, 'check_schedule': {'frequency': 'manual'},
+            'secrets': {'password': repository_password}, 'check_schedule': {'frequency': 'manual'},
             'check_read_data': 'metadata', 'prune_schedule': {'frequency': 'manual'}})['destination']
         destination_id = destination['id']
         report['destination_id'] = destination_id
@@ -316,6 +319,55 @@ def main():
             raise AssertionError('full successful check did not resolve the saved failure')
         report['checks'].append({'name': 'native_corruption_and_current_evidence_prune_acknowledgement', 'result': 'passed'})
         save_report()
+        # Exercise the documented offline procedure against only this owned
+        # repository. Unlike the previous byte-restoration case, restic rebuilds
+        # the index itself, as the actual installed service user.
+        request('/api/auth/logout', {})
+        command(['systemctl', 'stop', 'stacklab'])
+        try:
+            repository = workspace / 'repository'
+            shutil.copytree(repository, evidence / 'independent-repository-copy')
+            password_file = workspace / 'repair-password'
+            password_file.write_text(repository_password)
+            password_file.chmod(0o600)
+            os.chown(password_file, identity.pw_uid, identity.pw_gid)
+            restic = ['runuser', '-u', identity.pw_name, '--', 'env',
+                'RESTIC_REPOSITORY=' + str(repository), 'RESTIC_PASSWORD_FILE=' + str(password_file),
+                'restic', '--no-cache']
+            indexes = list((repository / 'index').iterdir())
+            if not indexes:
+                raise AssertionError('manual repair fixture has no index')
+            for index in indexes:
+                index.unlink()
+            damaged = subprocess.run(restic + ['check', '--read-data'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            (evidence / 'missing-index-check.log').write_bytes(damaged.stdout + damaged.stderr)
+            if damaged.returncode == 0:
+                raise AssertionError('index deletion did not fail the native check')
+            version = command(['restic', 'version']).strip()
+            repair = ['rebuild-index'] if re.match(r'restic 0\.(14|15)\.', version) else ['repair', 'index']
+            (evidence / 'native-index-repair.log').write_text(command(restic + repair))
+            if any(index.stat().st_uid != identity.pw_uid for index in (repository / 'index').iterdir()):
+                raise AssertionError('manual repair created indexes with the wrong owner')
+            (evidence / 'native-repaired-full-check.log').write_text(command(restic + ['check', '--read-data']))
+            password_file.unlink()
+            report['checks'].append({'name': 'offline_native_index_repair_as_service_user', 'result': 'passed',
+                'restic': version, 'repair_command': repair, 'uid': identity.pw_uid})
+        finally:
+            command(['systemctl', 'start', 'stacklab'])
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            try:
+                if request('/api/ready').get('status') == 'ok':
+                    break
+            except (urllib.error.URLError, RuntimeError):
+                pass
+            time.sleep(0.2)
+        else:
+            raise RuntimeError('service did not become ready after manual repair')
+        request('/api/auth/login', {'password': password})
+        wait_job(request(endpoint + '/check', {'read_data': 'all'}), 'post-index-repair-full-check')
+        repair_restore = restored(wait_job(request(endpoint + '/restore', {'snapshot_id': snapshot, 'test': True}), 'post-index-repair-restore'))
+        verify_tree(Path(repair_restore['target']) / 'files' / source_id, 'post-index-repair-recovery')
         for restore_id in restore_ids:
             request('/api/backups/restores/' + restore_id, method='DELETE')
         request('/api/backups/plans/' + plan_id, method='DELETE')

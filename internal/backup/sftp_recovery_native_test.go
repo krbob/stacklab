@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -25,6 +26,14 @@ import (
 // A byte gate proves that the second full check has started reading data packs
 // before the fixture stops sshd, rather than testing only failed admission.
 func TestNativeSFTPInterruptedCheckRecovery(t *testing.T) {
+	testNativeSFTPInterruptedCheckRecovery(t, false)
+}
+
+func TestNativeSFTPInterruptedInventoryRecovery(t *testing.T) {
+	testNativeSFTPInterruptedCheckRecovery(t, true)
+}
+
+func testNativeSFTPInterruptedCheckRecovery(t *testing.T, inventory bool) {
 	if os.Getenv("STACKLAB_TEST_SFTP_RECOVERY") != "1" {
 		t.Skip("set STACKLAB_TEST_SFTP_RECOVERY=1 on disposable Linux with Docker and Debian image")
 	}
@@ -53,6 +62,22 @@ func TestNativeSFTPInterruptedCheckRecovery(t *testing.T) {
 	call("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", filepath.Join(base, "client_key"))
 	call("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", filepath.Join(base, "host_key"))
 	configuration := "Port 22\nListenAddress 0.0.0.0\nHostKey /fixture/host_key\nAuthorizedKeysFile /fixture/client_key.pub\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nUsePAM no\nStrictModes no\nAllowUsers fixture\nPidFile /run/sshd.pid\nSubsystem sftp internal-sftp\n"
+	if inventory {
+		// Run this same Linux test binary as an SFTP packet gate. No synthetic
+		// restic output: sshd is stopped before OPENDIR(data) reaches sftp-server.
+		executable, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		binary, err := os.ReadFile(executable)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(base, "sftp-gate"), binary, 0700); err != nil {
+			t.Fatal(err)
+		}
+		configuration = strings.Replace(configuration, "Subsystem sftp internal-sftp", "Subsystem sftp /fixture/sftp-gate -test.run=^TestSFTPListingProtocolGate$", 1)
+	}
 	if err := os.WriteFile(filepath.Join(base, "sshd_config"), []byte(configuration), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +176,31 @@ exec /usr/sbin/sshd -D -e -f /fixture/sshd_config
 	}
 	t.Log("healthy SFTP full-data check succeeded against 64 MiB random encrypted data")
 	gate := proxy.Arm(8 << 20)
+	if inventory {
+		gate.Release()
+		gate = proxy.Arm(1 << 62) // All transport remains open until OPENDIR.
+		if err := os.WriteFile(filepath.Join(base, "arm-listing"), nil, 0600); err != nil {
+			t.Fatal(err)
+		}
+		go func() {
+			ticker := time.NewTicker(20 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if _, err := os.Stat(filepath.Join(base, "listing-reached")); err == nil {
+						close(gate.reached)
+						return
+					}
+				}
+			}
+		}()
+	}
 	defer gate.Release()
+	interruptedDiagnostic := &sftpDiagnosticRunner{base: s.runner}
+	s.runner = interruptedDiagnostic
 	result := make(chan error, 1)
 	checkFinished := make(chan struct{})
 	interruptedCtx, cancelInterrupted := context.WithCancel(ctx)
@@ -168,7 +217,11 @@ exec /usr/sbin/sshd -D -e -f /fixture/sshd_config
 	}()
 	select {
 	case <-gate.reached:
-		t.Log("second full check read at least 8 MiB; stopping dedicated sshd now")
+		if inventory {
+			t.Log("second full check reached OPENDIR(data), before pack reads; stopping dedicated sshd now")
+		} else {
+			t.Log("second full check read at least 8 MiB; stopping dedicated sshd now")
+		}
 	case err := <-result:
 		t.Fatalf("full check ended before the data-read fault gate: %v", err)
 	case <-time.After(90 * time.Second):
@@ -198,6 +251,16 @@ exec /usr/sbin/sshd -D -e -f /fixture/sshd_config
 		}
 	}
 	<-checkFinished
+	s.runner = interruptedDiagnostic.base
+	if inventory {
+		t.Logf("native SFTP inventory interruption diagnostics:\n%s", interruptedDiagnostic.diagnostic)
+		if !containsDiagnostic(interruptedDiagnostic.diagnostic, "List(data)") {
+			t.Fatal("fixture did not interrupt the data inventory")
+		}
+		if err := os.Remove(filepath.Join(base, "arm-listing")); err != nil {
+			t.Fatal(err)
+		}
+	}
 	var interruptedCommandErr *repositoryCommandError
 	if !errors.As(interruptedErr, &interruptedCommandErr) || (interruptedCommandErr.Code != "unavailable" && !(cancelledLegacyRetry && interruptedCommandErr.Code == "cancelled")) {
 		t.Fatalf("SFTP drop produced neither transport failure nor explicit legacy cancellation: %v", interruptedErr)
@@ -221,6 +284,12 @@ exec /usr/sbin/sshd -D -e -f /fixture/sshd_config
 		}
 		t.Logf("server returned with a stale lock: %v", err)
 	}
+	if err := operation("backup_unlock"); err == nil || !strings.Contains(err.Error(), "unlock_refused") {
+		t.Fatalf("fresh lock was not refused: %v", err)
+	}
+	// The interrupted subprocess has exited. Exercise old-dead-owner recovery
+	// with a simulated Stacklab clock; restic's process check remains native.
+	s.now = func() time.Time { return time.Now().UTC().Add(minimumUnlockAge + time.Minute) }
 	if err := operation("backup_unlock"); err != nil {
 		t.Fatal(err)
 	}
@@ -442,12 +511,18 @@ func (r *sftpDiagnosticRunner) Run(ctx context.Context, name string, args, env [
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = env
 	cmd.Dir = dir
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = 5 * time.Second
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	r.diagnostic = stderr.String()
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, commandContextError(ctx.Err())
+		}
 		return nil, classifyCommandError(name, err, r.diagnostic)
 	}
 	return stdout.Bytes(), nil

@@ -152,22 +152,37 @@ changed evidence invalidates the review. Prune is not a repair operation.
 
 ### Interrupted Remote Operations And Stale Locks
 
-A lost SFTP connection or restarted NAS can leave a restic lock after the owning
-process exits. Wait for legitimate work to finish, restore connectivity, then use
-**Remove stale locks** on the destination. This queues ordinary `restic unlock`
-under Stacklab's repository reservation and records the result in Jobs. Before
-unlock, Stacklab reads lock metadata and probes local PIDs without signalling them.
-A live process, including a root process inaccessible to the service user, blocks
-unlock even if its lock is old. Malformed metadata, an uncertain probe or another
-hostname also blocks removal. PID reuse may cause a conservative refusal. Resolve
-remote-host locks on their owning host after confirming all clients have stopped.
+A lost SFTP connection can leave a lock after its owner exits. Restore connectivity,
+wait for legitimate work to finish, and keep all external clients stopped. **Remove
+stale locks** queues ordinary `restic unlock` under Stacklab's reservation. It only
+considers local-host locks at least **30 minutes old** whose PID is absent. A live
+PID (including EPERM), future timestamp, malformed metadata, uncertain probe or
+foreign hostname produces `unlock_refused`. The lock list must also be unchanged
+immediately before unlock. Jobs record the remaining lock count.
 
-Keep external clients stopped throughout this operation. The preflight is not
-atomic with external restic commands, and identical hostnames across PID namespaces
-cannot establish ownership reliably. Stacklab never uses `--remove-all` or runs
-restic as root. Jobs report remaining locks; remaining or unreadable locks make the
-operation unsuccessful. Retry the failed operation after reviewing the result.
-Unlock does not clear integrity evidence or imply successful verification.
+Run Stacklab and its restic subprocesses in the host PID namespace. Do not add
+`PrivatePIDs=yes`, a private PID namespace through a wrapper, or a container with a
+shared hostname but isolated processes. A hostname match or `/proc/1` comparison
+cannot prove process identity across namespaces. The age threshold mitigates fresh
+namespace locks; it does not prove an old owner is dead. PID reuse can conservatively
+refuse a safe unlock. Independent clients can still create/refresh locks after the
+last inventory; the preflight is not an atomic distributed lock.
+
+For a foreign-host lock, inspect `restic list locks --no-lock` and
+`restic cat lock LOCK_ID --no-lock` with the service credentials described below.
+Confirm the owner has stopped on the actual host and PID namespace, then perform
+ordinary unlock there. If that host is permanently lost, fence it and its scheduled
+clients before any manual removal. An unreadable lock first requires checking
+credentials, storage access and the lock bytes; do not equate unreadability with
+staleness. Preserve an independent repository copy and lock inventory. Only an
+operator who has established that **every** client is stopped may use the installed
+restic's documented `unlock --remove-all` as a last resort; it removes live locks
+as well and bypasses the UI safeguards. Stacklab never executes that option.
+
+After successful unlock, refresh inventory or run the required check. The previous
+failed attempt remains history. Unlock itself does not establish integrity or clear
+an existing failure/hold. A fresh-lock refusal requires waiting and investigating
+ownership, not repeatedly pressing unlock.
 
 ### Repository Integrity Failure
 
@@ -182,33 +197,86 @@ A successful full check clears any hold; a metadata check clears only a metadata
 hold. A later transport error cannot clear it. Known data corruption still needs
 a full successful check, even after a successful metadata or sampled check.
 
-For confirmed damage:
+For confirmed damage, use the following preparation and choose only the repair
+matching the diagnosis. Stacklab intentionally does not automate repair.
 
-1. Pause schedules, wait for Stacklab jobs to finish, and stop the Stacklab service
-   with `sudo systemctl stop stacklab` before manual repair. Pausing schedules alone
-   still permits manual jobs. Stop or coordinate every other repository client.
-   Investigate storage, hardware and transport reliability first.
-2. Retrieve the independently saved repository password and transport credentials
-   from the [recovery credential bundle](#recovery-kit-and-fresh-host-ui). Use a
-   private password file or secure environment setup for restic; never paste secrets
-   into shell history or shared job logs. Stacklab read APIs do not export secrets.
-3. Preserve a separate copy of the repository when possible, at least its index and
-   snapshots, before repair. Keep diagnostic output private until reviewed.
-4. Run restic checks with the installed version and follow its diagnosis-specific
-   instructions. Consult the [upstream recovery guide](https://restic.readthedocs.io/en/stable/077_troubleshooting.html).
-   Restic 0.14 uses `rebuild-index`; restic 0.18 offers `repair index`, `repair packs`
-   and `repair snapshots`.
-   Check `restic version` and each command's `--help` against that version's guide;
-   these are diagnosis-specific tools, not a generic sequence. Older installations
-   may need a separately reviewed restic upgrade for a particular repair. Stacklab's
-   supported minimum remains 0.14; backup/check support is not a promise that every
-   modern repair command exists in that version.
-   Snapshot repair can remove inaccessible data, and prune/forget can remove
-   material needed for recovery. Stacklab intentionally does not automate repair.
-5. After repair, restart Stacklab with `sudo systemctl start stacklab`, keep schedules
-   paused and run a full data check in Stacklab. Only successful full reading
-   clears known data failure. This may download the entire repository and incur
-   transfer charges. Review protection and maintenance outcomes before resuming.
+1. Pause schedules, wait for jobs to finish, then `sudo systemctl stop stacklab`.
+   Pausing alone still permits manual jobs. Stop every other repository client,
+   including schedulers on other hosts. Resolve unreliable storage/transport first.
+2. Make an **independent full repository copy**, including config, keys, snapshots,
+   indexes and encrypted data packs, before mutating repair. A copy of only indexes
+   and snapshots cannot undo changes to packs. Use a separate storage location and
+   verify the copy completed; hard links to mutable files are not an independent
+   copy. Keep it until repository and application recovery have been validated.
+3. Use the saved [recovery credential bundle](#recovery-kit-and-fresh-host-ui).
+   Run restic as the installation's service user (normally `stacklab`), not root.
+   Root-created index files can be unreadable to the service. Do not recursively
+   chown a shared repository; correct only identified repair-created objects after
+   checking the intended backend ownership/ACL policy.
+4. Record `restic version` and private check diagnostics. The version map below
+   describes command availability, not a recommendation to use every command.
+   Test a reviewed tool upgrade on the independent copy when the installed version
+   cannot perform the needed repair. The supported Stacklab minimum remains 0.14.
+
+A local-backend example with explicitly prepared, service-readable credentials:
+
+```bash
+sudo install -d -o stacklab -g stacklab -m 0700 /var/lib/stacklab-repair
+sudo install -o stacklab -g stacklab -m 0600 /secure/repository-password /var/lib/stacklab-repair/password
+sudo -u stacklab env RESTIC_REPOSITORY=/mnt/backup/stacklab \
+  RESTIC_PASSWORD_FILE=/var/lib/stacklab-repair/password restic check --read-data
+```
+
+Use the same identity and environment for the selected repair command. Replace the
+example repository with the saved address. S3 also needs its private AWS credentials
+and custom endpoint/CA settings; rclone needs an explicit service-readable
+`RCLONE_CONFIG`. An administrator's SSH agent/config is not inherited by the service.
+For SFTP, install the saved private key and pinned known-hosts file into the private
+repair directory and explicitly configure, for example:
+
+```bash
+sudo -u stacklab env RESTIC_REPOSITORY=sftp:user@nas:/backup/stacklab \
+  RESTIC_PASSWORD_FILE=/var/lib/stacklab-repair/password \
+  restic -o 'sftp.command=ssh -F /dev/null -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/var/lib/stacklab-repair/known_hosts -i /var/lib/stacklab-repair/ssh_key -p 22 user@nas -s sftp' check --read-data
+```
+
+Adapt host, user, port and path from the saved configuration. Keep secret values out
+of command arguments, shell history and shared logs. Remove temporary credential
+copies after the procedure; retain the independent recovery bundle securely.
+
+| Installed restic | Repair commands and version considerations |
+| --- | --- |
+| 0.14–0.15 | `rebuild-index`; no modern snapshot/pack repair command family. |
+| 0.16.0 | `repair index` replaces `rebuild-index`; adds `repair snapshots`. |
+| 0.16.1–0.16.x | Adds experimental `repair packs`; check the exact version's limitations. |
+| 0.17–0.18 | Pack repair supports more truncation cases; inspect release notes before repairs, particularly for older format-v1 repositories. |
+| 0.19 | Includes fixes for split/incomplete index entries and pack salvage (#21820); still choose the command from the actual diagnosis. |
+
+This map follows the [versioned restic changelog](https://github.com/restic/restic/blob/v0.19.1/CHANGELOG.md).
+Check each installed command's `--help` before use.
+
+- **Missing/damaged index with intact packs:** run `repair index` (0.14–0.15:
+  `rebuild-index`), then a full check. This rebuilds references, not missing payloads.
+- **Damaged packs:** follow the check's specific `repair packs PACK_ID...` advice
+  using a suitable restic version. Pack repair also updates the index; a second
+  index repair is not a mandatory next step.
+- **Missing snapshot data after repair:** recover what remains or create a fresh
+  backup from intact sources. `repair snapshots` salvages snapshots by removing
+  inaccessible content; it creates new snapshot IDs. `--forget` deletes the original
+  snapshots, so defer it until the salvaged content has been reviewed and the
+  independent repository copy is safe. Keeping damaged originals can keep the full
+  repository check failing. See the [upstream troubleshooting guide](https://restic.readthedocs.io/en/stable/077_troubleshooting.html).
+
+Restic repair cannot recreate a missing Stacklab source archive or make an
+incomplete tar payload complete. It cannot rewrite the manifest's capture truth.
+Review recovery provenance and extract/test selected sources; do not equate a newly
+consistent restic graph with a complete application backup.
+
+Run a full check as the service user, then restart with `sudo systemctl start
+stacklab` while schedules remain paused. Run a full **Stacklab** check to update
+persisted evidence and an actual recovery test of the needed snapshot/sources.
+Confirm application data, source completeness and repository access before resuming
+schedules. Full reading may download the entire repository and incur transfer costs.
 
 While integrity remains failed, new copies can still succeed but automatic
 retention is blocked, so repository storage can grow. Monitor capacity and resolve

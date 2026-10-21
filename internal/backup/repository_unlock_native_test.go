@@ -87,7 +87,7 @@ func TestNativeUnlockPreservesActiveLockAndRemovesKilledOwnerLock(t *testing.T) 
 		_, err = s.ExecuteRepositoryJob(ctx, job, d.ID, "backup_unlock", CheckRequest{}, RestoreRequest{})
 		var commandErr *repositoryCommandError
 		if active {
-			if !errors.As(err, &commandErr) || commandErr.Code != "repository_locked" {
+			if !errors.As(err, &commandErr) || commandErr.Code != "unlock_refused" {
 				t.Fatalf("live owner was not refused: %v", err)
 			}
 		} else if err != nil {
@@ -109,6 +109,10 @@ func TestNativeUnlockPreservesActiveLockAndRemovesKilledOwnerLock(t *testing.T) 
 	if current := locks(); !reflect.DeepEqual(current, activeLocks) {
 		t.Fatal("fixture did not leave its stale lock after SIGKILL")
 	}
+	unlock(true) // Even an actually killed owner must satisfy the minimum age.
+	// Simulate elapsed age only after proving refusal at the real wall clock.
+	// Restic still sees the original native lock and verifies PID absence itself.
+	s.now = func() time.Time { return time.Now().UTC().Add(minimumUnlockAge + time.Minute) }
 	unlock(false)
 	if current := locks(); len(current) != 0 {
 		t.Fatalf("unlock did not remove killed owner's stale lock: %v", current)

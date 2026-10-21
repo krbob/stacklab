@@ -27,7 +27,11 @@ func TestRepositoryCheckNativeDiagnosticCorpus(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			assertDiagnosticCode(t, string(diagnostic), "integrity_failed")
+			expected := "integrity_failed"
+			if strings.Contains(file, "inventory-outage") {
+				expected = "unavailable"
+			}
+			assertDiagnosticCode(t, string(diagnostic), expected)
 		})
 	}
 }

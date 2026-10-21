@@ -179,7 +179,10 @@ by failure/hold. Acknowledgement does not clear evidence or repair data.
 `POST /backups/destinations/{id}/unlock` queues guarded ordinary `restic unlock`,
 never force-unlock. Active Stacklab repository jobs conflict with admission. Execution
 inspects owners and refuses live local PIDs (including EPERM), malformed/uncertain
-metadata and remote-host locks. Jobs report remaining locks; nonzero/unreadable
+metadata, future timestamps, locks younger than 30 minutes and remote-host locks.
+A changed lock inventory before ordinary unlock is also refused. Guard refusals use
+`unlock_refused` in the job diagnostic. Age alone cannot prove safety across PID
+namespaces; the service must share the host PID namespace. Jobs report remaining locks; nonzero/unreadable
 remaining inventory fails the operation. External clients must remain stopped:
 preflight and unlock are not atomic across clients. Integrity evidence is unchanged.
 
@@ -190,7 +193,9 @@ without clearing an integrity hold. Maintenance chronology cannot supersede a ne
 copy failure or its run identity. Explicit healthy subsets remain retryable.
 
 Staging has a per-plan byte budget and a one-to-168-hour lifetime. The service
-keeps live/retryable run summaries and the newest 200 expired terminal summaries.
+keeps active runs, runs within their staging retry window and the newest 200 expired
+terminal summaries. Deleted-plan retention failures remain historical; the old
+retention policy no longer authorizes a maintenance retry.
 Older repository snapshots remain browsable. The recovery library retains up to 200 registrations and rejects new restores
 until space is made by explicit deletion; it never silently evicts ownership
 metadata. `DELETE /backups/restores/{restoreId}` removes the registration and, for

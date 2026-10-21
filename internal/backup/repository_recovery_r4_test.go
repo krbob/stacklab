@@ -188,7 +188,7 @@ func TestUnlockUsesNormalRepositoryReservationAndNeverForcesLocks(t *testing.T) 
 	if _, err := s.ExecuteRepositoryJob(ctx, job, d.ID, "backup_unlock", CheckRequest{}, RestoreRequest{}); err != nil {
 		t.Fatal(err)
 	}
-	if runner.count("unlock", d.Repository) != 1 || len(runner.calls) != 3 || commandIn(runner.calls[1], "--remove-all") {
+	if runner.count("unlock", d.Repository) != 1 || len(runner.calls) != 4 || commandIn(runner.calls[2], "--remove-all") {
 		t.Fatalf("unexpected unlock commands: %v", runner.calls)
 	}
 	saved, err := s.jobs.Get(ctx, job.ID)
