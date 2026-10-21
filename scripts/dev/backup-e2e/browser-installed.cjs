@@ -95,7 +95,7 @@ const record = (name) => summary.assertions.push(name);
       .find(item => item.destination?.check_hold && item.copy.state === 'unverified' && item.copy.snapshot_id);
     if (heldProtection) {
       const planCard = page.locator('#backup-panel-protection article').filter({ has: page.getByRole('heading', { name: heldProtection.plan.plan_name, exact: true }) });
-      const copyCard = planCard.getByText(heldProtection.destination.name, { exact: true }).locator('..').locator('..');
+      const copyCard = planCard.getByText(heldProtection.destination.name, { exact: true }).and(planCard.locator('span')).locator('..').locator('..');
       await expect(copyCard).toContainText('Recovery remains available');
       await expect(copyCard).toContainText('Required check:');
       await expect(copyCard).not.toContainText('Create a new verified copy');

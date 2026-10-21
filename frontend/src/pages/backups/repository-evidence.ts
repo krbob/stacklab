@@ -22,7 +22,9 @@ export function needsLockReview(destination: BackupDestination): boolean {
     [destination.inventory_error, destination.last_inventory_attempt_at],
     [destination.last_operation_error, destination.last_operation_at],
     [destination.error, undefined],
-  ].some(([error, at]) => repositoryLocked(error) && (!Number.isFinite(unlockedAt) || !at || Date.parse(at) > unlockedAt))
+  // The latest completed unlock also supersedes undated imported attempts.
+  // Their errors stay visible as history; only a newer dated error offers unlock.
+  ].some(([error, at]) => repositoryLocked(error) && (!Number.isFinite(unlockedAt) || (!!at && Date.parse(at) > unlockedAt)))
 }
 
 export function repositoryLocked(error: unknown): boolean {
