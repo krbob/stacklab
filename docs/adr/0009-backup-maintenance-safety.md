@@ -5,6 +5,12 @@
 Accepted, 2026-10-15. Supplements and amends [ADR 0008](0008-backup-integrity-evidence.md)
 with the [repository safety contract](../product/backup-repository-safety.md).
 
+Amended 2026-10-21 by the
+[sixth-round contract](../product/backup-diagnostics-and-unlock.md): preserve diagnostic
+record context; require at least 30 minutes of lock age in addition to an absent
+local owner; recheck lock identities before ordinary unlock. These safeguards reduce
+PID-namespace and inventory races without promising atomicity with external clients.
+
 ## Context
 
 A historical successful check is useful proof, but cannot authorize deletion after
