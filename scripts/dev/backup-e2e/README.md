@@ -30,6 +30,9 @@ unique name, a fixture ownership label and no published network ports.
 
 The suite checks:
 
+- native index repair (`rebuild-index` on restic 0.14–0.15, `repair index` on newer
+  versions), followed by full verification and actual Stacklab archive recovery;
+
 - the full native backup test binary, including real encrypted repositories and
   non-root incomplete/partial snapshot retry and retention;
 - the helper test binary as root, including descriptor, capacity and rollback
@@ -69,6 +72,28 @@ Do not treat these fixture helper tests as evidence that an installed sudoers
 policy was upgraded. Preserve the old installed helper/configuration/state before
 an additional in-place VM upgrade exercise, and record package versions and
 whether the old sudoers policy was detected by helper readiness.
+
+The opt-in `TestNativeSFTPInterruptedInventoryRecovery` uses an SFTP OPENDIR gate
+before `sftp-server` lists repository data, then stops its owned sshd container.
+It complements `TestNativeSFTPInterruptedCheckRecovery`'s pack-read byte gate. Both
+use `STACKLAB_TEST_SFTP_RECOVERY=1` and optionally `STACKLAB_TEST_SFTP_IMAGE` with a
+prebuilt SSH image. Restic 0.14 retries may require explicit fixture cancellation;
+this is recorded separately from a naturally returned transport error.
+
+`STACKLAB_TEST_FOREIGN_UID_UNLOCK=1` enables real root-owner and private-PID-namespace
+lock tests on disposable Linux/Docker. The namespace fixture requires a privileged
+container to select a high namespace-local PID. It keeps the host hostname, proves
+the PID is alive inside the namespace and absent outside, and asserts fresh-lock
+refusal. Dead-owner recovery simulates 31 minutes passing in the Stacklab test clock;
+restic still reads the original native lock. No production age bypass is added.
+
+The installed API harness requires automatic backups to be paused. Besides ACL
+recovery and byte-restoration corruption checks, it stops Stacklab, copies its own
+repository independently, removes that repository's index, and runs a real index
+repair and full check as the installed service user. It restarts Stacklab and checks
+API-driven full verification and restored ACL/xattr/content again. Existing plans,
+credentials and repositories are preserved. Its private evidence directory retains
+the independent fixture repository copy; remove it deliberately after inspection.
 
 ## Installed package upgrade
 

@@ -289,7 +289,8 @@ test.describe('Backup round four repository decisions', () => {
     await expect(page.getByRole('button', { name: 'Start cleanup', exact: true })).toBeEnabled()
     await page.getByRole('button', { name: 'Cancel', exact: true }).click()
     await page.getByRole('button', { name: 'Remove stale locks', exact: true }).click()
-    await expect(page.getByRole('dialog')).toContainText('refuses removal when a local lock owner is alive')
+    await expect(page.getByRole('dialog')).toContainText('refuses live, uncertain or foreign-host owners')
+    await expect(page.getByRole('dialog')).toContainText('at least 30 minutes old')
   })
 
   test('refreshes a raced cleanup review and sends the newly acknowledged fingerprint on mobile', async ({ page }) => {
