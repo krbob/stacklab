@@ -914,8 +914,13 @@ describe('Current repository maintenance eligibility', () => {
     expect(screen.getByText(/current keep-all policy/)).toHaveTextContent('without deleting snapshots or clearing repository warnings')
     for (const currentPlans of [[], [{ ...keepAll, enabled: false }], [{ ...keepAll, destinations: [{ ...keepAll.destinations[0], enabled: false }] }], [{ ...keepAll, destinations: [] }]]) {
       view.rerender(<RunHistory {...props} plans={currentPlans} />)
-      expect(screen.getByRole('button', { name: 'Retry retention cleanup' })).toBeDisabled()
-      expect(screen.getByText(/requires an enabled current plan/)).toBeVisible()
+      if (currentPlans.length) {
+        expect(screen.getByRole('button', { name: 'Retry retention cleanup' })).toBeDisabled()
+        expect(screen.getByText(/requires an enabled current plan/)).toBeVisible()
+      } else {
+        expect(screen.queryByRole('button', { name: 'Retry retention cleanup' })).not.toBeInTheDocument()
+        expect(screen.getByText(/Its retention policy no longer applies/)).toBeVisible()
+      }
     }
     view.rerender(<RunHistory {...props} plans={[plan]} destinations={[destination]} />)
     expect(screen.getByRole('button', { name: 'Retry retention cleanup' })).toBeEnabled()
@@ -931,5 +936,23 @@ describe('Current repository maintenance eligibility', () => {
     render(<RunHistory {...common} runs={[{ ...run, copies: [{ ...copy, verification: 'snapshot_metadata_verified', verified_at: undefined }] }]} plans={[plan]} destinations={[destination]} />)
     expect(screen.getByText('Retention cleanup failed: Previous cleanup failed.')).toBeVisible()
     expect(screen.queryByText(/Copy verified/)).not.toBeInTheDocument()
+  })
+})
+
+describe('Inconclusive protection guidance', () => {
+  it('offers the required check and recovery without repeated alerts or a new-copy instruction', async () => {
+    const held: api.BackupDestination = { ...destination, check_hold: { scope: 'all', error: 'Unresolved repository diagnostic', checked_at: '2026-10-21T08:00:00Z' } }
+    const onCheck = vi.fn()
+    const onRecovery = vi.fn()
+    render(<MemoryRouter><ProtectionDashboard data={{ ...overview, destinations: [held], protection: [{ plan_id: 'plan', plan_name: 'Database', state: 'attention', activity: 'idle', expected_copies: 1, current_copies: 0, copies: [{ destination_id: 'nas', state: 'unverified', activity: 'idle', evidence_usable: false, snapshot_id: 'snap', last_error: held.check_hold!.error }] }] }} onCreatePlan={vi.fn()} onAddDestination={vi.fn()} onRun={vi.fn()} onRecovery={onRecovery} onCheck={onCheck} /></MemoryRouter>)
+    expect(await screen.findByText(/protection is unverified and automatic cleanup is blocked/)).toHaveTextContent('Recovery remains available')
+    expect(screen.getByText(/Required check: Full data read/)).toBeVisible()
+    expect(screen.queryByText(/Create a new verified copy/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Unresolved repository diagnostic')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Check NAS repository' }))
+    expect(onCheck).toHaveBeenCalledWith(held)
+    fireEvent.click(screen.getByRole('button', { name: 'Recover data' }))
+    expect(onRecovery).toHaveBeenCalledWith('nas')
   })
 })

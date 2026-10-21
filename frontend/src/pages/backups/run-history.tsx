@@ -127,8 +127,7 @@ export function RunHistory({
         </Field>
       </div>
       <p className="mb-4 text-xs text-[var(--muted)]" aria-live="polite">
-        {filtered.length} matching runs in retained history. The newest 200 expired runs and all active or retryable
-        runs are retained.
+        {filtered.length} matching runs in retained history. Active runs, runs within their retry window, and the newest 200 expired runs are retained.
       </p>
       {filtered.length === 0 && (
         <p className="text-sm text-[var(--muted)]">
@@ -145,6 +144,7 @@ export function RunHistory({
           const currentPlan = plans.find((item) => item.id === run.plan_id)
           const maintenanceBlock = (copy: BackupCopy) => {
             if (!verifiedCopy(copy)) return undefined
+            if (!currentPlan) return { reason: 'This plan was deleted. Its retention policy no longer applies; the previous cleanup failure is kept as history. Existing snapshots remain available in Recovery.' }
             const assignment = currentPlan?.destinations.find((item) => item.destination_id === copy.destination_id)
             if (!currentPlan?.enabled || !assignment?.enabled) return { reason: 'Retention retry requires an enabled current plan and destination assignment. Review the current plan configuration.' }
             const destination = destinations.find((item) => item.id === copy.destination_id)
@@ -167,7 +167,7 @@ export function RunHistory({
             <article key={run.id} className="space-y-3 rounded-md border border-[var(--panel-border)] p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="font-medium text-[var(--text)]">{run.plan_name}</h3>
-                <BackupStatus value={maintenanceOnly && !active ? 'attention' : run.state} />
+                <BackupStatus value={maintenanceOnly && !active ? currentPlan ? 'attention' : 'historical' : run.state} />
               </div>
               <p className="text-xs text-[var(--muted)]">
                 Created <BackupDate value={run.created_at} /> · Capture: {run.capture_state}
@@ -281,7 +281,7 @@ export function RunHistory({
                 <button className={buttonClass} onClick={() => onJob(run.job_id)}>
                   Job details
                 </button>
-                {failed.length > 0 && !active && (
+                {failed.length > 0 && !active && !(maintenanceOnly && !currentPlan) && (
                   <button
                     className={buttonClass}
                     disabled={pending || retryable.length === 0}
@@ -296,7 +296,7 @@ export function RunHistory({
                   </button>
                 )}
               </div>
-              {failed.length > 0 && !active && (
+              {failed.length > 0 && !active && !(maintenanceOnly && !currentPlan) && (
                 <p className="text-xs text-[var(--muted)]">
                   {retryMaintenanceOnly ? (
                     <>Retention retries use the verified repository snapshot and the current plan policy; they do not require retained staging.{needsNewCapture && ' Other failed copies need a new capture.'}{retryable.length < failed.length && !needsNewCapture && ' Only eligible destinations will be retried.'}{keepingAll && ' The current keep-all policy settles maintenance without deleting snapshots or clearing repository warnings.'}</>

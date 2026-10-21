@@ -46,7 +46,7 @@ import { SourceLabel } from './backups/source-label'
 import { BackupOperations } from './backups/backup-operations'
 import { useBackupRefresh, type BackupJobEffects } from './backups/use-backup-refresh'
 import { useVisibleRefresh } from './backups/use-visible-refresh'
-import { checkScopeLabel, repositoryLocked, requiredCheckScope } from './backups/repository-evidence'
+import { checkScopeLabel, needsLockReview, preferredCheckScope } from './backups/repository-evidence'
 import { CheckHoldWarning } from './backups/check-hold-warning'
 import { PruneReviewDialog } from './backups/prune-review-dialog'
 
@@ -77,7 +77,7 @@ export function BackupsPage() {
   const [pruneReviewRevision, setPruneReviewRevision] = useState(0)
   const [unlockJobs, setUnlockJobs] = useState<Record<string, string>>({})
   const [runPlan, setRunPlan] = useState<BackupPlan | null>(null)
-  const [check, setCheck] = useState<BackupDestination | null>(null)
+  const [checkSelection, setCheck] = useState<BackupDestination | null>(null)
   const [readData, setReadData] = useState<'metadata' | 'subset' | 'all'>('metadata')
   const [pending, setPending] = useState(false)
   const [reportedError, setReportedError] = useState<{ message: string; scope: string | null } | null>(null)
@@ -99,6 +99,9 @@ export function BackupsPage() {
     || (policy?.host_review_required ? 'Review this host in Backup settings before capturing new data.' : policy?.error)
   const applyBlocked = policy?.pause_reasons?.find((reason) => ['service_recovery_required', 'initialization_error'].includes(reason.code))?.message || data?.recovery_error
   const destinations = data?.destinations ?? []
+  const check = destinations.find((item) => item.id === checkSelection?.id) ?? null
+  const preferredScope = check ? preferredCheckScope(check) : undefined
+  useEffect(() => { if (preferredScope) setReadData(preferredScope) }, [check?.id, preferredScope])
   const plans = data?.plans ?? []
   const runs = data?.runs ?? []
   const hasRunning = jobIds.length > 0 || runs.some((run) => ['queued', 'running'].includes(run.state))
@@ -107,7 +110,7 @@ export function BackupsPage() {
     backgroundRefetch()
     if (!hasRunning) refreshPolicy()
   }, [backgroundRefetch, hasRunning, refreshPolicy])
-  useVisibleRefresh(poll, hasRunning ? 5000 : 60000)
+  useVisibleRefresh(poll, hasRunning || review?.kind === 'prune' || check ? 5000 : 60000)
 
   function started(result: BackupJobResponse, reveal = true, effects: BackupJobEffects = {}) {
     track(result.job.id, effects)
@@ -169,11 +172,13 @@ export function BackupsPage() {
   const openReview = (value: Exclude<Review, null>) => {
     reportError(null)
     setReview(value)
+    if (value.kind === 'prune') backgroundRefetch(true)
   }
   const openCheck = (destination: BackupDestination) => {
     reportError(null)
-    setReadData(requiredCheckScope(destination) ?? (destination.check_read_data === 'all' || destination.check_read_data === 'subset' ? destination.check_read_data : 'metadata'))
+    setReadData(preferredCheckScope(destination))
     setCheck(destination)
+    backgroundRefetch(true)
   }
   const currentPruneDestination = review?.kind === 'prune' ? destinations.find((item) => item.id === review.destination.id) : undefined
   const hasDialog = !!runPlan || !!check || !!review || !!editor
@@ -302,6 +307,7 @@ export function BackupsPage() {
                     onAddDestination={() => setEditor({ kind: 'destination' })}
                     onRun={openRun}
                     onRecovery={recover}
+                    onCheck={openCheck}
                   />
                 )}
               </div>
@@ -439,7 +445,7 @@ export function BackupsPage() {
                             </p>
                           )}
                           {destination.last_operation === 'backup_unlock' && destination.last_operation_status === 'succeeded' && <p role="status" className="text-sm text-[var(--text)]">Stale-lock removal completed · <BackupDate value={destination.last_operation_at} />. Remaining lock counts are recorded in job details; repository data was not checked.{unlockJobs[destination.id] && <button className={`${buttonClass} ml-2`} onClick={() => openJob(unlockJobs[destination.id])}>Unlock job details</button>}</p>}
-                          {[destination.last_check_attempt_error, destination.inventory_error, destination.last_operation_error, destination.error].some(repositoryLocked) && <p className="text-sm text-[var(--warning)]">A repository operation reported a lock. Review the latest job result. If access is still blocked, wait for the client to finish or inspect stale locks. <button className={buttonClass} disabled={pending || !data.restic_available || (destination.kind === 'rclone' && !data.rclone_available)} onClick={() => openReview({ kind: 'unlock', destination })}>Review stale locks</button></p>}
+                          {needsLockReview(destination) && <p className="text-sm text-[var(--warning)]">A repository operation reported a lock. Review the latest job result. If access is still blocked, wait for the client to finish or inspect stale locks. <button className={buttonClass} disabled={pending || !data.restic_available || (destination.kind === 'rclone' && !data.rclone_available)} onClick={() => openReview({ kind: 'unlock', destination })}>Review stale locks</button></p>}
                           <p className="text-xs text-[var(--muted)]">
                             Checks: {scheduleDescription(destination.check_schedule ?? { frequency: 'manual' })} ·
                             Cleanup: {scheduleDescription(destination.prune_schedule ?? { frequency: 'manual' })}
@@ -696,7 +702,9 @@ export function BackupsPage() {
           busy={pending}
         >
           <div className="mt-4 space-y-4">
-            <BackupError error={error} />
+            <BackupError error={error ?? state.error?.message ?? null} />
+            {(state.loading || state.backgroundLoading) && <p role="status" className="text-sm text-[var(--muted)]">Refreshing repository evidence.</p>}
+            {state.error && <button className={buttonClass} disabled={state.backgroundLoading} onClick={() => backgroundRefetch(true)}>Refresh repository evidence</button>}
             <CheckHoldWarning destination={check} />
             {check.data_check?.status === 'failed' && <p className="text-sm text-[var(--warning)]">Stored data has a known failure. Only a successful full data read can clear it after the repository is repaired.{readData !== 'all' && ' A metadata or sampled check leaves this data-failure evidence unchanged.'}</p>}
             {check.data_check?.status !== 'failed' && check.metadata_check.status === 'failed' && <p className="text-sm text-[var(--warning)]">Repository metadata has a known failure. After repair, a successful metadata check can clear it; a full data read is only required for stored-data failures or a full-read hold.</p>}
@@ -729,7 +737,7 @@ export function BackupsPage() {
               </button>
               <button
                 className={primaryClass}
-                disabled={pending}
+                disabled={pending || state.loading || state.backgroundLoading || !!state.error}
                 onClick={() => {
                   void command(() => checkBackupDestination(check.id, readData)).then((ok) => {
                     if (ok) setCheck(null)
@@ -744,11 +752,13 @@ export function BackupsPage() {
       )}
       {review?.kind === 'prune' && currentPruneDestination && (
         <PruneReviewDialog
-          key={`${currentPruneDestination.id}:${currentPruneDestination.name}:${currentPruneDestination.maintenance_review_token ?? 'clear'}:${pruneReviewRevision}`}
+          key={`${currentPruneDestination.id}:${currentPruneDestination.name}:${pruneReviewRevision}`}
           destination={currentPruneDestination}
           pending={pending}
-          refreshing={state.loading || !!state.error}
+          refreshing={state.loading || state.backgroundLoading}
+          refreshFailed={!!state.error}
           error={error ?? state.error?.message ?? null}
+          onRefresh={() => backgroundRefetch(true)}
           onCancel={() => { if (!pending) { setReview(null); reportError(null) } }}
           onConfirm={(token) => {
             void command(() => token ? pruneBackupDestination(currentPruneDestination.id, token) : pruneBackupDestination(currentPruneDestination.id), null, { destinationIds: [currentPruneDestination.id], snapshots: true }).then((ok) => {
@@ -773,7 +783,7 @@ export function BackupsPage() {
             review.kind === 'initialize'
               ? 'Create an encrypted restic repository at the configured location. Only initialize a new repository; test access to an existing one.'
               : review.kind === 'unlock'
-                  ? 'Inspect repository locks, then remove only locks identified as stale. Stacklab refuses removal when a local lock owner is alive or its state cannot be established, and also refuses locks from another host. Keep external repository clients stopped throughout this operation. Stacklab reserves this destination while the operation runs. This does not check or repair repository data and leaves integrity evidence unchanged. Job details report any remaining locks.'
+                  ? 'Keep all external repository clients stopped throughout this operation. Stacklab only considers locks at least 30 minutes old with an absent local owner; it refuses live, uncertain or foreign-host owners and changed lock inventories. Age alone does not prove that a client in another PID namespace has stopped. This does not check or repair repository data. Job details report remaining locks.'
                 : 'Remove this configuration from Stacklab. Existing repository snapshots remain available with independently saved credentials.'
           }
           error={error}

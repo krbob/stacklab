@@ -159,6 +159,7 @@ describe('Backup workflow', () => {
     vi.mocked(api.pruneBackupDestination).mockResolvedValue(jobResponse)
     renderPage('destinations')
     fireEvent.click((await screen.findAllByRole('button', { name: 'Run retention cleanup' }))[0])
+    await waitFor(() => expect(screen.queryByText('Refreshing repository evidence. Cleanup is disabled until this finishes.')).not.toBeInTheDocument())
     expect(api.pruneBackupDestination).not.toHaveBeenCalled()
     expect(screen.getByRole('dialog')).toHaveTextContent('provider transfer charges')
     fireEvent.click(screen.getByRole('button', { name: 'Start cleanup' }))
@@ -259,6 +260,7 @@ describe('Backup workflow', () => {
     renderPage('destinations')
     fireEvent.click((await screen.findAllByRole('button', { name: 'Check repository' }))[0])
     fireEvent.change(screen.getByLabelText('Data-read policy'), { target: { value: 'all' } })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Start check' })).toBeEnabled())
     fireEvent.click(screen.getByRole('button', { name: 'Start check' }))
     await waitFor(() => expect(api.checkBackupDestination).toHaveBeenCalledWith('nas', 'all'))
   })
@@ -575,6 +577,7 @@ describe('Backup workflow round four regressions', () => {
     vi.mocked(api.pruneBackupDestination).mockResolvedValue(jobResponse)
     renderPage('destinations')
     fireEvent.click(await screen.findByRole('button', { name: 'Run retention cleanup' }))
+    await waitFor(() => expect(screen.queryByText('Refreshing repository evidence. Cleanup is disabled until this finishes.')).not.toBeInTheDocument())
     expect(screen.getByRole('button', { name: 'Start cleanup' })).toBeDisabled()
     expect(screen.getByRole('dialog')).toHaveTextContent('remove recovery material needed for repair')
     fireEvent.change(within(screen.getByRole('dialog')).getByRole('textbox'), { target: { value: 'NAS' } })
@@ -587,10 +590,10 @@ describe('Backup workflow round four regressions', () => {
     renderPage('destinations')
     fireEvent.click((await screen.findAllByRole('button', { name: 'Remove stale locks' }))[0])
     const dialog = screen.getByRole('dialog')
-    expect(dialog).toHaveTextContent('refuses removal when a local lock owner is alive')
+    expect(dialog).toHaveTextContent('refuses live, uncertain or foreign-host owners')
     expect(dialog).toHaveTextContent('does not check or repair repository data')
-    expect(dialog).toHaveTextContent('Keep external repository clients stopped throughout this operation')
-    expect(dialog).toHaveTextContent('refuses locks from another host')
+    expect(dialog).toHaveTextContent('Keep all external repository clients stopped throughout this operation')
+    expect(dialog).toHaveTextContent('at least 30 minutes old')
     expect(api.unlockBackupDestination).not.toHaveBeenCalled()
     fireEvent.click(within(dialog).getByRole('button', { name: 'Remove stale locks' }))
     await waitFor(() => expect(api.unlockBackupDestination).toHaveBeenCalledWith('nas'))
@@ -654,6 +657,7 @@ describe('Backup repository decision regressions', () => {
     vi.mocked(api.pruneBackupDestination).mockResolvedValue(jobResponse)
     renderPage('destinations')
     fireEvent.click(await screen.findByRole('button', { name: 'Run retention cleanup' }))
+    await waitFor(() => expect(screen.queryByText('Refreshing repository evidence. Cleanup is disabled until this finishes.')).not.toBeInTheDocument())
     fireEvent.change(within(screen.getByRole('dialog')).getByRole('textbox'), { target: { value: 'NAS' } })
     expect(screen.getByRole('button', { name: 'Start cleanup' })).toBeEnabled()
     current = { ...current, maintenance_review_token: 'proof-b', data_check: { status: 'failed', scope: 'all', error: 'Second damaged pack', checked_at: '2026-10-02T00:00:00Z' } }
@@ -676,6 +680,7 @@ describe('Backup repository decision regressions', () => {
     }).mockResolvedValue(jobResponse)
     renderPage('destinations')
     fireEvent.click(await screen.findByRole('button', { name: 'Run retention cleanup' }))
+    await waitFor(() => expect(screen.queryByText('Refreshing repository evidence. Cleanup is disabled until this finishes.')).not.toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: 'Start cleanup' }))
     await waitFor(() => expect(within(screen.getByRole('dialog')).getByText('Index discovery was inconclusive')).toBeVisible())
     expect(screen.getByRole('dialog')).toHaveTextContent('Review the latest evidence and confirm')
@@ -716,5 +721,91 @@ describe('Backup repository decision regressions', () => {
     expect(screen.getByText(/A repository operation reported a lock/)).toHaveTextContent('Review the latest job result')
     expect(screen.queryByText(/A repository client holds a lock/)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Unlock job details' })).toBeVisible()
+  })
+})
+
+describe('Backup round six review regressions', () => {
+  it('refreshes on opening cleanup and refuses submission during a pending or failed refresh', async () => {
+    renderPage('destinations')
+    const open = (await screen.findAllByRole('button', { name: 'Run retention cleanup' }))[0]
+    let reject!: (reason: Error) => void
+    vi.mocked(api.getBackups).mockImplementationOnce(() => new Promise((_, failure) => { reject = failure }))
+    fireEvent.click(open)
+    expect(screen.getByRole('button', { name: 'Start cleanup' })).toBeDisabled()
+    expect(screen.getByRole('dialog')).toHaveTextContent('Refreshing repository evidence')
+    await act(async () => reject(new Error('Evidence refresh failed')))
+    expect(screen.getByRole('button', { name: 'Start cleanup' })).toBeDisabled()
+    expect(within(screen.getByRole('dialog')).getByRole('alert')).toHaveTextContent('Evidence refresh failed')
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Refresh repository evidence' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Start cleanup' })).toBeEnabled())
+    expect(api.pruneBackupDestination).not.toHaveBeenCalled()
+  })
+
+  it('explains a missing review token instead of leaving an unexplained disabled cleanup action', async () => {
+    vi.mocked(api.getBackups).mockResolvedValue({ ...overview, destinations: [{ ...destination, check_hold: { scope: 'all', error: 'Unknown tree diagnostic' } }] })
+    renderPage('destinations')
+    fireEvent.click(await screen.findByRole('button', { name: 'Run retention cleanup' }))
+    expect(await within(screen.getByRole('dialog')).findByText(/current evidence review token is unavailable/)).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Start cleanup' })).toBeDisabled()
+  })
+
+  it('polls an open idle cleanup review every five seconds and invalidates confirmation even after evidence returns', async () => {
+    let current: api.BackupDestination = { ...destination, maintenance_review_token: 'a', check_hold: { scope: 'all', error: 'Unknown repository diagnostic' } }
+    vi.mocked(api.getBackups).mockImplementation(async () => ({ ...overview, destinations: [current] }))
+    vi.useFakeTimers()
+    try {
+      await act(async () => renderPage('destinations'))
+      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Run retention cleanup' })))
+      fireEvent.change(within(screen.getByRole('dialog')).getByRole('textbox'), { target: { value: 'NAS' } })
+      expect(screen.getByRole('button', { name: 'Start cleanup' })).toBeEnabled()
+      current = { ...destination }
+      await act(async () => vi.advanceTimersByTimeAsync(5000))
+      expect(screen.getByRole('dialog')).toHaveTextContent('Typed confirmation was reset')
+      current = { ...destination, maintenance_review_token: 'a', check_hold: { scope: 'all', error: 'Unknown repository diagnostic' } }
+      await act(async () => vi.advanceTimersByTimeAsync(5000))
+      expect(within(screen.getByRole('dialog')).getByRole('textbox')).toHaveValue('')
+      expect(screen.getByRole('button', { name: 'Start cleanup' })).toBeDisabled()
+      expect(api.getBackups).toHaveBeenCalledTimes(4)
+    } finally { vi.useRealTimers() }
+  })
+
+  it('keeps the configured full check for a metadata failure and displays new evidence in the open dialog', async () => {
+    let current: api.BackupDestination = { ...destination, check_read_data: 'all', metadata_check: { status: 'failed', scope: 'metadata', error: 'Index failed' } }
+    vi.mocked(api.getBackups).mockImplementation(async () => ({ ...overview, destinations: [current] }))
+    renderPage('destinations')
+    fireEvent.click(await screen.findByRole('button', { name: 'Check repository' }))
+    expect(screen.getByLabelText('Data-read policy')).toHaveValue('all')
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Start check' })).toBeEnabled())
+    current = { ...current, check_hold: { scope: 'all', error: 'New unresolved data diagnostic' } }
+    fireEvent(window, new Event('focus'))
+    expect(await within(screen.getByRole('dialog')).findByText('New unresolved data diagnostic')).toBeVisible()
+    expect(screen.getByLabelText('Data-read policy')).toHaveValue('all')
+  })
+
+  it.each(['succeeded', 'failed'] as const)('does not suggest repeating unlock after its newer %s outcome', async (status) => {
+    vi.mocked(api.getBackups).mockResolvedValue({ ...overview, destinations: [{ ...destination,
+      last_check_attempt_at: '2026-10-21T08:00:00Z', last_check_attempt_error: 'Old check was locked (repository_locked)',
+      last_operation: 'backup_unlock', last_operation_status: status, last_operation_at: '2026-10-21T08:01:00Z',
+      ...(status === 'failed' ? { last_operation_error: 'Lock is younger than 30 minutes (unlock_refused)' } : {}),
+    }] })
+    renderPage('destinations')
+    expect(await screen.findByText(/Old check was locked/)).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Review stale locks' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Check repository' })).toBeEnabled()
+    if (status === 'failed') expect(screen.getByText(/younger than 30 minutes/)).toBeVisible()
+  })
+
+  it('presents deleted-plan cleanup as historical while retaining the original failure', async () => {
+    vi.mocked(api.getBackups).mockResolvedValue({ ...overview, plans: [], runs: [{
+      id: 'orphan', job_id: 'old-job', plan_id: 'deleted', plan_name: 'Old plan', state: 'succeeded', capture_state: 'succeeded', phase: 'finished',
+      created_at: '2020-01-01T00:00:00Z', expires_at: '2020-01-02T00:00:00Z',
+      copies: [{ destination_id: 'nas', state: 'succeeded', verification: 'recovery_objects_verified', snapshot_id: 'snapshot', verified_at: '2020-01-01T00:00:00Z', retention: 'failed', retention_error: 'Original cleanup error' }],
+    }] })
+    renderPage('history')
+    expect(await screen.findByText('historical')).toBeVisible()
+    expect(screen.getByText(/Its retention policy no longer applies/)).toBeVisible()
+    expect(screen.getByText(/Original cleanup error/)).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Retry retention cleanup' })).not.toBeInTheDocument()
+    expect(screen.queryByText('attention')).not.toBeInTheDocument()
   })
 })

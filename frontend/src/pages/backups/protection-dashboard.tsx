@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useApi } from '@/hooks/use-api'
-import { getBackupCoverage, type BackupOverview, type BackupPlan } from '@/lib/backup-api'
+import { getBackupCoverage, type BackupDestination, type BackupOverview, type BackupPlan } from '@/lib/backup-api'
 import { BackupDate, BackupError, BackupPanel, BackupStatus, buttonClass, primaryClass } from './backup-primitives'
 import { SourceLabel } from './source-label'
 import { sourceCoverage } from './source-coverage'
@@ -17,6 +17,7 @@ export function ProtectionDashboard({
   onAddDestination,
   onRun,
   onRecovery,
+  onCheck,
 }: {
   data: BackupOverview
   refreshKey?: number | null
@@ -27,6 +28,7 @@ export function ProtectionDashboard({
   onAddDestination: () => void
   onRun: (plan: BackupPlan) => void
   onRecovery: (destinationId: string) => void
+  onCheck?: (destination: BackupDestination) => void
 }) {
   const [coverageRevision, setCoverageRevision] = useState(refreshKey)
   useEffect(() => {
@@ -122,12 +124,13 @@ export function ProtectionDashboard({
                             {copy.activity && copy.activity !== 'idle' && <BackupStatus value={copy.activity} />}
                           </div>
                         </div>
-                        {copy.evidence_usable !== undefined && copy.state !== 'disabled' && (
+                        {copy.evidence_usable !== undefined && copy.state !== 'disabled' && !destination?.check_hold && (
                           <p className="mt-2 text-xs text-[var(--muted)]">
                             {copy.evidence_usable ? 'Saved copy has usable recovery evidence.' : 'Saved copy does not have usable recovery evidence.'}
                           </p>
                         )}
-                        {destination && <CheckHoldWarning destination={destination} />}
+                        {destination && <CheckHoldWarning destination={destination} compact />}
+                        {destination?.check_hold && onCheck && <button className={`${buttonClass} mt-2`} disabled={pending || !data.restic_available} onClick={() => onCheck(destination)}>Check {destination.name} repository</button>}
                         <dl className="mt-2 grid gap-2 text-xs sm:grid-cols-3">
                           <div>
                             <dt className="text-[var(--muted)]">Latest data captured</dt>
@@ -193,7 +196,7 @@ export function ProtectionDashboard({
                             assessing protection.
                           </p>
                         )}
-                        {copy.state === 'unverified' && (
+                        {copy.state === 'unverified' && !destination?.check_hold && (
                           <p className="mt-2 text-xs text-[var(--warning)]">
                             The complete recovery objects have not been verified. Create a new verified copy.
                           </p>
@@ -213,7 +216,7 @@ export function ProtectionDashboard({
                             Plan selection changed after the latest copy. Run a new capture.
                           </p>
                         )}
-                        {copy.last_error && <p className="mt-2 text-xs text-[var(--warning)]">{copy.last_error}</p>}
+                        {copy.last_error && copy.last_error !== destination?.check_hold?.error && <p className="mt-2 text-xs text-[var(--warning)]">{copy.last_error}</p>}
                         {copy.snapshot_id && (
                           <button className={`${buttonClass} mt-2`} onClick={() => onRecovery(copy.destination_id)}>
                             Recover data
