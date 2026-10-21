@@ -5,6 +5,8 @@
 Implemented and validated, 2026-10-15, following the fifth independent review.
 The [validation record](../quality/backup-validation.md#round-five-repository-safety-validation--2026-10-15)
 identifies tested revisions, installed recovery exercises and retained limits.
+The [sixth-round corrections](backup-diagnostics-and-unlock.md) strengthen diagnostic
+context, minimum lock age, operator repair and current UI guidance.
 This contract extends
 [operational recovery](backup-operational-recovery.md) and is governed by
 [ADR 0009](../adr/0009-backup-maintenance-safety.md). Preserve historical evidence while making

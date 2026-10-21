@@ -26,6 +26,80 @@ file modes and Linux file capabilities are rejected; shared set-group-ID
 directories remain supported. Restore preview rejects paths outside managed or explicitly approved
 roots before stopping any service.
 
+## Round-Six Diagnostics And Unlock Validation — 2026-10-21
+
+The [sixth-round contract](../product/backup-diagnostics-and-unlock.md) was committed
+before implementation (`3b10910`). Diagnostic context and unlock safeguards are in
+`5472c6c` and `71d5e1a`; current-evidence UI and unlock chronology are in `b9ffe00`
+and `e690082`. Maintained integration harness changes are in `d7a3d09`, `9004ef7`
+and `e690082`.
+
+| Exercise | Evidence and result |
+| --- | --- |
+| JSON messages with trailing newlines; unknown tree/blob diagnostics mixed with transport; lock refresh versus missing-pack evidence | Deterministic plain, per-record JSON and multiline JSON regressions pass. Assertions include resulting hold and maintenance eligibility, not just the diagnostic label. |
+| SFTP interruption during inventory | Real restic 0.18.0, Debian 13 arm64, owned OpenSSH server. A protocol gate stops OPENDIR(data) before it reaches sftp-server; no timing guess or fabricated diagnostic. Returned `unavailable`, preserved prior full proof and created no hold. Captured stderr is in the committed corpus. |
+| SFTP interruption during pack reads; real truncation afterward | Separate 8 MiB transport gate. Both fixtures recover through fresh-lock refusal, simulated old-dead-owner unlock and a full check. Actual truncated encrypted bytes establish integrity failure. Final 0.18 runs: 26.88 s (pack-read gate), 26.33 s (inventory gate). |
+| Minimum restic 0.14.0 | Both SFTP gates pass with explicit cancellation after the 60-second outage budget, followed by recovery/truncation checks (131.49 s and 121.07 s). This proves cancellation, not a naturally returned transport error within that budget. Native `rebuild-index`, full check and Stacklab archive recovery also pass (14.60 s). |
+| Live root-owned process and same-hostname private PID namespace | Real Linux/Docker fixtures pass. The namespace-local PID is demonstrably live inside and absent outside; its fresh lock is refused. EPERM and live old owners remain protected. Minimum-age boundaries, future timestamps, uncertain probes and changed/reordered lock inventories have deterministic regressions. |
+| Actual index repair and recovery | Native `repair index` on 0.18/0.19 and `rebuild-index` on 0.14 rebuild removed indexes using intact packs, followed by full checks and recovered payload assertions. This is distinct from the byte-restoration tests. |
+| HTTPS S3 corruption | Owned rclone server and pinned CA; real restic 0.19.1 full check, truncated pack, blocked maintenance and original-byte restoration/full check pass (12.48 s). The separate independently configured S3 endpoint test is explicitly skipped. |
+| Full Linux archive/helper suite | Clean `b9ffe00` source, empty working-tree patch, maintained `run-linux.sh`. Five privileged exercises pass: ACL/xattr/hardlink/mode-000 recovery, PostgreSQL exact replacement, scope boundaries and SIGKILL during extraction. Final diagnostic/native tests were rerun from `d7a3d09` after the summary-classification refinement. |
+| Backend and repository checks | Full backend package coverage passes (global 71.7%, HTTP API 54.1%); formatting/vet, generated API, docs, release/hygiene and monitoring checks pass. Monitoring reports its 17 optional skips explicitly. Backup/jobs/notifications race tests pass, including the refined classifier (backup 174.955 s). |
+| Frontend and browser regressions | All 673 unit tests pass; final undated-unlock refinement additionally passes the focused page suite. Typecheck, lint, production build and bundle-size gate pass. Chromium Playwright backup suite: 10/10, including mobile cleanup request/token checks. |
+
+The final installed package is `2026.10.0~review6fix2` (runtime
+`2026.10.0-review6fix2`), built from `e690082a1456`. SHA256:
+
+- Debian package: `7a7a617e55b212274c8b8715ed8ee71fb906e57cf0df1876f67119bc358faeaa`.
+- Installed backend: `6e5bb5872c4f58d5f468dbef66b029fd80af3da245df560f1c59b4ce68d89509`.
+- Final native Linux test binary: `0c655cbe4ca4b99a3fc12313aafe4b10a7c531a7fe2c503918ca7350bd5e49fb`.
+
+The maintained upgrade harness passes all five checks, including legacy/current
+sudoers, protected service configuration recovery and preservation of plans,
+destinations and operator policy. The original pre-exercise configuration has nine
+plans and eight destinations; temporary owned fixtures account for additional
+entries during intermediate upgrades.
+
+The installed API exercise on the final package passes **12 assertions across 14
+jobs**. Two check jobs intentionally fail on native corruption. It exercises real
+capture, unlock, full/selected recovery, reviewed ACL replacement, changing prune
+acknowledgement, and offline native index repair as the installed `stacklab` user.
+Before that repair it stops the service and copies the whole owned repository;
+after repair it verifies newly generated index ownership, a native full check, an
+API full check and recovered content/ACLs/xattrs. Its final cleanup confirms the
+original nine plans/eight destinations and operator policy. An initial exercise's
+cleanup met a legitimate inventory-read lease (409); the maintained harness now
+waits boundedly for that read before retrying rejected fixture deletion. The final
+exercise, including cleanup, passes without bypassing repository reservations.
+
+The installed Chromium exercise passes **22 assertions with 17 screenshots**, using
+real API responses and packaged assets. It covers desktop and 390 px layouts, hold
+guidance, resolving check scope, exact-name prune acknowledgement, unlock review,
+recovery provenance and historical deleted-plan maintenance without an impossible
+retry. Desktop review and history screenshots were visually inspected. A temporary
+hold was explicitly injected into persisted state for an **owned, natively captured
+and repaired fixture repository**; its earlier metadata/full proof was retained.
+This proves installed hold presentation and continued real snapshot retrieval,
+not that native restic produced that unknown diagnostic. The deleted-plan history
+was the existing real `r6-del` run. The owned hold/configuration was subsequently
+removed, browser sessions revoked and private authentication exports deleted.
+
+Four browser cases are explicitly skipped: unavailable helper, system-caused pause,
+the stored-data-failure default on the selected held destination, and switching
+between two destinations when the harness is pinned to one owned repository.
+The failed-data default and review invalidation remain covered by unit and
+Playwright regressions. Final required CI is checked on the exact pushed revision;
+the delivery message links that run rather than treating earlier green revisions
+as proof of the final branch head.
+
+Lock-age integration tests explicitly simulate 31 minutes passing **only after**
+proving refusal at the real clock. They do not claim thirty minutes of wall-clock
+waiting or prove every external owner is stopped. The production guard has no test
+bypass. Preflight still cannot close the final race with independent clients.
+Native transport and corruption evidence does not prove every unknown restic message
+or backend. Historical unrecorded diagnostics are not reconstructed by this upgrade;
+run the resolving full check when current evidence requires it.
+
 ## Round-Five Repository Safety Validation — 2026-10-15
 
 The [fifth-round contract](../product/backup-repository-safety.md) and
@@ -41,7 +115,7 @@ its source, diagnostic corpus, binaries and hashes.
 | Full backend tests and package coverage gates | macOS, Go 1.27.1 | Passed; global reported coverage 71.7%, HTTP API 54.1% |
 | Backup, jobs and notifications race tests | Native restic 0.19.1 plus deterministic coordination | Passed; backup package 166.372 s |
 | Formatting/vet, generated API, docs, repository hygiene and monitoring tests | Canonical repository checks | Passed; monitoring explicitly skips its optional privileged/container cases |
-| Durable hold, legacy migration, scope-sensitive clearing, mixed diagnostics and late cancellation | Go regressions plus captured native stderr | Passed; historical proof retained independently of current usability |
+| Durable hold, legacy migration, scope-sensitive clearing, mixed diagnostics and late cancellation | Synthetic Go regressions; native stderr corpus proves corruption classification, not an unresolved hold | Passed; historical proof retained independently of current usability |
 | Current retention after changed/deleted/disabled plan or assignment, keep-all and healthy subsets | Go service regressions | Passed; admission and execution both revalidate policy |
 | Three real snapshots from different UTC days, daily 1 → 30 → 1 | Native restic | Passed; expansion preserves all three, later reduction actually forgets two; no duplicate capture/upload |
 | Old maintenance retry after a newer upload failure, including restart/pruned history | Go regressions | Passed; maintenance cannot replace copy chronology |
@@ -53,10 +127,13 @@ its source, diagnostic corpus, binaries and hashes.
 | HTTPS S3 full check → truncated pack → integrity failure → restored bytes/full check | Owned rclone 1.75.2 server and pinned fixture CA | Passed on macOS/restic 0.19.1 and Debian/restic 0.18.0; final Linux run 10.78 s |
 | UI current evidence, token invalidation, stale-review 409, unlock refresh and maintenance eligibility | Vitest plus Chromium Playwright | New regressions passed; Playwright 10/10 passed, including mobile submitted request payload |
 | Supported minimum restic 0.14.0: missing index, truncated local/S3 pack, live/dead same/foreign UID lock, actual current-policy retention | Isolated official Linux binary on PATH | Passed; installed restic 0.18.0 unchanged |
-| Supported minimum restic 0.14.0: interrupted SFTP with explicit cancellation, stale-lock recovery, actual pack truncation and repair | Same native SFTP fixture with version-specific interruption handling | Passed, 134.46 s; cancellation preserves proof without creating a hold, corruption records failure |
+| Supported minimum restic 0.14.0: interrupted SFTP with explicit cancellation, stale-lock recovery, actual pack truncation and restoration of original encrypted bytes | Same native SFTP fixture with version-specific interruption handling | Passed, 134.46 s; cancellation preserves proof without creating a hold, corruption records failure |
 | Installed `.deb` upgrade from review5; legacy/current sudoers readiness and protected configuration recovery | Maintained upgrade harness | All five checks passed; nine plans/eight destinations and operator policy preserved |
 | Actual capture, unlock, full/test/selected recovery, reviewed ACL apply and native corruption with stale/current prune review | Maintained installed API harness | Ten assertions across 12 jobs passed; two check jobs intentionally failed on damaged data |
 | Installed desktop/mobile inspection including real failed integrity, exact-name cleanup acknowledgement, refresh/selection and restore provenance | Maintained browser harness, no API mocks | 21 assertions passed, 16 screenshots; session revoked and local credential file removed |
+
+Required CI subsequently passed all four jobs on [`3c466e6`](https://github.com/krbob/stacklab/actions/runs/38704460659), including all 665 frontend tests. The next audit-only revision
+[`399d6ee`](https://github.com/krbob/stacklab/actions/runs/38707086800) also passed all four jobs.
 
 The local full frontend run passed 664/665 tests: only the existing 101-interaction
 selection-boundary test exceeded its 15-second limit on the heavily loaded host.

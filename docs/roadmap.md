@@ -9,7 +9,7 @@ limited to work that is not already implemented.
 
 Status reviewed: 2026-07-12.
 
-Backup and recovery direction updated: 2026-10-15. Native backup orchestration
+Backup and recovery direction updated: 2026-10-21. Native backup orchestration
 and the [protection/recovery experience](product/backup-experience.md)
 have been implemented; the remaining baseline and goals retain their previous
 review date.
@@ -27,6 +27,12 @@ are implemented: unresolved check holds, current retention policy, guarded unloc
 and prune acknowledgement bound to current evidence. Native transport/corruption
 fixtures and installed API/browser validation are recorded in the
 [fifth-round validation record](quality/backup-validation.md#round-five-repository-safety-validation--2026-10-15).
+
+Sixth-round [diagnostic and unlock corrections](product/backup-diagnostics-and-unlock.md)
+preserve restic record context, guard fresh namespace locks, refresh destructive
+reviews and clarify historical maintenance outcomes. Native inventory interruption,
+manual index repair and installed recovery/UI evidence are recorded in the
+[sixth-round validation record](quality/backup-validation.md#round-six-diagnostics-and-unlock-validation--2026-10-21).
 
 Fourth-round [operational recovery corrections](product/backup-operational-recovery.md)
 cover transient transport failures, stale locks, deliberate prune, independent

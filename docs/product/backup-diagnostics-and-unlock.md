@@ -2,7 +2,9 @@
 
 ## Status And Scope
 
-Accepted for implementation, 2026-10-21, following the sixth independent review.
+Implemented and validated, 2026-10-21, following the sixth independent review.
+The [validation record](../quality/backup-validation.md#round-six-diagnostics-and-unlock-validation--2026-10-21)
+identifies native, installed and synthetic evidence and their limits.
 This extends [repository safety](backup-repository-safety.md) and
 [ADR 0009](../adr/0009-backup-maintenance-safety.md). Existing scoped evidence,
 current retention policy and evidence-bound manual prune remain authoritative.

@@ -6,7 +6,7 @@ the product is heading.
 ## Current documents
 
 - [Backup diagnostics and unlock corrections](backup-diagnostics-and-unlock.md) —
-  accepted sixth-round diagnostic context, lock age, repair and focused UI contract.
+  implemented sixth-round diagnostic context, lock age, repair and focused UI contract.
 
 - [Backup repository safety](backup-repository-safety.md) — implemented fifth-round
   classification, maintenance policy, guarded unlock and current-evidence review.

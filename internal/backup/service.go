@@ -1005,8 +1005,9 @@ func (s *Service) Reconcile(ctx context.Context) error {
 }
 
 // pruneMetadataLocked bounds operational summaries without deleting repository
-// snapshots or dropping active/retryable recovery sets. The durable repository
-// manifest remains the source of truth after a summary expires.
+// snapshots or dropping active runs or runs within their staging retry window.
+// Expired maintenance-only retries share the 200-summary budget. The durable
+// repository manifest remains the source of truth after a summary expires.
 func (s *Service) pruneMetadataLocked() {
 	expired := []persistedRun{}
 	for _, run := range s.state.Runs {
