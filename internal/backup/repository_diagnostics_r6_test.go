@@ -16,6 +16,7 @@ func TestRepositoryDiagnosticRecordContext(t *testing.T) {
 		{"SFTP inventory outage", "List(data) failed: ssh command exited: exit status 255\npack " + pack + ": does not exist\nerror: failed to load snapshot aaaaaaaa: circuit breaker open for file <snapshot/aaaaaaaaaa>\ndownload error: circuit breaker open for file <data/aaaaaaaaaa>\nFatal: repository contains errors", "unavailable"},
 		{"unknown tree with trailing JSON newline", "error for tree aaaaaaaa:\n  unsupported repository structure\ndownload error: EOF\nFatal: repository contains errors", "check_inconclusive"},
 		{"lock refresh cannot invalidate pack inventory", "unable to refresh lock: connection reset by peer\npack " + pack + ": does not exist\nFatal: repository contains errors", "integrity_failed"},
+		{"lock refresh cannot explain unknown damage", "unable to refresh lock: connection reset by peer\nFatal: repository contains errors", "check_inconclusive"},
 		{"unknown blob with independent transport", "blob " + pack + " has unexpected length\ndownload error: EOF\nFatal: repository contains errors", "check_inconclusive"},
 		{"unknown listing with independent transport", "List(data) failed: unexpected backend response\ndownload error: EOF\npack " + pack + ": does not exist\nFatal: repository contains errors", "check_inconclusive"},
 		{"failed index does not invalidate pack listing", "Load(<index/aaaaaaaaaa>, 0, 0) failed: EOF\npack " + pack + ": does not exist", "integrity_failed"},

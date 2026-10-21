@@ -124,7 +124,11 @@ func resticIntegrityFailure(diagnostic string, inventory resticInventoryFailure)
 
 func (records resticDiagnostics) unexplainedRepositoryFailure() bool {
 	treeErrors := false
+	repositorySummary, explained := false, false
 	for _, record := range records {
+		if containsDiagnostic(record.message, "repository contains errors", "repository contains damaged pack files", "repository is damaged and must be repaired", "repository index is damaged and must be repaired") {
+			repositorySummary = true
+		}
 		if record.summary {
 			treeErrors = false
 			continue
@@ -145,7 +149,16 @@ func (records resticDiagnostics) unexplainedRepositoryFailure() bool {
 			}
 			// Missing references are resolved against the relevant inventory by
 			// resticIntegrityFailure. Operational errors explain this record only.
-			if resticMissingReference(trimmed) || resticOperationalFailure(trimmed) {
+			// A lock refresh/removal warning cannot explain a separate repository
+			// damage summary. It may have happened after the actual check failed.
+			if containsDiagnostic(trimmed, "unable to refresh lock", "failed to refresh lock", "remove(<lock/") {
+				continue
+			}
+			if resticOperationalFailure(trimmed) {
+				explained = true
+				continue
+			}
+			if resticMissingReference(trimmed) {
 				continue
 			}
 			if treeErrors || record.errorRecord || resticRepositoryObjectDiagnostic.MatchString(trimmed) || containsDiagnostic(trimmed, "list(data) failed", "list(index) failed", "load indexes failed") {
@@ -153,5 +166,5 @@ func (records resticDiagnostics) unexplainedRepositoryFailure() bool {
 			}
 		}
 	}
-	return false
+	return repositorySummary && !explained
 }
