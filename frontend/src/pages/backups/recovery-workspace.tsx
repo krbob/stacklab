@@ -223,7 +223,7 @@ function DestinationRecovery({
   }
 
   return (
-    <>
+    <div className="space-y-4">
       <BackupPanel
         title="1. Choose and inspect a recovery set"
         actions={
@@ -232,40 +232,42 @@ function DestinationRecovery({
           </button>
         }
       >
-        <BackupError error={error ?? snapshots.error?.message ?? null} />
-        {repositoryLocked(snapshots.error) && onUnlock && <p className="mb-3 text-sm text-[var(--warning)]">Snapshot listing is blocked by a repository lock. Wait for the client to finish, or inspect stale locks. <button className={buttonClass} disabled={!toolsAvailable} onClick={onUnlock}>Review stale locks</button></p>}
-        <CheckHoldWarning destination={destination} />
-        {!toolsAvailable && (
-          <p className="text-sm text-[var(--warning)]">
-            Install the required backup tools before accessing this repository.
-          </p>
-        )}
-        {snapshots.loading && !snapshots.data && (
-          <p role="status" className="text-sm text-[var(--muted)]">
-            Loading recovery sets…
-          </p>
-        )}
-        {snapshots.data && (
-          <Field label="Recovery set">
-            <select
-              className={inputClass}
-              value={snapshotId}
-              disabled={pending || running}
-              onChange={(event) => setSnapshotId(event.target.value)}
-            >
-              <option value="">Select a snapshot</option>
-              {snapshotId && !selectedSnapshot && <option value={snapshotId} disabled>Unavailable snapshot {snapshotId.slice(0, 8)}</option>}
-              {(snapshots.data.items ?? []).map((snapshot) => (
-                <option key={snapshot.id} value={snapshot.id}>
-                  {formatBackupDate(snapshot.time)} · {snapshot.short_id || snapshot.id.slice(0, 8)} · {snapshot.recovery_status ?? 'unknown'} ·{' '}
-                  {plans.find((plan) => snapshot.tags?.includes(`plan:${plan.id}`))?.name ??
-                    snapshot.tags?.find((tag) => tag.startsWith('plan:'))?.slice(5) ??
-                    snapshot.hostname}
-                </option>
-              ))}
-            </select>
-          </Field>
-        )}
+        <div className="space-y-3">
+          <BackupError error={error ?? snapshots.error?.message ?? null} />
+          {repositoryLocked(snapshots.error) && onUnlock && <p className="mb-3 text-sm text-[var(--warning)]">Snapshot listing is blocked by a repository lock. Wait for the client to finish, or inspect stale locks. <button className={buttonClass} disabled={!toolsAvailable} onClick={onUnlock}>Review stale locks</button></p>}
+          <CheckHoldWarning destination={destination} />
+          {!toolsAvailable && (
+            <p className="text-sm text-[var(--warning)]">
+              Install the required backup tools before accessing this repository.
+            </p>
+          )}
+          {snapshots.loading && !snapshots.data && (
+            <p role="status" className="text-sm text-[var(--muted)]">
+              Loading recovery sets…
+            </p>
+          )}
+          {snapshots.data && (
+            <Field label="Recovery set">
+              <select
+                className={inputClass}
+                value={snapshotId}
+                disabled={pending || running}
+                onChange={(event) => setSnapshotId(event.target.value)}
+              >
+                <option value="">Select a snapshot</option>
+                {snapshotId && !selectedSnapshot && <option value={snapshotId} disabled>Unavailable snapshot {snapshotId.slice(0, 8)}</option>}
+                {(snapshots.data.items ?? []).map((snapshot) => (
+                  <option key={snapshot.id} value={snapshot.id}>
+                    {formatBackupDate(snapshot.time)} · {snapshot.short_id || snapshot.id.slice(0, 8)} · {snapshot.recovery_status ?? 'unknown'} ·{' '}
+                    {plans.find((plan) => snapshot.tags?.includes(`plan:${plan.id}`))?.name ??
+                      snapshot.tags?.find((tag) => tag.startsWith('plan:'))?.slice(5) ??
+                      snapshot.hostname}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+        </div>
         {snapshotId && snapshots.data && !selectedSnapshot && <p role="status" className="mt-3 text-sm text-[var(--warning)]">
           The selected snapshot {snapshotId.slice(0, 8)} is no longer in this repository. It may have been removed by
           retention or cleanup. Select another recovery set to continue.
@@ -482,7 +484,7 @@ function DestinationRecovery({
           }}
         />
       )}
-    </>
+    </div>
   )
 }
 

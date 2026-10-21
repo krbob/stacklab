@@ -212,7 +212,7 @@ export function BackupsPage() {
         }
       />
       <BackupError error={hasDialog || errorScope ? null : error} />
-      <div className="flex gap-2 overflow-x-auto" role="tablist" aria-label="Backup views">
+      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Backup views">
         {tabs.map((item) => (
           <button
             key={item}
@@ -373,7 +373,7 @@ export function BackupsPage() {
                           className="space-y-3 rounded-md border border-[var(--panel-border)] p-4"
                         >
                           <div className="flex flex-wrap items-center justify-between gap-2">
-                            <h3 className="font-medium text-[var(--text)]">{destination.name}</h3>
+                            <h3 className="text-sm font-semibold text-[var(--text)]">{destination.name}</h3>
                             <BackupStatus value={destination.status} />
                           </div>
                           <p className="break-all text-xs text-[var(--muted)]">
@@ -551,7 +551,7 @@ export function BackupsPage() {
                       {plans.map((plan) => (
                         <article key={plan.id} className="space-y-3 rounded-md border border-[var(--panel-border)] p-4">
                           <div className="flex flex-wrap items-center justify-between gap-2">
-                            <h3 className="font-medium text-[var(--text)]">{plan.name}</h3>
+                            <h3 className="text-sm font-semibold text-[var(--text)]">{plan.name}</h3>
                             <BackupStatus value={plan.enabled ? 'enabled' : 'disabled'} />
                           </div>
                           <p className="text-sm text-[var(--muted)]">

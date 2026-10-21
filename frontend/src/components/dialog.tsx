@@ -43,7 +43,7 @@ export function Dialog({
         aria-busy={busy}
         tabIndex={-1}
         className={cn(
-          'max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]',
+          'max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)] [overflow-wrap:anywhere]',
           panelClassName,
         )}
       >

@@ -1,9 +1,10 @@
 import { cloneElement, isValidElement, useId, type ReactNode } from 'react'
+import { ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { formatBackupDate } from './backup-formatters'
 
 export const inputClass =
-  'w-full rounded-md border border-[var(--panel-border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--accent)] disabled:opacity-50'
+  'min-h-10 w-full rounded-md border border-[var(--panel-border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--accent)] disabled:opacity-50'
 export const buttonClass =
   'rounded-md border border-[var(--panel-border)] px-3 py-2 text-sm text-[var(--text)] transition hover:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50'
 export const primaryClass =
@@ -11,10 +12,10 @@ export const primaryClass =
 
 export function BackupPanel({ title, children, actions }: { title: string; children: ReactNode; actions?: ReactNode }) {
   return (
-    <section className="min-w-0 rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-4">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+    <section className="min-w-0 rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-4 [overflow-wrap:anywhere]">
+      <div className="mb-4 flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <h2 className="text-base font-semibold text-[var(--text)]">{title}</h2>
-        {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
+        {actions && <div className="flex max-w-full flex-wrap gap-2">{actions}</div>}
       </div>
       {children}
     </section>
@@ -23,12 +24,23 @@ export function BackupPanel({ title, children, actions }: { title: string; child
 
 export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   const id = useId()
+  const isSelect = isValidElement(children) && children.type === 'select'
+  const control = isValidElement<{ id?: string; 'aria-describedby'?: string; className?: string }>(children)
+    ? cloneElement(children, {
+        id,
+        'aria-describedby': hint ? `${id}-hint` : undefined,
+        ...(isSelect ? { className: cn(children.props.className, 'appearance-none pr-9') } : {}),
+      })
+    : children
   return (
     <div className="flex min-w-0 flex-col gap-1.5 text-sm text-[var(--text)]">
       <label htmlFor={id}>{label}</label>
-      {isValidElement<{ id?: string; 'aria-describedby'?: string }>(children)
-        ? cloneElement(children, { id, 'aria-describedby': hint ? `${id}-hint` : undefined })
-        : children}
+      {isSelect ? (
+        <span className="relative min-w-0">
+          {control}
+          <ChevronDown aria-hidden="true" className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2" />
+        </span>
+      ) : control}
       {hint && (
         <span id={`${id}-hint`} className="text-xs leading-5 text-[var(--muted)]">
           {hint}
@@ -42,7 +54,7 @@ export function BackupStatus({ value }: { value: string }) {
   return (
     <span
       className={cn(
-        'rounded border px-2 py-0.5 text-xs',
+        'inline-flex shrink-0 items-center whitespace-nowrap rounded border px-2 py-0.5 text-xs',
         ['succeeded', 'covered', 'healthy', 'current', 'ready', 'available', 'verified', 'complete', 'sampled'].includes(value)
           ? 'border-[var(--ok)]/30 text-[var(--ok)]'
           : [

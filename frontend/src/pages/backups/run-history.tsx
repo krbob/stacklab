@@ -166,7 +166,7 @@ export function RunHistory({
           return (
             <article key={run.id} className="space-y-3 rounded-md border border-[var(--panel-border)] p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="font-medium text-[var(--text)]">{run.plan_name}</h3>
+                <h3 className="text-sm font-semibold text-[var(--text)]">{run.plan_name}</h3>
                 <BackupStatus value={maintenanceOnly && !active ? currentPlan ? 'attention' : 'historical' : run.state} />
               </div>
               <p className="text-xs text-[var(--muted)]">

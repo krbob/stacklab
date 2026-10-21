@@ -370,6 +370,15 @@ do not insert a layout-shifting message, and overview polling pauses in hidden
 browser tabs. Errors belong to the action that produced them; another review
 starts without that action's error.
 
+Adjacent summary and workflow panels use a consistent vertical gap, including
+both sides of Protection status and the two destination recovery steps. Warnings,
+copy metadata and action groups have their own spacing. On narrow screens, the
+summary uses two columns, tabs wrap so every view remains visible, and panel
+actions sit below the heading. Plan, destination and history card titles share
+one text style; long names wrap in cards and dialogs. Backup form selects retain
+native keyboard behavior while matching text-field height and padding in Chromium
+and WebKit.
+
 - **Protection:** show verified copies and their schedule compliance separately
   from configured source selection. Each plan lists destination-specific last
   capture, next occurrence, errors, snapshot presence and its observation time,

@@ -57,8 +57,8 @@ export function ProtectionDashboard({
     .flatMap((stack) => stack.sources.map((source) => ({ stack, source, ...sourceCoverage(source, stack.plans) })))
     .filter((item) => item.state !== 'configured')
   return (
-    <>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
           { label: 'Copies meeting schedule', value: current },
           { label: 'Manual copies available', value: manual },
@@ -68,9 +68,9 @@ export function ProtectionDashboard({
             value: coverage.loading && !coverage.data ? '…' : incomplete ? `${gaps.length}+` : gaps.length,
           },
         ].map((item) => (
-          <div key={item.label} className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-4">
+          <div key={item.label} className="flex flex-col justify-between gap-2 rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-4">
             <p className="text-xs text-[var(--muted)]">{item.label}</p>
-            <p className="mt-2 text-2xl font-semibold text-[var(--text)]">{item.value}</p>
+            <p className="text-2xl font-semibold text-[var(--text)]">{item.value}</p>
           </div>
         ))}
       </div>
@@ -102,8 +102,8 @@ export function ProtectionDashboard({
             return (
               <article key={plan.id} className="space-y-3 rounded-md border border-[var(--panel-border)] p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="font-medium text-[var(--text)]">{plan.name}</h3>
-                  <div className="flex gap-2"><BackupStatus value={health?.state ?? (plan.enabled ? 'unprotected' : 'disabled')} />
+                  <h3 className="text-sm font-semibold text-[var(--text)]">{plan.name}</h3>
+                  <div className="flex flex-wrap gap-2"><BackupStatus value={health?.state ?? (plan.enabled ? 'unprotected' : 'disabled')} />
                     {health?.activity && health.activity !== 'idle' && <BackupStatus value={health.activity} />}
                   </div>
                 </div>
@@ -117,21 +117,20 @@ export function ProtectionDashboard({
                   {(health?.copies ?? []).map((copy) => {
                     const destination = data.destinations.find((item) => item.id === copy.destination_id)
                     return (
-                      <div key={copy.destination_id} className="rounded-md bg-[var(--bg)] p-3">
+                      <div key={copy.destination_id} className="space-y-3 rounded-md bg-[var(--bg)] p-3">
                         <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                           <span className="text-[var(--text)]">{destination?.name || copy.destination_id}</span>
-                          <div className="flex gap-2"><BackupStatus value={copy.state} />
+                          <div className="flex flex-wrap gap-2"><BackupStatus value={copy.state} />
                             {copy.activity && copy.activity !== 'idle' && <BackupStatus value={copy.activity} />}
                           </div>
                         </div>
                         {copy.evidence_usable !== undefined && copy.state !== 'disabled' && !destination?.check_hold && (
-                          <p className="mt-2 text-xs text-[var(--muted)]">
+                          <p className="text-xs text-[var(--muted)]">
                             {copy.evidence_usable ? 'Saved copy has usable recovery evidence.' : 'Saved copy does not have usable recovery evidence.'}
                           </p>
                         )}
                         {destination && <CheckHoldWarning destination={destination} compact />}
-                        {destination?.check_hold && onCheck && <button className={`${buttonClass} mt-2`} disabled={pending || !data.restic_available} onClick={() => onCheck(destination)}>Check {destination.name} repository</button>}
-                        <dl className="mt-2 grid gap-2 text-xs sm:grid-cols-3">
+                        <dl className="grid gap-3 text-xs sm:grid-cols-3">
                           <div>
                             <dt className="text-[var(--muted)]">Latest data captured</dt>
                             <dd className="mt-1">
@@ -151,7 +150,7 @@ export function ProtectionDashboard({
                             </dd>
                           </div>
                         </dl>
-                        <dl className="mt-2 grid gap-2 text-xs sm:grid-cols-3">
+                        <dl className="grid gap-3 text-xs sm:grid-cols-3">
                           <div>
                             <dt className="text-[var(--muted)]">Snapshot presence</dt>
                             <dd className="mt-1">
@@ -174,53 +173,54 @@ export function ProtectionDashboard({
                           </div>
                         </dl>
                         {copy.state === 'missing' && (
-                          <p className="mt-2 text-xs text-[var(--warning)]">
+                          <p className="text-xs text-[var(--warning)]">
                             The latest recorded snapshot is missing from the repository. Create a new copy and
                             investigate retention or external changes.
                           </p>
                         )}
                         {copy.state === 'integrity_failed' && (
-                          <p className="mt-2 text-xs text-[var(--warning)]">
+                          <p className="text-xs text-[var(--warning)]">
                             A repository integrity check failed. Inspect the check result before relying on this copy.
                           </p>
                         )}
                         {copy.state === 'unavailable' && (
-                          <p className="mt-2 text-xs text-[var(--warning)]">
+                          <p className="text-xs text-[var(--warning)]">
                             Repository access failed. Check its availability and credentials; this does not establish
                             whether its data is intact.
                           </p>
                         )}
                         {copy.state === 'clock_skew' && (
-                          <p className="mt-2 text-xs text-[var(--warning)]">
+                          <p className="text-xs text-[var(--warning)]">
                             Recorded backup times are ahead of the host clock. Review time synchronization before
                             assessing protection.
                           </p>
                         )}
                         {copy.state === 'unverified' && !destination?.check_hold && (
-                          <p className="mt-2 text-xs text-[var(--warning)]">
+                          <p className="text-xs text-[var(--warning)]">
                             The complete recovery objects have not been verified. Create a new verified copy.
                           </p>
                         )}
                         {copy.state === 'manual' && (
-                          <p className="mt-2 text-xs text-[var(--muted)]">
+                          <p className="text-xs text-[var(--muted)]">
                             Copy available. Manual schedule has no freshness guarantee.
                           </p>
                         )}
                         {(copy.overdue_since || copy.state === 'overdue') && (
-                          <p className="mt-2 text-xs text-[var(--warning)]">
+                          <p className="text-xs text-[var(--warning)]">
                             Scheduled copy missing since <BackupDate value={copy.first_outstanding_due ?? copy.due_at} />.{copy.overdue_since && <> Overdue since <BackupDate value={copy.overdue_since} />.</>}
                           </p>
                         )}
                         {copy.state === 'outdated' && (
-                          <p className="mt-2 text-xs text-[var(--warning)]">
+                          <p className="text-xs text-[var(--warning)]">
                             Plan selection changed after the latest copy. Run a new capture.
                           </p>
                         )}
-                        {copy.last_error && copy.last_error !== destination?.check_hold?.error && <p className="mt-2 text-xs text-[var(--warning)]">{copy.last_error}</p>}
-                        {copy.snapshot_id && (
-                          <button className={`${buttonClass} mt-2`} onClick={() => onRecovery(copy.destination_id)}>
-                            Recover data
-                          </button>
+                        {copy.last_error && copy.last_error !== destination?.check_hold?.error && <p className="text-xs text-[var(--warning)]">{copy.last_error}</p>}
+                        {(destination?.check_hold && onCheck || copy.snapshot_id) && (
+                          <div className="flex flex-wrap gap-2">
+                            {destination?.check_hold && onCheck && <button className={buttonClass} disabled={pending || !data.restic_available} onClick={() => onCheck(destination)}>Check {destination.name} repository</button>}
+                            {copy.snapshot_id && <button className={buttonClass} onClick={() => onRecovery(copy.destination_id)}>Recover data</button>}
+                          </div>
                         )}
                       </div>
                     )
@@ -269,11 +269,11 @@ export function ProtectionDashboard({
               key={`${stack.stack_id}:${source.id}`}
               className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-[var(--panel-border)] p-3 text-sm"
             >
-              <div>
+              <div className="min-w-0">
                 <p className="mb-1 text-xs text-[var(--muted)]">{stack.stack_name || 'Stacklab host'}</p>
                 <SourceLabel source={source} />
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <BackupStatus value={state} />
                 <Link className={buttonClass} to={`/backups?view=plans&stack=${encodeURIComponent(stack.stack_id)}`}>
                   Review plans
@@ -283,6 +283,6 @@ export function ProtectionDashboard({
           ))}
         </div>
       </BackupPanel>
-    </>
+    </div>
   )
 }

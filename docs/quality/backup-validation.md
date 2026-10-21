@@ -26,6 +26,25 @@ file modes and Linux file capabilities are rejected; shared set-group-ID
 directories remain supported. Restore preview rejects paths outside managed or explicitly approved
 roots before stopping any service.
 
+## Visual Layout Follow-Up — 2026-10-21
+
+Browser inspection reproduced touching Protection panels and destination recovery
+steps, warnings touching surrounding content, clipped dialog titles with long
+names, and shorter native select controls in WebKit. The layout now separates
+panels by 16 px, groups copy actions, wraps mobile tabs and uses two summary
+columns on phones. Card titles and form-control sizing are consistent.
+
+Chromium and WebKit inspection covers all five backup tabs, snapshot browsing,
+destination editing and check/cleanup dialogs at 1440, 768 and 390 px. An additional
+Chromium pass uses 320 px and long unbroken plan/destination names. Screenshots and
+DOM measurements confirm section separation and no horizontal overflow in page,
+panel or dialog containers. These are local frontend fixtures with mocked API
+responses, separate from the installed-package evidence below. Local captures
+and measurements are in `/tmp/stacklab-ui-review-20261021/`.
+
+All 673 frontend unit tests and 10 maintained Chromium backup scenarios pass,
+along with typecheck, lint, production build and the font/CSP build check.
+
 ## Round-Six Diagnostics And Unlock Validation — 2026-10-21
 
 The [sixth-round contract](../product/backup-diagnostics-and-unlock.md) was committed
