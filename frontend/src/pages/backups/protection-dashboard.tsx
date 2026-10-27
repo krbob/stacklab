@@ -5,6 +5,7 @@ import { getBackupCoverage, type BackupDestination, type BackupOverview, type Ba
 import { BackupDate, BackupError, BackupPanel, BackupStatus, buttonClass, primaryClass } from './backup-primitives'
 import { SourceLabel } from './source-label'
 import { sourceCoverage } from './source-coverage'
+import { repositoryToolsAvailable } from './repository-evidence'
 import { CheckHoldWarning } from './check-hold-warning'
 
 export function ProtectionDashboard({
@@ -218,7 +219,7 @@ export function ProtectionDashboard({
                         {copy.last_error && copy.last_error !== destination?.check_hold?.error && <p className="text-xs text-[var(--warning)]">{copy.last_error}</p>}
                         {(destination?.check_hold && onCheck || copy.snapshot_id) && (
                           <div className="flex flex-wrap gap-2">
-                            {destination?.check_hold && onCheck && <button className={buttonClass} disabled={pending || !data.restic_available} onClick={() => onCheck(destination)}>Check {destination.name} repository</button>}
+                            {destination?.check_hold && onCheck && <button className={buttonClass} disabled={pending || !repositoryToolsAvailable(destination, data)} onClick={() => onCheck(destination)}>Check {destination.name} repository</button>}
                             {copy.snapshot_id && <button className={buttonClass} onClick={() => onRecovery(copy.destination_id)}>Recover data</button>}
                           </div>
                         )}

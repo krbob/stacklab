@@ -1,5 +1,9 @@
 import type { BackupDestination } from '@/lib/backup-api'
 
+export function repositoryToolsAvailable(destination: BackupDestination, tools?: { restic_available?: boolean; rclone_available?: boolean } | null): boolean {
+  return !!tools?.restic_available && (destination.kind !== 'rclone' || !!tools.rclone_available)
+}
+
 export const checkScopeLabel = (scope?: string) => ({ metadata: 'Metadata', subset: 'Sampled data read', all: 'Full data read' } as Record<string, string>)[scope ?? ''] ?? 'Scope not recorded'
 
 export function requiredCheckScope(destination: BackupDestination): 'metadata' | 'all' | undefined {

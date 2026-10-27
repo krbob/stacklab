@@ -320,3 +320,49 @@ test.describe('Backup round four repository decisions', () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false)
   })
 })
+
+test.describe('Backup review polling interaction', () => {
+  for (const width of [1440, 390]) {
+    test(`preserves typing and focus during polling, but resets changed evidence at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 })
+      await page.clock.install()
+      await mockBackupUI(page)
+      let token = 'proof-a'
+      let release: (() => void) | undefined
+      let requested: (() => void) | undefined
+      let gate: Promise<void> | undefined
+      await page.route('**/api/backups', async route => {
+        requested?.()
+        await gate
+        await route.fulfill({ json: {
+          destinations: [{ ...destination, maintenance_review_token: token, check_hold: { scope: 'all', error: 'Review repository evidence' } }], plans: [], runs: [], protection: [], helper_ready: true, helper_configured: true, restic_available: true, rclone_available: true, staging_directory: '/staging',
+        } })
+      })
+      await page.goto('/backups?view=destinations')
+      await page.getByRole('button', { name: 'Run retention cleanup', exact: true }).click()
+      const input = page.getByLabel('Type NAS to confirm', { exact: true })
+      await expect(input).toBeFocused()
+      await expect(input).toBeEditable()
+      await input.fill('NA')
+      for (let tick = 0; tick < 2; tick++) {
+        gate = new Promise<void>(resolve => { release = resolve })
+        const request = new Promise<void>(resolve => { requested = resolve })
+        await page.clock.runFor(5000)
+        await request
+        await expect(input).toBeFocused()
+        await expect(input).toBeEditable()
+        await expect(page.getByText('Refreshing repository evidence. Cleanup is disabled until this finishes.')).toHaveCount(0)
+        if (tick === 0) await page.keyboard.type('S')
+        await expect(input).toHaveValue('NAS')
+        if (tick === 1) token = 'proof-b'
+        release!()
+        gate = undefined
+        if (tick === 0) await expect(page.getByRole('button', { name: 'Start cleanup' })).toBeEnabled()
+      }
+      await expect(input).toHaveValue('')
+      await expect(input).toBeFocused()
+      await expect(page.getByRole('dialog')).toContainText('Typed confirmation was reset')
+      await expect(page.getByRole('button', { name: 'Start cleanup' })).toBeDisabled()
+    })
+  }
+})

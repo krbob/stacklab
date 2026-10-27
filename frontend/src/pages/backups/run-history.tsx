@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { backupDuration as duration } from './backup-formatters'
 import type { BackupCopy, BackupDestination, BackupPlan, BackupRun } from '@/lib/backup-api'
 import { BackupDate, BackupError, BackupPanel, BackupSize, BackupStatus, buttonClass, Field, inputClass } from './backup-primitives'
-import { requiredCheckScope } from './repository-evidence'
+import { requiredCheckScope, repositoryToolsAvailable } from './repository-evidence'
 
 const pageSize = 10
 const verifiedCopy = (copy: BackupCopy) => copy.state === 'succeeded' && copy.verification === 'recovery_objects_verified' && !!copy.verified_at && !!copy.snapshot_id
@@ -17,6 +17,8 @@ export function RunHistory({
   onJob,
   onRetry,
   onCheck,
+  toolsAvailable = true,
+  rcloneAvailable = true,
 }: {
   runs: BackupRun[]
   plans: BackupPlan[]
@@ -24,6 +26,8 @@ export function RunHistory({
   clock: number
   pending: boolean
   error?: string | null
+  toolsAvailable?: boolean
+  rcloneAvailable?: boolean
   onJob: (id: string) => void
   onRetry: (run: BackupRun, ids: string[]) => void
   onCheck?: (destination: BackupDestination) => void
@@ -234,7 +238,7 @@ export function RunHistory({
                         <p className="mt-1 break-all font-mono text-xs text-[var(--muted)]">{copy.snapshot_id}</p>
                       )}
                       {copy.retention_error && <p className="mt-1 text-sm text-[var(--warning)]">{['pending', 'running'].includes(copy.retention) ? 'Previous retention attempt: ' : `${verifiedCopy(copy) ? 'Copy verified; retention' : 'Retention'} cleanup failed: `}{copy.retention_error}</p>}
-                      {block && <p className="mt-2 text-sm text-[var(--warning)]">{block.reason}{onCheck && block.destination && <button className={`${buttonClass} ml-2`} disabled={pending} onClick={() => onCheck(block.destination!)}>Check {destinationName(copy.destination_id)} repository</button>}</p>}
+                      {block && <p className="mt-2 text-sm text-[var(--warning)]">{block.reason}{onCheck && block.destination && <button className={`${buttonClass} ml-2`} disabled={pending || !repositoryToolsAvailable(block.destination, { restic_available: toolsAvailable, rclone_available: rcloneAvailable })} onClick={() => onCheck(block.destination!)}>Check {destinationName(copy.destination_id)} repository</button>}</p>}
                       {copy.error && <p className="mt-1 text-sm text-[var(--danger)]">{copy.error}</p>}
                     </div>
                   )

@@ -23,7 +23,7 @@ export function PruneReviewDialog({ destination, pending, refreshing, refreshFai
   if (reviewToken !== destination.maintenance_review_token) {
     setReviewToken(destination.maintenance_review_token)
     setConfirmation('')
-    setEvidenceChanged(true)
+    setEvidenceChanged(confirmation !== '')
   }
   const textRef = useRef<HTMLInputElement>(null)
   const cancelRef = useRef<HTMLButtonElement>(null)
@@ -36,7 +36,7 @@ export function PruneReviewDialog({ destination, pending, refreshing, refreshFai
         <p className="break-all font-mono text-xs text-[var(--text)]">{destination.repository}</p>
         <BackupError error={error} />
         {refreshing && <p role="status" className="text-sm text-[var(--muted)]">Refreshing repository evidence. Cleanup is disabled until this finishes.</p>}
-        {evidenceChanged && <p role="status" className="text-sm text-[var(--warning)]">Repository evidence changed. Typed confirmation was reset; review the current evidence before confirming again.</p>}
+        {evidenceChanged && !error && <p role="status" className="text-sm text-[var(--warning)]">Repository evidence changed. Typed confirmation was reset; review the current evidence before confirming again.</p>}
         {requiresAcknowledgement && !destination.maintenance_review_token && <p className="text-sm text-[var(--warning)]">The current evidence review token is unavailable. Refresh repository evidence before confirming cleanup.</p>}
         {(error || (requiresAcknowledgement && !destination.maintenance_review_token)) && <button className={buttonClass} disabled={pending || refreshing} onClick={onRefresh}>Refresh repository evidence</button>}
         {requiresAcknowledgement && (
@@ -51,7 +51,7 @@ export function PruneReviewDialog({ destination, pending, refreshing, refreshFai
           </div>
         )}
         {requiresAcknowledgement && <Field label={`Type ${destination.name} to confirm`}>
-          <input ref={textRef} className={inputClass} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} disabled={pending || refreshing || refreshFailed} />
+          <input ref={textRef} className={inputClass} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} readOnly={pending || refreshing || refreshFailed} aria-busy={refreshing} />
         </Field>}
         <div className="flex justify-end gap-2">
           <button ref={cancelRef} className={buttonClass} disabled={pending} onClick={onCancel}>Cancel</button>

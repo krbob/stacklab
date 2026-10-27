@@ -13,6 +13,22 @@ function deferred<T>() {
 }
 
 describe('useApi', () => {
+  it('identifies the settled refresh without relying on wall-clock changes', async () => {
+    const next = deferred<string>()
+    const fetcher = vi.fn().mockResolvedValueOnce('old').mockReturnValueOnce(next.promise)
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1000)
+    try {
+      const { result } = renderHook(() => useApi(fetcher, []))
+      await waitFor(() => expect(result.current.data).toBe('old'))
+      let requested = 0
+      act(() => { requested = result.current.backgroundRefetch(true) })
+      expect(result.current.settledRequestId).toBeLessThan(requested)
+      await act(async () => { next.resolve('current'); await next.promise })
+      expect(result.current.settledRequestId).toBe(requested)
+      expect(result.current.updatedAt).toBe(1000)
+    } finally { now.mockRestore() }
+  })
+
   it('ignores stale responses after dependencies change', async () => {
     const first = deferred<string>()
     const second = deferred<string>()

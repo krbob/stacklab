@@ -46,7 +46,7 @@ import { SourceLabel } from './backups/source-label'
 import { BackupOperations } from './backups/backup-operations'
 import { useBackupRefresh, type BackupJobEffects } from './backups/use-backup-refresh'
 import { useVisibleRefresh } from './backups/use-visible-refresh'
-import { checkScopeLabel, needsLockReview, preferredCheckScope } from './backups/repository-evidence'
+import { checkScopeLabel, needsLockReview, preferredCheckScope, repositoryToolsAvailable } from './backups/repository-evidence'
 import { CheckHoldWarning } from './backups/check-hold-warning'
 import { PruneReviewDialog } from './backups/prune-review-dialog'
 
@@ -79,6 +79,10 @@ export function BackupsPage() {
   const [runPlan, setRunPlan] = useState<BackupPlan | null>(null)
   const [checkSelection, setCheck] = useState<BackupDestination | null>(null)
   const [readData, setReadData] = useState<'metadata' | 'subset' | 'all'>('metadata')
+  const [reviewRequestId, setReviewRequestId] = useState(0)
+  const [scopeChanged, setScopeChanged] = useState(false)
+  const refreshReview = () => setReviewRequestId(backgroundRefetch(true))
+  const reviewLoading = state.settledRequestId < reviewRequestId
   const [pending, setPending] = useState(false)
   const [reportedError, setReportedError] = useState<{ message: string; scope: string | null } | null>(null)
   const error = reportedError?.message ?? null
@@ -101,15 +105,21 @@ export function BackupsPage() {
   const destinations = data?.destinations ?? []
   const check = destinations.find((item) => item.id === checkSelection?.id) ?? null
   const preferredScope = check ? preferredCheckScope(check) : undefined
-  useEffect(() => { if (preferredScope) setReadData(preferredScope) }, [check?.id, preferredScope])
+  const previousPreferredScope = useRef(preferredScope)
+  useEffect(() => {
+    if (preferredScope && previousPreferredScope.current && preferredScope !== previousPreferredScope.current) setScopeChanged(true)
+    previousPreferredScope.current = preferredScope
+    if (preferredScope) setReadData(preferredScope)
+  }, [check?.id, preferredScope])
   const plans = data?.plans ?? []
   const runs = data?.runs ?? []
   const hasRunning = jobIds.length > 0 || runs.some((run) => ['queued', 'running'].includes(run.state))
+  const reviewingRepository = review?.kind === 'prune' || !!check
   const poll = useCallback(() => {
     setClock(Date.now())
     backgroundRefetch()
-    if (!hasRunning) refreshPolicy()
-  }, [backgroundRefetch, hasRunning, refreshPolicy])
+    if (!hasRunning && !reviewingRepository) refreshPolicy()
+  }, [backgroundRefetch, hasRunning, refreshPolicy, reviewingRepository])
   useVisibleRefresh(poll, hasRunning || review?.kind === 'prune' || check ? 5000 : 60000)
 
   function started(result: BackupJobResponse, reveal = true, effects: BackupJobEffects = {}) {
@@ -131,7 +141,7 @@ export function BackupsPage() {
       if (cause && typeof cause === 'object' && 'code' in cause && cause.code === 'maintenance_acknowledgement_required') {
         reportError('Repository check evidence changed. Review the latest evidence and confirm the cleanup risk again.', scope)
         setPruneReviewRevision((value) => value + 1)
-        state.refetch()
+        refreshReview()
       } else reportError(cause instanceof Error ? cause.message : 'Backup operation failed', scope)
       return false
     } finally {
@@ -172,13 +182,14 @@ export function BackupsPage() {
   const openReview = (value: Exclude<Review, null>) => {
     reportError(null)
     setReview(value)
-    if (value.kind === 'prune') backgroundRefetch(true)
+    if (value.kind === 'prune') refreshReview()
   }
   const openCheck = (destination: BackupDestination) => {
     reportError(null)
     setReadData(preferredCheckScope(destination))
+    setScopeChanged(false)
     setCheck(destination)
-    backgroundRefetch(true)
+    refreshReview()
   }
   const currentPruneDestination = review?.kind === 'prune' ? destinations.find((item) => item.id === review.destination.id) : undefined
   const hasDialog = !!runPlan || !!check || !!review || !!editor
@@ -631,6 +642,8 @@ export function BackupsPage() {
                     destinations={destinations}
                     clock={clock}
                     pending={pending}
+                    toolsAvailable={data.restic_available}
+                    rcloneAvailable={data.rclone_available}
                     onJob={openJob}
                     onCheck={openCheck}
                     onRetry={(run, ids) => {
@@ -703,8 +716,8 @@ export function BackupsPage() {
         >
           <div className="mt-4 space-y-4">
             <BackupError error={error ?? state.error?.message ?? null} />
-            {(state.loading || state.backgroundLoading) && <p role="status" className="text-sm text-[var(--muted)]">Refreshing repository evidence.</p>}
-            {state.error && <button className={buttonClass} disabled={state.backgroundLoading} onClick={() => backgroundRefetch(true)}>Refresh repository evidence</button>}
+            {reviewLoading && <p role="status" className="text-sm text-[var(--muted)]">Refreshing repository evidence.</p>}
+            {state.error && <button className={buttonClass} disabled={reviewLoading} onClick={refreshReview}>Refresh repository evidence</button>}
             <CheckHoldWarning destination={check} />
             {check.data_check?.status === 'failed' && <p className="text-sm text-[var(--warning)]">Stored data has a known failure. Only a successful full data read can clear it after the repository is repaired.{readData !== 'all' && ' A metadata or sampled check leaves this data-failure evidence unchanged.'}</p>}
             {check.data_check?.status !== 'failed' && check.metadata_check.status === 'failed' && <p className="text-sm text-[var(--warning)]">Repository metadata has a known failure. After repair, a successful metadata check can clear it; a full data read is only required for stored-data failures or a full-read hold.</p>}
@@ -721,6 +734,8 @@ export function BackupsPage() {
                 <option value="all">Read all stored data</option>
               </select>
             </Field>
+            {scopeChanged && <p role="status" className="text-sm text-[var(--muted)]">Repository evidence or policy changed. The suggested check scope was updated; review it before starting.</p>}
+            {!repositoryToolsAvailable(check, data) && <p className="text-sm text-[var(--warning)]">Install the required backup tools before checking this repository.</p>}
             <p className="text-sm text-[var(--muted)]">
               A full data read downloads and verifies all stored data and may take a long time or incur provider download charges. A sampled read checks only part of that data. A repository check is separate from an actual restore test.
             </p>
@@ -737,7 +752,7 @@ export function BackupsPage() {
               </button>
               <button
                 className={primaryClass}
-                disabled={pending || state.loading || state.backgroundLoading || !!state.error}
+                disabled={pending || reviewLoading || !!state.error || !repositoryToolsAvailable(check, data)}
                 onClick={() => {
                   void command(() => checkBackupDestination(check.id, readData)).then((ok) => {
                     if (ok) setCheck(null)
@@ -755,10 +770,10 @@ export function BackupsPage() {
           key={`${currentPruneDestination.id}:${currentPruneDestination.name}:${pruneReviewRevision}`}
           destination={currentPruneDestination}
           pending={pending}
-          refreshing={state.loading || state.backgroundLoading}
+          refreshing={reviewLoading}
           refreshFailed={!!state.error}
           error={error ?? state.error?.message ?? null}
-          onRefresh={() => backgroundRefetch(true)}
+          onRefresh={refreshReview}
           onCancel={() => { if (!pending) { setReview(null); reportError(null) } }}
           onConfirm={(token) => {
             void command(() => token ? pruneBackupDestination(currentPruneDestination.id, token) : pruneBackupDestination(currentPruneDestination.id), null, { destinationIds: [currentPruneDestination.id], snapshots: true }).then((ok) => {

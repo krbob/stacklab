@@ -6,14 +6,15 @@ interface UseApiState<T> {
   loading: boolean
   backgroundLoading: boolean
   updatedAt: number | null
+  settledRequestId: number
 }
 
 export function useApi<T>(
   fetcher: (signal?: AbortSignal) => Promise<T>,
   deps: unknown[] = [],
   { enabled = true, staleTime = 0, resourceKey, backgroundRefresh = false }: { enabled?: boolean; staleTime?: number; resourceKey?: unknown; backgroundRefresh?: boolean } = {},
-): UseApiState<T> & { refetch: () => void; backgroundRefetch: (force?: boolean) => void } {
-  const [state, setState] = useState<UseApiState<T>>({ data: null, error: null, loading: true, backgroundLoading: false, updatedAt: null })
+): UseApiState<T> & { refetch: () => void; backgroundRefetch: (force?: boolean) => number } {
+  const [state, setState] = useState<UseApiState<T>>({ data: null, error: null, loading: true, backgroundLoading: false, updatedAt: null, settledRequestId: 0 })
   const requestIDRef = useRef(0)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -24,7 +25,7 @@ export function useApi<T>(
 
   const load = useCallback((resetError = false, background = false, force = false) => {
     // Background refreshes share an in-flight request; a manual retry can supersede it.
-    if (background && !force && pendingRef.current && !abortRef.current?.signal.aborted) return
+    if (background && !force && pendingRef.current && !abortRef.current?.signal.aborted) return requestIDRef.current
     const requestID = requestIDRef.current + 1
     requestIDRef.current = requestID
     abortRef.current?.abort()
@@ -38,13 +39,14 @@ export function useApi<T>(
         if (controller.signal.aborted || requestIDRef.current !== requestID) return
         pendingRef.current = false
         settledAtRef.current = Date.now()
-        setState({ data, error: null, loading: false, backgroundLoading: false, updatedAt: settledAtRef.current })
+        setState({ data, error: null, loading: false, backgroundLoading: false, updatedAt: settledAtRef.current, settledRequestId: requestID })
       })
       .catch((error) => {
         if (controller.signal.aborted || requestIDRef.current !== requestID) return
         pendingRef.current = false
-        setState((s) => ({ ...s, error, loading: false, backgroundLoading: false }))
+        setState((s) => ({ ...s, error, loading: false, backgroundLoading: false, settledRequestId: requestID }))
       })
+    return requestID
     // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/use-memo
   }, deps)
 
