@@ -19,7 +19,7 @@ export function preferredCheckScope(destination: BackupDestination): 'metadata' 
 }
 
 export function needsLockReview(destination: BackupDestination): boolean {
-  const unlockedAt = destination.last_operation === 'backup_unlock' && (destination.last_operation_status === 'succeeded' || /\(unlock_refused\)/.test(destination.last_operation_error ?? ''))
+  const unlockedAt = destination.last_operation === 'backup_unlock' && (destination.last_operation_status === 'succeeded' || /\(unlock_(?:refused|incomplete)\)/.test(destination.last_operation_error ?? ''))
     ? Date.parse(destination.last_operation_at ?? '') : NaN
   return [
     [destination.last_check_attempt_error, destination.last_check_attempt_at],

@@ -783,17 +783,18 @@ describe('Backup round six review regressions', () => {
     expect(screen.getByLabelText('Data-read policy')).toHaveValue('all')
   })
 
-  it.each(['succeeded', 'failed'] as const)('does not suggest repeating unlock after its newer %s outcome', async (status) => {
+  it.each(['succeeded', 'unlock_refused', 'unlock_incomplete'] as const)('does not suggest repeating unlock after its newer %s outcome', async (outcome) => {
+    const status = outcome === 'succeeded' ? 'succeeded' : 'failed'
     vi.mocked(api.getBackups).mockResolvedValue({ ...overview, destinations: [{ ...destination,
       last_check_attempt_at: '2026-10-21T08:00:00Z', last_check_attempt_error: 'Old check was locked (repository_locked)',
       last_operation: 'backup_unlock', last_operation_status: status, last_operation_at: '2026-10-21T08:01:00Z',
-      ...(status === 'failed' ? { last_operation_error: 'Lock is younger than 30 minutes (unlock_refused)' } : {}),
+      ...(status === 'failed' ? { last_operation_error: `Inspect lock owners (${outcome})` } : {}),
     }] })
     renderPage('destinations')
     expect(await screen.findByText(/Old check was locked/)).toBeVisible()
     expect(screen.queryByRole('button', { name: 'Review stale locks' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Check repository' })).toBeEnabled()
-    if (status === 'failed') expect(screen.getByText(/younger than 30 minutes/)).toBeVisible()
+    if (status === 'failed') expect(screen.getByText(/Inspect lock owners/)).toBeVisible()
   })
 
   it('presents deleted-plan cleanup as historical while retaining the original failure', async () => {

@@ -64,7 +64,7 @@ export interface paths {
     post: operations["testBackupRepository"];
   };
   "/backups/destinations/{destinationId}/unlock": {
-    /** @description Inspect locks under Stacklab repository admission and refuse foreign-host locks, locks younger than 30 minutes, future timestamps, live or uncertain local owners, and a changed lock inventory before ordinary restic unlock. Guard refusals produce unlock_refused in job diagnostics. A matching hostname and sufficient age do not prove safety across PID namespaces. External repository clients must stay stopped throughout the operation. Never uses force removal and does not check or clear integrity evidence. Job events report remaining locks. */
+    /** @description Inspect locks under Stacklab repository admission and refuse foreign-host locks, locks younger than 30 minutes, future timestamps, live or uncertain local owners, and a changed lock inventory before ordinary restic unlock. Ownership review is bounded to 128 locks. Unreadable or vanished lock metadata refuses the guard. Guard refusals produce unlock_refused in job diagnostics; unlock_incomplete means ordinary unlock ran but locks remain or the postflight inventory was unavailable. A matching hostname and sufficient age do not prove safety across PID namespaces. External repository clients must stay stopped throughout the operation. Never uses force removal and does not check or clear integrity evidence. Job events report remaining locks. */
     post: operations["unlockBackupDestination"];
   };
   "/backups/filesystem": {
@@ -495,7 +495,7 @@ export interface components {
       /** Format: int64 */
       transfer_bytes: number;
     };
-    /** @description Current inconclusive repository check, separate from historical verification. Blocks recovery protection and destructive automatic maintenance. A successful check at the required scope clears it; transport, lock and cancellation errors neither create nor clear it. */
+    /** @description Current inconclusive repository check, separate from historical verification. Blocks recovery protection and destructive automatic maintenance. A successful check at the required scope clears it; transport, lock and cancellation errors neither create nor clear it unless the same attempt also reports an unexplained repository diagnostic. */
     BackupCheckHold: {
       /** Format: date-time */
       checked_at?: string;
@@ -2976,7 +2976,7 @@ export interface operations {
       503: components["responses"]["ErrorInvalidState"];
     };
   };
-  /** @description Inspect locks under Stacklab repository admission and refuse foreign-host locks, locks younger than 30 minutes, future timestamps, live or uncertain local owners, and a changed lock inventory before ordinary restic unlock. Guard refusals produce unlock_refused in job diagnostics. A matching hostname and sufficient age do not prove safety across PID namespaces. External repository clients must stay stopped throughout the operation. Never uses force removal and does not check or clear integrity evidence. Job events report remaining locks. */
+  /** @description Inspect locks under Stacklab repository admission and refuse foreign-host locks, locks younger than 30 minutes, future timestamps, live or uncertain local owners, and a changed lock inventory before ordinary restic unlock. Ownership review is bounded to 128 locks. Unreadable or vanished lock metadata refuses the guard. Guard refusals produce unlock_refused in job diagnostics; unlock_incomplete means ordinary unlock ran but locks remain or the postflight inventory was unavailable. A matching hostname and sufficient age do not prove safety across PID namespaces. External repository clients must stay stopped throughout the operation. Never uses force removal and does not check or clear integrity evidence. Job events report remaining locks. */
   unlockBackupDestination: {
     parameters: {
       path: {

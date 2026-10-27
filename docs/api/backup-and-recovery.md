@@ -181,7 +181,7 @@ never force-unlock. Active Stacklab repository jobs conflict with admission. Exe
 inspects owners and refuses live local PIDs (including EPERM), malformed/uncertain
 metadata, future timestamps, locks younger than 30 minutes and remote-host locks.
 A changed lock inventory before ordinary unlock is also refused. Guard refusals use
-`unlock_refused` in the job diagnostic. Age alone cannot prove safety across PID
+`unlock_refused` in the job diagnostic; unreadable or vanished lock metadata also refuses the guard. Review is bounded to 128 locks. `unlock_incomplete` means ordinary unlock ran but locks remain or the postflight inventory was unavailable. Age alone cannot prove safety across PID
 namespaces; the service must share the host PID namespace. Jobs report remaining locks; nonzero/unreadable
 remaining inventory fails the operation. External clients must remain stopped:
 preflight and unlock are not atomic across clients. Integrity evidence is unchanged.

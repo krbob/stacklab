@@ -65,11 +65,14 @@ func testNativeUnlockExternalOwner(t *testing.T, privatePID bool) {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
+	waited := false
 	defer func() {
 		cleanup, stop := context.WithTimeout(context.Background(), 15*time.Second)
 		defer stop()
 		_ = exec.CommandContext(cleanup, "docker", "rm", "-f", name).Run()
-		_ = cmd.Wait()
+		if !waited {
+			_ = cmd.Wait()
+		}
 	}()
 	var ids []string
 	deadline := time.Now().Add(15 * time.Second)
@@ -136,10 +139,10 @@ func testNativeUnlockExternalOwner(t *testing.T, privatePID bool) {
 	if output, err := exec.CommandContext(ctx, "docker", "kill", "--signal", "KILL", name).CombinedOutput(); err != nil {
 		t.Fatalf("fixture owner kill: %v %s", err, output)
 	}
-	deadline = time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) && !errors.Is(syscall.Kill(lock.PID, 0), syscall.ESRCH) {
-		time.Sleep(20 * time.Millisecond)
-	}
+	// Reap the actual docker/container process, not the namespace-local PID
+	// which was deliberately absent on the host even while the owner lived.
+	_ = cmd.Wait()
+	waited = true
 	// The owner has exited; simulate the additional minimum age without changing
 	// repository bytes or waiting thirty minutes in the integration test.
 	s.now = func() time.Time { return time.Now().UTC().Add(minimumUnlockAge + time.Minute) }
@@ -150,6 +153,7 @@ func testNativeUnlockExternalOwner(t *testing.T, privatePID bool) {
 	if _, err = s.ExecuteRepositoryJob(ctx, job, d.ID, "backup_unlock", CheckRequest{}, RestoreRequest{}); err != nil {
 		t.Fatal(err)
 	}
+	s.now = func() time.Time { return time.Now().UTC() }
 	after, err = s.repositoryLockIDs(ctx, d)
 	if err != nil || len(after) != 0 {
 		t.Fatalf("dead owner's lock remains: %v %v", after, err)

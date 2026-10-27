@@ -114,6 +114,7 @@ func TestNativeUnlockPreservesActiveLockAndRemovesKilledOwnerLock(t *testing.T) 
 	// Restic still sees the original native lock and verifies PID absence itself.
 	s.now = func() time.Time { return time.Now().UTC().Add(minimumUnlockAge + time.Minute) }
 	unlock(false)
+	s.now = func() time.Time { return time.Now().UTC() }
 	if current := locks(); len(current) != 0 {
 		t.Fatalf("unlock did not remove killed owner's stale lock: %v", current)
 	}

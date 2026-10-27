@@ -56,12 +56,17 @@ type unlockGuardRunner struct {
 	metadata        []byte
 	unlocks         int
 	listError       error
+	metadataError   error
+	postUnlockError error
 	listingSequence [][]string
 	lists           int
 }
 
 func (r *unlockGuardRunner) Run(ctx context.Context, name string, args, env []string, dir string) ([]byte, error) {
 	if commandIn(args, "list") && commandIn(args, "locks") {
+		if r.unlocks > 0 && r.postUnlockError != nil {
+			return nil, r.postUnlockError
+		}
 		if r.lists < len(r.listingSequence) {
 			ids := r.listingSequence[r.lists]
 			r.lists++
@@ -70,7 +75,7 @@ func (r *unlockGuardRunner) Run(ctx context.Context, name string, args, env []st
 		return []byte(strings.Join(r.ids, "\n")), r.listError
 	}
 	if commandIn(args, "cat") && commandIn(args, "lock") {
-		return r.metadata, nil
+		return r.metadata, r.metadataError
 	}
 	if commandIn(args, "unlock") {
 		r.unlocks++

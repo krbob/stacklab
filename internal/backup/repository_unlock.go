@@ -30,12 +30,16 @@ func unlockRefused(reason string) error {
 	return &repositoryCommandError{Code: "unlock_refused", message: "stale-lock removal refused: " + reason + "; stop or coordinate all repository clients before retrying (unlock_refused)"}
 }
 
+func unlockIncomplete(reason string) error {
+	return &repositoryCommandError{Code: "unlock_incomplete", message: "ordinary unlock ran but recovery is incomplete: " + reason + " (unlock_incomplete)"}
+}
+
 func validateUnlockOwner(lock repositoryLock, hostname string, now time.Time, probe func(int) error) error {
 	if hostname == "" || lock.Hostname == "" || lock.Time.IsZero() || lock.PID <= 0 || int64(lock.PID) > 1<<31-1 {
 		return unlockRefused("lock ownership metadata is incomplete or invalid")
 	}
 	if lock.Hostname != hostname {
-		return unlockRefused("a lock belongs to another host; confirm its owner has stopped and resolve it on that host")
+		return unlockRefused("a lock belongs to another host; confirm its owner has stopped and resolve it on that host, or follow the operator guide lost-host procedure if that host no longer exists")
 	}
 	err := probe(lock.PID)
 	switch {
@@ -87,7 +91,7 @@ func (s *Service) unlockRepository(ctx context.Context, job store.Job, d Destina
 	for _, id := range ids {
 		output, err := s.restic(ctx, d, "", "cat", "lock", id, "--no-lock")
 		if err != nil {
-			return fmt.Errorf("cannot inspect repository lock %s: %w", id[:12], err)
+			return unlockRefused("lock metadata could not be read; verify access and refresh the lock inventory")
 		}
 		var lock repositoryLock
 		if err := json.Unmarshal(output, &lock); err != nil {
@@ -111,11 +115,11 @@ func (s *Service) unlockRepository(ctx context.Context, job store.Job, d Destina
 	}
 	remaining, err := s.repositoryLockIDs(ctx, d)
 	if err != nil {
-		return fmt.Errorf("unlock completed but remaining locks could not be verified: %w", err)
+		return unlockIncomplete("remaining locks could not be verified; restore access and refresh the lock inventory")
 	}
 	s.event(ctx, job, fmt.Sprintf("Stale-lock removal completed. Remaining locks: %d. Repository integrity evidence is unchanged.", len(remaining)))
 	if len(remaining) != 0 {
-		return unlockRefused("locks remain after ordinary unlock; inspect job details before retrying repository work")
+		return unlockIncomplete("locks remain; inspect owners before retrying repository work")
 	}
 	return nil
 }
