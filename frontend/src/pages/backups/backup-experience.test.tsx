@@ -902,6 +902,16 @@ describe('Current repository maintenance eligibility', () => {
     expect(screen.getByText(/Only eligible destinations will be retried/)).toBeVisible()
   })
 
+  it.each(['restic', 'rclone'])('blocks history check guidance when %s is missing', (tool) => {
+    const blocked: api.BackupDestination = { ...destination, kind: 'rclone', check_hold: { scope: 'all', error: 'Unresolved' } }
+    const onCheck = vi.fn()
+    render(<RunHistory {...common} runs={[run]} plans={[plan]} destinations={[blocked]} onCheck={onCheck} toolsAvailable={tool !== 'restic'} rcloneAvailable={tool !== 'rclone'} />)
+    const action = screen.getByRole('button', { name: 'Check NAS repository' })
+    expect(action).toBeDisabled()
+    fireEvent.click(action)
+    expect(onCheck).not.toHaveBeenCalled()
+  })
+
   it('uses one retained run against changing current policy, including disabled, deleted, and keep-all configurations', () => {
     const damaged: api.BackupDestination = { ...destination, data_check: { status: 'failed', scope: 'all', error: 'Damaged pack' } }
     const props = { ...common, runs: [run], destinations: [damaged] }
@@ -940,6 +950,12 @@ describe('Current repository maintenance eligibility', () => {
 })
 
 describe('Inconclusive protection guidance', () => {
+  it.each(['restic', 'rclone'])('blocks protection check guidance when %s is missing', async (tool) => {
+    const held: api.BackupDestination = { ...destination, kind: 'rclone', check_hold: { scope: 'all', error: 'Unresolved' } }
+    render(<MemoryRouter><ProtectionDashboard data={{ ...overview, restic_available: tool !== 'restic', rclone_available: tool !== 'rclone', destinations: [held], protection: [{ plan_id: 'plan', plan_name: 'Database', state: 'attention', activity: 'idle', expected_copies: 1, current_copies: 0, copies: [{ destination_id: 'nas', state: 'unverified', activity: 'idle', evidence_usable: false }] }] }} onCreatePlan={vi.fn()} onAddDestination={vi.fn()} onRun={vi.fn()} onRecovery={vi.fn()} onCheck={vi.fn()} /></MemoryRouter>)
+    expect(await screen.findByRole('button', { name: 'Check NAS repository' })).toBeDisabled()
+  })
+
   it('offers the required check and recovery without repeated alerts or a new-copy instruction', async () => {
     const held: api.BackupDestination = { ...destination, check_hold: { scope: 'all', error: 'Unresolved repository diagnostic', checked_at: '2026-10-21T08:00:00Z' } }
     const onCheck = vi.fn()

@@ -169,10 +169,6 @@ func (e *diagnosticEvidence) add(record resticDiagnosticRecord) {
 		if containsDiagnostic(line, "repository contains errors", "repository contains damaged pack files", "repository is damaged and must be repaired", "repository index is damaged and must be repaired") {
 			e.summary = true
 		}
-		if record.summary {
-			e.treeErrors = false
-			continue
-		}
 		if containsDiagnostic(line, "unable to refresh lock", "failed to refresh lock", "remove(<lock/") {
 			continue
 		}
@@ -187,6 +183,13 @@ func (e *diagnosticEvidence) add(record resticDiagnosticRecord) {
 		}
 		e.missingPack = e.missingPack || resticMissingPackDiagnostic.MatchString(line)
 		e.missingBlob = e.missingBlob || resticMissingBlobDiagnostic.MatchString(line) || containsDiagnostic(line, "not found in index", "pack is empty or not indexed", "is not contained in index or position is incorrect")
+		if record.summary {
+			// exit_error is a terminal record, but can still carry a concrete
+			// corruption or access diagnosis. It only ends the tree grouping.
+			e.treeErrors = false
+			e.explained = e.operational(line) || e.explained
+			continue
+		}
 		if listing := resticListFailure.FindStringSubmatch(line); listing != nil {
 			if listing[1] == "data" {
 				e.inventory.packs = true

@@ -208,3 +208,15 @@ func TestNativeCheckFailureEscalatesWhenSIGINTIsIgnored(t *testing.T) {
 		t.Fatalf("unbounded escalation or wrong outcome: %v", err)
 	}
 }
+
+func TestRepositoryDiagnosticTerminalJSONPreservesConcreteCause(t *testing.T) {
+	for _, tc := range []struct{ message, code string }{
+		{"ciphertext verification failed", "integrity_failed"},
+		{"Fatal: permission denied", "permission_denied"},
+		{"Fatal: connection refused", "unavailable"},
+		{"repository contains errors", "check_inconclusive"},
+	} {
+		encoded, _ := json.Marshal(map[string]any{"message_type": "exit_error", "code": 1, "message": tc.message})
+		assertDiagnosticCode(t, string(encoded), tc.code)
+	}
+}

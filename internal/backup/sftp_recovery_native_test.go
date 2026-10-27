@@ -246,7 +246,7 @@ exec /usr/sbin/sshd -D -e -f /fixture/sshd_config
 	}
 	var interruptedCommandErr *repositoryCommandError
 	if !errors.As(interruptedErr, &interruptedCommandErr) || interruptedCommandErr.Code != "unavailable" {
-		t.Fatalf("SFTP drop did not produce a bounded transport failure: %v", interruptedErr)
+		t.Fatalf("SFTP drop did not produce a bounded transport failure: %v\n%s", interruptedErr, interruptedDiagnostic.diagnostic)
 	}
 	t.Logf("native interrupted check through production runner: %v", interruptedErr)
 	afterFailure := s.state.Destinations[d.ID]
