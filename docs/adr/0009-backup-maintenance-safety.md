@@ -11,6 +11,14 @@ record context; require at least 30 minutes of lock age in addition to an absent
 local owner; recheck lock identities before ordinary unlock. These safeguards reduce
 PID-namespace and inventory races without promising atomicity with external clients.
 
+Amended 2026-10-27 by the seventh-review extension of that contract: classify backend
+failures using operation context, retain diagnostic evidence while streaming, bound
+sustained check failures, and keep background review refresh separate from initial
+freshness gating. An operational record explains itself and generic summaries; it
+cannot explain an independent object diagnostic. Unknown object evidence wins over
+transport elsewhere in the same attempt. Pure transport plus a generic damage summary
+remains an unsuccessful availability check, without creating a new integrity hold.
+
 ## Context
 
 A historical successful check is useful proof, but cannot authorize deletion after

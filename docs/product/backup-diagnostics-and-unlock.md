@@ -47,6 +47,50 @@ current retention policy and evidence-bound manual prune remain authoritative.
    evidence; restoring original bytes is not a restic repair. Expired orphaned run
    history is bounded by the existing 200-record limit, not pinned forever.
 
+## Seventh-Review Extension — 2026-10-27
+
+Approved for implementation. Preserve the contracts above while closing the following
+diagnostic, liveness and interaction gaps:
+
+1. Interpret terminal `List(type) failed: cause` as an operation failure and associate
+   the repeated cause with that operation, independently of provider wording. Retain
+   specific credential/permission failures where known. Failed data/index inventory
+   only invalidates the corresponding missing-reference evidence. Separate repair
+   advice from object diagnostics. Known corruption always wins; object decode errors,
+   unknown errors mixed with transport and filenames containing transport words must
+   not silently become availability failures. Cover complete modern repair-advice
+   sequences as well as minimum-version plain output.
+2. Fold diagnostics as they arrive with bounded memory. Preserve corruption evidence
+   anywhere in the stream, including beyond the retained diagnostic-output limit.
+   Oversized or unrepresentable diagnostics conservatively prevent a successful check
+   or an exclusively operational interpretation. Diagnostic text never reaches public
+   logs/API responses. Test fixtures must observe the production runner, including its
+   SIGINT/graceful cleanup and bounded SIGKILL fallback.
+3. Stop a check after a terminal inventory failure or exhausted backend access, instead
+   of retrying every remaining pack for hours. Use a bounded sustained-failure budget
+   that successful progress can reset; a healthy large check must not inherit a short
+   total-duration limit. Preserve any corruption/unknown object evidence already seen
+   when stopping. User cancellation remains distinct from automatic backend failure.
+4. Refresh review on opening and after a conflict/manual retry, tracking completion of
+   the requested refresh rather than wall-clock comparisons. Background polling must
+   preserve input, focus and layout. Changed evidence still invalidates confirmation;
+   failed freshness checks block submission. Initial focus must work during loading.
+   Explain scope changes and keep backend tool availability consistent across views.
+5. Complete operator examples for S3/rclone using private credential files without
+   secrets in argv/history, explicit region/CA/cache and the service identity. Prefer
+   existing credentials on an intact host. Document lost-host fencing, ordinary unlock
+   before force removal, PID namespaces and synchronized clocks. Distinguish a guard
+   refusal from an unlock that ran but left locks behind.
+
+Validation includes a real S3 listing fault, partial-download/corruption mixtures,
+bounded cancellation and recovery through the production runner, plus browser typing
+across delayed polling and evidence changes. Synthetic and native evidence must be
+identified separately. Check installed package identity before and after exercises;
+preserve the test host's package hold during validation. Record prior CI runs
+39569375858 and 39629002747 as successful. Temporary local screenshots are not retained
+release artifacts. Commit this extension before implementation, then commit focused
+changes, push and verify final-revision CI.
+
 ## Verification And Delivery
 
 Commit this contract before implementation. Add regressions for JSON record boundaries,
