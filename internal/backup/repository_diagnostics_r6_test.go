@@ -18,7 +18,7 @@ func TestRepositoryDiagnosticRecordContext(t *testing.T) {
 		{"lock refresh cannot invalidate pack inventory", "unable to refresh lock: connection reset by peer\npack " + pack + ": does not exist\nFatal: repository contains errors", "integrity_failed"},
 		{"lock refresh cannot explain unknown damage", "unable to refresh lock: connection reset by peer\nFatal: repository contains errors", "check_inconclusive"},
 		{"unknown blob with independent transport", "blob " + pack + " has unexpected length\ndownload error: EOF\nFatal: repository contains errors", "check_inconclusive"},
-		{"unknown listing with independent transport", "List(data) failed: unexpected backend response\ndownload error: EOF\npack " + pack + ": does not exist\nFatal: repository contains errors", "check_inconclusive"},
+		{"unknown listing with independent transport", "List(data) failed: unexpected backend response\ndownload error: EOF\npack " + pack + ": does not exist\nFatal: repository contains errors", "unavailable"},
 		{"failed index does not invalidate pack listing", "Load(<index/aaaaaaaaaa>, 0, 0) failed: EOF\npack " + pack + ": does not exist", "integrity_failed"},
 		{"failed pack listing does not invalidate index", "List(data) failed: EOF\nerror for tree aaaaaaaa:\n  id " + pack + " not found in repository", "integrity_failed"},
 		{"explained tree transport", "error for tree aaaaaaaa:\n  download error: EOF\nThe repository is damaged and must be repaired.\nFatal: repository contains errors", "unavailable"},

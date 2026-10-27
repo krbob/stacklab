@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -9,22 +10,32 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
-type nativeFixtureCARunner struct{ certificate string }
+type nativeFixtureCARunner struct {
+	certificate string
+	runner      nativeRunner
+}
 
 func (r nativeFixtureCARunner) Run(ctx context.Context, name string, args, env []string, directory string) ([]byte, error) {
 	args = append([]string{"--cacert", r.certificate}, args...)
-	return (nativeRunner{}).Run(ctx, name, args, env, directory)
+	return r.runner.Run(ctx, name, args, env, directory)
 }
 
 // This opt-in fixture owns its loopback HTTPS server and every object it
@@ -40,7 +51,7 @@ func TestNativeS3TruncatedPackIsIntegrityFailure(t *testing.T) {
 			t.Fatalf("opt-in fixture requires %s", command)
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	directory := t.TempDir()
 	storage := filepath.Join(directory, "storage")
@@ -134,8 +145,42 @@ func TestNativeS3TruncatedPackIsIntegrityFailure(t *testing.T) {
 		t.Fatalf("native fixture backup failed: %s", saved.Error)
 	}
 	stopServer := startServer()
-	s.runner = nativeFixtureCARunner{certificate: certificate}
-	d, err := s.SaveDestination(ctx, "", DestinationInput{Name: "Isolated S3 corruption", Kind: "s3", Repository: "s3:https://" + address + "/fixture/repository", Secrets: &Secrets{Password: "native-s3-test-password", AccessKeyID: "fixture-access", SecretAccessKey: "fixture-secret"}})
+	// The proxy injects actual S3 failures; it never manufactures restic output.
+	target, _ := url.Parse("https://" + address)
+	transport := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}}
+	defer transport.CloseIdleConnections()
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.Transport = transport
+	var fault atomic.Int32 // 1: listing InternalError, 2: partial pack response
+	var faultHits atomic.Int32
+	proxy.ModifyResponse = func(response *http.Response) error {
+		if fault.Load() == 2 && response.Request.Method == "GET" && strings.Contains(response.Request.URL.Path, "/data/") && response.StatusCode == 200 && response.ContentLength > 1 {
+			faultHits.Add(1)
+			// Preserve the advertised size but close before all bytes arrive.
+			response.Body = &nativePartialS3Body{Reader: io.LimitReader(response.Body, response.ContentLength/2), Closer: response.Body}
+		}
+		return nil
+	}
+	faultServer := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if fault.Load() == 1 && r.Method == "GET" && strings.Contains(r.URL.Query().Get("prefix"), "/data") {
+			faultHits.Add(1)
+			w.Header().Set("Content-Type", "application/xml")
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = fmt.Fprint(w, `<Error><Code>InternalError</Code><Message>We encountered an internal error, please try again.</Message></Error>`)
+			return
+		}
+		proxy.ServeHTTP(w, r)
+	}))
+	pair, err := tls.LoadX509KeyPair(certificate, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	faultServer.TLS = &tls.Config{Certificates: []tls.Certificate{pair}, MinVersion: tls.VersionTLS12}
+	faultServer.StartTLS()
+	defer faultServer.Close()
+	var diagnostics bytes.Buffer
+	s.runner = nativeFixtureCARunner{certificate: certificate, runner: nativeRunner{diagnosticObserver: func(data []byte) { _, _ = diagnostics.Write(data) }, checkFailureBudget: 2 * time.Second}}
+	d, err := s.SaveDestination(ctx, "", DestinationInput{Name: "Isolated S3 corruption", Kind: "s3", Repository: "s3:" + faultServer.URL + "/fixture/repository", Secrets: &Secrets{Password: "native-s3-test-password", AccessKeyID: "fixture-access", SecretAccessKey: "fixture-secret"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,6 +197,22 @@ func TestNativeS3TruncatedPackIsIntegrityFailure(t *testing.T) {
 	}
 	d = check(false)
 	t.Log("native HTTPS S3 baseline full check completed")
+	verified := d.DataCheck
+	for _, mode := range []int32{1, 2} {
+		diagnostics.Reset()
+		faultHits.Store(0)
+		fault.Store(mode)
+		started := time.Now()
+		d = check(true)
+		if faultHits.Load() == 0 || !strings.Contains(d.LastCheckAttemptError, "unavailable") || d.CheckHold != nil || !reflect.DeepEqual(d.DataCheck, verified) {
+			t.Fatalf("S3 fault mode %d changed proof or missed backend: %+v\n%s", mode, d, diagnostics.String())
+		}
+		t.Logf("native S3 fault mode=%d requests=%d stopped in %s: %s\n%s", mode, faultHits.Load(), time.Since(started), d.LastCheckAttemptError, diagnostics.String())
+		fault.Store(0)
+		d = check(false)
+		verified = d.DataCheck
+	}
+
 	stopServer()
 	packs, err := filepath.Glob(filepath.Join(storage, "fixture", "repository", "data", "*", "*"))
 	if err != nil || len(packs) == 0 {
@@ -170,7 +231,13 @@ func TestNativeS3TruncatedPackIsIntegrityFailure(t *testing.T) {
 	}
 	// Restarting also invalidates rclone's object metadata and read caches.
 	stopServer = startServer()
+	faultHits.Store(0)
+	fault.Store(2)
 	d = check(true)
+	if faultHits.Load() == 0 {
+		t.Fatal("corruption/transport mixture did not inject a partial response")
+	}
+	fault.Store(0)
 	if d.DataCheck.Status != "failed" || !strings.Contains(d.LastCheckAttemptError, "integrity_failed") || !repositoryMaintenanceBlocked(d) {
 		t.Fatalf("truncated S3 pack was not a concrete integrity failure: %+v", d)
 	}
@@ -213,4 +280,11 @@ func nativeS3Certificate(t *testing.T, directory string) (string, string, *x509.
 		t.Fatal("fixture certificate could not be loaded")
 	}
 	return certificate, keyPath, pool
+}
+
+// A short body with the original Content-Length makes the proxy close the native
+// HTTP response early. Its underlying network reader still closes normally.
+type nativePartialS3Body struct {
+	io.Reader
+	io.Closer
 }

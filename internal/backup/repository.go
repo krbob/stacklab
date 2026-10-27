@@ -29,12 +29,16 @@ var snapshotID = regexp.MustCompile(`^[a-f0-9]{8,64}$`)
 type CommandRunner interface {
 	Run(context.Context, string, []string, []string, string) ([]byte, error)
 }
-type nativeRunner struct{}
-
-func (nativeRunner) Run(ctx context.Context, name string, args, env []string, dir string) ([]byte, error) {
-	return nativeRunner{}.RunProgress(ctx, name, args, env, dir, nil)
+type nativeRunner struct {
+	// Private observation seam for native fixtures; production never exports stderr.
+	diagnosticObserver func([]byte)
+	checkFailureBudget time.Duration // zero uses the production default
 }
-func (nativeRunner) RunProgress(ctx context.Context, name string, args, env []string, dir string, callback progressCallback) ([]byte, error) {
+
+func (runner nativeRunner) Run(ctx context.Context, name string, args, env []string, dir string) ([]byte, error) {
+	return runner.RunProgress(ctx, name, args, env, dir, nil)
+}
+func (runner nativeRunner) RunProgress(ctx context.Context, name string, args, env []string, dir string, callback progressCallback) ([]byte, error) {
 	if filepath.Base(name) == "restic" && commandIn(args, "backup") {
 		transferCtx, cancel := context.WithCancelCause(ctx)
 		defer cancel(nil)
@@ -53,6 +57,17 @@ func (nativeRunner) RunProgress(ctx context.Context, name string, args, env []st
 			}
 		}
 		ctx = transferCtx
+	}
+	var checkWatchdog *checkFailureWatchdog
+	if filepath.Base(name) == "restic" && commandIn(args, "check") {
+		checkCtx, cancel := context.WithCancelCause(ctx)
+		defer cancel(nil)
+		budget := runner.checkFailureBudget
+		if budget <= 0 {
+			budget = checkBackendFailureTimeout
+		}
+		checkWatchdog = newCheckFailureWatchdog(budget, cancel)
+		ctx = checkCtx
 	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = env
@@ -88,16 +103,24 @@ func (nativeRunner) RunProgress(ctx context.Context, name string, args, env []st
 	}
 	output := progressBuffer{callback: callback}
 	cmd.Stdout = &output
-	diagnostic := cappedBuffer{}
+	diagnostic := diagnosticStream{observe: runner.diagnosticObserver}
+	if checkWatchdog != nil {
+		diagnostic.onRecord = checkWatchdog.observe
+	}
 	cmd.Stderr = &diagnostic
-	if err := cmd.Run(); err != nil {
-		classified := classifyCommandError(name, err, diagnostic.String())
+	runErr := cmd.Run()
+	diagnostic.finish()
+	if runErr != nil || ctx.Err() != nil {
+		classified := classifyDiagnosticEvidence(name, runErr, &diagnostic.evidence)
 		if ctx.Err() != nil {
 			var commandErr *repositoryCommandError
 			// Cancellation can arrive after the check has already established
-			// corrupt data. Preserve that concrete evidence; an interrupted
-			// inconclusive check still records only the context failure.
-			if errors.As(classified, &commandErr) && commandErr.Code == "integrity_failed" {
+			// corrupt data. Automatic backend stops also preserve unknown object
+			// evidence; manual cancellation retains its distinct context outcome.
+			if errors.As(classified, &commandErr) && (commandErr.Code == "integrity_failed" || (errors.Is(context.Cause(ctx), errCheckBackendUnavailable) && commandErr.Code == "check_inconclusive")) {
+				return nil, classified
+			}
+			if errors.Is(context.Cause(ctx), errCheckBackendUnavailable) && errors.As(classified, &commandErr) && (commandErr.Code == "permission_denied" || commandErr.Code == "credentials_rejected" || commandErr.Code == "repository_locked" || commandErr.Code == "storage_full") {
 				return nil, classified
 			}
 			return nil, commandContextError(context.Cause(ctx))
@@ -105,6 +128,9 @@ func (nativeRunner) RunProgress(ctx context.Context, name string, args, env []st
 		// Remote backends may echo credential-bearing URLs or rclone configuration.
 		// Never include raw subprocess output in errors, events, or API responses.
 		return nil, classified
+	}
+	if filepath.Base(name) == "restic" && commandIn(args, "check") && (diagnostic.evidence.integrityFailure() || diagnostic.evidence.unexplainedFailure()) {
+		return nil, classifyDiagnosticEvidence(name, nil, &diagnostic.evidence)
 	}
 	output.finish()
 	if output.output.overflow {
@@ -484,7 +510,7 @@ func commandContextError(cause error) error {
 	if errors.Is(cause, context.Canceled) {
 		code, message = "cancelled", "repository operation was cancelled"
 	}
-	if errors.Is(cause, errTransferStalled) {
+	if errors.Is(cause, errTransferStalled) || errors.Is(cause, errCheckBackendUnavailable) {
 		code, message = "unavailable", cause.Error()
 	}
 	return &repositoryCommandError{Code: code, ExitCode: -1, message: message + " (" + code + ")", cause: cause}
@@ -499,16 +525,19 @@ func commandIn(args []string, wanted string) bool {
 }
 
 func classifyCommandError(name string, err error, diagnostic string) error {
+	stream := diagnosticStream{}
+	_, _ = stream.Write([]byte(diagnostic))
+	stream.finish()
+	return classifyDiagnosticEvidence(name, err, &stream.evidence)
+}
+func classifyDiagnosticEvidence(name string, err error, evidence *diagnosticEvidence) error {
 	code := -1
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
 		code = exit.ExitCode()
 	}
-	diagnostics := parseResticDiagnostics(diagnostic)
-	lower := diagnostics.text()
 	kind, message := "operation_failed", "operation failed; check destination access and retry"
 	if filepath.Base(name) == "restic" {
-		transportFailure := resticTransportFailure(lower)
 		switch {
 		case code == 3:
 			kind, message = "incomplete_snapshot", "backup could not read all recovery objects; an incomplete snapshot may exist and is not a verified copy"
@@ -518,23 +547,23 @@ func classifyCommandError(name string, err error, diagnostic string) error {
 			kind, message = "repository_locked", "repository is locked by another operation; wait for it to finish and inspect stale locks before retrying"
 		case code == 12:
 			kind, message = "credentials_rejected", "repository rejected the encryption password; verify its saved credentials"
-		case resticIntegrityFailure(lower, diagnostics.inventoryFailure()):
+		case evidence.integrityFailure():
 			kind, message = "integrity_failed", "repository integrity verification failed; inspect the repository and preserve existing copies"
-		case diagnostics.unexplainedRepositoryFailure():
+		case evidence.unexplainedFailure():
 			kind, message = "check_inconclusive", "repository check was inconclusive; preserve existing copies and run the required check before resuming maintenance"
-		case strings.Contains(lower, "repository is already locked") || strings.Contains(lower, "unable to create lock"):
+		case evidence.locked:
 			kind, message = "repository_locked", "repository is locked by another operation; wait for it to finish and inspect stale locks before retrying"
-		case strings.Contains(lower, "wrong password") || strings.Contains(lower, "no key found"):
+		case evidence.credentials:
 			kind, message = "credentials_rejected", "repository rejected the encryption password; verify its saved credentials"
-		case strings.Contains(lower, "no space left on device") || strings.Contains(lower, "quota exceeded"):
+		case evidence.storage:
 			kind, message = "storage_full", "destination storage or quota is full"
-		case transportFailure:
+		case evidence.transport:
 			kind, message = "unavailable", "destination connection failed; check its address, network and availability"
-		case strings.Contains(lower, "permission denied") || strings.Contains(lower, "access denied"):
+		case evidence.permission:
 			kind, message = "permission_denied", "destination denied access; verify transport credentials and directory permissions"
-		case strings.Contains(lower, "is there a repository at") || strings.Contains(lower, "unable to open config file"):
+		case evidence.missingRepository:
 			kind, message = "repository_missing", "repository is missing or uninitialized; verify the address before initializing"
-		case containsDiagnostic(lower, "repository contains errors", "repository contains damaged pack files", "repository is damaged and must be repaired", "repository index is damaged and must be repaired"):
+		case evidence.summary:
 			// Restic prints these summaries for transport failures too. Only
 			// unexplained summaries create a hold; they never prove corruption.
 			kind, message = "check_inconclusive", "repository check was inconclusive; preserve existing copies and run the required check before resuming maintenance"

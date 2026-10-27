@@ -3,6 +3,7 @@ package backup
 import (
 	"encoding/json"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -44,9 +45,9 @@ func parseResticDiagnostics(diagnostic string) resticDiagnostics {
 		}
 		var lines []string
 		for _, message := range strings.Split(strings.ToLower(record.message), "\n") {
-			// A retried listing is not a failed inventory. A terminal error must
-			// follow if the retries fail; retain neither its warning nor its cause.
-			if strings.TrimSpace(message) != "" && !strings.Contains(message, "returned error, retrying after") {
+			// Preserve retry records for the liveness monitor. The evidence fold
+			// ignores them until a terminal failure establishes unusable inventory.
+			if strings.TrimSpace(message) != "" {
 				lines = append(lines, message)
 			}
 		}
@@ -56,14 +57,6 @@ func parseResticDiagnostics(diagnostic string) resticDiagnostics {
 		}
 	}
 	return records
-}
-
-func (records resticDiagnostics) text() string {
-	var messages []string
-	for _, record := range records {
-		messages = append(messages, record.message)
-	}
-	return strings.Join(messages, "\n")
 }
 
 func containsDiagnostic(diagnostic string, patterns ...string) bool {
@@ -76,39 +69,17 @@ func containsDiagnostic(diagnostic string, patterns ...string) bool {
 }
 
 func resticTransportFailure(diagnostic string) bool {
-	return containsDiagnostic(diagnostic, "connection refused", "connection reset", "connection closed", "connection lost", "closed by remote host", "ssh command exited: exit status 255", "circuit breaker open", "no such host", "timeout", "timed out", "network is unreachable", "no route to host", "broken pipe", "server closed idle connection", "service unavailable", "serviceunavailable", "internal server error", "bad gateway", "slowdown", "requesttimeout") || resticEOFDiagnostic.MatchString(diagnostic) || resticHTTPFailureDiagnostic.MatchString(diagnostic)
-}
-
-func resticOperationalFailure(diagnostic string) bool {
-	return resticTransportFailure(diagnostic) || containsDiagnostic(diagnostic, "permission denied", "access denied", "no space left on device", "quota exceeded", "repository is already locked", "unable to create lock", "wrong password", "no key found", "unable to open config file")
+	return containsDiagnostic(diagnostic, "connection refused", "connection reset", "connection closed", "connection lost", "closed by remote host", "ssh command exited: exit status 255", "circuit breaker open", "no such host", "timeout", "timed out", "network is unreachable", "no route to host", "broken pipe", "server closed idle connection", "service unavailable", "serviceunavailable", "internal server error", "bad gateway", "slowdown", "requesttimeout", "context deadline exceeded", "use of closed network connection", "server misbehaving", "temporary failure in name resolution", "server sent goaway", "too many requests", "ssh command exited: signal: killed") || resticEOFDiagnostic.MatchString(diagnostic) || resticHTTPFailureDiagnostic.MatchString(diagnostic)
 }
 
 type resticInventoryFailure struct{ packs, indexes bool }
-
-func (records resticDiagnostics) inventoryFailure() resticInventoryFailure {
-	var failure resticInventoryFailure
-	for _, line := range strings.Split(records.text(), "\n") {
-		// Only a terminal inventory/index failure compromises absence evidence.
-		// Pack downloads and lock-refresh warnings happen independently.
-		if !containsDiagnostic(line, "failed", "error") {
-			continue
-		}
-		if strings.Contains(line, "list(data)") {
-			failure.packs = true
-		}
-		if containsDiagnostic(line, "list(index)", "load indexes", "load index ", "load(<index/") {
-			failure.indexes = true
-		}
-	}
-	return failure
-}
 
 func resticMissingReference(diagnostic string) bool {
 	return resticMissingPackDiagnostic.MatchString(diagnostic) || resticMissingBlobDiagnostic.MatchString(diagnostic) || containsDiagnostic(diagnostic, "not found in index", "pack is empty or not indexed", "is not contained in index or position is incorrect")
 }
 
 func resticIntegrityFailure(diagnostic string, inventory resticInventoryFailure) bool {
-	if resticPackSizeDiagnostic.MatchString(diagnostic) || resticInvalidNodeDiagnostic.MatchString(diagnostic) || containsDiagnostic(diagnostic, "ciphertext verification failed", "invalid data returned", "unexpected pack id", "pack id does not match", "pack header size does not match", "hash does not match", "checksum does not match", "index for pack contains gaps / overlapping blobs", "has nil blob list", "has null id", "has no subtree", "subtree id is null", "node with empty name") {
+	if resticPackSizeDiagnostic.MatchString(diagnostic) || resticInvalidNodeDiagnostic.MatchString(diagnostic) || containsDiagnostic(diagnostic, "ciphertext verification failed", "invalid data returned", "unexpected pack id", "pack id does not match", "pack header size does not match", "hash does not match", "checksum does not match", "index for pack contains gaps / overlapping blobs", "has nil blob list", "has null id", "has no subtree", "subtree id is null", "node with empty name", "wrong data returned, hash is", "hash mismatch", "data mismatch", "invalid blob length", "overlapping blobs in pack") || (strings.Contains(diagnostic, "decompressing blob") && strings.Contains(diagnostic, "failed")) {
 		return true
 	}
 	for _, line := range strings.Split(diagnostic, "\n") {
@@ -122,49 +93,182 @@ func resticIntegrityFailure(diagnostic string, inventory resticInventoryFailure)
 		(!inventory.indexes && (resticMissingBlobDiagnostic.MatchString(diagnostic) || containsDiagnostic(diagnostic, "not found in index", "pack is empty or not indexed", "is not contained in index or position is incorrect")))
 }
 
-func (records resticDiagnostics) unexplainedRepositoryFailure() bool {
-	treeErrors := false
-	repositorySummary, explained := false, false
-	for _, record := range records {
-		if containsDiagnostic(record.message, "repository contains errors", "repository contains damaged pack files", "repository is damaged and must be repaired", "repository index is damaged and must be repaired") {
-			repositorySummary = true
+// Operation context is stronger evidence than a provider's choice of error words.
+var resticListFailure = regexp.MustCompile(`^list\(([^)]+)\) failed: (.+)$`)
+var resticPackErrors = regexp.MustCompile(`^pack [a-f0-9]{8,64} contains ([0-9]+) errors: \[(.*)\]$`)
+var resticQuotedText = regexp.MustCompile(`"(?:\\.|[^"\\])*"`)
+
+const diagnosticCauseLimit = 128
+const diagnosticCauseBytes = 4096
+
+type diagnosticEvidence struct {
+	inventory                                                              resticInventoryFailure
+	explicitDamage, missingPack, missingBlob                               bool
+	treeErrors, summary, explained, unknown, incomplete                    bool
+	transport, locked, credentials, storage, permission, missingRepository bool
+	listingCauses                                                          map[string]bool
+	unmatchedCauses                                                        map[string]bool
+}
+
+func diagnosticCause(line string) string {
+	for _, prefix := range []string{"error: ", "download error: "} {
+		line = strings.TrimPrefix(line, prefix)
+	}
+	return strings.TrimSpace(line)
+}
+
+func (e *diagnosticEvidence) remember(cause string, listing bool) {
+	if len(cause) > diagnosticCauseBytes {
+		e.incomplete = true
+		return
+	}
+	if listing {
+		if e.listingCauses == nil {
+			e.listingCauses = map[string]bool{}
 		}
-		if record.summary {
-			treeErrors = false
+		if len(e.listingCauses) >= diagnosticCauseLimit && !e.listingCauses[cause] {
+			e.incomplete = true
+			return
+		}
+		e.listingCauses[cause] = true
+		delete(e.unmatchedCauses, cause)
+	} else if !e.listingCauses[cause] {
+		if e.unmatchedCauses == nil {
+			e.unmatchedCauses = map[string]bool{}
+		}
+		if len(e.unmatchedCauses) >= diagnosticCauseLimit && !e.unmatchedCauses[cause] {
+			e.incomplete = true
+			return
+		}
+		e.unmatchedCauses[cause] = true
+	}
+}
+
+func (e *diagnosticEvidence) operational(line string) bool {
+	transport := resticTransportFailure(line)
+	locked := containsDiagnostic(line, "repository is already locked", "unable to create lock")
+	credentials := containsDiagnostic(line, "wrong password", "no key found")
+	storage := containsDiagnostic(line, "no space left on device", "quota exceeded")
+	permission := containsDiagnostic(line, "permission denied", "access denied")
+	missing := containsDiagnostic(line, "unable to open config file", "is there a repository at")
+	e.transport = e.transport || transport
+	e.locked = e.locked || locked
+	e.credentials = e.credentials || credentials
+	e.storage = e.storage || storage
+	e.permission = e.permission || permission
+	e.missingRepository = e.missingRepository || missing
+	return transport || locked || credentials || storage || permission || missing
+}
+
+func (e *diagnosticEvidence) add(record resticDiagnosticRecord) {
+	for _, raw := range strings.Split(record.message, "\n") {
+		line := strings.TrimSpace(resticQuotedText.ReplaceAllString(raw, `""`))
+		if line == "" || resticBackendRetry.MatchString(line) || resticBackendSuccess.MatchString(line) {
 			continue
 		}
-		for _, line := range strings.Split(record.message, "\n") {
-			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(trimmed, "error for tree ") {
-				treeErrors = true
-				if separator := strings.Index(trimmed, ":"); separator >= 0 {
-					trimmed = strings.TrimSpace(trimmed[separator+1:])
-				}
-				if trimmed == "" {
-					continue
-				}
-			} else if strings.HasPrefix(trimmed, "the repository ") || strings.HasPrefix(trimmed, "fatal:") || trimmed == "repository contains errors" {
-				treeErrors = false
+		if containsDiagnostic(line, "repository contains errors", "repository contains damaged pack files", "repository is damaged and must be repaired", "repository index is damaged and must be repaired") {
+			e.summary = true
+		}
+		if record.summary {
+			e.treeErrors = false
+			continue
+		}
+		if containsDiagnostic(line, "unable to refresh lock", "failed to refresh lock", "remove(<lock/") {
+			continue
+		}
+		if containsDiagnostic(line, "the repository is damaged and must be repaired", "the repository contains damaged pack files", "the repository index is damaged and must be repaired") || strings.HasPrefix(line, "restic repair packs ") || strings.HasPrefix(line, "restic repair snapshots ") || strings.HasPrefix(line, "damaged pack files can be caused by ") {
+			e.summary = true
+			e.treeErrors = false
+			continue
+		}
+		// Accumulate concrete evidence independently of output volume and order.
+		if resticIntegrityFailure(line, resticInventoryFailure{packs: true, indexes: true}) {
+			e.explicitDamage = true
+		}
+		e.missingPack = e.missingPack || resticMissingPackDiagnostic.MatchString(line)
+		e.missingBlob = e.missingBlob || resticMissingBlobDiagnostic.MatchString(line) || containsDiagnostic(line, "not found in index", "pack is empty or not indexed", "is not contained in index or position is incorrect")
+		if listing := resticListFailure.FindStringSubmatch(line); listing != nil {
+			if listing[1] == "data" {
+				e.inventory.packs = true
+			}
+			if listing[1] == "index" {
+				e.inventory.indexes = true
+			}
+			cause := diagnosticCause(listing[2])
+			e.remember(cause, true)
+			if !e.operational(cause) {
+				e.transport = true
+			}
+			e.explained = true
+			continue
+		}
+		if containsDiagnostic(line, "load indexes", "load index ", "load(<index/") && containsDiagnostic(line, "failed", "error") {
+			e.inventory.indexes = true
+		}
+		if strings.HasPrefix(line, "error for tree ") {
+			e.treeErrors = true
+			if separator := strings.IndexByte(line, ':'); separator >= 0 {
+				line = strings.TrimSpace(line[separator+1:])
+			}
+			if line == "" {
 				continue
 			}
-			// Missing references are resolved against the relevant inventory by
-			// resticIntegrityFailure. Operational errors explain this record only.
-			// A lock refresh/removal warning cannot explain a separate repository
-			// damage summary. It may have happened after the actual check failed.
-			if containsDiagnostic(trimmed, "unable to refresh lock", "failed to refresh lock", "remove(<lock/") {
+		} else if strings.HasPrefix(line, "fatal:") || line == "repository contains errors" {
+			e.treeErrors = false
+			// Fatal operational failures still identify access/credential failures.
+			e.explained = e.operational(line) || e.explained
+			continue
+		}
+		if diagnosticCause(line) == "context canceled" || diagnosticCause(line) == "context cancelled" || (strings.HasPrefix(line, "readfull(<") && strings.HasSuffix(line, "): context canceled")) {
+			continue
+		}
+		if resticMissingReference(line) {
+			continue
+		}
+		cause := diagnosticCause(line)
+		if e.listingCauses[cause] {
+			e.explained = true
+			continue
+		}
+		object := e.treeErrors || resticRepositoryObjectDiagnostic.MatchString(line)
+		if pack := resticPackErrors.FindStringSubmatch(line); pack != nil {
+			count, _ := strconv.Atoi(pack[1])
+			// fmt's error slice has no unambiguous separator. Multiple errors must not
+			// all be explained by a transport word in just one member.
+			if count != 1 {
+				e.unknown = true
 				continue
 			}
-			if resticOperationalFailure(trimmed) {
-				explained = true
+			cause = pack[2]
+			if !strings.HasPrefix(cause, "download error:") && !strings.HasPrefix(cause, "partial download error:") {
+				e.unknown = true
 				continue
-			}
-			if resticMissingReference(trimmed) {
-				continue
-			}
-			if treeErrors || record.errorRecord || resticRepositoryObjectDiagnostic.MatchString(trimmed) || containsDiagnostic(trimmed, "list(data) failed", "list(index) failed", "load indexes failed") {
-				return true
 			}
 		}
+		// Decoding is about an object, not the connection that delivered it. Names
+		// quoted in tree diagnostics must never supply a transport/credential word.
+		objectOperation := containsDiagnostic(line, "download error:", "failed to load ", "load(<", "readfull(<") || containsDiagnostic(cause, "download error:", "failed to load ", "load(<", "readfull(<")
+		if object && (!objectOperation || containsDiagnostic(cause, "decode failed", "decoding", "unexpected length")) {
+			e.unknown = true
+			continue
+		}
+		if e.operational(cause) {
+			e.explained = true
+			continue
+		}
+		if object {
+			e.unknown = true
+			continue
+		}
+		if record.errorRecord || strings.HasPrefix(line, "error: ") {
+			e.remember(cause, false)
+		}
 	}
-	return repositorySummary && !explained
+}
+
+func (e *diagnosticEvidence) integrityFailure() bool {
+	return e.explicitDamage || (e.missingPack && !e.inventory.packs) || (e.missingBlob && !e.inventory.indexes)
+}
+func (e *diagnosticEvidence) unexplainedFailure() bool {
+	return e.incomplete || e.unknown || len(e.unmatchedCauses) > 0 || (e.summary && !e.explained)
 }

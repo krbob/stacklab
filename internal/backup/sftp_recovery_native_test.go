@@ -16,7 +16,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -57,7 +56,6 @@ func testNativeSFTPInterruptedCheckRecovery(t *testing.T, inventory bool) {
 		return strings.TrimSpace(string(output))
 	}
 	resticVersion := call("restic", "version")
-	legacyRetries := strings.HasPrefix(resticVersion, "restic 0.14.")
 	t.Logf("native SFTP fixture: %s", resticVersion)
 	call("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", filepath.Join(base, "client_key"))
 	call("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", filepath.Join(base, "host_key"))
@@ -230,25 +228,10 @@ exec /usr/sbin/sshd -D -e -f /fixture/sshd_config
 	call("docker", "stop", "--time", "1", name)
 	gate.Release()
 	var interruptedErr error
-	cancelledLegacyRetry := false
 	select {
 	case interruptedErr = <-result:
-	case <-time.After(60 * time.Second):
-		if !legacyRetries {
-			t.Fatal("interrupted native check did not finish while server was down")
-		}
-		// Restic 0.14 wraps every backend call in ten exponential-backoff
-		// retries (cmd/restic/global.go and internal/backend/backend_retry.go).
-		// Several interrupted packs can outlast this fixture's outage budget.
-		// Exercise operator cancellation instead of imposing a production limit
-		// or misreporting an unavailable result that restic has not returned.
-		cancelledLegacyRetry = true
-		cancelInterrupted()
-		select {
-		case interruptedErr = <-result:
-		case <-time.After(20 * time.Second):
-			t.Fatal("restic 0.14 interrupted retry did not stop after cancellation")
-		}
+	case <-time.After(45 * time.Second):
+		t.Fatal("production failure budget did not stop interrupted check")
 	}
 	<-checkFinished
 	s.runner = interruptedDiagnostic.base
@@ -262,42 +245,44 @@ exec /usr/sbin/sshd -D -e -f /fixture/sshd_config
 		}
 	}
 	var interruptedCommandErr *repositoryCommandError
-	if !errors.As(interruptedErr, &interruptedCommandErr) || (interruptedCommandErr.Code != "unavailable" && !(cancelledLegacyRetry && interruptedCommandErr.Code == "cancelled")) {
-		t.Fatalf("SFTP drop produced neither transport failure nor explicit legacy cancellation: %v", interruptedErr)
+	if !errors.As(interruptedErr, &interruptedCommandErr) || interruptedCommandErr.Code != "unavailable" {
+		t.Fatalf("SFTP drop did not produce a bounded transport failure: %v", interruptedErr)
 	}
-	t.Logf("native interrupted check (legacy retry cancelled=%t): %v", cancelledLegacyRetry, interruptedErr)
+	t.Logf("native interrupted check through production runner: %v", interruptedErr)
 	afterFailure := s.state.Destinations[d.ID]
 	if !reflect.DeepEqual(verified, afterFailure.DataCheck) || afterFailure.CheckStatus != "verified" || afterFailure.CheckHold != nil || afterFailure.LastCheckAttemptStatus != "failed" {
 		t.Fatalf("transport failure changed integrity proof: %+v", afterFailure)
 	}
 	call("docker", "start", name)
 	waitSFTPBanner(t, ctx, serverAddress, 20*time.Second)
-	if locks := call("docker", "exec", name, "sh", "-eu", "-c", "find /fixture/repository/locks -type f | wc -l"); locks == "0" {
-		t.Fatal("network interruption did not preserve a stale restic lock")
-	}
-	if err := operation("backup_check"); err == nil {
-		t.Fatal("stale lock unexpectedly allowed a new check")
-	} else {
-		var commandErr *repositoryCommandError
-		if !errors.As(err, &commandErr) || commandErr.Code != "repository_locked" {
-			t.Fatalf("expected stale-lock diagnostic after server recovery: %v", err)
-		}
-		t.Logf("server returned with a stale lock: %v", err)
-	}
-	if err := operation("backup_unlock"); err == nil || !strings.Contains(err.Error(), "unlock_refused") {
-		t.Fatalf("fresh lock was not refused: %v", err)
-	}
-	// The interrupted subprocess has exited. Exercise old-dead-owner recovery
-	// with a simulated Stacklab clock; restic's process check remains native.
-	s.now = func() time.Time { return time.Now().UTC().Add(minimumUnlockAge + time.Minute) }
-	if err := operation("backup_unlock"); err != nil {
-		t.Fatal(err)
-	}
-	if afterUnlock := s.state.Destinations[d.ID]; afterUnlock.LastOperation != "backup_unlock" || afterUnlock.LastOperationStatus != "succeeded" || !reflect.DeepEqual(verified, afterUnlock.DataCheck) {
-		t.Fatalf("unlock lost operation/evidence separation: %+v", afterUnlock)
-	}
 	if locks := call("docker", "exec", name, "sh", "-eu", "-c", "find /fixture/repository/locks -type f | wc -l"); locks != "0" {
-		t.Fatalf("stale lock remains after Stacklab unlock: %s", locks)
+		if err := operation("backup_check"); err == nil {
+			t.Fatal("stale lock unexpectedly allowed a new check")
+		} else {
+			var commandErr *repositoryCommandError
+			if !errors.As(err, &commandErr) || commandErr.Code != "repository_locked" {
+				t.Fatalf("expected stale-lock diagnostic after server recovery: %v", err)
+			}
+			t.Logf("server returned with a stale lock: %v", err)
+		}
+		if err := operation("backup_unlock"); err == nil || !strings.Contains(err.Error(), "unlock_refused") || !strings.Contains(err.Error(), "30 minutes") {
+			t.Fatalf("fresh lock was not refused: %v", err)
+		}
+		// The interrupted subprocess has exited. Exercise old-dead-owner recovery
+		// with a simulated Stacklab clock; restic's process check remains native.
+		s.now = func() time.Time { return time.Now().UTC().Add(minimumUnlockAge + time.Minute) }
+		if err := operation("backup_unlock"); err != nil {
+			t.Fatal(err)
+		}
+		s.now = func() time.Time { return time.Now().UTC() }
+		if afterUnlock := s.state.Destinations[d.ID]; afterUnlock.LastOperation != "backup_unlock" || afterUnlock.LastOperationStatus != "succeeded" || !reflect.DeepEqual(verified, afterUnlock.DataCheck) {
+			t.Fatalf("unlock lost operation/evidence separation: %+v", afterUnlock)
+		}
+		if locks := call("docker", "exec", name, "sh", "-eu", "-c", "find /fixture/repository/locks -type f | wc -l"); locks != "0" {
+			t.Fatalf("stale lock remains after Stacklab unlock: %s", locks)
+		}
+	} else {
+		t.Log("production SIGINT cleanup removed the lock before recovery")
 	}
 	if err := operation("backup_check"); err != nil {
 		t.Fatal(err)
@@ -508,22 +493,9 @@ func (r *sftpDiagnosticRunner) Run(ctx context.Context, name string, args, env [
 	if !commandIn(args, "check") {
 		return r.base.Run(ctx, name, args, env, dir)
 	}
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Env = env
-	cmd.Dir = dir
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
-	cmd.WaitDelay = 5 * time.Second
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
+	var stderr bytes.Buffer
+	runner := nativeRunner{diagnosticObserver: func(data []byte) { _, _ = stderr.Write(data) }, checkFailureBudget: 2 * time.Second}
+	output, err := runner.Run(ctx, name, args, env, dir)
 	r.diagnostic = stderr.String()
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, commandContextError(ctx.Err())
-		}
-		return nil, classifyCommandError(name, err, r.diagnostic)
-	}
-	return stdout.Bytes(), nil
+	return output, err
 }

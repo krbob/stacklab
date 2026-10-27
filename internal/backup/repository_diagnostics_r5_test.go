@@ -59,7 +59,7 @@ func TestRepositoryCheckMixedDiagnosticsAndFutureErrors(t *testing.T) {
 		{"missing pack after retry", "List(data) returned error, retrying after 720ms: connection reset by peer\npack " + pack + ": does not exist\nFatal: repository contains errors", "integrity_failed"},
 		{"missing pack with unrelated download", "Load(<data/bbbbbbbbbb>, 1000, 0) failed: EOF\npack " + pack + ": does not exist\nFatal: repository contains errors", "integrity_failed"},
 		{"failed listing after retry", "List(data) returned error, retrying after 720ms: connection reset by peer\nList(data) failed: EOF\npack " + pack + ": does not exist\nFatal: repository contains errors", "unavailable"},
-		{"unknown listing failure", "List(data) failed: an unknown backend error\npack " + pack + ": does not exist\nFatal: repository contains errors", "check_inconclusive"},
+		{"unknown listing failure", "List(data) failed: an unknown backend error\npack " + pack + ": does not exist\nFatal: repository contains errors", "unavailable"},
 		{"retry warning is not terminal", "List(data) returned error, retrying after 720ms: connection reset by peer\nFatal: repository contains errors", "check_inconclusive"},
 		{"generic damaged summary", "The repository contains damaged pack files.\nFatal: repository contains errors", "check_inconclusive"},
 		{"damaged summary from interrupted read", "pack " + pack + " contains 1 errors: [partial download error: EOF]\nThe repository contains damaged pack files.\nFatal: repository contains errors", "unavailable"},
