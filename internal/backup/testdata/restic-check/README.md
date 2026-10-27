@@ -33,3 +33,5 @@ This deterministically interrupts inventory before pack reads, with no fabricate
 restic output. Restic exits 1 with SSH status 255, apparent missing packs and
 circuit-breaker errors. Expected classification: unavailable, historical proof
 retained, no new hold. The separate TCP-byte gate still covers pack-read outage.
+
+The SFTP inventory-outage transcripts include the generic damaged-repository summary and lock-removal warning. These exercise operational summary interpretation and lock-warning isolation. The native SFTP recovery tests additionally assert retained check evidence and absence of a new hold.

@@ -111,8 +111,12 @@ def main():
                 # Read-only inventory refresh can hold a configuration lease
                 # after restart. A rejected DELETE performed no mutation; wait
                 # for that bounded read before retrying owned-fixture cleanup.
+                try:
+                    error_message = json.loads(body).get('error', {}).get('message')
+                except (ValueError, AttributeError):
+                    error_message = None
                 if (req.method == 'DELETE' and error.code == 409
-                        and json.loads(body).get('error', {}).get('message') == 'backup configuration is in use'
+                        and error_message == 'backup configuration is in use'
                         and time.monotonic() < deadline):
                     time.sleep(0.2)
                     continue
@@ -334,10 +338,10 @@ def main():
         # the index itself, as the actual installed service user.
         request('/api/auth/logout', {})
         command(['systemctl', 'stop', 'stacklab'])
+        password_file = workspace / 'repair-password'
         try:
             repository = workspace / 'repository'
             shutil.copytree(repository, evidence / 'independent-repository-copy')
-            password_file = workspace / 'repair-password'
             password_file.write_text(repository_password)
             password_file.chmod(0o600)
             os.chown(password_file, identity.pw_uid, identity.pw_gid)
@@ -356,13 +360,13 @@ def main():
             version = command(['restic', 'version']).strip()
             repair = ['rebuild-index'] if re.match(r'restic 0\.(14|15)\.', version) else ['repair', 'index']
             (evidence / 'native-index-repair.log').write_text(command(restic + repair))
-            if any(index.stat().st_uid != identity.pw_uid for index in (repository / 'index').iterdir()):
-                raise AssertionError('manual repair created indexes with the wrong owner')
+            if any(item.stat().st_uid != identity.pw_uid for item in repository.rglob('*') if item.is_file()):
+                raise AssertionError('manual repair left repository files with the wrong owner')
             (evidence / 'native-repaired-full-check.log').write_text(command(restic + ['check', '--read-data']))
-            password_file.unlink()
             report['checks'].append({'name': 'offline_native_index_repair_as_service_user', 'result': 'passed',
                 'restic': version, 'repair_command': repair, 'uid': identity.pw_uid})
         finally:
+            password_file.unlink(missing_ok=True)
             command(['systemctl', 'start', 'stacklab'])
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:

@@ -15,8 +15,8 @@ current retention policy and evidence-bound manual prune remain authoritative.
    in JSON messages. Distinguish failed inventory/index reads, pack reads and lock
    refresh warnings. Confirmed structural damage wins over incidental transport
    failures. Missing-reference diagnostics depend on usable inventory; unrelated
-   lock/download failures do not invalidate that inventory. Operational errors
-   explain only their associated diagnostics. An unexplained repository diagnostic
+   lock/download failures do not invalidate that inventory. An operational record explains itself and generic summaries; it never
+   explains an independent object diagnostic. An unexplained repository diagnostic
    creates a hold even when another operation reported a transport failure. Generic
    summaries alone do not turn an explained transport failure into corruption/hold.
 2. Ordinary unlock requires complete local ownership metadata, an absent PID and a
@@ -71,6 +71,10 @@ diagnostic, liveness and interaction gaps:
    that successful progress can reset; a healthy large check must not inherit a short
    total-duration limit. Preserve any corruption/unknown object evidence already seen
    when stopping. User cancellation remains distinct from automatic backend failure.
+   The ten-minute budget is checked on continuing failure reports, with a new window
+   after six minutes without failures: restic 0.14 has no successful-retry record, so
+   silence cannot safely trigger cancellation. Completely silent hangs remain bounded
+   by backend request timeouts and the existing overall job limit.
 4. Refresh review on opening and after a conflict/manual retry, tracking completion of
    the requested refresh rather than wall-clock comparisons. Background polling must
    preserve input, focus and layout. Changed evidence still invalidates confirmation;

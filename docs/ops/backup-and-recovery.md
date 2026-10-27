@@ -27,7 +27,9 @@ For tarball installs the binary is under
 `/opt/stacklab/app/current/bin/stacklab-backup-helper`. Keep the helper and
 `/etc/stacklab/stacklab.env` root-owned. Restart Stacklab after changing service
 configuration. A custom systemd sandbox must allow access to the selected mounts
-and private state. `ProtectHome=true` intentionally blocks home-directory
+and private state, and retain the [host PID
+namespace](#interrupted-remote-operations-and-stale-locks). `ProtectHome=true`
+intentionally blocks home-directory
 sources; use managed workspace paths. Ensure private staging has space for
 capture, retained retries and a recovery exercise. Helper-backed recovery also
 uses root-owned disk storage at `/var/lib/stacklab-backup-helper`; custom units
@@ -158,7 +160,11 @@ stale locks** queues ordinary `restic unlock` under Stacklab's reservation. It o
 considers local-host locks at least **30 minutes old** whose PID is absent. A live
 PID (including EPERM), future timestamp, malformed metadata, uncertain probe or
 foreign hostname produces `unlock_refused`. The lock list must also be unchanged
-immediately before unlock. Jobs record the remaining lock count.
+immediately before unlock. Ownership review is bounded to 128 locks. Unreadable or
+vanished lock metadata also refuses the preflight, without declaring repository
+corruption. Jobs record the remaining lock count. `unlock_incomplete` means ordinary
+unlock ran but locks remain or the postflight inventory could not be read; it is different
+from a preflight refusal.
 
 Run Stacklab and its restic subprocesses in the host PID namespace. Do not add
 `PrivatePIDs=yes`, a private PID namespace through a wrapper, or a container with a
@@ -166,13 +172,18 @@ shared hostname but isolated processes. A hostname match or `/proc/1` comparison
 cannot prove process identity across namespaces. The age threshold mitigates fresh
 namespace locks; it does not prove an old owner is dead. PID reuse can conservatively
 refuse a safe unlock. Independent clients can still create/refresh locks after the
-last inventory; the preflight is not an atomic distributed lock.
+last inventory; the preflight is not an atomic distributed lock. Keep clocks synchronized
+on every client (for example, verify `timedatectl status` and its NTP synchronization);
+clock skew makes age-based decisions unreliable.
 
 For a foreign-host lock, inspect `restic list locks --no-lock` and
 `restic cat lock LOCK_ID --no-lock` with the service credentials described below.
 Confirm the owner has stopped on the actual host and PID namespace, then perform
 ordinary unlock there. If that host is permanently lost, fence it and its scheduled
-clients before any manual removal. An unreadable lock first requires checking
+clients before any manual removal. After inspecting ownership and waiting until the lock
+is at least 30 minutes old, try ordinary `restic unlock` as the service user with the
+environment below, then re-list locks. Restic can remove aged foreign-host locks even
+though the UI deliberately refuses them. An unreadable lock first requires checking
 credentials, storage access and the lock bytes; do not equate unreadability with
 staleness. Preserve an independent repository copy and lock inventory. Only an
 operator who has established that **every** client is stopped may use the installed
@@ -195,7 +206,22 @@ Unexplained repository diagnostics create a persistent **check hold**: dated pro
 remains visible, but current protection is unverified and automatic deletion stops.
 A successful full check clears any hold; a metadata check clears only a metadata
 hold. A later transport error cannot clear it. Known data corruption still needs
-a full successful check, even after a successful metadata or sampled check.
+a full successful check, even after a successful metadata or sampled check. An operational
+record can explain a generic damage summary, but cannot explain an independent unknown
+object error or a decode error merely containing EOF. After a connection failure, rerun
+the check before prune or a retention change; the failed attempt establishes no fresh
+proof.
+
+Checks stop after terminal inventory failures or exhausted transport reads. A reported
+backend retry gets a ten-minute failure budget; successful retry of that same operation
+clears its deadline. The budget is enforced on the next failure report, rather than by a
+silence timer: restic 0.14 does not report successful retries. A gap over six minutes
+without failure reports starts a new failure window. Repeated failures within that window
+do not extend the budget. Quiet healthy checks retain the existing overall job limit; a
+completely silent hung backend still depends on its own request timeout and that overall
+limit. Cancellation allows restic five seconds for graceful cleanup before terminating its
+process group. Already observed damage or unknown object errors remain authoritative after
+an automatic failure stop.
 
 For confirmed damage, use the following preparation and choose only the repair
 matching the diagnosis. Stacklab intentionally does not automate repair.
@@ -207,12 +233,22 @@ matching the diagnosis. Stacklab intentionally does not automate repair.
    indexes and encrypted data packs, before mutating repair. A copy of only indexes
    and snapshots cannot undo changes to packs. Use a separate storage location and
    verify the copy completed; hard links to mutable files are not an independent
-   copy. Keep it until repository and application recovery have been validated.
-3. Use the saved [recovery credential bundle](#recovery-kit-and-fresh-host-ui).
+   copy. For remote storage, copy all raw repository objects to an independent bucket/path
+   or use a server-side filesystem copy with all clients stopped; `restic copy` repacks
+   selected snapshots and is not a byte-preserving repair backup. Keep the independent
+   copy until repository and application recovery have been validated.
+3. On an intact host, reuse the saved service credentials in
+   `/var/lib/stacklab/backup/credentials/DESTINATION_ID/` (adjust for a custom data
+   directory). The destination ID is available through the backup API. This directory
+   contains `password`, `ssh_key`, `known_hosts`, `rclone.conf` and `credentials.json`; do
+   not rotate or copy them unnecessarily. On a fresh host, use the saved [recovery
+   credential bundle](#recovery-kit-and-fresh-host-ui).
    Run restic as the installation's service user (normally `stacklab`), not root.
    Root-created index files can be unreadable to the service. Do not recursively
    chown a shared repository; correct only identified repair-created objects after
-   checking the intended backend ownership/ACL policy.
+   checking the intended backend ownership/ACL policy. For a local repository, inspect
+   unexpected ownership with `sudo find /path/to/repository ! -user stacklab -ls`; review
+   each result before changing it.
 4. Record `restic version` and private check diagnostics. The version map below
    describes command availability, not a recommendation to use every command.
    Test a reviewed tool upgrade on the independent copy when the installed version
@@ -224,25 +260,72 @@ A local-backend example with explicitly prepared, service-readable credentials:
 sudo install -d -o stacklab -g stacklab -m 0700 /var/lib/stacklab-repair
 sudo install -o stacklab -g stacklab -m 0600 /secure/repository-password /var/lib/stacklab-repair/password
 sudo -u stacklab env RESTIC_REPOSITORY=/mnt/backup/stacklab \
-  RESTIC_PASSWORD_FILE=/var/lib/stacklab-repair/password restic check --read-data
+  RESTIC_PASSWORD_FILE=/var/lib/stacklab-repair/password restic --no-cache check --read-data
 ```
 
-Use the same identity and environment for the selected repair command. Replace the
-example repository with the saved address. S3 also needs its private AWS credentials
-and custom endpoint/CA settings; rclone needs an explicit service-readable
-`RCLONE_CONFIG`. An administrator's SSH agent/config is not inherited by the service.
-For SFTP, install the saved private key and pinned known-hosts file into the private
-repair directory and explicitly configure, for example:
+Use the same identity and environment for the selected repair command. The examples
+use `--no-cache` to avoid creating a second cache. Alternatively, set
+`RESTIC_CACHE_DIR=/var/lib/stacklab/backup/cache/DESTINATION_ID` while Stacklab is
+stopped. Preserve the exact saved repository URI, including the S3 endpoint.
+
+For S3, prepare a service-owned mode-0600 **shell environment file** at
+`/var/lib/stacklab-repair/s3.env` with a private editor. Do not paste real secrets
+into shell commands. Quote values using POSIX shell syntax; this trusted file is
+sourced as code. On an intact host, obtain the three AWS values from that
+destination's `credentials.json`, and the region/address from its configuration.
+The following is the file's shape, not a command to enter with real credentials:
+
+```sh
+RESTIC_REPOSITORY='s3:https://storage.example/bucket/repository'
+RESTIC_PASSWORD_FILE='/var/lib/stacklab/backup/credentials/DESTINATION_ID/password'
+AWS_ACCESS_KEY_ID='REPLACE_IN_PRIVATE_EDITOR'
+AWS_SECRET_ACCESS_KEY='REPLACE_IN_PRIVATE_EDITOR'
+AWS_SESSION_TOKEN=''
+AWS_DEFAULT_REGION='us-east-1'
+# When configured for the service, copy the same CA file/directory settings:
+# SSL_CERT_FILE='/etc/ssl/certs/private-storage-ca.pem'
+# SSL_CERT_DIR='/etc/ssl/certs'
+```
+
+Use the actual configured region, including an empty value when appropriate. Copy
+custom CA paths from the effective service environment (`/etc/stacklab/stacklab.env`);
+`sudo` does not reliably preserve them. Keep TLS verification enabled. Execute:
 
 ```bash
-sudo -u stacklab env RESTIC_REPOSITORY=sftp:user@nas:/backup/stacklab \
-  RESTIC_PASSWORD_FILE=/var/lib/stacklab-repair/password \
-  restic -o 'sftp.command=ssh -F /dev/null -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/var/lib/stacklab-repair/known_hosts -i /var/lib/stacklab-repair/ssh_key -p 22 user@nas -s sftp' check --read-data
+sudo -u stacklab sh -c 'set -a; . /var/lib/stacklab-repair/s3.env; set +a; exec restic --no-cache -o s3.region="$AWS_DEFAULT_REGION" check --read-data'
 ```
 
-Adapt host, user, port and path from the saved configuration. Keep secret values out
-of command arguments, shell history and shared logs. Remove temporary credential
-copies after the procedure; retain the independent recovery bundle securely.
+AWS secrets are loaded into the subprocess environment, not its command arguments
+or shell history. Keep the environment file private and do not use shell tracing.
+For rclone, prepare `/var/lib/stacklab-repair/rclone.env` the same way, containing
+`RESTIC_REPOSITORY='rclone:remote:path'`, `RESTIC_PASSWORD_FILE` and
+`RCLONE_CONFIG='/var/lib/stacklab/backup/credentials/DESTINATION_ID/rclone.conf'`.
+Include the same custom CA settings where needed. The config must belong to the
+service user with mode 0600; on a fresh host install the saved config with
+`sudo install -o stacklab -g stacklab -m 0600 /secure/rclone.conf /var/lib/stacklab-repair/rclone.conf`
+and point `RCLONE_CONFIG` there. Execute:
+
+```bash
+sudo -u stacklab sh -c 'set -a; . /var/lib/stacklab-repair/rclone.env; set +a; exec restic --no-cache check --read-data'
+```
+
+An administrator's SSH agent/config is not inherited by the service. For SFTP on
+an intact host, use the existing service-owned key and pinned hosts file. On a
+fresh host, install each saved file with owner/group `stacklab` and mode 0600 in
+the mode-0700 repair directory, including the password file. For example:
+
+```bash
+sudo install -o stacklab -g stacklab -m 0600 /secure/ssh_key /var/lib/stacklab-repair/ssh_key
+sudo install -o stacklab -g stacklab -m 0600 /secure/known_hosts /var/lib/stacklab-repair/known_hosts
+sudo -u stacklab env RESTIC_REPOSITORY=sftp://user@nas:22//backup/stacklab \
+  RESTIC_PASSWORD_FILE=/var/lib/stacklab-repair/password \
+  restic --no-cache -o 'sftp.command=ssh -F /dev/null -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/var/lib/stacklab-repair/known_hosts -i /var/lib/stacklab-repair/ssh_key -p 22 user@nas -s sftp' check --read-data
+```
+
+Host, user and port in `sftp.command` must match the saved URL; the double slash
+marks an absolute remote path. Keep secret values out of arguments, history and
+shared logs. Remove temporary credential copies/environment files after the
+procedure; retain the independent recovery bundle securely.
 
 | Installed restic | Repair commands and version considerations |
 | --- | --- |
@@ -265,7 +348,8 @@ Check each installed command's `--help` before use.
   inaccessible content; it creates new snapshot IDs. `--forget` deletes the original
   snapshots, so defer it until the salvaged content has been reviewed and the
   independent repository copy is safe. Keeping damaged originals can keep the full
-  repository check failing. See the [upstream troubleshooting guide](https://restic.readthedocs.io/en/stable/077_troubleshooting.html).
+  repository check failing. See the [upstream troubleshooting
+guide](https://restic.readthedocs.io/en/stable/077_troubleshooting.html).
 
 Restic repair cannot recreate a missing Stacklab source archive or make an
 incomplete tar payload complete. It cannot rewrite the manifest's capture truth.
@@ -413,7 +497,8 @@ Backup settings provide a global automatic-scheduling pause that also suppresses
 retention. Effective pause reasons are shown separately from the user's preference.
 Manual backup remains allowed during a user pause, but host review, invalid
 policy/state or unresolved recovery blocks unsafe capture with an actionable
-conflict. Inventory and overdue observation continue during pauses. After restoring state to a host with a different machine identity,
+conflict. Inventory and overdue observation continue during pauses. After restoring state
+to a host with a different machine identity,
 review is required before resuming. A clone retaining the same machine identity
 cannot be detected automatically: pause before migration and keep the previous
 host disabled. Host changes do not silently adopt old snapshot retention ownership.
@@ -514,7 +599,10 @@ create the required local Docker volumes, and map complete sources to their new
 locations. Do not start application containers until their data and prerequisites
 are restored. If recovering `stacklab.db` instead, stop Stacklab, restore its private
 state offline, verify owner/mode and service configuration, then review the global
-backup pause before enabling automatic work. Keep the old host's scheduler stopped.
+backup pause before enabling automatic work. Power off or fence the old host and its
+clients before recovery, especially before **Remove stale locks** on a replacement with
+the same hostname. Stopping one scheduler does not prevent the old host from writing
+again.
 A fresh database creates a new instance identity: attached historical snapshots
 remain foreign to automatic retention until explicitly managed outside Stacklab.
 

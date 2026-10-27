@@ -77,8 +77,7 @@ The opt-in `TestNativeSFTPInterruptedInventoryRecovery` uses an SFTP OPENDIR gat
 before `sftp-server` lists repository data, then stops its owned sshd container.
 It complements `TestNativeSFTPInterruptedCheckRecovery`'s pack-read byte gate. Both
 use `STACKLAB_TEST_SFTP_RECOVERY=1` and optionally `STACKLAB_TEST_SFTP_IMAGE` with a
-prebuilt SSH image. Restic 0.14 retries may require explicit fixture cancellation;
-this is recorded separately from a naturally returned transport error.
+prebuilt SSH image. Both observe the production native runner, including SIGINT and its bounded escalation. The fixtures inject a two-second backend failure budget instead of the production ten-minute budget, and assert availability failure with prior proof retained. They accept successful graceful lock cleanup; when a stale lock remains they assert the specific minimum-age refusal, age only the fixture clock, unlock and reset the clock before rechecking.
 
 `STACKLAB_TEST_FOREIGN_UID_UNLOCK=1` enables real root-owner and private-PID-namespace
 lock tests on disposable Linux/Docker. The namespace fixture requires a privileged
