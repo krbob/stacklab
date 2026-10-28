@@ -2,8 +2,8 @@
 
 ## Status And Scope
 
-Implemented and validated, 2026-10-21, following the sixth independent review.
-The [validation record](../quality/backup-validation.md#round-six-diagnostics-and-unlock-validation--2026-10-21)
+Implemented and validated through the seventh independent review, 2026-10-28.
+The [validation record](../quality/backup-validation.md#round-seven-streaming-diagnostics-and-review-interaction--2026-10-28)
 identifies native, installed and synthetic evidence and their limits.
 This extends [repository safety](backup-repository-safety.md) and
 [ADR 0009](../adr/0009-backup-maintenance-safety.md). Existing scoped evidence,
@@ -15,9 +15,10 @@ current retention policy and evidence-bound manual prune remain authoritative.
    in JSON messages. Distinguish failed inventory/index reads, pack reads and lock
    refresh warnings. Confirmed structural damage wins over incidental transport
    failures. Missing-reference diagnostics depend on usable inventory; unrelated
-   lock/download failures do not invalidate that inventory. An operational record explains itself and generic summaries; it never
-   explains an independent object diagnostic. An unexplained repository diagnostic
-   creates a hold even when another operation reported a transport failure. Generic
+   lock/download failures do not invalidate that inventory. An operational record
+   explains itself and generic summaries; it never explains an independent object
+   diagnostic. An unexplained repository diagnostic creates a hold even when
+   another operation reported a transport failure. Generic
    summaries alone do not turn an explained transport failure into corruption/hold.
 2. Ordinary unlock requires complete local ownership metadata, an absent PID and a
    lock at least 30 minutes old. Refuse future timestamps, uncertain probes and all
@@ -49,8 +50,8 @@ current retention policy and evidence-bound manual prune remain authoritative.
 
 ## Seventh-Review Extension — 2026-10-27
 
-Approved for implementation. Preserve the contracts above while closing the following
-diagnostic, liveness and interaction gaps:
+Implemented and validated. The contracts above remain in force with the following
+diagnostic, liveness and interaction corrections:
 
 1. Interpret terminal `List(type) failed: cause` as an operation failure and associate
    the repeated cause with that operation, independently of provider wording. Retain

@@ -26,6 +26,68 @@ file modes and Linux file capabilities are rejected; shared set-group-ID
 directories remain supported. Restore preview rejects paths outside managed or explicitly approved
 roots before stopping any service.
 
+## Round-Seven Streaming Diagnostics And Review Interaction — 2026-10-28
+
+The seventh-review extension was committed before implementation (`078dec1`).
+UI freshness and focus corrections are in `262c884`; streamed diagnostics and
+backend-failure handling in `e5a962c`; unlock outcomes in `99ca29b`; operator and
+fixture guidance in `84f80ef`. The final production revision is
+`75446525bb227fff81a26a09a3d6454c8bb3ae0c`, including terminal JSON diagnoses.
+
+| Exercise | Evidence and result |
+| --- | --- |
+| Diagnostic interpretation | Synthetic plain/JSON regressions cover terminal listing causes independent of provider wording, full modern repair advice, mixed unknown/corrupt/transport errors, quoted filenames, cancellation records and terminal JSON causes. Concrete damage is retained in the middle of a stream exceeding 32 MiB; oversized records remain inconclusive. Prior native transcript corpus passes. |
+| Failure budget and process cleanup | Deterministic tests cover repeated failures, recovery of individual operations, the legacy silent-recovery case and a new window after a quiet interval. Production-runner subprocess tests confirm graceful SIGINT cleanup and five-second SIGKILL escalation. Automatic interruption retains already observed corruption/unknown object evidence. Final focused race regressions pass (31.383 s). |
+| Native HTTPS S3 faults | Restic 0.19.1 and rclone 1.75.2 with an owned HTTPS server/CA and fault proxy. Actual HTTP 500 InternalError listing and partial-body downloads terminate as unavailable, retaining full proof without a hold. Actual pack truncation combined with partial downloads remains an integrity failure; byte restoration and full recheck recover it. The injected two-second failure budget replaces the production ten-minute budget only in the fixture. Final run: 31.366 s. Complete repair advice for a pure partial-download failure remains synthetic; this test cancels before restic exhausts its native retry loop. |
+| Native SFTP through the production runner | Owned sshd, separate inventory OPENDIR and 8 MiB pack-read gates, real disconnection and real encrypted-pack truncation. Restic 0.18.0: 41.12/32.88 s; minimum 0.14.0: 39.20/42.28 s. Both preserve proof on outage, refuse fresh locks for the specific minimum-age reason, recover after simulated age/unlock, reset the test clock and pass a new full check. No copied runner or fixture SIGKILL substitutes for production cancellation. |
+| Unlock ownership and outcomes | Real foreign-UID and same-hostname/private-PID-namespace owners are refused. The fixture waits for the actual container process to exit before aged-owner recovery. Deterministic tests distinguish unreadable/vanished preflight metadata (`unlock_refused`) from remaining/unverifiable locks after execution (`unlock_incomplete`). |
+| Linux archive/helper suite | Maintained isolated harness: 182 backup tests passed, 10 explicit optional skips; 16 root helper tests passed; all five privileged recovery exercises passed, including PostgreSQL exact replacement and SIGKILL during extraction. Evidence archive records base `262c884` plus its exact working-tree patch; it precedes the final terminal-JSON refinement, covered by focused race tests and final-revision CI. |
+| Backend quality | Full package coverage passes all floors: global 71.9%, HTTP API 54.1%. Backup/jobs/notifications race suite passes (201.215/6.408/3.233 s). Formatting, vet, generated API, docs, release-script checks, actionlint, ShellCheck, Gitleaks and frontend dependency audit pass. |
+| UI interaction and tools | All 679 frontend tests pass, including missing restic/rclone guidance across protection/history. Typecheck, lint, production build and font/CSP checks pass. Maintained Chromium backup suite: 12/12, including delayed polling while typing at 1440 and 390 px, stable focus/input on unchanged evidence and reset on a changed review token. |
+| Installed API and recovery | Final package passes 12 assertions across 14 jobs; two intentional corruption checks fail as expected. Native index repair as the service user, full verification and actual recovered content/ACL/xattr/hardlinks pass. Current-evidence prune acknowledgement is exercised through the real API. |
+| Installed browser | Packaged assets and real API through an SSH loopback tunnel: 21 assertions, 17 screenshots, desktop and 390 px, no page errors or failed assets. Protection and check-review captures were visually inspected. Five explicit skips: unavailable helper, held protection, system-caused pause, selected-destination hold and alternate recovery destination. Those states remain covered by maintained unit/browser fixtures where applicable. |
+
+The final installed package is `2026.10.0~review7fix2`, runtime
+`2026.10.0-review7fix2`, built from `75446525bb22`. SHA256:
+
+- Debian package: `b06d80de6f918338de434acd111ba39c04519959d1cc9407a90b2aaf3547f8ca`.
+- Installed backend: `7c7b78ad88d614144c4e8634076b59d2f50877ccdd57e035e1176e69e4b7e759`.
+- Final Linux backup test binary: `12bee49d20f2a49a04ec18708b5f4b45080f88179f426bbf5da55aae0381c3b5`.
+
+The five-assertion upgrade harness first upgraded `2026.10.0~review7` to
+`2026.10.0~review7fix` (`84f80ef`), checking legacy/current sudoers, protected
+configuration recovery and preserved configuration/policy. The final classifier
+refinement was repackaged and installed as `review7fix2`; configuration checksums
+match and the final installed API/browser exercises above ran afterward. The package
+hold remains set. Original nine plans/eight destinations and paused policy remain.
+Owned fixtures were removed, test sessions revoked and authentication exports and
+temporary repair passwords deleted.
+
+An initial installed API attempt correctly refused apply because its Docker
+administration container mounted the host root and was a potential writer. The
+successful rerun executed as a host process through the VM guest agent. An initial
+browser attempt could not reach the VM directly from Chromium; the successful run
+used an SSH loopback tunnel. Neither case bypassed application safety checks.
+
+Local logs/captures are under `/tmp/stacklab-r7-*`; root-only upgrade/API evidence
+remains on the disposable host. These local temporary screenshots are not retained
+release artifacts. No private review inputs, credentials or session exports are
+committed. The source/patch, native-tool versions and hashes in the evidence archive
+identify the tested binaries; a successful native scenario does not establish every
+provider or diagnostic format. A completely silent hung check still depends on
+backend request timeouts and the existing overall job limit, as documented in the
+[implementation contract](../product/backup-diagnostics-and-unlock.md#seventh-review-extension--2026-10-27).
+
+All four required CI jobs pass for the final production revision `7544652` in
+[run 40631386893](https://github.com/krbob/stacklab/actions/runs/40631386893), including
+Linux coverage, backup/jobs/notifications race tests and the privileged helper.
+The follow-up delivery commit only records validation and harness guidance; its
+exact-head CI is checked again after push and linked in the delivery message.
+
+Previously outstanding CI is confirmed successful for `94bfe10` in
+[run 39569375858](https://github.com/krbob/stacklab/actions/runs/39569375858) and
+`29ee082` in [run 39629002747](https://github.com/krbob/stacklab/actions/runs/39629002747).
+
 ## Visual Layout Follow-Up — 2026-10-21
 
 Browser inspection reproduced touching Protection panels and destination recovery
@@ -40,7 +102,7 @@ Chromium pass uses 320 px and long unbroken plan/destination names. Screenshots 
 DOM measurements confirm section separation and no horizontal overflow in page,
 panel or dialog containers. These are local frontend fixtures with mocked API
 responses, separate from the installed-package evidence below. Local captures
-and measurements are in `/tmp/stacklab-ui-review-20261021/`.
+and measurements were in `/tmp/stacklab-ui-review-20261021/`; these temporary local captures are not retained release artifacts.
 
 All 673 frontend unit tests and 10 maintained Chromium backup scenarios pass,
 along with typecheck, lint, production build and the font/CSP build check.
@@ -202,8 +264,9 @@ not committed or included in shareable evidence.
 S3 fixtures verify actual HTTPS read/check diagnostics using a local S3 server;
 they do not establish every cloud provider's behavior or repeat the full upload
 pipeline. The newer rclone is an isolated fixture binary on PATH, not an installed
-runtime upgrade. Native checks cover the tested restic versions; future diagnostic
-wording remains guarded by unresolved-check holds when recognized as inconclusive.
+runtime upgrade. Native checks cover the tested restic versions. See the
+[diagnostic interpretation limits](../product/backup-diagnostics-and-unlock.md#retained-limits)
+for unknown formats and backend-specific behavior.
 
 Unlock preflight is not atomic with external clients. Unknown/foreign-host owners
 and live local PIDs are conservatively refused; PID reuse or different namespaces

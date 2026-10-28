@@ -86,6 +86,12 @@ the PID is alive inside the namespace and absent outside, and asserts fresh-lock
 refusal. Dead-owner recovery simulates 31 minutes passing in the Stacklab test clock;
 restic still reads the original native lock. No production age bypass is added.
 
+Run the installed API harness directly as a host process (root SSH, a VM guest
+agent or a detached transient systemd service), not inside an administration
+container that bind-mounts the host root. Writer discovery correctly treats that
+live container as a potential writer and refuses reviewed replacement. Exit any
+such administration containers before the apply phase.
+
 The installed API harness requires automatic backups to be paused. Besides ACL
 recovery and byte-restoration corruption checks, it stops Stacklab, copies its own
 repository independently, removes that repository's index, and runs a real index
