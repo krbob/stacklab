@@ -10,5 +10,5 @@
 {"message_type":"error","message":"Load(\u003cdata/9268c4140c\u003e, 0, 0) returned error, retrying after 18.052516449s: We encountered an internal error. Please try again."}
 {"message_type":"error","message":"Load(\u003cdata/9268c4140c\u003e, 0, 0) failed: We encountered an internal error. Please try again."}
 
-signal interrupt received, cleaning up 
+signal interrupt received, cleaning up
 {"message_type":"exit_error","code":130,"message":"context canceled"}

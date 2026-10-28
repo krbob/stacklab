@@ -13,6 +13,6 @@
 {"message_type":"error","message":"pack 852ecb2303cc265596e1db3fd9309997d87b085d51a2d5c7b22a0d28ccbe6991: does not exist\n"}
 {"message_type":"error","message":"pack 9268c4140c9f1de4893fa769eee1e498dc3843c53632b696e81ed13dde95f5c7: does not exist\n"}
 
-signal interrupt received, cleaning up 
+signal interrupt received, cleaning up
 {"message_type":"error","message":"error: failed to load snapshot 602d1c1e: context canceled\n"}
 {"message_type":"exit_error","code":130,"message":"context canceled"}

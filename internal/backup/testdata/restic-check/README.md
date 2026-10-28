@@ -43,7 +43,7 @@ S3 500 InternalError responses for listing or pack GET, or closed pack bodies
 halfway through the advertised size. Restic used its ten-retry compatibility
 policy; Stacklab used the production ten-minute budget. Terminal List/Load failures
 were observed before Stacklab requested SIGINT. These are native stderr, with only
-terminal control characters removed; generated object IDs remain unchanged.
+terminal control characters and trailing terminal whitespace removed; generated object IDs remain unchanged.
 Expected result: unavailable, previous proof retained, no new hold. The modern
 listing transcript includes actual missing-pack and snapshot-cancellation residue.
 Synthetic cancellation-boundary tests separately establish its runtime provenance.

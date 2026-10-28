@@ -69,8 +69,8 @@ final-package validation. Full final-revision checks also run in required CI.
 Early fixture failures are retained as evidence, not counted as passes: the first
 legacy S3 GET run exposed the ReadFull wrapper; exhaustion-mode SFTP initially hit
 the fixture's old 45-second wait; context-free corpus replay lost the production
-cancellation boundary. Each was corrected and rerun successfully. Direct terminal
-control characters are removed from saved stderr; no diagnostic wording is invented.
+cancellation boundary. Each was corrected and rerun successfully. Terminal control characters and trailing terminal whitespace are removed from
+saved stderr; no diagnostic wording is invented.
 
 The test host keeps its system restic 0.18.0 and rclone unchanged; older restic and
 fixture rclone 1.75.2 are selected through private test PATHs. Existing backup policy
