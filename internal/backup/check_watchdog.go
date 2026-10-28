@@ -3,67 +3,67 @@ package backup
 import (
 	"context"
 	"errors"
-	"regexp"
 	"strings"
 	"time"
 )
 
 const checkBackendFailureTimeout = 10 * time.Minute
 
-// Restic 0.14 does not report successful retries. A quiet interval must not
-// turn one recovered retry into a deadline for an otherwise healthy check.
+// Expire each quiet operation separately. Legacy restic has no success record;
+// failures of other objects must not keep a recovered operation's deadline alive.
 const checkFailureQuietReset = 6 * time.Minute
 
 var errCheckBackendUnavailable = errors.New("repository check stopped after sustained or exhausted backend failures; restore destination access and retry")
-var resticBackendRetry = regexp.MustCompile(`^((?:list|load|stat|save|remove)\(.+\)) returned error, retrying after [^:]+: .+$`)
-var resticBackendSuccess = regexp.MustCompile(`^((?:list|load|stat|save|remove)\(.+\)) operation successful after [0-9]+ retries$`)
-var resticBackendTerminal = regexp.MustCompile(`^(?:list|load|stat)\(.+\) failed: (.+)$`)
+
+type checkFailureWindow struct{ deadline, lastFailure time.Time }
 
 // A quiet, healthy check has no deadline here. Track only reported failed backend
 // calls; another retry does not extend their budget. Recovery of that same call
 // clears its deadline without masking concurrent failures on other objects.
 type checkFailureTracker struct {
-	pending     map[string]time.Time
-	overflow    time.Time
-	budget      time.Duration
-	lastFailure time.Time
+	pending map[string]checkFailureWindow
+	budget  time.Duration
 }
 
 func (w *checkFailureTracker) observe(now time.Time, record resticDiagnosticRecord) bool {
 	for _, raw := range strings.Split(record.message, "\n") {
 		line := strings.TrimSpace(resticQuotedText.ReplaceAllString(raw, `""`))
-		if match := resticBackendRetry.FindStringSubmatch(line); match != nil {
-			if !w.lastFailure.IsZero() && now.Sub(w.lastFailure) > checkFailureQuietReset {
-				w.pending = nil
-				w.overflow = time.Time{}
-			}
-			w.lastFailure = now
-			if w.pending == nil {
-				w.pending = map[string]time.Time{}
-			}
-			if _, exists := w.pending[match[1]]; !exists {
-				if len(w.pending) < diagnosticCauseLimit && len(match[1]) <= diagnosticCauseBytes {
-					w.pending[match[1]] = now.Add(w.budget)
-				} else if w.overflow.IsZero() {
-					w.overflow = now.Add(w.budget)
+		op, ok := parseBackendDiagnostic(line)
+		if ok && op.phase == "recovered" {
+			delete(w.pending, op.key)
+			continue
+		}
+		if explicitResticDamage(line) {
+			continue // A consumer can detect corruption inside a retried Load.
+		}
+		if ok && op.read() && op.phase == "retry" {
+			for key, window := range w.pending {
+				if now.Sub(window.lastFailure) > checkFailureQuietReset {
+					delete(w.pending, key)
 				}
+			}
+			if w.pending == nil {
+				w.pending = map[string]checkFailureWindow{}
+			}
+			window, exists := w.pending[op.key]
+			if !exists {
+				window.deadline = now.Add(w.budget)
+			}
+			// Excess keys do not share a synthetic deadline. Evidence has its own
+			// conservative overflow hold; terminal failures remain observable.
+			if exists || (len(w.pending) < diagnosticCauseLimit && len(op.key) <= diagnosticCauseBytes) {
+				window.lastFailure = now
+				w.pending[op.key] = window
 			}
 			if deadline := w.deadline(); !deadline.IsZero() && !now.Before(deadline) {
 				return true
 			}
 			continue
 		}
-		if match := resticBackendSuccess.FindStringSubmatch(line); match != nil {
-			delete(w.pending, match[1])
-			continue
-		}
-		if resticListFailure.MatchString(line) {
+		if ok && op.read() && op.phase == "failed" {
 			return true
 		}
-		if match := resticBackendTerminal.FindStringSubmatch(line); match != nil && resticTransportFailure(match[1]) {
-			return true
-		}
-		if containsDiagnostic(line, "download error:", "failed to load ") && resticTransportFailure(line) {
+		if resticLegacyDownload.MatchString(line) || (containsDiagnostic(line, "download error:", "failed to load ") && resticTransportFailure(line)) {
 			return true
 		}
 	}
@@ -71,10 +71,10 @@ func (w *checkFailureTracker) observe(now time.Time, record resticDiagnosticReco
 }
 
 func (w *checkFailureTracker) deadline() time.Time {
-	deadline := w.overflow
-	for _, at := range w.pending {
-		if deadline.IsZero() || at.Before(deadline) {
-			deadline = at
+	var deadline time.Time
+	for _, window := range w.pending {
+		if deadline.IsZero() || window.deadline.Before(deadline) {
+			deadline = window.deadline
 		}
 	}
 	return deadline

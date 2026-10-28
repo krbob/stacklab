@@ -1,0 +1,14 @@
+{"message_type":"error","message":"Load(\u003cdata/9268c4140c\u003e, 0, 0) returned error, retrying after 388.590935ms: Copy: unexpected EOF"}
+{"message_type":"error","message":"Load(\u003cdata/9268c4140c\u003e, 0, 0) returned error, retrying after 1.047092686s: Copy: unexpected EOF"}
+{"message_type":"error","message":"Load(\u003cdata/9268c4140c\u003e, 0, 0) returned error, retrying after 1.684110198s: Copy: unexpected EOF"}
+{"message_type":"error","message":"Load(\u003cdata/9268c4140c\u003e, 0, 0) returned error, retrying after 2.015839179s: Copy: unexpected EOF"}
+{"message_type":"error","message":"Load(\u003cdata/9268c4140c\u003e, 0, 0) returned error, retrying after 3.261628033s: Copy: unexpected EOF"}
+{"message_type":"error","message":"Load(\u003cdata/9268c4140c\u003e, 0, 0) returned error, retrying after 2.63338627s: Copy: unexpected EOF"}
+{"message_type":"error","message":"Load(\u003cdata/9268c4140c\u003e, 0, 0) returned error, retrying after 7.122596752s: Copy: unexpected EOF"}
+{"message_type":"error","message":"Load(\u003cdata/9268c4140c\u003e, 0, 0) returned error, retrying after 5.886137114s: Copy: unexpected EOF"}
+{"message_type":"error","message":"Load(\u003cdata/9268c4140c\u003e, 0, 0) returned error, retrying after 6.817233237s: Copy: unexpected EOF"}
+{"message_type":"error","message":"Load(\u003cdata/9268c4140c\u003e, 0, 0) returned error, retrying after 15.67408526s: Copy: unexpected EOF"}
+{"message_type":"error","message":"Load(\u003cdata/9268c4140c\u003e, 0, 0) failed: Copy: unexpected EOF"}
+
+signal interrupt received, cleaning up 
+{"message_type":"exit_error","code":130,"message":"context canceled"}

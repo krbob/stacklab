@@ -31,10 +31,14 @@ import (
 type nativeFixtureCARunner struct {
 	certificate string
 	runner      nativeRunner
+	legacyRetry bool
 }
 
 func (r nativeFixtureCARunner) Run(ctx context.Context, name string, args, env []string, directory string) ([]byte, error) {
 	args = append([]string{"--cacert", r.certificate}, args...)
+	if r.legacyRetry {
+		env = append(env, "RESTIC_FEATURES=backend-error-redesign=false")
+	}
 	return r.runner.Run(ctx, name, args, env, directory)
 }
 
@@ -51,7 +55,8 @@ func TestNativeS3TruncatedPackIsIntegrityFailure(t *testing.T) {
 			t.Fatalf("opt-in fixture requires %s", command)
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	exhaustRetries := os.Getenv("STACKLAB_TEST_NATIVE_CHECK_RETRY_EXHAUSTION") == "1"
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 	directory := t.TempDir()
 	storage := filepath.Join(directory, "storage")
@@ -151,7 +156,7 @@ func TestNativeS3TruncatedPackIsIntegrityFailure(t *testing.T) {
 	defer transport.CloseIdleConnections()
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	proxy.Transport = transport
-	var fault atomic.Int32 // 1: listing InternalError, 2: partial pack response
+	var fault atomic.Int32 // 1: listing InternalError, 2: partial pack, 3: GET InternalError
 	var faultHits atomic.Int32
 	proxy.ModifyResponse = func(response *http.Response) error {
 		if fault.Load() == 2 && response.Request.Method == "GET" && strings.Contains(response.Request.URL.Path, "/data/") && response.StatusCode == 200 && response.ContentLength > 1 {
@@ -162,11 +167,11 @@ func TestNativeS3TruncatedPackIsIntegrityFailure(t *testing.T) {
 		return nil
 	}
 	faultServer := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if fault.Load() == 1 && r.Method == "GET" && strings.Contains(r.URL.Query().Get("prefix"), "/data") {
+		if r.Method == "GET" && ((fault.Load() == 1 && strings.Contains(r.URL.Query().Get("prefix"), "/data")) || (fault.Load() == 3 && strings.Contains(r.URL.Path, "/data/"))) {
 			faultHits.Add(1)
 			w.Header().Set("Content-Type", "application/xml")
 			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = fmt.Fprint(w, `<Error><Code>InternalError</Code><Message>We encountered an internal error, please try again.</Message></Error>`)
+			_, _ = fmt.Fprint(w, `<Error><Code>InternalError</Code><Message>We encountered an internal error. Please try again.</Message></Error>`)
 			return
 		}
 		proxy.ServeHTTP(w, r)
@@ -179,7 +184,11 @@ func TestNativeS3TruncatedPackIsIntegrityFailure(t *testing.T) {
 	faultServer.StartTLS()
 	defer faultServer.Close()
 	var diagnostics bytes.Buffer
-	s.runner = nativeFixtureCARunner{certificate: certificate, runner: nativeRunner{diagnosticObserver: func(data []byte) { _, _ = diagnostics.Write(data) }, checkFailureBudget: 2 * time.Second}}
+	budget := 2 * time.Second
+	if exhaustRetries {
+		budget = checkBackendFailureTimeout
+	}
+	s.runner = nativeFixtureCARunner{certificate: certificate, legacyRetry: exhaustRetries, runner: nativeRunner{diagnosticObserver: func(data []byte) { _, _ = diagnostics.Write(data) }, checkFailureBudget: budget}}
 	d, err := s.SaveDestination(ctx, "", DestinationInput{Name: "Isolated S3 corruption", Kind: "s3", Repository: "s3:" + faultServer.URL + "/fixture/repository", Secrets: &Secrets{Password: "native-s3-test-password", AccessKeyID: "fixture-access", SecretAccessKey: "fixture-secret"}})
 	if err != nil {
 		t.Fatal(err)
@@ -198,7 +207,7 @@ func TestNativeS3TruncatedPackIsIntegrityFailure(t *testing.T) {
 	d = check(false)
 	t.Log("native HTTPS S3 baseline full check completed")
 	verified := d.DataCheck
-	for _, mode := range []int32{1, 2} {
+	for _, mode := range []int32{1, 2, 3} {
 		diagnostics.Reset()
 		faultHits.Store(0)
 		fault.Store(mode)
@@ -208,6 +217,17 @@ func TestNativeS3TruncatedPackIsIntegrityFailure(t *testing.T) {
 			t.Fatalf("S3 fault mode %d changed proof or missed backend: %+v\n%s", mode, d, diagnostics.String())
 		}
 		t.Logf("native S3 fault mode=%d requests=%d stopped in %s: %s\n%s", mode, faultHits.Load(), time.Since(started), d.LastCheckAttemptError, diagnostics.String())
+		if exhaustRetries {
+			text := strings.ToLower(diagnostics.String())
+			if !strings.Contains(text, " failed:") && !strings.Contains(text, "failed to download:") && !strings.Contains(text, "does not exist") {
+				t.Fatal("retry-exhaustion fixture did not reach terminal backend/object diagnostics")
+			}
+		}
+		if output := os.Getenv("STACKLAB_TEST_DIAGNOSTIC_DIR"); output != "" {
+			if err := os.WriteFile(filepath.Join(output, fmt.Sprintf("s3-mode-%d.stderr", mode)), diagnostics.Bytes(), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
 		fault.Store(0)
 		d = check(false)
 		verified = d.DataCheck

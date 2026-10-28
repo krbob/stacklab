@@ -45,8 +45,7 @@ func parseResticDiagnostics(diagnostic string) resticDiagnostics {
 		}
 		var lines []string
 		for _, message := range strings.Split(strings.ToLower(record.message), "\n") {
-			// Preserve retry records for the liveness monitor. The evidence fold
-			// ignores them until a terminal failure establishes unusable inventory.
+			// Preserve operation lifecycle records for both evidence and liveness.
 			if strings.TrimSpace(message) != "" {
 				lines = append(lines, message)
 			}
@@ -94,7 +93,6 @@ func resticIntegrityFailure(diagnostic string, inventory resticInventoryFailure)
 }
 
 // Operation context is stronger evidence than a provider's choice of error words.
-var resticListFailure = regexp.MustCompile(`^list\(([^)]+)\) failed: (.+)$`)
 var resticPackErrors = regexp.MustCompile(`^pack [a-f0-9]{8,64} contains ([0-9]+) errors: \[(.*)\]$`)
 var resticQuotedText = regexp.MustCompile(`"(?:\\.|[^"\\])*"`)
 
@@ -106,33 +104,35 @@ type diagnosticEvidence struct {
 	explicitDamage, missingPack, missingBlob                               bool
 	treeErrors, summary, explained, unknown, incomplete                    bool
 	transport, locked, credentials, storage, permission, missingRepository bool
-	listingCauses                                                          map[string]bool
+	operationCauses                                                        map[string]bool
+	pendingOperations                                                      map[string]string
 	unmatchedCauses                                                        map[string]bool
+	cancelled                                                              bool
 }
 
 func diagnosticCause(line string) string {
-	for _, prefix := range []string{"error: ", "download error: "} {
+	for _, prefix := range []string{"error: ", "partial download error: ", "download error: "} {
 		line = strings.TrimPrefix(line, prefix)
 	}
 	return strings.TrimSpace(line)
 }
 
-func (e *diagnosticEvidence) remember(cause string, listing bool) {
+func (e *diagnosticEvidence) remember(cause string, operation bool) {
 	if len(cause) > diagnosticCauseBytes {
 		e.incomplete = true
 		return
 	}
-	if listing {
-		if e.listingCauses == nil {
-			e.listingCauses = map[string]bool{}
+	if operation {
+		if e.operationCauses == nil {
+			e.operationCauses = map[string]bool{}
 		}
-		if len(e.listingCauses) >= diagnosticCauseLimit && !e.listingCauses[cause] {
+		if len(e.operationCauses) >= diagnosticCauseLimit && !e.operationCauses[cause] {
 			e.incomplete = true
 			return
 		}
-		e.listingCauses[cause] = true
+		e.operationCauses[cause] = true
 		delete(e.unmatchedCauses, cause)
-	} else if !e.listingCauses[cause] {
+	} else if !e.operationCauses[cause] {
 		if e.unmatchedCauses == nil {
 			e.unmatchedCauses = map[string]bool{}
 		}
@@ -163,14 +163,25 @@ func (e *diagnosticEvidence) operational(line string) bool {
 func (e *diagnosticEvidence) add(record resticDiagnosticRecord) {
 	for _, raw := range strings.Split(record.message, "\n") {
 		line := strings.TrimSpace(resticQuotedText.ReplaceAllString(raw, `""`))
-		if line == "" || resticBackendRetry.MatchString(line) || resticBackendSuccess.MatchString(line) {
+		if line == "" || resticCacheHousekeeping(line) {
+			continue
+		}
+		if containsDiagnostic(line, "unable to refresh lock", "failed to refresh lock", "remove(<lock/") {
+			continue
+		}
+		// Cancellation changes the provenance of subsequent output. Drained
+		// workers cannot establish missing inventory or unknown errors, but
+		// concrete corruption remains evidence even if it was buffered at stop.
+		if e.cancelled {
+			e.explicitDamage = e.explicitDamage || explicitResticDamage(line)
+			continue
+		}
+		if op, ok := parseBackendDiagnostic(line); ok {
+			e.backend(op)
 			continue
 		}
 		if containsDiagnostic(line, "repository contains errors", "repository contains damaged pack files", "repository is damaged and must be repaired", "repository index is damaged and must be repaired") {
 			e.summary = true
-		}
-		if containsDiagnostic(line, "unable to refresh lock", "failed to refresh lock", "remove(<lock/") {
-			continue
 		}
 		if containsDiagnostic(line, "the repository is damaged and must be repaired", "the repository contains damaged pack files", "the repository index is damaged and must be repaired") || strings.HasPrefix(line, "restic repair packs ") || strings.HasPrefix(line, "restic repair snapshots ") || strings.HasPrefix(line, "damaged pack files can be caused by ") {
 			e.summary = true
@@ -190,19 +201,8 @@ func (e *diagnosticEvidence) add(record resticDiagnosticRecord) {
 			e.explained = e.operational(line) || e.explained
 			continue
 		}
-		if listing := resticListFailure.FindStringSubmatch(line); listing != nil {
-			if listing[1] == "data" {
-				e.inventory.packs = true
-			}
-			if listing[1] == "index" {
-				e.inventory.indexes = true
-			}
-			cause := diagnosticCause(listing[2])
-			e.remember(cause, true)
-			if !e.operational(cause) {
-				e.transport = true
-			}
-			e.explained = true
+		if legacy := resticLegacyDownload.FindStringSubmatch(line); legacy != nil {
+			e.backend(backendDiagnostic{"load(<data/legacy>)", legacy[1], "failed"})
 			continue
 		}
 		if containsDiagnostic(line, "load indexes", "load index ", "load(<index/") && containsDiagnostic(line, "failed", "error") {
@@ -229,7 +229,7 @@ func (e *diagnosticEvidence) add(record resticDiagnosticRecord) {
 			continue
 		}
 		cause := diagnosticCause(line)
-		if e.listingCauses[cause] {
+		if e.operationCauses[cause] || e.legacyFailure(cause) {
 			e.explained = true
 			continue
 		}
@@ -255,12 +255,17 @@ func (e *diagnosticEvidence) add(record resticDiagnosticRecord) {
 			e.unknown = true
 			continue
 		}
+		cause = diagnosticCause(cause)
+		if e.operationCauses[cause] || e.legacyFailure(cause) {
+			e.explained = true
+			continue
+		}
 		if e.operational(cause) {
 			e.explained = true
 			continue
 		}
-		if object {
-			e.unknown = true
+		if object && objectOperation {
+			e.remember(cause, false)
 			continue
 		}
 		if record.errorRecord || strings.HasPrefix(line, "error: ") {
@@ -270,8 +275,11 @@ func (e *diagnosticEvidence) add(record resticDiagnosticRecord) {
 }
 
 func (e *diagnosticEvidence) integrityFailure() bool {
-	return e.explicitDamage || (e.missingPack && !e.inventory.packs) || (e.missingBlob && !e.inventory.indexes)
+	inventory := e.uncertainInventory()
+	return e.explicitDamage || (e.missingPack && !inventory.packs) || (e.missingBlob && !inventory.indexes)
 }
 func (e *diagnosticEvidence) unexplainedFailure() bool {
-	return e.incomplete || e.unknown || len(e.unmatchedCauses) > 0 || (e.summary && !e.explained)
+	inventory := e.uncertainInventory()
+	ambiguousMissing := (e.missingPack && inventory.packs && !e.inventory.packs) || (e.missingBlob && inventory.indexes && !e.inventory.indexes)
+	return e.incomplete || e.unknown || ambiguousMissing || len(e.unmatchedCauses) > 0 || (e.summary && !e.explained)
 }

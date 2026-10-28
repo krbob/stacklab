@@ -103,7 +103,7 @@ func (runner nativeRunner) RunProgress(ctx context.Context, name string, args, e
 	}
 	output := progressBuffer{callback: callback}
 	cmd.Stdout = &output
-	diagnostic := diagnosticStream{observe: runner.diagnosticObserver}
+	diagnostic := diagnosticStream{observe: runner.diagnosticObserver, cancelled: func() bool { return ctx.Err() != nil }}
 	if checkWatchdog != nil {
 		diagnostic.onRecord = checkWatchdog.observe
 	}
@@ -120,7 +120,7 @@ func (runner nativeRunner) RunProgress(ctx context.Context, name string, args, e
 			if errors.As(classified, &commandErr) && (commandErr.Code == "integrity_failed" || (errors.Is(context.Cause(ctx), errCheckBackendUnavailable) && commandErr.Code == "check_inconclusive")) {
 				return nil, classified
 			}
-			if errors.Is(context.Cause(ctx), errCheckBackendUnavailable) && errors.As(classified, &commandErr) && (commandErr.Code == "permission_denied" || commandErr.Code == "credentials_rejected" || commandErr.Code == "repository_locked" || commandErr.Code == "storage_full") {
+			if errors.Is(context.Cause(ctx), errCheckBackendUnavailable) && errors.As(classified, &commandErr) && (commandErr.Code == "permission_denied" || commandErr.Code == "credentials_rejected" || commandErr.Code == "repository_locked" || commandErr.Code == "storage_full" || commandErr.Code == "repository_missing") {
 				return nil, classified
 			}
 			return nil, commandContextError(context.Cause(ctx))

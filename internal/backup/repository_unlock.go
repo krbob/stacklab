@@ -91,6 +91,16 @@ func (s *Service) unlockRepository(ctx context.Context, job store.Job, d Destina
 	for _, id := range ids {
 		output, err := s.restic(ctx, d, "", "cat", "lock", id, "--no-lock")
 		if err != nil {
+			if ctx.Err() != nil {
+				return commandContextError(context.Cause(ctx))
+			}
+			var diagnostic *repositoryCommandError
+			if errors.As(err, &diagnostic) {
+				switch diagnostic.Code {
+				case "cancelled", "timeout", "unavailable", "credentials_rejected", "permission_denied", "repository_missing":
+					return err
+				}
+			}
 			return unlockRefused("lock metadata could not be read; verify access and refresh the lock inventory")
 		}
 		var lock repositoryLock
@@ -117,7 +127,7 @@ func (s *Service) unlockRepository(ctx context.Context, job store.Job, d Destina
 	if err != nil {
 		return unlockIncomplete("remaining locks could not be verified; restore access and refresh the lock inventory")
 	}
-	s.event(ctx, job, fmt.Sprintf("Stale-lock removal completed. Remaining locks: %d. Repository integrity evidence is unchanged.", len(remaining)))
+	s.event(ctx, job, fmt.Sprintf("Ordinary unlock finished. Remaining locks: %d. Repository integrity evidence is unchanged.", len(remaining)))
 	if len(remaining) != 0 {
 		return unlockIncomplete("locks remain; inspect owners before retrying repository work")
 	}

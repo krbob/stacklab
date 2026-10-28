@@ -495,6 +495,10 @@ func (r *sftpDiagnosticRunner) Run(ctx context.Context, name string, args, env [
 	}
 	var stderr bytes.Buffer
 	runner := nativeRunner{diagnosticObserver: func(data []byte) { _, _ = stderr.Write(data) }, checkFailureBudget: 2 * time.Second}
+	if os.Getenv("STACKLAB_TEST_NATIVE_CHECK_RETRY_EXHAUSTION") == "1" {
+		runner.checkFailureBudget = checkBackendFailureTimeout
+		env = append(env, "RESTIC_FEATURES=backend-error-redesign=false")
+	}
 	output, err := runner.Run(ctx, name, args, env, dir)
 	r.diagnostic = stderr.String()
 	return output, err

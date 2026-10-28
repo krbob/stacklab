@@ -50,3 +50,24 @@ func TestUnlockDiagnosticSeparatesGuardFromExecutedUnlock(t *testing.T) {
 		})
 	}
 }
+
+func TestUnlockMetadataPreservesOperationalDiagnosis(t *testing.T) {
+	for _, code := range []string{"unavailable", "credentials_rejected", "permission_denied", "cancelled", "timeout", "repository_missing"} {
+		t.Run(code, func(t *testing.T) {
+			s, _, base := newTestService(t)
+			d := addDestination(t, s, "Unlock access")
+			r := &unlockGuardRunner{base: base, ids: []string{strings.Repeat("a", 64)}, metadataError: &repositoryCommandError{Code: code, message: "classified access failure"}}
+			s.runner = r
+			ctx := context.Background()
+			job, err := s.StartRepositoryJob(ctx, d.ID, "backup_unlock", "fixture")
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = s.ExecuteRepositoryJob(ctx, job, d.ID, "backup_unlock", CheckRequest{}, RestoreRequest{})
+			var diagnostic *repositoryCommandError
+			if !errors.As(err, &diagnostic) || diagnostic.Code != code || r.unlocks != 0 {
+				t.Fatalf("wrong preflight diagnosis or unlock executed: %v, calls=%d", err, r.unlocks)
+			}
+		})
+	}
+}

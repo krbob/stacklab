@@ -35,3 +35,15 @@ circuit-breaker errors. Expected classification: unavailable, historical proof
 retained, no new hold. The separate TCP-byte gate still covers pack-read outage.
 
 The SFTP inventory-outage transcripts include the generic damaged-repository summary and lock-removal warning. These exercise operational summary interpretation and lock-warning isolation. The native SFTP recovery tests additionally assert retained check evidence and absence of a new hold.
+
+The three `restic-0.19.1-s3-*-outage.stderr` transcripts were captured on
+2026-10-28 on macOS arm64 by `TestNativeS3TruncatedPackIsIntegrityFailure` with
+`STACKLAB_TEST_NATIVE_CHECK_RETRY_EXHAUSTION=1`. An owned TLS proxy returned real
+S3 500 InternalError responses for listing or pack GET, or closed pack bodies
+halfway through the advertised size. Restic used its ten-retry compatibility
+policy; Stacklab used the production ten-minute budget. Terminal List/Load failures
+were observed before Stacklab requested SIGINT. These are native stderr, with only
+terminal control characters removed; generated object IDs remain unchanged.
+Expected result: unavailable, previous proof retained, no new hold. The modern
+listing transcript includes actual missing-pack and snapshot-cancellation residue.
+Synthetic cancellation-boundary tests separately establish its runtime provenance.

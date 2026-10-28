@@ -13,6 +13,7 @@ type diagnosticStream struct {
 	evidence   diagnosticEvidence
 	observe    func([]byte)
 	onRecord   func(resticDiagnosticRecord)
+	cancelled  func() bool
 }
 
 func (s *diagnosticStream) Write(data []byte) (int, error) {
@@ -48,6 +49,9 @@ func (s *diagnosticStream) Write(data []byte) (int, error) {
 }
 func (s *diagnosticStream) consume(line []byte) {
 	for _, record := range parseResticDiagnostics(string(line)) {
+		if s.cancelled != nil && s.cancelled() {
+			s.evidence.cancelled = true
+		}
 		s.evidence.add(record)
 		if s.onRecord != nil {
 			s.onRecord(record)
