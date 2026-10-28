@@ -370,6 +370,14 @@ do not insert a layout-shifting message, and overview polling pauses in hidden
 browser tabs. Errors belong to the action that produced them; another review
 starts without that action's error.
 
+Prune review forces fresh evidence on opening, manual refresh and acknowledgement
+conflicts. Its input stays focusable but read-only while freshness is unresolved;
+the dialog exposes busy state and reserves space for status guidance. Background
+polling preserves typing. Changed tokens invalidate confirmation. When acknowledgement
+becomes required or ceases to be required, focus remains inside the mounted dialog
+and a specific status explains the transition. Reset guidance clears when typing
+resumes. Check dialogs explain automatic scope changes and missing backend tools.
+
 Adjacent summary and workflow panels use a consistent vertical gap, including
 both sides of Protection status and the two destination recovery steps. Warnings,
 copy metadata and action groups have their own spacing. On narrow screens, the

@@ -115,12 +115,12 @@ def main():
                     error_message = json.loads(body).get('error', {}).get('message')
                 except (ValueError, AttributeError):
                     error_message = None
-                if (req.method == 'DELETE' and error.code == 409
+                if (req.get_method() == 'DELETE' and error.code == 409
                         and error_message == 'backup configuration is in use'
                         and time.monotonic() < deadline):
                     time.sleep(0.2)
                     continue
-                raise RuntimeError(f'API {req.method} {path} returned {error.code}: {body}') from None
+                raise RuntimeError(f'API {req.get_method()} {path} returned {error.code}: {body}') from None
 
     def save_report():
         (evidence / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
@@ -395,6 +395,15 @@ def main():
         if (before_policy['paused'], before_policy['host_review_required']) != (after_policy['paused'], after_policy['host_review_required']):
             raise AssertionError('existing operator policy changed')
         report['checks'].append({'name': 'owned_fixtures_cleaned_existing_configuration_preserved', 'result': 'passed'})
+        final_identity = {
+            'source_commit': Path('/usr/lib/stacklab/metadata/commit.txt').read_text().strip(),
+            'package_version': command(['dpkg-query', '-W', '-f=${Version}', 'stacklab']),
+            'binary_sha256': checksum(Path('/usr/lib/stacklab/bin/stacklab')),
+        }
+        report['final_identity'] = final_identity
+        if any(final_identity[key] != report[key] for key in final_identity):
+            raise AssertionError('installed package identity changed during validation')
+        report['checks'].append({'name': 'installed_package_identity_unchanged', 'result': 'passed'})
         report['succeeded'] = True
     except Exception as error:
         report['error'] = str(error)

@@ -74,7 +74,7 @@ diagnostic, liveness and interaction corrections:
    total-duration limit. Preserve any corruption/unknown object evidence already seen
    when stopping. User cancellation remains distinct from automatic backend failure.
    The ten-minute budget is checked on continuing failure reports, with a new window
-   after six minutes without failures: restic 0.14 has no successful-retry record, so
+   after six minutes without failures for that operation: restic 0.14–0.15 has no successful-retry record, so
    silence cannot safely trigger cancellation. Completely silent hangs remain bounded
    by backend request timeouts and the existing overall job limit.
 4. Refresh review on opening and after a conflict/manual retry, tracking completion of

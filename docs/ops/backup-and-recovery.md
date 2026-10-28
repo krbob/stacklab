@@ -162,9 +162,12 @@ PID (including EPERM), future timestamp, malformed metadata, uncertain probe or
 foreign hostname produces `unlock_refused`. The lock list must also be unchanged
 immediately before unlock. Ownership review is bounded to 128 locks. Unreadable or
 vanished lock metadata also refuses the preflight, without declaring repository
-corruption. Jobs record the remaining lock count. `unlock_incomplete` means ordinary
+corruption. Recognized access, credential and cancellation failures retain their
+own diagnostics rather than becoming ownership refusals. Jobs record the remaining lock count. `unlock_incomplete` means ordinary
 unlock ran but locks remain or the postflight inventory could not be read; it is different
-from a preflight refusal.
+from a preflight refusal. If the unlock command itself fails, its access/cancellation
+diagnostic is retained; some locks may already have been removed. Refresh the lock
+inventory before deciding what to retry.
 
 Run Stacklab and its restic subprocesses in the host PID namespace. Do not add
 `PrivatePIDs=yes`, a private PID namespace through a wrapper, or a container with a
@@ -183,7 +186,10 @@ ordinary unlock there. If that host is permanently lost, fence it and its schedu
 clients before any manual removal. After inspecting ownership and waiting until the lock
 is at least 30 minutes old, try ordinary `restic unlock` as the service user with the
 environment below, then re-list locks. Restic can remove aged foreign-host locks even
-though the UI deliberately refuses them. An unreadable lock first requires checking
+though the UI deliberately refuses them. Ordinary CLI unlock can also remove a
+same-hostname lock of any age when its PID is absent in the CLI process namespace.
+Stop every client, including containers sharing that hostname, before manual unlock;
+waiting 30 minutes alone does not make a mismatched PID namespace safe. An unreadable lock first requires checking
 credentials, storage access and the lock bytes; do not equate unreadability with
 staleness. Preserve an independent repository copy and lock inventory. Only an
 operator who has established that **every** client is stopped may use the installed
@@ -212,16 +218,34 @@ object error or a decode error merely containing EOF. After a connection failure
 the check before prune or a retention change; the failed attempt establishes no fresh
 proof.
 
-Checks stop after terminal inventory failures or exhausted transport reads. A reported
-backend retry gets a ten-minute failure budget; successful retry of that same operation
-clears its deadline. The budget is enforced on the next failure report, rather than by a
-silence timer: restic 0.14 does not report successful retries. A gap over six minutes
-without failure reports starts a new failure window. Repeated failures within that window
-do not extend the budget. Quiet healthy checks retain the existing overall job limit; a
-completely silent hung backend still depends on its own request timeout and that overall
-limit. Cancellation allows restic five seconds for graceful cleanup before terminating its
-process group. Already observed damage or unknown object errors remain authoritative after
-an automatic failure stop.
+Checks stop after exhausted backend reads or listing failures, independently of a
+provider's wording. Explicit corruption inside a retried read remains corruption.
+A pending listing retry makes absence-based evidence uncertain until recovery or
+an exhausted cause establishes the outcome. Unrelated download failures do not
+invalidate a completed listing.
+
+| Restic version | Backend diagnostics used by Stacklab |
+| --- | --- |
+| 0.14–0.15 | Retry records and repeated terminal causes; legacy `pack … failed to download`. |
+| 0.16 | Also reports successful retries. |
+| 0.17 and newer | Also reports terminal `List/Load/Stat(…) failed:` records. |
+
+Each reported failed operation has a ten-minute budget, checked on continuing
+failure reports. Its success record clears the budget. An operation without reports
+for more than six minutes expires independently of retries on other objects; a new
+failure starts a fresh window. At most 128 operation keys are monitored at once;
+excess keys do not share a synthetic deadline. Diagnostic evidence has separate
+bounded state whose overflow conservatively prevents verification. Silence never
+triggers this monitor. Quiet healthy checks retain the overall job limit; completely
+silent backend hangs still depend on request timeouts and that limit. Restic 0.14
+can remain silent for minutes after losing SFTP access.
+
+Cancellation allows restic five seconds for cleanup before terminating its process
+group. An automatic stop preserves previously observed unexplained diagnostics and
+corruption. Later cancellation residue cannot create a hold or establish missing
+objects from interrupted inventory. Explicit corruption is retained even if emitted
+after the stop request. Recognized temporary-cache housekeeping warnings do not
+invalidate an otherwise successful check; unrelated unknown diagnostics still do.
 
 For confirmed damage, use the following preparation and choose only the repair
 matching the diagnosis. Stacklab intentionally does not automate repair.
@@ -268,11 +292,15 @@ use `--no-cache` to avoid creating a second cache. Alternatively, set
 `RESTIC_CACHE_DIR=/var/lib/stacklab/backup/cache/DESTINATION_ID` while Stacklab is
 stopped. Preserve the exact saved repository URI, including the S3 endpoint.
 
-For S3, prepare a service-owned mode-0600 **shell environment file** at
+For S3 and rclone, first create the private repair directory as in the local example.
+On a fresh host, install the saved password there and set `RESTIC_PASSWORD_FILE`
+to `/var/lib/stacklab-repair/password`. For S3, prepare a service-owned mode-0600 **shell environment file** at
 `/var/lib/stacklab-repair/s3.env` with a private editor. Do not paste real secrets
 into shell commands. Quote values using POSIX shell syntax; this trusted file is
 sourced as code. On an intact host, obtain the three AWS values from that
-destination's `credentials.json`, and the region/address from its configuration.
+destination's `credentials.json` fields `access_key_id`, `secret_access_key` and
+`session_token`. Obtain the address and region from the destination API fields
+`repository` and `region`.
 The following is the file's shape, not a command to enter with real credentials:
 
 ```sh
@@ -288,11 +316,21 @@ AWS_DEFAULT_REGION='us-east-1'
 ```
 
 Use the actual configured region, including an empty value when appropriate. Copy
-custom CA paths from the effective service environment (`/etc/stacklab/stacklab.env`);
+custom CA paths from the effective service environment (`/etc/stacklab/stacklab.env`
+and any systemd drop-ins; inspect `systemctl show stacklab -p EnvironmentFiles -p Environment`);
 `sudo` does not reliably preserve them. Keep TLS verification enabled. Execute:
 
 ```bash
 sudo -u stacklab sh -c 'set -a; . /var/lib/stacklab-repair/s3.env; set +a; exec restic --no-cache -o s3.region="$AWS_DEFAULT_REGION" check --read-data'
+```
+
+After coordinating stopped clients as described above, use the same environment
+for lock inspection and ordinary unlock:
+
+```bash
+sudo -u stacklab sh -c 'set -a; . /var/lib/stacklab-repair/s3.env; set +a; exec restic --no-cache list locks --no-lock'
+sudo -u stacklab sh -c 'set -a; . /var/lib/stacklab-repair/s3.env; set +a; exec restic --no-cache cat lock LOCK_ID --no-lock'
+sudo -u stacklab sh -c 'set -a; . /var/lib/stacklab-repair/s3.env; set +a; exec restic --no-cache unlock'
 ```
 
 AWS secrets are loaded into the subprocess environment, not its command arguments

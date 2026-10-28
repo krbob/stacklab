@@ -102,6 +102,13 @@ the independent fixture repository copy; remove it deliberately after inspection
 
 ## Installed package upgrade
 
+On a disposable VM subscribed to the Stacklab APT repository, prevent unattended
+upgrades from replacing the candidate during validation. Record
+`dpkg-query -W stacklab` before and after the exercises. Set `sudo apt-mark hold stacklab`
+after **each** manual `dpkg -i` installation, which can clear the previous hold,
+and verify it with `apt-mark showhold`. The API harness also compares installed
+commit, package version and binary hash at the beginning and end.
+
 `upgrade-installed.py` is a separate, intentionally invasive exercise for a
 disposable VM with an existing Stacklab package. It stops and upgrades the
 application and briefly replaces its backup sudoers policy with a narrow legacy
@@ -163,6 +170,10 @@ under the exact checked source SHA; backup coverage is reported, not a dedicated
 package percentage gate.
 
 ## Installed application ACL recovery
+
+Run without unrelated repository jobs: configuration changes share the existing
+global configuration lease. An HTTP 409 means admission was refused and is reported
+with its actual method and server diagnosis. This fixture does not relax that lease.
 
 `api-acl-installed.py` exercises the running application's authenticated API after
 an installed-package upgrade. Run it as a host process on a disposable VM, with
@@ -354,3 +365,35 @@ mutations are blocked; the harness's only intended mutation is revoking its own
 session. It verifies revocation using the original session, removes the credential
 file and treats logout failure as a failed run. Screenshots, result JSON, harness
 hash and source commit are private local evidence and require review before sharing.
+
+## Native retry exhaustion and diagnostic lifecycle
+
+Fast SFTP/S3 fixtures still inject a two-second failure budget to verify watchdog
+cleanup. They do not establish how restic's own retries end. Run the separate
+exhaustion mode on both restic 0.14 and the installed stable version:
+
+```bash
+STACKLAB_TEST_NATIVE_S3_CORRUPTION=1 \
+STACKLAB_TEST_NATIVE_CHECK_RETRY_EXHAUSTION=1 \
+go test -count=1 -timeout=20m -v ./internal/backup \
+  -run '^TestNativeS3TruncatedPackIsIntegrityFailure$'
+```
+
+This uses the production ten-minute Stacklab budget. Modern restic is explicitly
+run with `RESTIC_FEATURES=backend-error-redesign=false` to reach its terminal
+failure within ten retries; 0.14 already uses that retry policy. The fixture checks
+for terminal backend/object diagnostics, not just `unavailable`. It covers S3 500
+on listing and pack GET, partial responses, corruption mixed with transport, and
+healthy checks after access recovery. Rclone 1.75.2 is a fixture dependency;
+production still supports 1.60. Set `STACKLAB_TEST_DIAGNOSTIC_DIR` to an existing
+private directory to retain the three owned S3 fault transcripts. Review and
+sanitize native output before adding it to the corpus.
+
+The same exhaustion switch is available with `STACKLAB_TEST_SFTP_RECOVERY=1` for
+Linux SFTP fixtures. Observe the test timeout separately from Stacklab's budget.
+Synthetic production-runner tests exercise cancellation residue deterministically;
+a successful native run alone does not rule out those races.
+
+If a browser cannot route directly to the VM, create an SSH tunnel using an account
+with SSH access (`ssh -N -L 18080:127.0.0.1:8080 operator@test-vm`) and give the browser
+harness `--base-url http://127.0.0.1:18080`. Direct VM URLs remain valid where routable.

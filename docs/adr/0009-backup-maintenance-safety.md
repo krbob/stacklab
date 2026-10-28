@@ -18,9 +18,17 @@ freshness gating. An operational record explains itself and generic summaries; i
 cannot explain an independent object diagnostic. Unknown object evidence wins over
 transport elsewhere in the same attempt. Pure transport plus a generic damage summary
 remains an unsuccessful availability check, without creating a new integrity hold.
-Failure budgets require continuing backend failure reports: legacy restic has no
+Failure budgets require continuing backend failure reports: restic 0.14–0.15 has no
 successful-retry event, so silence cannot distinguish a recovered large check from
 a stalled one. Quiet hangs retain backend request and overall job timeouts.
+
+Amended 2026-10-28 by the eighth-review extension: track backend retry, recovery
+and terminal causes, including the minimum restic version's plain output. Incomplete
+inventory cannot prove missing objects. Retain concrete corruption inside retries
+and after cancellation, but do not promote shutdown residue to new holds or missing
+objects. Expire each inactive failure window independently, avoiding a deadline
+inherited from unrelated recovered operations. Ignore only recognized cache
+housekeeping warnings; preserve unknown repository diagnostics even on exit zero.
 
 ## Context
 
