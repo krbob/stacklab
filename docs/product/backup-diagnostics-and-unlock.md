@@ -3,6 +3,7 @@
 ## Status And Scope
 
 Implemented and validated through the seventh independent review, 2026-10-28.
+The eighth-review extension below is approved for implementation and validation.
 The [validation record](../quality/backup-validation.md#round-seven-streaming-diagnostics-and-review-interaction--2026-10-28)
 identifies native, installed and synthetic evidence and their limits.
 This extends [repository safety](backup-repository-safety.md) and
@@ -95,6 +96,53 @@ preserve the test host's package hold during validation. Record prior CI runs
 39569375858 and 39629002747 as successful. Temporary local screenshots are not retained
 release artifacts. Commit this extension before implementation, then commit focused
 changes, push and verify final-revision CI.
+
+## Eighth-Review Extension — 2026-10-28
+
+Keep the supported minimum at restic 0.14. Treat diagnostics as an operation
+lifecycle, rather than a collection of independent error phrases:
+
+1. Share parsing of backend retry, recovery and terminal records between evidence
+   classification and the failure watchdog. Track bounded, operation-specific
+   pending causes. Restic 0.14–0.15 has no retry-success record; 0.16 adds that
+   record; 0.17 adds terminal backend failure records. A repeated standalone cause
+   can establish legacy inventory failure. Missing references after an unresolved
+   inventory retry cannot prove corruption; absent a terminal cause they remain
+   inconclusive. Successful retries restore inventory confidence. Unrelated pack
+   reads never invalidate data listing. Associate terminal Load/Stat failures and
+   legacy `pack … failed to download` with their causes, preserving specific access
+   failures and independent unknown object diagnostics.
+2. Retain explicit corruption even inside retry records or after cancellation.
+   Once cancellation is observed, subsequent shutdown diagnostics cannot introduce
+   unknown-object holds or missing-reference evidence. Preserve evidence collected
+   before cancellation and distinguish manual cancellation from an automatic stop.
+   Ignore only explicitly recognized cache housekeeping warnings, never all unknown
+   errors from a process that exited successfully.
+3. Expire inactive retry entries per operation, including on versions without
+   success records. Use a six-minute quiet window per key, longer than modern
+   restic's maximum normal backoff, before starting a new ten-minute failure
+   budget. Evaluate only on failure reports; do not put a deadline on silent healthy
+   reads. Keep bounded state and conservatively handle overflow without allowing
+   obsolete entries to create a deadline for unrelated recovered operations.
+4. Keep the prune dialog mounted and focus inside it when acknowledgement becomes
+   required or ceases to be required. Explain those transitions separately from a
+   changed evidence token, clear reset guidance when typing resumes, and expose
+   initial refresh/read-only state accessibly without shifting the dialog.
+5. Preserve cancellation and access diagnoses during unlock preflight; distinguish
+   completed removal from remaining locks in events and next-step guidance. Clarify
+   ordinary CLI unlock's PID namespace risks and incomplete-operation outcomes.
+   Correct the installed harness's HTTP error reporting and verify package identity
+   both before and after exercises, including package holds after installation.
+
+Commit this extension before implementation. Verify legacy and modern diagnostic
+formats, cancellation races, mixed real damage/transport failures, recovered retries
+and focus transitions. Keep fast watchdog tests, but separately exercise actual
+restic retry exhaustion with the production budget. Retain sanitized native
+transcripts with version and scenario provenance. Run the installed Debian fixture,
+backend/race/frontend/browser/contract gates, then commit, push and verify CI.
+
+This extension does not change global configuration locking, introduce automatic
+repair, relax unknown-diagnostic holds, or raise the supported tool minimum.
 
 ## Verification And Delivery
 
