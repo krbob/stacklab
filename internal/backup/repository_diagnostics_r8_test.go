@@ -129,3 +129,15 @@ func TestCheckCacheWarningsAndUnknownSuccess(t *testing.T) {
 		})
 	}
 }
+
+func TestDiagnosticOversizedCancellationResidue(t *testing.T) {
+	stopped := false
+	stream := diagnosticStream{cancelled: func() bool { return stopped }}
+	_, _ = stream.Write([]byte("List(data) failed: EOF\n"))
+	stopped = true
+	_, _ = stream.Write([]byte(strings.Repeat("x", maxDiagnosticRecordBytes+1) + "\n"))
+	stream.finish()
+	assertEvidenceCode(t, &stream.evidence, "unavailable")
+	_, _ = stream.Write([]byte("ciphertext verification failed\n"))
+	assertEvidenceCode(t, &stream.evidence, "integrity_failed")
+}

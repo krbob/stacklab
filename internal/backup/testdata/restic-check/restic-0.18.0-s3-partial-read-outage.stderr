@@ -1,0 +1,13 @@
+Load(<data/0702206ebb>, 0, 0) returned error, retrying after 456.747895ms: Copy: unexpected EOF
+Load(<data/0702206ebb>, 0, 0) returned error, retrying after 644.217726ms: Copy: unexpected EOF
+Load(<data/0702206ebb>, 0, 0) returned error, retrying after 751.572801ms: Copy: unexpected EOF
+Load(<data/0702206ebb>, 0, 0) returned error, retrying after 2.464169741s: Copy: unexpected EOF
+Load(<data/0702206ebb>, 0, 0) returned error, retrying after 3.170385637s: Copy: unexpected EOF
+Load(<data/0702206ebb>, 0, 0) returned error, retrying after 3.946099396s: Copy: unexpected EOF
+Load(<data/0702206ebb>, 0, 0) returned error, retrying after 5.022359541s: Copy: unexpected EOF
+Load(<data/0702206ebb>, 0, 0) returned error, retrying after 9.716111629s: Copy: unexpected EOF
+Load(<data/0702206ebb>, 0, 0) returned error, retrying after 10.415690709s: Copy: unexpected EOF
+Load(<data/0702206ebb>, 0, 0) returned error, retrying after 13.49453016s: Copy: unexpected EOF
+Load(<data/0702206ebb>, 0, 0) failed: Copy: unexpected EOF
+signal interrupt received, cleaning up
+{"message_type":"exit_error","code":130,"message":"context canceled"}

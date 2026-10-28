@@ -29,7 +29,12 @@ func (s *diagnosticStream) Write(data []byte) (int, error) {
 		}
 		if !s.discarding {
 			if len(s.pending)+amount > maxDiagnosticRecordBytes {
-				s.evidence.incomplete = true
+				if s.cancelled != nil && s.cancelled() {
+					s.evidence.cancelled = true
+				}
+				if !s.evidence.cancelled {
+					s.evidence.incomplete = true
+				}
 				s.pending = nil
 				s.discarding = true
 			} else {
