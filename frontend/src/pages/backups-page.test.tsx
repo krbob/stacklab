@@ -761,10 +761,13 @@ describe('Backup round six review regressions', () => {
       expect(screen.getByRole('button', { name: 'Start cleanup' })).toBeEnabled()
       current = { ...destination }
       await act(async () => vi.advanceTimersByTimeAsync(5000))
-      expect(screen.getByRole('dialog')).toHaveTextContent('Typed confirmation was reset')
+      expect(screen.getByRole('dialog')).toHaveTextContent('acknowledgement is no longer required')
+      expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' })).toHaveFocus()
       current = { ...destination, maintenance_review_token: 'a', check_hold: { scope: 'all', error: 'Unknown repository diagnostic' } }
       await act(async () => vi.advanceTimersByTimeAsync(5000))
       expect(within(screen.getByRole('dialog')).getByRole('textbox')).toHaveValue('')
+      expect(within(screen.getByRole('dialog')).getByRole('textbox')).toHaveFocus()
+      expect(screen.getByRole('dialog')).toHaveTextContent('Cleanup now requires acknowledgement')
       expect(screen.getByRole('button', { name: 'Start cleanup' })).toBeDisabled()
       expect(api.getBackups).toHaveBeenCalledTimes(4)
     } finally { vi.useRealTimers() }

@@ -323,6 +323,46 @@ test.describe('Backup round four repository decisions', () => {
 
 test.describe('Backup review polling interaction', () => {
   for (const width of [1440, 390]) {
+    test(`keeps focus inside prune when acknowledgement changes at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 1000 })
+      await page.clock.install()
+      await mockBackupUI(page)
+      let held = true
+      await page.route('**/api/backups', route => route.fulfill({ json: {
+        destinations: [{ ...destination, maintenance_review_token: held ? 'proof-a' : '', check_hold: held ? { scope: 'all', error: 'Review repository evidence' } : undefined }], plans: [], runs: [], protection: [], helper_ready: true, helper_configured: true, restic_available: true, rclone_available: true, staging_directory: '/staging',
+      } }))
+      await page.goto('/backups?view=destinations')
+      await page.getByRole('button', { name: 'Run retention cleanup', exact: true }).click()
+      const dialog = page.getByRole('dialog')
+      const input = dialog.getByRole('textbox')
+      await expect(input).toBeEditable()
+      await input.fill('NA')
+      await page.evaluate(() => {
+        document.body.dataset.focusEscapes = '0'
+        document.addEventListener('focusin', event => {
+          if (event.target instanceof Element && !event.target.closest('[role="dialog"]')) {
+            document.body.dataset.focusEscapes = String(Number(document.body.dataset.focusEscapes) + 1)
+          }
+        })
+      })
+      held = false
+      await page.clock.runFor(5000)
+      await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
+      await expect(dialog).toContainText('acknowledgement is no longer required')
+      await expect(input).toHaveCount(0)
+      held = true
+      await page.clock.runFor(5000)
+      await expect(input).toBeFocused()
+      await expect(input).toHaveValue('')
+      await expect(dialog).toContainText('Cleanup now requires acknowledgement')
+      await expect(dialog.getByRole('button', { name: 'Start cleanup' })).toBeDisabled()
+      await input.fill('NAS')
+      await expect(dialog).not.toContainText('Cleanup now requires acknowledgement')
+      await expect(dialog.getByRole('button', { name: 'Start cleanup' })).toBeEnabled()
+      expect(await page.evaluate(() => document.body.dataset.focusEscapes)).toBe('0')
+    })
+  }
+  for (const width of [1440, 390]) {
     test(`preserves typing and focus during polling, but resets changed evidence at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 })
       await page.clock.install()
