@@ -73,6 +73,26 @@ def encoded(value):
     return yaml.safe_dump(value, sort_keys=False, allow_unicode=True).encode()
 
 
+def dashboard_for_host(assets, cfg):
+    dashboard = json.loads((assets / "stacklab-overview.json").read_text())
+    for variable in dashboard["templating"]["list"]:
+        if variable["name"] == "host":
+            variable["current"] = {"text": cfg["host_label"], "value": cfg["host_label"]}
+    for panel in dashboard["panels"]:
+        if panel.get("title") not in {"Filesystem space used", "Filesystem space used — current"}:
+            continue
+        for mountpoint, threshold in sorted(cfg["filesystem_warning_thresholds"].items()):
+            panel["fieldConfig"]["overrides"].append({
+                "matcher": {"id": "byName", "options": mountpoint},
+                "properties": [{"id": "thresholds", "value": {"mode": "absolute", "steps": [
+                    {"color": "green", "value": None},
+                    {"color": "yellow", "value": 100 * (1 - threshold)},
+                    {"color": "red", "value": 95},
+                ]}}],
+            })
+    return dashboard
+
+
 def address(value):
     parsed = urllib.parse.urlsplit("//" + value)
     if not parsed.hostname or not parsed.port or parsed.path or parsed.username:
@@ -280,10 +300,7 @@ def build_plan(cfg, assets, *, adopt=False):
     rule_files = prom.setdefault("rule_files", [])
     if not any(fnmatch.fnmatchcase(RULE_PATH, pattern) for pattern in rule_files):
         rule_files.append(RULE_PATH)
-    dashboard = json.loads((assets / "stacklab-overview.json").read_text())
-    for variable in dashboard["templating"]["list"]:
-        if variable["name"] == "host":
-            variable["current"] = {"text": cfg["host_label"], "value": cfg["host_label"]}
+    dashboard = dashboard_for_host(assets, cfg)
     files = {cfg["prometheus_config"]: encoded(prom), rule_file: encoded(rules),
              cfg["dashboard_dir"] / "Homelab/stacklab-overview.json": (json.dumps(dashboard, indent=2, ensure_ascii=False) + "\n").encode()}
     if not existing:

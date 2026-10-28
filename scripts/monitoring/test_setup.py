@@ -80,6 +80,15 @@ class SetupTests(unittest.TestCase):
         self.assertIn('< 0.15', warning)
         self.assertIn('< 0.1', warning)
         self.assertNotIn('/mnt/storage', by_name["StacklabHostFilesystemSpaceCritical"]["expr"])
+        dashboard = json.loads(files[cfg["dashboard_dir"] / "Homelab/stacklab-overview.json"])
+        capacity_panels = [p for p in dashboard["panels"] if p["title"] in {
+            "Filesystem space used", "Filesystem space used — current"}]
+        self.assertEqual(len(capacity_panels), 2)
+        for panel in capacity_panels:
+            self.assertEqual(panel["fieldConfig"]["defaults"]["thresholds"]["steps"][1]["value"], 85)
+            override, = panel["fieldConfig"]["overrides"]
+            self.assertEqual(override["matcher"], {"id": "byName", "options": "/mnt/storage"})
+            self.assertEqual([step["value"] for step in override["properties"][0]["value"]["steps"]], [None, 90, 95])
         self.persist(files)
         self.assertEqual(files, setup.build_plan(cfg, ASSETS))
         for value in [None, {"relative": 0.1}, {"/data": 0.05}, {"/data": True}, {"/data": float("nan")}, {"/data": 1}]:

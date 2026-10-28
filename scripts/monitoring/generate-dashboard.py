@@ -10,6 +10,7 @@ DATASOURCE = {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}
 HOST = 'job="node-exporter",host="$host"'
 APP = 'job="stacklab",host="$host"'
 CONTAINER = 'job="cadvisor",host="$host",image!="",container_label_com_docker_compose_project=~"$stack"'
+CONTAINER_GROUP = "host,container_label_com_docker_compose_project,name"
 panels = []
 y = 0
 
@@ -24,7 +25,7 @@ def row(title):
 def panel(title, queries, *, unit="short", kind="timeseries", x=0, width=12, height=8,
           description="", thresholds=None, maximum=None, mappings=None):
     targets = [{"refId": chr(65 + index), "expr": expr, "legendFormat": legend,
-                "range": kind == "timeseries", "instant": kind != "timeseries",
+                "range": kind in {"timeseries", "state-timeline"}, "instant": kind not in {"timeseries", "state-timeline"},
                 "datasource": DATASOURCE}
                for index, (expr, legend) in enumerate(queries)]
     defaults = {"unit": unit, "color": {"mode": "palette-classic"}, "decimals": 1,
@@ -33,11 +34,19 @@ def panel(title, queries, *, unit="short", kind="timeseries", x=0, width=12, hei
     if maximum is not None:
         defaults.update({"min": 0, "max": maximum})
     options = {"tooltip": {"mode": "multi", "sort": "desc"},
-               "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"]}}
+               "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["last", "max"]}}
     if kind == "timeseries":
         defaults["custom"] = {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1,
                               "fillOpacity": 12, "showPoints": "never", "spanNulls": False,
                               "axisLabel": "", "axisPlacement": "auto", "stacking": {"mode": "none", "group": "A"}}
+    elif kind == "state-timeline":
+        defaults.update(color={"mode": "thresholds"},
+                        custom={"lineWidth": 0, "fillOpacity": 85, "spanNulls": False},
+                        thresholds={"mode": "absolute", "steps": [{"color": "orange", "value": None}]},
+                        mappings=[{"type": "value", "options": {"1": {"text": "Firing", "color": "orange"}}}])
+        options = {"mergeValues": True, "showValue": "never", "rowHeight": 0.8,
+                   "alignValue": "center", "legend": {"showLegend": False},
+                   "tooltip": {"mode": "single", "sort": "none"}}
     else:
         defaults["color"] = {"mode": "thresholds"}
         options = {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
@@ -69,6 +78,8 @@ alerts_y = y
 y += 4
 
 row("Host — capacity & pressure")
+filesystem_summary_y = y
+y += 4
 panel("CPU utilization", [(f'100 * (1 - avg by (host) (rate(node_cpu_seconds_total{{{HOST},mode="idle"}}[$__rate_interval])))', "CPU")], unit="percent", maximum=100)
 panel("Memory utilization", [(f"100 * (1 - node_memory_MemAvailable_bytes{{{HOST}}} / node_memory_MemTotal_bytes{{{HOST}}})", "RAM")], unit="percent", maximum=100, x=12)
 y += 8
@@ -80,7 +91,9 @@ panel("Memory & swap", [(f"node_memory_MemTotal_bytes{{{HOST}}} - node_memory_Me
 y += 8
 filesystem = HOST + ',fstype!~"tmpfs|devtmpfs|overlay|squashfs|proc|sysfs|nsfs|ramfs",mountpoint!~"/run.*|/var/lib/docker.*"'
 panel("Filesystem space used", [(f"100 * (1 - node_filesystem_avail_bytes{{{filesystem}}} / node_filesystem_size_bytes{{{filesystem}}})", "{{mountpoint}}")], unit="percent", maximum=100,
-      description="Uses space available to non-root processes. Virtual and Docker overlay mounts are excluded.")
+      thresholds=[{"color": "green", "value": None}, {"color": "yellow", "value": 85}, {"color": "red", "value": 95}],
+      description="Uses space available to non-root processes. Virtual and Docker overlay mounts are excluded. Warning thresholds follow the monitoring setup's per-filesystem policy; critical is 95% used.")
+panels[-1]["fieldConfig"]["defaults"]["custom"]["thresholdsStyle"] = {"mode": "line"}
 panel("Filesystem inodes used", [(f"100 * (1 - node_filesystem_files_free{{{filesystem}}} / (node_filesystem_files{{{filesystem}}} > 0))", "{{mountpoint}}")], unit="percent", maximum=100, x=12,
       description="Filesystems without a finite inode count (for example Btrfs and FAT) are omitted.")
 y += 8
@@ -105,9 +118,10 @@ panel("OOM events in selected range", [(f"sum(increase(container_oom_events_tota
       thresholds=[{"color": "green", "value": None}, {"color": "red", "value": 1}])
 y += 4
 legend = "{{container_label_com_docker_compose_project}} / {{name}}"
-panel("CPU per container", [(f"100 * rate(container_cpu_usage_seconds_total{{{CONTAINER}}}[$__rate_interval])", legend)], unit="percent",
-      description="100% equals one fully used CPU core; multicore containers can exceed 100%.")
-panel("Working-set memory per container", [(f"container_memory_working_set_bytes{{{CONTAINER}}}", legend)], unit="bytes", x=12)
+panel("CPU per container", [(f"100 * sum by ({CONTAINER_GROUP}) (rate(container_cpu_usage_seconds_total{{{CONTAINER}}}[$__rate_interval]))", legend)], unit="percent",
+      description="100% equals one fully used CPU core; multicore containers can exceed 100%. Recreated containers are grouped by host, Compose project and container name.")
+panel("Working-set memory per container", [(f"sum by ({CONTAINER_GROUP}) (container_memory_working_set_bytes{{{CONTAINER}}})", legend)], unit="bytes", x=12,
+      description="Recreated containers are grouped by host, Compose project and container name.")
 y += 8
 network_notice_y = y
 y += 4
@@ -117,13 +131,16 @@ panel("Network receive seen by container", [(f"sum by (name,container_label_com_
 panel("Network transmit seen by container", [(f"sum by (name,container_label_com_docker_compose_project) (rate(container_network_transmit_bytes_total{{{container_network}}}[$__rate_interval]))", legend)], unit="Bps", x=12,
       description="Containers using host networking share host counters; traffic is not exclusive to each container.")
 y += 8
-panel("CPU throttled periods", [(f"100 * rate(container_cpu_cfs_throttled_periods_total{{{CONTAINER}}}[$__rate_interval]) / rate(container_cpu_cfs_periods_total{{{CONTAINER}}}[$__rate_interval])", legend)], unit="percent", maximum=100,
+panel("CPU throttled periods", [(f"100 * sum by ({CONTAINER_GROUP}) (rate(container_cpu_cfs_throttled_periods_total{{{CONTAINER}}}[$__rate_interval])) / sum by ({CONTAINER_GROUP}) (rate(container_cpu_cfs_periods_total{{{CONTAINER}}}[$__rate_interval]))", legend)], unit="percent", maximum=100,
       description="Share of CFS periods throttled. No data is expected without CPU quotas or when cAdvisor does not expose CFS counters; it does not establish zero throttling.")
 panels[-1]["fieldConfig"]["defaults"]["noValue"] = "CFS counters unavailable"
-panel("Container uptime", [(f"time() - container_start_time_seconds{{{CONTAINER}}}", legend)], unit="s", x=12)
+panel("Container uptime", [(f"time() - max by ({CONTAINER_GROUP}) (container_start_time_seconds{{{CONTAINER}}})", legend)], unit="s", x=12,
+      description="Age of the newest instance for each host, Compose project and container name. A recreation resets the line instead of creating a duplicate legend entry.")
 y += 8
 
 row("Stacklab — traffic, jobs & process")
+application_summary_y = y
+y += 4
 panel("HTTP requests & service errors", [(f"rate(stacklab_http_requests_total{{{APP}}}[$__rate_interval])", "Requests / s"),
                                        (f"rate(stacklab_http_errors_total{{{APP}}}[$__rate_interval])", "5xx / s")], unit="reqps",
       description="Prometheus scrapes are excluded. Client 4xx responses are not service errors.")
@@ -132,15 +149,17 @@ panel("HTTP response duration — p95 & mean", [(f"histogram_quantile(0.95, sum 
       description="Completed HTTP responses, excluding upgraded WebSocket connections and Prometheus scrapes. Empty when no responses complete, or before the response histogram was introduced; no fallback to WebSocket handler lifetimes.")
 y += 8
 panel("Jobs — active, completed & failed", [(f"stacklab_jobs_active{{{APP}}}", "Active"),
-                                         (f"increase(stacklab_jobs_completed_total{{{APP}}}[5m])", "Completed / 5m"),
-                                         (f"increase(stacklab_jobs_errors_total{{{APP}}}[5m])", "Failed or timed out / 5m")])
+                                         (f"increase(stacklab_jobs_completed_total{{{APP}}}[$__rate_interval])", "Completed / window"),
+                                         (f"increase(stacklab_jobs_errors_total{{{APP}}}[$__rate_interval])", "Failed or timed out / window")],
+      description="Active jobs are instantaneous. Event counts use an overlapping window that grows with the time range, so events between graph points remain visible. Windows overlap; use the selected-range totals instead of summing graph points.")
 panel("Job duration — p95 & mean", [(f"histogram_quantile(0.95, sum by (le) (rate(stacklab_job_duration_seconds_bucket{{{APP}}}[$__rate_interval])))", "p95"),
                                    (f"rate(stacklab_job_duration_seconds_sum{{{APP}}}[$__rate_interval]) / rate(stacklab_job_duration_seconds_count{{{APP}}}[$__rate_interval])", "Mean")], unit="s", x=12,
       description="Includes succeeded, failed, timed out and cancelled jobs. Empty while no jobs complete in the window.")
 y += 8
 panel("HTTP handlers & WebSocket connections", [(f"stacklab_http_requests_in_flight{{{APP}}}", "HTTP handlers (includes WS)"),
                                                (f"stacklab_websocket_connections_active{{{APP}}}", "WebSockets"),
-                                               (f"increase(stacklab_websocket_errors_total{{{APP}}}[5m])", "WS errors / 5m")])
+                                               (f"increase(stacklab_websocket_errors_total{{{APP}}}[$__rate_interval])", "WS errors / window")],
+      description="Connection counts are instantaneous. WebSocket errors use an overlapping window that grows with the time range.")
 panel("Stacklab readiness checks", [(f"stacklab_readiness_check{{{APP}}}", "{{component}}")], maximum=1, x=12)
 y += 8
 panel("Stacklab process CPU", [(f"100 * rate(process_cpu_seconds_total{{{APP}}}[$__rate_interval])", "Process CPU")], unit="percent",
@@ -161,22 +180,23 @@ panel("Active infrastructure alerts", [(f'sum(ALERTS{{{alert_selector}}}) or (0 
       kind="stat", width=6, height=4,
       thresholds=[{"color": "green", "value": None}, {"color": "red", "value": 1}],
       description="All infrastructure alerts for this host, regardless of Compose project selection. No data means the bundled rules are not loaded or Prometheus is unavailable. Notifications require an Alertmanager receiver.")
-panel("Infrastructure alert history", [(f'ALERTS{{{alert_selector}}}', "{{alertname}} {{job}} {{mountpoint}} {{name}}")],
-      x=6, width=18, height=4, maximum=1,
-      description="An empty history with a zero alert count means no firing alerts in this range. Includes exporter availability, capacity, temperatures, OOMs and Stacklab errors.")
+panel("Infrastructure alert history", [(f'max_over_time(ALERTS{{{alert_selector}}}[$__rate_interval])', "{{alertname}} · {{mountpoint}} {{device}} {{name}}")],
+      kind="state-timeline", x=6, width=18, height=4, maximum=1,
+      description="Colored intervals contain a firing evaluation within the sampling window. The window grows with the time range so brief alerts remain visible; it can extend the displayed interval. Gaps alone do not prove health. See Active infrastructure alerts for the current state.")
 panels.append({"id": len(panels) + 1, "type": "text", "title": "Reading container network traffic",
                "gridPos": {"x": 0, "y": network_notice_y, "w": 24, "h": 4},
                "options": {"mode": "markdown", "content": "These counters belong to the network namespace visible to each container. **Containers using host networking see shared host traffic; do not add their series or attribute that traffic to an individual application.** Use **Host network throughput** for host totals. Containers sharing another container’s network namespace have the same limitation."}})
 
 y = extra_y
-panel("WebSocket failures by reason", [(f"increase(stacklab_websocket_failures_total{{{APP}}}[5m])", "{{operation}} / {{reason}}")],
-      description="Unexpected failures, at most one per connection. Empty close frames (1005), normal closes, navigation, revoked sessions and intentional server shutdown are excluded. Timeouts and abrupt disconnects remain visible. Details are logged with request and connection IDs.")
+panel("WebSocket failures by reason", [(f"increase(stacklab_websocket_failures_total{{{APP}}}[$__rate_interval])", "{{operation}} / {{reason}}")],
+      description="Unexpected failures per overlapping sampling window, at most one per connection. The window grows with the time range. Normal closes, navigation, revoked sessions and intentional server shutdown are excluded. Timeouts and abrupt disconnects remain visible.")
 panel("Closed WebSocket connection duration — mean", [(f"rate(stacklab_websocket_connection_duration_seconds_sum{{{APP}}}[$__rate_interval]) / rate(stacklab_websocket_connection_duration_seconds_count{{{APP}}}[$__rate_interval])", "Mean connection lifetime")],
       unit="s", x=12, description="Connection lifetime, separate from HTTP response latency. Empty when no connections closed in the window or before this histogram was introduced.")
 y += 8
 application_alerts = 'ALERTS{stacklab_monitoring!="true",host=~"$host|",alertstate="firing"}'
-panel("Other application alert history", [(application_alerts, "{{alertname}} {{job}} {{instance}}")], x=6, width=18, maximum=1,
-      description="Firing Prometheus alerts outside the Stacklab infrastructure rules. Includes the selected host and alerts without a host label; unassigned alerts may belong to another host. This makes existing application rules visible without changing notification routing.")
+panel("Other application alert history", [(f'max_over_time({application_alerts}[$__rate_interval])', "{{alertname}} · {{job}} · {{route}} {{type}} {{instance}}")],
+      kind="state-timeline", x=6, width=18, maximum=1,
+      description="Colored intervals contain a firing evaluation within the adaptive sampling window; the interval can extend beyond the original alert. Route and type distinguish application alerts. Includes the selected host and alerts without a host label, which may belong to another host. See the separate count for the current state.")
 panel("Active other application alerts", [(f'sum({application_alerts}) or (0 * max(stacklab_monitoring_expected_target{{host="$host"}}))', "Alerts")],
       kind="stat", width=6, height=8, thresholds=[{"color": "green", "value": None}, {"color": "red", "value": 1}],
       description="Current non-infrastructure alerts for this host, plus alerts with no host label. Unassigned alerts may belong to another host. No data means the monitoring baseline is unavailable.")
@@ -234,12 +254,33 @@ y += 8
 panel("Memory & I/O pressure", [(f'100 * rate(node_pressure_{resource}_{mode}_seconds_total{{{HOST}}}[$__rate_interval])', f'{resource} / {mode}')
                                for resource in ["memory", "io"] for mode in ["waiting", "stalled"]], unit="percent", maximum=100,
       description="Linux PSI: waiting means some tasks stalled; stalled means all non-idle tasks stalled. Distinguishes contention from simple memory usage or disk throughput.")
-panel("Network errors & drops / 5m", [(f'increase(node_network_{direction}_{metric}_total{{{network}}}[5m])', '{{device}} ' + direction + ' ' + metric)
+panel("Network errors & drops / window", [(f'increase(node_network_{direction}_{metric}_total{{{network}}}[$__rate_interval])', '{{device}} ' + direction + ' ' + metric)
                                     for direction in ["receive", "transmit"] for metric in ["errs", "drop"]], x=12,
-      description="Host-interface counters. Alerts cover recurring errors; drops are shown separately because filtering and queue policy can intentionally drop packets.")
+      description="Host-interface events per overlapping window, growing with the time range so events between graph points remain visible. Alerts cover recurring errors; drops are separate because filtering and queue policy can intentionally drop packets.")
 for hardware_panel in panels[47:]:
     if "fieldConfig" in hardware_panel:
         hardware_panel["fieldConfig"]["defaults"]["noValue"] = "Unavailable / not enabled"
+
+# Fill reserved summary rows without changing existing panel IDs or saved links.
+y = application_summary_y
+for index, (title, expr, errors) in enumerate([
+    ("Jobs completed — selected range", f'increase(stacklab_jobs_completed_total{{{APP}}}[$__range])', False),
+    ("Jobs failed — selected range", f'increase(stacklab_jobs_errors_total{{{APP}}}[$__range])', True),
+    ("HTTP service errors — selected range", f'increase(stacklab_http_errors_total{{{APP}}}[$__range])', True),
+    ("WebSocket failures — selected range", f'sum(increase(stacklab_websocket_failures_total{{{APP}}}[$__range]))', True),
+]):
+    panel(title, [(expr, "Events")], kind="stat", x=index * 6, width=6, height=4,
+          thresholds=[{"color": "green", "value": None}] + ([{"color": "red", "value": 1}] if errors else []),
+          description="Estimated counter increase across the entire selected range, including counter resets. Missing data is not converted to zero.")
+    panels[-1]["fieldConfig"]["defaults"]["decimals"] = 0
+y = filesystem_summary_y
+panel("Filesystem space used — current", [(f"100 * (1 - node_filesystem_avail_bytes{{{filesystem}}} / node_filesystem_size_bytes{{{filesystem}}})", "{{mountpoint}}")],
+      kind="stat", width=12, height=4, unit="percent", maximum=100,
+      thresholds=[{"color": "green", "value": None}, {"color": "yellow", "value": 85}, {"color": "red", "value": 95}],
+      description="At the end of the selected range. Warning thresholds follow the monitoring setup's per-filesystem policy; critical is 95% used.")
+panel("Filesystem space available — current", [(f"node_filesystem_avail_bytes{{{filesystem}}}", "{{mountpoint}}")],
+      kind="stat", x=12, width=12, height=4, unit="bytes",
+      description="Space available to non-root processes at the end of the selected range. See the utilization panel for capacity warnings.")
 
 variables = [
     {"name": "DS_PROMETHEUS", "label": "Datasource", "type": "datasource", "query": "prometheus",
@@ -256,7 +297,7 @@ variables = [
 dashboard = {"id": None, "uid": "stacklab-overview", "title": "Stacklab — Host & Docker",
              "description": "Host, Docker containers, and the native Stacklab service. Select a host and optionally a Compose project.",
              "tags": ["stacklab", "homelab", "docker"], "timezone": "browser", "schemaVersion": 39,
-             "version": 1, "editable": False, "refresh": "15s", "time": {"from": "now-6h", "to": "now"},
+             "version": 1, "editable": False, "refresh": "1m", "time": {"from": "now-6h", "to": "now"},
              "timepicker": {"refresh_intervals": ["15s", "30s", "1m", "5m"]},
              "templating": {"list": variables}, "annotations": {"list": []}, "panels": panels}
 

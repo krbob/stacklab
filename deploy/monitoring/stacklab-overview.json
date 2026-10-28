@@ -12,7 +12,7 @@
   "schemaVersion": 39,
   "version": 1,
   "editable": false,
-  "refresh": "15s",
+  "refresh": "1m",
   "time": {
     "from": "now-6h",
     "to": "now"
@@ -579,7 +579,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 10,
+        "y": 14,
         "w": 12,
         "h": 8
       },
@@ -628,7 +628,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -658,7 +658,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 10,
+        "y": 14,
         "w": 12,
         "h": 8
       },
@@ -707,7 +707,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -770,7 +770,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 18,
+        "y": 22,
         "w": 12,
         "h": 8
       },
@@ -817,7 +817,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -869,7 +869,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 18,
+        "y": 22,
         "w": 12,
         "h": 8
       },
@@ -916,7 +916,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -926,7 +926,7 @@
       "id": 13,
       "type": "timeseries",
       "title": "Filesystem space used",
-      "description": "Uses space available to non-root processes. Virtual and Docker overlay mounts are excluded.",
+      "description": "Uses space available to non-root processes. Virtual and Docker overlay mounts are excluded. Warning thresholds follow the monitoring setup's per-filesystem policy; critical is 95% used.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -946,7 +946,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 26,
+        "y": 30,
         "w": 12,
         "h": 8
       },
@@ -963,6 +963,14 @@
               {
                 "color": "green",
                 "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 85
+              },
+              {
+                "color": "red",
+                "value": 95
               }
             ]
           },
@@ -981,6 +989,9 @@
             "stacking": {
               "mode": "none",
               "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "line"
             }
           }
         },
@@ -995,7 +1006,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -1025,7 +1036,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 26,
+        "y": 30,
         "w": 12,
         "h": 8
       },
@@ -1074,7 +1085,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -1115,7 +1126,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 34,
+        "y": 38,
         "w": 12,
         "h": 8
       },
@@ -1162,7 +1173,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -1203,7 +1214,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 34,
+        "y": 38,
         "w": 12,
         "h": 8
       },
@@ -1250,7 +1261,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -1280,7 +1291,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 42,
+        "y": 46,
         "w": 12,
         "h": 8
       },
@@ -1327,7 +1338,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -1357,7 +1368,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 42,
+        "y": 46,
         "w": 12,
         "h": 8
       },
@@ -1404,7 +1415,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -1418,7 +1429,7 @@
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 50,
+        "y": 54,
         "w": 24,
         "h": 1
       }
@@ -1447,7 +1458,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 51,
+        "y": 55,
         "w": 8,
         "h": 4
       },
@@ -1510,7 +1521,7 @@
       ],
       "gridPos": {
         "x": 8,
-        "y": 51,
+        "y": 55,
         "w": 8,
         "h": 4
       },
@@ -1573,7 +1584,7 @@
       ],
       "gridPos": {
         "x": 16,
-        "y": 51,
+        "y": 55,
         "w": 8,
         "h": 4
       },
@@ -1620,7 +1631,7 @@
       "id": 23,
       "type": "timeseries",
       "title": "CPU per container",
-      "description": "100% equals one fully used CPU core; multicore containers can exceed 100%.",
+      "description": "100% equals one fully used CPU core; multicore containers can exceed 100%. Recreated containers are grouped by host, Compose project and container name.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1628,7 +1639,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "100 * rate(container_cpu_usage_seconds_total{job=\"cadvisor\",host=\"$host\",image!=\"\",container_label_com_docker_compose_project=~\"$stack\"}[$__rate_interval])",
+          "expr": "100 * sum by (host,container_label_com_docker_compose_project,name) (rate(container_cpu_usage_seconds_total{job=\"cadvisor\",host=\"$host\",image!=\"\",container_label_com_docker_compose_project=~\"$stack\"}[$__rate_interval]))",
           "legendFormat": "{{container_label_com_docker_compose_project}} / {{name}}",
           "range": true,
           "instant": false,
@@ -1640,7 +1651,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 55,
+        "y": 59,
         "w": 12,
         "h": 8
       },
@@ -1687,7 +1698,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -1697,7 +1708,7 @@
       "id": 24,
       "type": "timeseries",
       "title": "Working-set memory per container",
-      "description": "",
+      "description": "Recreated containers are grouped by host, Compose project and container name.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1705,7 +1716,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "container_memory_working_set_bytes{job=\"cadvisor\",host=\"$host\",image!=\"\",container_label_com_docker_compose_project=~\"$stack\"}",
+          "expr": "sum by (host,container_label_com_docker_compose_project,name) (container_memory_working_set_bytes{job=\"cadvisor\",host=\"$host\",image!=\"\",container_label_com_docker_compose_project=~\"$stack\"})",
           "legendFormat": "{{container_label_com_docker_compose_project}} / {{name}}",
           "range": true,
           "instant": false,
@@ -1717,7 +1728,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 55,
+        "y": 59,
         "w": 12,
         "h": 8
       },
@@ -1764,7 +1775,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -1794,7 +1805,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 67,
+        "y": 71,
         "w": 12,
         "h": 8
       },
@@ -1841,7 +1852,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -1871,7 +1882,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 67,
+        "y": 71,
         "w": 12,
         "h": 8
       },
@@ -1918,7 +1929,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -1936,7 +1947,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "100 * rate(container_cpu_cfs_throttled_periods_total{job=\"cadvisor\",host=\"$host\",image!=\"\",container_label_com_docker_compose_project=~\"$stack\"}[$__rate_interval]) / rate(container_cpu_cfs_periods_total{job=\"cadvisor\",host=\"$host\",image!=\"\",container_label_com_docker_compose_project=~\"$stack\"}[$__rate_interval])",
+          "expr": "100 * sum by (host,container_label_com_docker_compose_project,name) (rate(container_cpu_cfs_throttled_periods_total{job=\"cadvisor\",host=\"$host\",image!=\"\",container_label_com_docker_compose_project=~\"$stack\"}[$__rate_interval])) / sum by (host,container_label_com_docker_compose_project,name) (rate(container_cpu_cfs_periods_total{job=\"cadvisor\",host=\"$host\",image!=\"\",container_label_com_docker_compose_project=~\"$stack\"}[$__rate_interval]))",
           "legendFormat": "{{container_label_com_docker_compose_project}} / {{name}}",
           "range": true,
           "instant": false,
@@ -1948,7 +1959,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 75,
+        "y": 79,
         "w": 12,
         "h": 8
       },
@@ -1998,7 +2009,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -2008,7 +2019,7 @@
       "id": 28,
       "type": "timeseries",
       "title": "Container uptime",
-      "description": "",
+      "description": "Age of the newest instance for each host, Compose project and container name. A recreation resets the line instead of creating a duplicate legend entry.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -2016,7 +2027,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "time() - container_start_time_seconds{job=\"cadvisor\",host=\"$host\",image!=\"\",container_label_com_docker_compose_project=~\"$stack\"}",
+          "expr": "time() - max by (host,container_label_com_docker_compose_project,name) (container_start_time_seconds{job=\"cadvisor\",host=\"$host\",image!=\"\",container_label_com_docker_compose_project=~\"$stack\"})",
           "legendFormat": "{{container_label_com_docker_compose_project}} / {{name}}",
           "range": true,
           "instant": false,
@@ -2028,7 +2039,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 75,
+        "y": 79,
         "w": 12,
         "h": 8
       },
@@ -2075,7 +2086,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -2089,7 +2100,7 @@
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 83,
+        "y": 87,
         "w": 24,
         "h": 1
       }
@@ -2129,7 +2140,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 84,
+        "y": 92,
         "w": 12,
         "h": 8
       },
@@ -2176,7 +2187,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -2217,7 +2228,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 84,
+        "y": 92,
         "w": 12,
         "h": 8
       },
@@ -2264,7 +2275,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -2274,7 +2285,7 @@
       "id": 32,
       "type": "timeseries",
       "title": "Jobs — active, completed & failed",
-      "description": "",
+      "description": "Active jobs are instantaneous. Event counts use an overlapping window that grows with the time range, so events between graph points remain visible. Windows overlap; use the selected-range totals instead of summing graph points.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -2293,8 +2304,8 @@
         },
         {
           "refId": "B",
-          "expr": "increase(stacklab_jobs_completed_total{job=\"stacklab\",host=\"$host\"}[5m])",
-          "legendFormat": "Completed / 5m",
+          "expr": "increase(stacklab_jobs_completed_total{job=\"stacklab\",host=\"$host\"}[$__rate_interval])",
+          "legendFormat": "Completed / window",
           "range": true,
           "instant": false,
           "datasource": {
@@ -2304,8 +2315,8 @@
         },
         {
           "refId": "C",
-          "expr": "increase(stacklab_jobs_errors_total{job=\"stacklab\",host=\"$host\"}[5m])",
-          "legendFormat": "Failed or timed out / 5m",
+          "expr": "increase(stacklab_jobs_errors_total{job=\"stacklab\",host=\"$host\"}[$__rate_interval])",
+          "legendFormat": "Failed or timed out / window",
           "range": true,
           "instant": false,
           "datasource": {
@@ -2316,7 +2327,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 92,
+        "y": 100,
         "w": 12,
         "h": 8
       },
@@ -2363,7 +2374,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -2404,7 +2415,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 92,
+        "y": 100,
         "w": 12,
         "h": 8
       },
@@ -2451,7 +2462,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -2461,7 +2472,7 @@
       "id": 34,
       "type": "timeseries",
       "title": "HTTP handlers & WebSocket connections",
-      "description": "",
+      "description": "Connection counts are instantaneous. WebSocket errors use an overlapping window that grows with the time range.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -2491,8 +2502,8 @@
         },
         {
           "refId": "C",
-          "expr": "increase(stacklab_websocket_errors_total{job=\"stacklab\",host=\"$host\"}[5m])",
-          "legendFormat": "WS errors / 5m",
+          "expr": "increase(stacklab_websocket_errors_total{job=\"stacklab\",host=\"$host\"}[$__rate_interval])",
+          "legendFormat": "WS errors / window",
           "range": true,
           "instant": false,
           "datasource": {
@@ -2503,7 +2514,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 100,
+        "y": 108,
         "w": 12,
         "h": 8
       },
@@ -2550,7 +2561,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -2580,7 +2591,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 100,
+        "y": 108,
         "w": 12,
         "h": 8
       },
@@ -2629,7 +2640,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -2659,7 +2670,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 108,
+        "y": 116,
         "w": 12,
         "h": 8
       },
@@ -2706,7 +2717,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -2758,7 +2769,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 108,
+        "y": 116,
         "w": 12,
         "h": 8
       },
@@ -2805,7 +2816,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -2846,7 +2857,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 116,
+        "y": 124,
         "w": 12,
         "h": 8
       },
@@ -2893,7 +2904,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -2923,7 +2934,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 116,
+        "y": 124,
         "w": 12,
         "h": 8
       },
@@ -2970,7 +2981,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -3045,9 +3056,9 @@
     },
     {
       "id": 41,
-      "type": "timeseries",
+      "type": "state-timeline",
       "title": "Infrastructure alert history",
-      "description": "An empty history with a zero alert count means no firing alerts in this range. Includes exporter availability, capacity, temperatures, OOMs and Stacklab errors.",
+      "description": "Colored intervals contain a firing evaluation within the sampling window. The window grows with the time range so brief alerts remain visible; it can extend the displayed interval. Gaps alone do not prove health. See Active infrastructure alerts for the current state.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -3055,8 +3066,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "ALERTS{stacklab_monitoring=\"true\",host=\"$host\",alertstate=\"firing\"}",
-          "legendFormat": "{{alertname}} {{job}} {{mountpoint}} {{name}}",
+          "expr": "max_over_time(ALERTS{stacklab_monitoring=\"true\",host=\"$host\",alertstate=\"firing\"}[$__rate_interval])",
+          "legendFormat": "{{alertname}} · {{mountpoint}} {{device}} {{name}}",
           "range": true,
           "instant": false,
           "datasource": {
@@ -3075,50 +3086,50 @@
         "defaults": {
           "unit": "short",
           "color": {
-            "mode": "palette-classic"
+            "mode": "thresholds"
           },
           "decimals": 1,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "orange",
                 "value": null
               }
             ]
           },
-          "mappings": [],
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "Firing",
+                  "color": "orange"
+                }
+              }
+            }
+          ],
           "min": 0,
           "max": 1,
           "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "fillOpacity": 12,
-            "showPoints": "never",
-            "spanNulls": false,
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
+            "lineWidth": 0,
+            "fillOpacity": 85,
+            "spanNulls": false
           }
         },
         "overrides": []
       },
       "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        },
+        "mergeValues": true,
+        "showValue": "never",
+        "rowHeight": 0.8,
+        "alignValue": "center",
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull",
-            "max"
-          ]
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
         }
       }
     },
@@ -3128,7 +3139,7 @@
       "title": "Reading container network traffic",
       "gridPos": {
         "x": 0,
-        "y": 63,
+        "y": 67,
         "w": 24,
         "h": 4
       },
@@ -3141,7 +3152,7 @@
       "id": 43,
       "type": "timeseries",
       "title": "WebSocket failures by reason",
-      "description": "Unexpected failures, at most one per connection. Empty close frames (1005), normal closes, navigation, revoked sessions and intentional server shutdown are excluded. Timeouts and abrupt disconnects remain visible. Details are logged with request and connection IDs.",
+      "description": "Unexpected failures per overlapping sampling window, at most one per connection. The window grows with the time range. Normal closes, navigation, revoked sessions and intentional server shutdown are excluded. Timeouts and abrupt disconnects remain visible.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -3149,7 +3160,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "increase(stacklab_websocket_failures_total{job=\"stacklab\",host=\"$host\"}[5m])",
+          "expr": "increase(stacklab_websocket_failures_total{job=\"stacklab\",host=\"$host\"}[$__rate_interval])",
           "legendFormat": "{{operation}} / {{reason}}",
           "range": true,
           "instant": false,
@@ -3161,7 +3172,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 124,
+        "y": 132,
         "w": 12,
         "h": 8
       },
@@ -3208,7 +3219,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -3238,7 +3249,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 124,
+        "y": 132,
         "w": 12,
         "h": 8
       },
@@ -3285,7 +3296,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -3293,9 +3304,9 @@
     },
     {
       "id": 45,
-      "type": "timeseries",
+      "type": "state-timeline",
       "title": "Other application alert history",
-      "description": "Firing Prometheus alerts outside the Stacklab infrastructure rules. Includes the selected host and alerts without a host label; unassigned alerts may belong to another host. This makes existing application rules visible without changing notification routing.",
+      "description": "Colored intervals contain a firing evaluation within the adaptive sampling window; the interval can extend beyond the original alert. Route and type distinguish application alerts. Includes the selected host and alerts without a host label, which may belong to another host. See the separate count for the current state.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -3303,8 +3314,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "ALERTS{stacklab_monitoring!=\"true\",host=~\"$host|\",alertstate=\"firing\"}",
-          "legendFormat": "{{alertname}} {{job}} {{instance}}",
+          "expr": "max_over_time(ALERTS{stacklab_monitoring!=\"true\",host=~\"$host|\",alertstate=\"firing\"}[$__rate_interval])",
+          "legendFormat": "{{alertname}} · {{job}} · {{route}} {{type}} {{instance}}",
           "range": true,
           "instant": false,
           "datasource": {
@@ -3315,7 +3326,7 @@
       ],
       "gridPos": {
         "x": 6,
-        "y": 132,
+        "y": 140,
         "w": 18,
         "h": 8
       },
@@ -3323,50 +3334,50 @@
         "defaults": {
           "unit": "short",
           "color": {
-            "mode": "palette-classic"
+            "mode": "thresholds"
           },
           "decimals": 1,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "orange",
                 "value": null
               }
             ]
           },
-          "mappings": [],
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "Firing",
+                  "color": "orange"
+                }
+              }
+            }
+          ],
           "min": 0,
           "max": 1,
           "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "fillOpacity": 12,
-            "showPoints": "never",
-            "spanNulls": false,
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
+            "lineWidth": 0,
+            "fillOpacity": 85,
+            "spanNulls": false
           }
         },
         "overrides": []
       },
       "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        },
+        "mergeValues": true,
+        "showValue": "never",
+        "rowHeight": 0.8,
+        "alignValue": "center",
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull",
-            "max"
-          ]
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
         }
       }
     },
@@ -3394,7 +3405,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 132,
+        "y": 140,
         "w": 6,
         "h": 8
       },
@@ -3445,7 +3456,7 @@
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 140,
+        "y": 148,
         "w": 24,
         "h": 1
       }
@@ -3474,7 +3485,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 141,
+        "y": 149,
         "w": 8,
         "h": 4
       },
@@ -3556,7 +3567,7 @@
       ],
       "gridPos": {
         "x": 8,
-        "y": 141,
+        "y": 149,
         "w": 8,
         "h": 4
       },
@@ -3628,7 +3639,7 @@
       ],
       "gridPos": {
         "x": 16,
-        "y": 141,
+        "y": 149,
         "w": 8,
         "h": 4
       },
@@ -3710,7 +3721,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 145,
+        "y": 153,
         "w": 12,
         "h": 8
       },
@@ -3758,7 +3769,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -3788,7 +3799,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 145,
+        "y": 153,
         "w": 12,
         "h": 8
       },
@@ -3836,7 +3847,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -3866,7 +3877,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 153,
+        "y": 161,
         "w": 12,
         "h": 6
       },
@@ -3941,7 +3952,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 153,
+        "y": 161,
         "w": 12,
         "h": 6
       },
@@ -3989,7 +4000,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -4041,7 +4052,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 159,
+        "y": 167,
         "w": 12,
         "h": 8
       },
@@ -4089,7 +4100,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -4119,7 +4130,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 159,
+        "y": 167,
         "w": 12,
         "h": 8
       },
@@ -4167,7 +4178,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -4197,7 +4208,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 167,
+        "y": 175,
         "w": 12,
         "h": 5
       },
@@ -4265,7 +4276,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 167,
+        "y": 175,
         "w": 12,
         "h": 5
       },
@@ -4313,7 +4324,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -4343,7 +4354,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 172,
+        "y": 180,
         "w": 12,
         "h": 8
       },
@@ -4391,7 +4402,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -4432,7 +4443,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 172,
+        "y": 180,
         "w": 12,
         "h": 8
       },
@@ -4480,7 +4491,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -4494,7 +4505,7 @@
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 180,
+        "y": 188,
         "w": 24,
         "h": 1
       }
@@ -4523,7 +4534,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 181,
+        "y": 189,
         "w": 12,
         "h": 8
       },
@@ -4571,7 +4582,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -4612,7 +4623,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 181,
+        "y": 189,
         "w": 12,
         "h": 8
       },
@@ -4660,7 +4671,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -4723,7 +4734,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 189,
+        "y": 197,
         "w": 12,
         "h": 8
       },
@@ -4773,7 +4784,7 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
@@ -4782,8 +4793,8 @@
     {
       "id": 65,
       "type": "timeseries",
-      "title": "Network errors & drops / 5m",
-      "description": "Host-interface counters. Alerts cover recurring errors; drops are shown separately because filtering and queue policy can intentionally drop packets.",
+      "title": "Network errors & drops / window",
+      "description": "Host-interface events per overlapping window, growing with the time range so events between graph points remain visible. Alerts cover recurring errors; drops are separate because filtering and queue policy can intentionally drop packets.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -4791,7 +4802,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "increase(node_network_receive_errs_total{job=\"node-exporter\",host=\"$host\",device!~\"lo|veth.*|docker.*|br-.*\"}[5m])",
+          "expr": "increase(node_network_receive_errs_total{job=\"node-exporter\",host=\"$host\",device!~\"lo|veth.*|docker.*|br-.*\"}[$__rate_interval])",
           "legendFormat": "{{device}} receive errs",
           "range": true,
           "instant": false,
@@ -4802,7 +4813,7 @@
         },
         {
           "refId": "B",
-          "expr": "increase(node_network_receive_drop_total{job=\"node-exporter\",host=\"$host\",device!~\"lo|veth.*|docker.*|br-.*\"}[5m])",
+          "expr": "increase(node_network_receive_drop_total{job=\"node-exporter\",host=\"$host\",device!~\"lo|veth.*|docker.*|br-.*\"}[$__rate_interval])",
           "legendFormat": "{{device}} receive drop",
           "range": true,
           "instant": false,
@@ -4813,7 +4824,7 @@
         },
         {
           "refId": "C",
-          "expr": "increase(node_network_transmit_errs_total{job=\"node-exporter\",host=\"$host\",device!~\"lo|veth.*|docker.*|br-.*\"}[5m])",
+          "expr": "increase(node_network_transmit_errs_total{job=\"node-exporter\",host=\"$host\",device!~\"lo|veth.*|docker.*|br-.*\"}[$__rate_interval])",
           "legendFormat": "{{device}} transmit errs",
           "range": true,
           "instant": false,
@@ -4824,7 +4835,7 @@
         },
         {
           "refId": "D",
-          "expr": "increase(node_network_transmit_drop_total{job=\"node-exporter\",host=\"$host\",device!~\"lo|veth.*|docker.*|br-.*\"}[5m])",
+          "expr": "increase(node_network_transmit_drop_total{job=\"node-exporter\",host=\"$host\",device!~\"lo|veth.*|docker.*|br-.*\"}[$__rate_interval])",
           "legendFormat": "{{device}} transmit drop",
           "range": true,
           "instant": false,
@@ -4836,7 +4847,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 189,
+        "y": 197,
         "w": 12,
         "h": 8
       },
@@ -4884,10 +4895,410 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
           ]
         }
+      }
+    },
+    {
+      "id": 66,
+      "type": "stat",
+      "title": "Jobs completed — selected range",
+      "description": "Estimated counter increase across the entire selected range, including counter resets. Missing data is not converted to zero.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "increase(stacklab_jobs_completed_total{job=\"stacklab\",host=\"$host\"}[$__range])",
+          "legendFormat": "Events",
+          "range": false,
+          "instant": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 88,
+        "w": 6,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 67,
+      "type": "stat",
+      "title": "Jobs failed — selected range",
+      "description": "Estimated counter increase across the entire selected range, including counter resets. Missing data is not converted to zero.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "increase(stacklab_jobs_errors_total{job=\"stacklab\",host=\"$host\"}[$__range])",
+          "legendFormat": "Events",
+          "range": false,
+          "instant": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 6,
+        "y": 88,
+        "w": 6,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 68,
+      "type": "stat",
+      "title": "HTTP service errors — selected range",
+      "description": "Estimated counter increase across the entire selected range, including counter resets. Missing data is not converted to zero.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "increase(stacklab_http_errors_total{job=\"stacklab\",host=\"$host\"}[$__range])",
+          "legendFormat": "Events",
+          "range": false,
+          "instant": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 88,
+        "w": 6,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 69,
+      "type": "stat",
+      "title": "WebSocket failures — selected range",
+      "description": "Estimated counter increase across the entire selected range, including counter resets. Missing data is not converted to zero.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(stacklab_websocket_failures_total{job=\"stacklab\",host=\"$host\"}[$__range]))",
+          "legendFormat": "Events",
+          "range": false,
+          "instant": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 18,
+        "y": 88,
+        "w": 6,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 70,
+      "type": "stat",
+      "title": "Filesystem space used — current",
+      "description": "At the end of the selected range. Warning thresholds follow the monitoring setup's per-filesystem policy; critical is 95% used.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 * (1 - node_filesystem_avail_bytes{job=\"node-exporter\",host=\"$host\",fstype!~\"tmpfs|devtmpfs|overlay|squashfs|proc|sysfs|nsfs|ramfs\",mountpoint!~\"/run.*|/var/lib/docker.*\"} / node_filesystem_size_bytes{job=\"node-exporter\",host=\"$host\",fstype!~\"tmpfs|devtmpfs|overlay|squashfs|proc|sysfs|nsfs|ramfs\",mountpoint!~\"/run.*|/var/lib/docker.*\"})",
+          "legendFormat": "{{mountpoint}}",
+          "range": false,
+          "instant": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 12,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 85
+              },
+              {
+                "color": "red",
+                "value": 95
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 71,
+      "type": "stat",
+      "title": "Filesystem space available — current",
+      "description": "Space available to non-root processes at the end of the selected range. See the utilization panel for capacity warnings.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "node_filesystem_avail_bytes{job=\"node-exporter\",host=\"$host\",fstype!~\"tmpfs|devtmpfs|overlay|squashfs|proc|sysfs|nsfs|ramfs\",mountpoint!~\"/run.*|/var/lib/docker.*\"}",
+          "legendFormat": "{{mountpoint}}",
+          "range": false,
+          "instant": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 10,
+        "w": 12,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
       }
     }
   ]

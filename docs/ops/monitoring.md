@@ -16,6 +16,15 @@ filter Docker series by Compose project. Existing dashboards and data sources
 can be kept. The default Prometheus datasource UID is `prometheus`; a datasource
 selector permits another instance.
 
+The dashboard refreshes every minute. Job, WebSocket and network event charts
+use adaptive overlapping windows, so short events remain visible when viewing
+a week or more. Use the selected-range summary cards for totals; do not add
+overlapping graph points. Container CPU, memory, throttling and uptime series
+group recreated instances by host, Compose project and container name.
+Alert timelines show firing evaluations within the adaptive sampling window;
+their colored intervals can extend beyond an alert's actual duration. The
+separate active-alert cards show the state at the end of the selected range.
+
 ## Repeatable Setup From A Release Or Git
 
 [setup.py](../../scripts/monitoring/setup.py) configures monitoring on a local,
@@ -213,6 +222,9 @@ For a filesystem with an intentionally smaller free-space reserve, setup accepts
 ratios greater than `0.05` and below `1`. Unlisted mounts retain the 15% warning;
 the 5% critical threshold and inode/read-only protection remain unchanged. Keep
 this setting in the setup JSON so subsequent setup runs preserve the policy.
+Setup also applies these warning overrides to the filesystem utilization graph
+and current utilization cards, keeping their thresholds aligned with the rules.
+The free-space card shows the available bytes beside the utilization cards.
 
 Temperature checks ignore readings outside 0–150°C. Missing optional hardware or
 OOM metrics do not establish a healthy value. Exporter availability is not a
