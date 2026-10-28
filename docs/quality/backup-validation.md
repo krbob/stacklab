@@ -26,6 +26,67 @@ file modes and Linux file capabilities are rejected; shared set-group-ID
 directories remain supported. Restore preview rejects paths outside managed or explicitly approved
 roots before stopping any service.
 
+## Round-Eight Operation Lifecycle And Compatibility — 2026-10-28
+
+The approved contract preceded implementation (`f139605`). Operation lifecycle and
+cancellation evidence are implemented in `f659cf9`; modal acknowledgement transitions
+in `ad3effe`; operator guidance and installed harness corrections in `08781f4`.
+Native minimum-version evidence led to the additional legacy tree-read correction
+in `2adb3a1`. The final production revision `ec77d69` also prevents oversized
+shutdown residue from introducing a new hold and retains stable-version transcripts.
+
+| Area | Evidence |
+| --- | --- |
+| Diagnostic lifecycle | Plain and JSON regressions cover unresolved/recovered listing, legacy repeated causes, terminal Load/Stat/ReadFull, legacy pack download wrappers, independent unknown objects, explicit corruption inside retries, and provider wording. Unknown diagnostics still block verification even with exit zero; only recognized cache housekeeping is ignored. |
+| Cancellation and bounds | Production-runner fixtures emit partial-read, HTTP, snapshot and missing-pack residue after SIGINT. Automatic and manual cancellation preserve their distinct outcomes; prior unknown evidence and prior/buffered corruption are tested separately. Oversized post-stop output cannot create a hold. Focused race checks pass, including the final oversized-record regression (23.379 s). |
+| Native S3 minimum | Restic 0.14.0 on disposable Debian arm64: full `TestNativeS3TruncatedPackIsIntegrityFailure` passes in 487.98 s. Listing 500: unavailable after 88.37 s; partial body: unavailable after 94.28 s; pack GET 500: unavailable after 189.87 s. No new holds or erased proof. Real pack truncation mixed with transport remains integrity failure; restoring bytes and checking recovers. |
+| Native S3 stable/current | Same complete fixture passes with Debian restic 0.18.0 (310.88 s) and local macOS restic 0.19.1 (341.75 s). Real TLS proxy faults cover listing, partial body and pack GET. Nine retained native transcripts identify versions and provenance, including the original failing legacy ReadFull case. |
+| Native SFTP | Production-runner OPENDIR and pack-read gates, real sshd interruption and encrypted-pack truncation. Restic 0.14.0 pack/inventory tests pass in 116.03/284.43 s; 0.18.0 in 84.31/85.56 s. Fresh locks are refused, aged stale locks are removed, healthy full checks recover, and real damage blocks deletion. |
+| Backend quality | Full package coverage passes all floors (global 72.0%, HTTP API 54.0%). Full backup/jobs/notifications race suite passes (206.042/5.304/2.340 s); focused lifecycle/corpus/cancellation race run after the native-read refinement passes in 30.266 s. Final backup suite passes in 185.092 s. Formatting, vet and repository hygiene checks pass. |
+| Frontend | 679/679 unit tests, typecheck, lint, build and asset checks pass. Chromium backup suite: 14/14, including acknowledgement appearing/disappearing at 1440 and 390 px, no focus events outside the dialog, token resets and delayed polling. |
+| Installed API | Final package validation checks repository initialization, capture, stale-lock removal, isolated/full/selected restore, reviewed apply with ACL/xattr/hardlink preservation, current-evidence prune, native index repair as the service user and recovery after repair. Package identity is compared before/after. Final package: 13/13 assertions across 14 jobs; two intentional corruption checks fail as expected. |
+| Installed browser | Real packaged UI/API, desktop/mobile and SSH loopback access. Final package: 22 assertions, 17 screenshots, no page errors or failed assets; session revoked. Four explicit skips: missing-helper state, held protection, system-caused pause, and selected-destination hold. Failure acknowledgement is covered by existing failed-integrity evidence; dynamic hold transitions have maintained browser fixtures. |
+
+The final installed Debian package is `2026.10.0~review8fix2`, source
+`ec77d69f3e1d880c8dd0b2f6537e17315129c8c5`. Both the API harness and browser ran
+against this package; the API's final commit/version/binary hash matched its initial
+identity. SHA256:
+
+- Debian package: `85017c0ae5ad783bd4e2e657328621e909d2aa537c52b2641a647e98ccaa6db2`.
+- Installed backend: `30ef4be7c2f89e5c90512e16a452a828323742a582bd2117c81f85bb3e5e66ef`.
+- Native Linux test binary with terminal-read assertion: `bec30320963c849331ad9424cd49d33d368cba877006badf02dabb20c6c5628e`.
+
+Native exhaustion runs use the production ten-minute Stacklab budget. For modern
+restic, the fixture explicitly selects `RESTIC_FEATURES=backend-error-redesign=false`
+to reach terminal diagnostics using its ten-retry compatibility policy. Restic 0.14
+already uses that policy. These runs establish terminal-output interpretation;
+they are not new ten-minute wall-clock outage tests under modern default retries.
+The independent watchdog regressions verify continuous failures and per-operation
+quiet expiry. Native runs exercise the operation model in `2adb3a1`; the final
+oversized-output refinement is covered by deterministic race tests and installed
+final-package validation. Full final-revision checks also run in required CI.
+
+Early fixture failures are retained as evidence, not counted as passes: the first
+legacy S3 GET run exposed the ReadFull wrapper; exhaustion-mode SFTP initially hit
+the fixture's old 45-second wait; context-free corpus replay lost the production
+cancellation boundary. Each was corrected and rerun successfully. Direct terminal
+control characters are removed from saved stderr; no diagnostic wording is invented.
+
+The test host keeps its system restic 0.18.0 and rclone unchanged; older restic and
+fixture rclone 1.75.2 are selected through private test PATHs. Existing backup policy
+and destinations are preserved, and each owned fixture cleans its repositories and
+containers. Manual package installation can clear the APT hold; it is restored and
+verified after installation. API/browser sessions are revoked and browser auth files
+removed. Local logs/screenshots are private temporary evidence, not published CI
+artifacts. The final delivery message identifies the validation-only commit and its
+required CI run.
+
+Retained boundaries: no global configuration-concurrency redesign, automatic repair,
+forced unlock or raised restic minimum. Entirely silent backend hangs still depend
+on backend request/overall job timeouts. Diagnostic state and individual records
+remain bounded; an oversized record before cancellation is inconclusive and may
+not retain every concrete error embedded in that record.
+
 ## Round-Seven Streaming Diagnostics And Review Interaction — 2026-10-28
 
 The seventh-review extension was committed before implementation (`078dec1`).

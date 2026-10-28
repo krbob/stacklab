@@ -2,9 +2,8 @@
 
 ## Status And Scope
 
-Implemented and validated through the seventh independent review, 2026-10-28.
-The eighth-review extension below is approved for implementation and validation.
-The [validation record](../quality/backup-validation.md#round-seven-streaming-diagnostics-and-review-interaction--2026-10-28)
+Implemented and validated through the eighth-review corrective scope, 2026-10-28.
+The [validation record](../quality/backup-validation.md#round-eight-operation-lifecycle-and-compatibility--2026-10-28)
 identifies native, installed and synthetic evidence and their limits.
 This extends [repository safety](backup-repository-safety.md) and
 [ADR 0009](../adr/0009-backup-maintenance-safety.md). Existing scoped evidence,
