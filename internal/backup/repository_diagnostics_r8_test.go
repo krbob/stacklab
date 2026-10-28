@@ -28,6 +28,7 @@ func TestDiagnosticOperationLifecycle(t *testing.T) {
 		{"cause before Load", "pack aaaaaaaa contains 1 errors: [download error: provider failure]\nLoad(<data/aaaaaaaa>, 0, 0) failed: provider failure", "unavailable"},
 		{"provider Stat", "Stat(<data/aaaaaaaa>) failed: provider failure\nerror: provider failure", "unavailable"},
 		{"legacy repeated Load cause", "Load(<data/aaaaaaaa>, 0, 0) returned error, retrying after 1s: provider failure\ndownload error: provider failure", "unavailable"},
+		{"legacy tree ReadFull", "Load(<data/aaaaaaaa>, 0, 0) returned error, retrying after 1s: provider failure\nerror for tree aaaaaaaa:\n  ReadFull(<data/aaaaaaaa>): provider failure\npack aaaaaaaa failed to download: StreamPack: provider failure", "unavailable"},
 		{"unknown independent of Load", "Load(<data/aaaaaaaa>, 0, 0) failed: provider failure\npack bbbbbbbb contains 1 errors: [unsupported structure]", "check_inconclusive"},
 		{"unknown decoding despite Load cause", "Load(<data/aaaaaaaa>, 0, 0) failed: EOF\nerror for tree aaaaaaaa:\n  node \"timeout\": decode failed: EOF", "check_inconclusive"},
 		{"retry corruption", "Load(<data/aaaaaaaa>, 0, 0) returned error, retrying after 1s: overlapping blobs in pack\ncontext canceled", "integrity_failed"},

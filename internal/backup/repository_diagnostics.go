@@ -111,7 +111,7 @@ type diagnosticEvidence struct {
 }
 
 func diagnosticCause(line string) string {
-	for _, prefix := range []string{"error: ", "partial download error: ", "download error: "} {
+	for _, prefix := range []string{"error: ", "partial download error: ", "download error: ", "streampack: "} {
 		line = strings.TrimPrefix(line, prefix)
 	}
 	return strings.TrimSpace(line)

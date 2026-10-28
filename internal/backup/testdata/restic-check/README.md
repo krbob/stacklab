@@ -47,3 +47,12 @@ terminal control characters removed; generated object IDs remain unchanged.
 Expected result: unavailable, previous proof retained, no new hold. The modern
 listing transcript includes actual missing-pack and snapshot-cancellation residue.
 Synthetic cancellation-boundary tests separately establish its runtime provenance.
+
+The three `restic-0.14.0-s3-*-outage.stderr` files were captured on Debian 13
+arm64 with the explicitly selected restic 0.14.0 binary and the same isolated
+fixture/production budget. Listing and partial-read transcripts came from passing
+checks; pack-read stderr came from the first failing regression run and is retained
+unchanged apart from terminal-control removal. It exposed the legacy tree
+`ReadFull(<data/…>): cause` wrapper before `pack … failed to download: StreamPack: cause`.
+The corpus replays the production watchdog's stop boundary for all S3 transcripts;
+otherwise post-SIGINT output would incorrectly lose its cancellation provenance.

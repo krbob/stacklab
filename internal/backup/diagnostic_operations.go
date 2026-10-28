@@ -11,6 +11,7 @@ var resticBackendRetry = regexp.MustCompile(`^((?:list|load|stat|save|remove)\(.
 var resticBackendSuccess = regexp.MustCompile(`^((?:list|load|stat|save|remove)\(.+\)) operation successful after [0-9]+ retries$`)
 var resticBackendTerminal = regexp.MustCompile(`^((?:list|load|stat)\(.+\)) failed: (.+)$`)
 var resticLegacyDownload = regexp.MustCompile(`^pack [a-f0-9]{8,64} failed to download: (.+)$`)
+var resticReadFullFailure = regexp.MustCompile(`^readfull\((<[^>]+>)\): (.+)$`)
 
 type backendDiagnostic struct {
 	key, cause, phase string
@@ -25,6 +26,9 @@ func parseBackendDiagnostic(line string) (backendDiagnostic, bool) {
 	}
 	if match := resticBackendTerminal.FindStringSubmatch(line); match != nil {
 		return backendDiagnostic{match[1], match[2], "failed"}, true
+	}
+	if match := resticReadFullFailure.FindStringSubmatch(line); match != nil {
+		return backendDiagnostic{"load(" + match[1] + ")", match[2], "failed"}, true
 	}
 	return backendDiagnostic{}, false
 }

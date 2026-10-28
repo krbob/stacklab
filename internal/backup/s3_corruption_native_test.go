@@ -219,7 +219,11 @@ func TestNativeS3TruncatedPackIsIntegrityFailure(t *testing.T) {
 		t.Logf("native S3 fault mode=%d requests=%d stopped in %s: %s\n%s", mode, faultHits.Load(), time.Since(started), d.LastCheckAttemptError, diagnostics.String())
 		if exhaustRetries {
 			text := strings.ToLower(diagnostics.String())
-			if !strings.Contains(text, " failed:") && !strings.Contains(text, "failed to download:") && !strings.Contains(text, "does not exist") {
+			terminal := strings.Contains(text, " failed:") || strings.Contains(text, "failed to download:") || strings.Contains(text, "does not exist")
+			for _, line := range strings.Split(text, "\n") {
+				terminal = terminal || resticReadFullFailure.MatchString(strings.TrimSpace(line))
+			}
+			if !terminal {
 				t.Fatal("retry-exhaustion fixture did not reach terminal backend/object diagnostics")
 			}
 		}

@@ -31,6 +31,19 @@ func TestRepositoryCheckNativeDiagnosticCorpus(t *testing.T) {
 			if strings.Contains(file, "-outage") {
 				expected = "unavailable"
 			}
+			if strings.Contains(file, "-s3-") {
+				// These transcripts include output drained after the production
+				// watchdog's SIGINT. Replay its cancellation boundary as well as
+				// the bytes; a context-free replay loses that provenance.
+				ctx, cancel := context.WithCancelCause(context.Background())
+				defer cancel(nil)
+				watchdog := newCheckFailureWatchdog(checkBackendFailureTimeout, cancel)
+				stream := diagnosticStream{cancelled: func() bool { return ctx.Err() != nil }, onRecord: watchdog.observe}
+				_, _ = stream.Write(diagnostic)
+				stream.finish()
+				assertEvidenceCode(t, &stream.evidence, expected)
+				return
+			}
 			assertDiagnosticCode(t, string(diagnostic), expected)
 		})
 	}

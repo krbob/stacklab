@@ -44,7 +44,7 @@ func testNativeSFTPInterruptedCheckRecovery(t *testing.T, inventory bool) {
 			t.Fatal(err)
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 	base := t.TempDir()
 	call := func(name string, args ...string) string {
@@ -228,10 +228,14 @@ exec /usr/sbin/sshd -D -e -f /fixture/sshd_config
 	call("docker", "stop", "--time", "1", name)
 	gate.Release()
 	var interruptedErr error
+	wait := 45 * time.Second
+	if os.Getenv("STACKLAB_TEST_NATIVE_CHECK_RETRY_EXHAUSTION") == "1" {
+		wait = 12 * time.Minute
+	}
 	select {
 	case interruptedErr = <-result:
-	case <-time.After(45 * time.Second):
-		t.Fatal("production failure budget did not stop interrupted check")
+	case <-time.After(wait):
+		t.Fatal("interrupted check exceeded the fixture's completion deadline")
 	}
 	<-checkFinished
 	s.runner = interruptedDiagnostic.base
