@@ -30,6 +30,17 @@ objects. Expire each inactive failure window independently, avoiding a deadline
 inherited from unrelated recovered operations. Ignore only recognized cache
 housekeeping warnings; preserve unknown repository diagnostics even on exit zero.
 
+Amended 2026-10-30 by the ninth-review corrections: check phase progression can
+resolve pending inventory retries, but quiet time alone cannot. Unknown plain
+diagnostics remain evidence on exit zero. Service shutdown is a cancellation
+boundary; concrete damage survives, while shutdown residue cannot create a hold.
+
+The approved tenth-review correction plan adds command/object context, separates
+known operational housekeeping from integrity, and closes the tarball service
+migration gap. It retains fresh-lock refusal, including restic 0.14's upstream
+lock-creation cancellation limitation. Automatic removal would require a separate
+ownership design stronger than PID/hostname/time matching.
+
 ## Context
 
 A historical successful check is useful proof, but cannot authorize deletion after

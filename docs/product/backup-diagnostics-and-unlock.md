@@ -3,6 +3,7 @@
 ## Status And Scope
 
 Implemented and validated through the ninth-review corrective scope, 2026-10-30.
+The tenth-review correction plan below is approved and awaiting implementation.
 The [validation record](../quality/backup-validation.md#round-nine-evidence-shutdown-and-review-corrections--2026-10-30)
 identifies native, installed and synthetic evidence and their limits.
 This extends [repository safety](backup-repository-safety.md) and
@@ -69,7 +70,8 @@ diagnostic, liveness and interaction corrections:
    SIGINT/graceful cleanup and bounded SIGKILL fallback.
 3. Stop a check after a terminal inventory failure or exhausted backend access, instead
    of retrying every remaining pack for hours. Use a bounded sustained-failure budget
-   that successful progress can reset; a healthy large check must not inherit a short
+   that recovery of that operation can reset (refined by the eighth-review per-key
+   watchdog rule and ninth-review evidence rule); a healthy large check must not inherit a short
    total-duration limit. Preserve any corruption/unknown object evidence already seen
    when stopping. User cancellation remains distinct from automatic backend failure.
    The ten-minute budget is checked on continuing failure reports, with a new window
@@ -118,12 +120,14 @@ lifecycle, rather than a collection of independent error phrases:
    before cancellation and distinguish manual cancellation from an automatic stop.
    Ignore only explicitly recognized cache housekeeping warnings, never all unknown
    errors from a process that exited successfully.
-3. Expire inactive retry entries per operation, including on versions without
+3. Expire inactive watchdog windows per operation, including on versions without
    success records. Use a six-minute quiet window per key, longer than modern
    restic's maximum normal backoff, before starting a new ten-minute failure
    budget. Evaluate only on failure reports; do not put a deadline on silent healthy
    reads. Keep bounded state and conservatively handle overflow without allowing
    obsolete entries to create a deadline for unrelated recovered operations.
+   This is a liveness rule only: the ninth-review phase rule supersedes any use of
+   quiet expiry to infer successful inventory or discard diagnostic evidence.
 4. Keep the prune dialog mounted and focus inside it when acknowledgement becomes
    required or ceases to be required. Explain those transitions separately from a
    changed evidence token, clear reset guidance when typing resumes, and expose
@@ -180,6 +184,50 @@ Global configuration-lease redesign remains separate roadmap work. Correct the
 monitoring alert legend separately and locally exclude private review inputs.
 Commit this plan first, deliver focused implementation commits, run targeted and
 full quality gates plus installed Linux validation, then push and verify final CI.
+
+## Tenth-Review Correction Plan — 2026-10-30
+
+Approved. Preserve the minimum restic 0.14 version, conservative unknown-diagnostic
+holds, scoped integrity evidence and the 30-minute unlock guard.
+
+1. Carry command context into diagnostic interpretation. Vanished lock metadata
+   means `unlock_refused` only during `cat lock` preflight. During ordinary lock
+   acquisition it must not hide independent damage, unknown evidence or access
+   failures, or prematurely stop a healthy check. Recognize native local, S3,
+   SFTP and REST/rclone missing-object formats. Missing data remains uncertain;
+   it must not become an availability failure merely because the backend differs.
+2. Retire pending legacy index retries when data listing begins, which proves
+   index loading completed. Preserve terminal failures and unknown evidence;
+   identical later provider errors must not retroactively invalidate an index.
+3. Separate recognized cache and lock-cleanup diagnostics from data integrity.
+   Retain fixed, credential-free operational warnings where cleanup fails, without
+   forcing a repeat full-data check. Recognize narrowly justified rclone notices,
+   not every NOTICE/INFO or every line from a successful process. Unknown repository
+   diagnostics still create a hold on exit zero. Preserve diagnostic records after
+   newline-free warnings, including concatenated JSON; never discard their suffix.
+4. Migrate existing tarball services to mixed termination through a script-owned
+   systemd drop-in, preserving the operator's unit. Reload and verify the effective
+   setting before restart, including upgrades without `--install-unit`. Exercise
+   an old unit and preserve custom settings. Document the migration and stop budget.
+5. Document restic 0.14's early lock-creation cancellation window and recommend a
+   validated newer version (0.18 in the installed evidence). Keep fresh-lock refusal:
+   PID, hostname, UID and a timestamp alone do not prove ownership across restarts
+   and namespaces. No automatic fresh-lock removal or forced unlock is introduced.
+   Extend interruption tests to that phase and distinguish this upstream limitation
+   from a regression in Stacklab's normal cleanup path.
+6. Stabilize the no-hold cleanup dialog across refresh/pending states, explain name
+   changes accurately, and warn about versions below the supported minimum. Update
+   screen specifications, diagnostic/409 guidance and source provenance. Global
+   configuration reservations and stack access enforcement remain deferred.
+7. Strengthen installed interruption checks: require `cancelled`, inspect the actual
+   child command, preserve the initial APT hold, and cover upgrade from a pre-fix
+   service. Retain native rclone/cache and vanished-lock fixtures alongside synthetic
+   mixed-diagnostic tests. Run backend/race, frontend/browser, release-smoke and
+   documentation gates; identify which cases were run on the disposable VM.
+
+Commit this plan before code. Deliver focused implementation commits and an exact
+validation record, push the final revision and verify its CI. Private review inputs
+and test-host credentials remain outside Git.
 
 ## Verification And Delivery
 
