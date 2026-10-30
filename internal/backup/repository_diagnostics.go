@@ -8,6 +8,7 @@ import (
 )
 
 var resticTerminalControl = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~])?`)
+var resticLockDetail = regexp.MustCompile(`^(?:lock was created at [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} \([^ ]+ ago\)|storage id [a-f0-9]{8,64})$`)
 var resticSignal = regexp.MustCompile(`^signal (?:interrupt|terminated) received, cleaning up$`)
 var resticSnapshotFailure = regexp.MustCompile(`^(?:error: )?failed to load snapshot ([a-f0-9]{8,64}): (.+)$`)
 
@@ -174,6 +175,9 @@ func (e *diagnosticEvidence) add(record resticDiagnosticRecord) {
 			continue
 		}
 		if containsDiagnostic(line, "unable to refresh lock", "failed to refresh lock", "remove(<lock/") {
+			continue
+		}
+		if e.locked && (resticLockDetail.MatchString(line) || line == "the `unlock` command can be used to remove stale locks") {
 			continue
 		}
 		if resticSignal.MatchString(line) {

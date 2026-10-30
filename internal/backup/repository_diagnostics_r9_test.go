@@ -26,6 +26,8 @@ func TestDiagnosticPhaseAndObjectProvenance(t *testing.T) {
 		{"short tree read", "ReadFull(<data/aaaaaaaa>): file is too short: readFull: unexpected EOF", "integrity_failed"},
 		{"unknown bare pack error survives transport", "pack header parse failed: unsupported format\nLoad(<data/bbbbbbbb>, 0, 0) failed: EOF\nFatal: repository contains errors", "check_inconclusive"},
 		{"lock saving is housekeeping", "Save(<lock/aaaaaaaa>) failed: EOF\nLoad(<data/bbbbbbbb>, 0, 0) failed: EOF", "unavailable"},
+		{"legacy lock details", "repository is already locked exclusively by PID 321 on fixture by fixture (UID 1000, GID 1000)\nlock was created at 2026-10-30 10:00:00 (2m1.3s ago)\nstorage ID aaaaaaaa\nthe `unlock` command can be used to remove stale locks", "repository_locked"},
+		{"unknown beside lock", "repository is already locked exclusively by PID 321\nunsupported lock contents", "check_inconclusive"},
 		{"vanished lock", "Load(<lock/aaaaaaaa>, 0, 0) failed: open /repo/locks/aaaaaaaa: no such file or directory", "unlock_refused"},
 		{"vanished data is uncertain", "Load(<data/aaaaaaaa>, 0, 0) failed: open /repo/data/aaaaaaaa: no such file or directory", "check_inconclusive"},
 	} {
