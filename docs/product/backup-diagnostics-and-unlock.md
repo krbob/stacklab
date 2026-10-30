@@ -143,6 +143,43 @@ backend/race/frontend/browser/contract gates, then commit, push and verify CI.
 This extension does not change global configuration locking, introduce automatic
 repair, relax unknown-diagnostic holds, or raise the supported tool minimum.
 
+## Ninth-Review Correction Plan — 2026-10-30
+
+Accepted for implementation. Preserve the restic 0.14 minimum and the distinction
+between availability, integrity evidence, check holds and operation outcomes.
+
+1. Preserve damage before interpreting backend wrappers. Associate legacy retry
+   failures with their operation and check phase; later snapshot failures must
+   not invalidate earlier missing-pack evidence. Unknown plain-text diagnostics
+   remain conservative. Do not broadly normalize unrelated provider messages into
+   one cause or use quiet-time expiry as proof of successful inventory.
+2. Separate bounded retry correlation from retained diagnostic evidence. A healthy
+   legacy check with more than 128 recovered operations must not create a hold
+   merely because correlation bookkeeping filled up. Actual lost/uninterpretable
+   diagnostic evidence must still prevent verification.
+3. Begin worker cancellation before waiting for HTTP drain. Use systemd mixed
+   termination so restic can clean up through a live SSH transport; retain bounded
+   process-group escalation. Recognize restic's explicit signal boundary and
+   cancellation exit while preserving prior damage. Validate real restart and
+   package upgrade during SFTP checks without relaxing the fresh-lock guard.
+4. Distinguish vanished lock metadata from unavailable storage during unlock
+   preflight. Keep access/cancellation diagnoses and refuse uncertain ownership;
+   report an uninterpretable unlock outcome as incomplete, not as a failed check.
+5. Merge field descriptions, keep status regions mounted, and retain the prune
+   dialog across HTTP 409. Keep focus inside during pending requests and evidence
+   transitions. Reset confirmation when evidence changes, while keeping the reason
+   visible until the operator completes the new confirmation. Verify desktop,
+   narrow mobile, accessible descriptions and focus events.
+6. Expose the detected restic version and actionable legacy limitations. Document
+   outcome-to-action guidance, background inventory configuration conflicts and
+   transcript provenance. Preserve measured wall-clock times: native S3 request
+   retries are additional to the retry delays printed by restic.
+
+Global configuration-lease redesign remains separate roadmap work. Correct the
+monitoring alert legend separately and locally exclude private review inputs.
+Commit this plan first, deliver focused implementation commits, run targeted and
+full quality gates plus installed Linux validation, then push and verify final CI.
+
 ## Verification And Delivery
 
 Commit this contract before implementation. Add regressions for JSON record boundaries,
