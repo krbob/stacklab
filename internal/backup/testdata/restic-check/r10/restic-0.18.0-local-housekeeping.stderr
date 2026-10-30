@@ -1,0 +1,3 @@
+unable to create cache directory /tmp/TestNativeCheckHousekeepinglocal1415879848/001/state/backup/cache/dst_234d5b4bfc0785401bfbe295e9954203, disabling cache: mkdir /tmp/TestNativeCheckHousekeepinglocal1415879848/001/state/backup/cache/dst_234d5b4bfc0785401bfbe295e9954203: not a directory
+unable to open cache: mkdir /tmp/TestNativeCheckHousekeepinglocal1415879848/001/state/backup/cache/dst_234d5b4bfc0785401bfbe295e9954203: not a directory
+unable to open cache: mkdir /tmp/TestNativeCheckHousekeepinglocal1415879848/001/state/backup/cache/dst_234d5b4bfc0785401bfbe295e9954203: not a directory

@@ -1,0 +1,3 @@
+Load(<lock/eeeeeeeeee>, 0, 0) failed: open /tmp/TestNativeCheckHousekeepinglocal1415879848/002/repository/locks/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee: no such file or directory
+Load(<lock/eeeeeeeeee>, 0, 0) failed: open /tmp/TestNativeCheckHousekeepinglocal1415879848/002/repository/locks/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee: no such file or directory
+{"message_type":"exit_error","code":1,"message":"open /tmp/TestNativeCheckHousekeepinglocal1415879848/002/repository/locks/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee: no such file or directory"}

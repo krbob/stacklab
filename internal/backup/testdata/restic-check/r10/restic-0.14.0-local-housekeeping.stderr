@@ -1,0 +1,3 @@
+unable to create temporary directory for cache during check, disabling cache: mkdir /tmp/TestNativeCheckHousekeepinglocal3463740679/001/state/backup/cache/dst_4860eeecd259f96cc8923a6db2f8eff7/restic-check-cache-4124546325: not a directory
+unable to open cache: mkdir /tmp/TestNativeCheckHousekeepinglocal3463740679/001/state/backup/cache/dst_4860eeecd259f96cc8923a6db2f8eff7: not a directory
+unable to open cache: mkdir /tmp/TestNativeCheckHousekeepinglocal3463740679/001/state/backup/cache/dst_4860eeecd259f96cc8923a6db2f8eff7: not a directory

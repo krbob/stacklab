@@ -1,0 +1,3 @@
+rclone: 2026/10/30 10:08:55 NOTICE: snapshots/zz-fixture-link: Can't follow symlink without -L/--copy-links
+rclone: 2026/10/30 10:08:56 NOTICE: snapshots/zz-fixture-link: Can't follow symlink without -L/--copy-links
+rclone: 2026/10/30 10:08:56 NOTICE: snapshots/zz-fixture-link: Can't follow symlink without -L/--copy-links

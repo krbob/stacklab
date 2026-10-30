@@ -2,13 +2,39 @@ package backup
 
 import (
 	"context"
+	"embed"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+//go:embed testdata/restic-check/r10/*.stderr
+var r10NativeDiagnostics embed.FS
+
+func TestNativeRoundTenDiagnosticCorpus(t *testing.T) {
+	files, err := fs.Glob(r10NativeDiagnostics, "testdata/restic-check/r10/*.stderr")
+	if err != nil || len(files) != 10 {
+		t.Fatalf("native corpus: %v, %v", files, err)
+	}
+	for _, file := range files {
+		t.Run(filepath.Base(file), func(t *testing.T) {
+			data, err := r10NativeDiagnostics.ReadFile(file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			args, exit, code := []string{"check"}, "0", ""
+			if strings.Contains(file, "missing-lock") {
+				args, exit, code = []string{"cat", "lock"}, "1", "unlock_refused"
+			}
+			err, _ = runR10Diagnostic(t, args, string(data), exit)
+			assertR10Outcome(t, err, code)
+		})
+	}
+}
 
 func TestLockDiagnosticsRespectCommandAndEvidence(t *testing.T) {
 	for _, cause := range []string{
