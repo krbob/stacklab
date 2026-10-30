@@ -53,13 +53,8 @@ func inventoryOperation(key string) bool {
 // Retry correlation is expendable; diagnostic evidence is not. Keep inventory
 // ambiguity separately even if bounded correlation entries must be evicted.
 func (e *diagnosticEvidence) retainRetry(op backendDiagnostic) {
-	if op.key == "list(data)" {
-		e.pendingInventory.packs = true
-	}
-	if op.key == "list(index)" || strings.HasPrefix(op.key, "load(<index/") {
-		e.pendingInventory.indexes = true
-	}
 	if len(op.key) > diagnosticCauseBytes || len(op.cause) > diagnosticCauseBytes {
+		e.retainUntrackedInventory(op.key)
 		return
 	}
 	if e.pendingOperations == nil {
@@ -74,10 +69,20 @@ func (e *diagnosticEvidence) retainRetry(op backendDiagnostic) {
 				oldest, sequence = key, entry.sequence
 			}
 		}
+		e.retainUntrackedInventory(oldest)
 		delete(e.pendingOperations, oldest)
 	}
 	e.retrySequence++
 	e.pendingOperations[op.key] = pendingDiagnostic{op.cause, e.retrySequence}
+}
+
+func (e *diagnosticEvidence) retainUntrackedInventory(key string) {
+	if key == "list(data)" {
+		e.pendingInventory.packs = true
+	}
+	if key == "list(index)" || strings.HasPrefix(key, "load(<index/") {
+		e.pendingInventory.indexes = true
+	}
 }
 
 // Pack diagnostics follow completion of listing; snapshot/tree/data reads follow
@@ -109,9 +114,6 @@ func (e *diagnosticEvidence) backend(op backendDiagnostic) {
 		delete(e.pendingOperations, op.key)
 		if op.key == "list(data)" {
 			e.pendingInventory.packs = false
-		}
-		if op.key == "list(index)" {
-			e.pendingInventory.indexes = false
 		}
 		return
 	}
@@ -165,10 +167,15 @@ func (e *diagnosticEvidence) legacyFailure(cause string) bool {
 }
 
 func (e *diagnosticEvidence) uncertainInventory() resticInventoryFailure {
-	return resticInventoryFailure{
+	result := resticInventoryFailure{
 		packs:   e.inventory.packs || e.pendingInventory.packs,
 		indexes: e.inventory.indexes || e.pendingInventory.indexes,
 	}
+	for key := range e.pendingOperations {
+		result.packs = result.packs || key == "list(data)"
+		result.indexes = result.indexes || key == "list(index)" || strings.HasPrefix(key, "load(<index/")
+	}
+	return result
 }
 
 // Legacy listing errors are emitted before pack diagnostics. Associate only an

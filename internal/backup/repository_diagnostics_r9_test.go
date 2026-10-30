@@ -21,6 +21,7 @@ func TestDiagnosticPhaseAndObjectProvenance(t *testing.T) {
 		{"unknown changed listing cause stays uncertain", "List(data) returned error, retrying after 1s: provider error A\nprovider error B\npack aaaaaaaa: does not exist", "check_inconclusive"},
 		{"listing cause changes", "List(data) returned error, retrying after 1s: connection reset by peer\nEOF\npack aaaaaaaa: does not exist", "unavailable"},
 		{"legacy snapshot wrapper", "Load(<snapshot/aaaaaaaa>, 0, 0) returned error, retrying after 1s: provider failure\nerror: failed to load snapshot aaaaaaaa: provider failure\nFatal: repository contains errors", "unavailable"},
+		{"recovered index read", "Load(<index/aaaaaaaa>, 0, 0) returned error, retrying after 1s: EOF\nLoad(<index/aaaaaaaa>, 0, 0) operation successful after 1 retries\nid aaaaaaaa not found in repository", "integrity_failed"},
 		{"short load", "Load(<data/aaaaaaaa>, 123, 0) failed: file is too short: readFull: unexpected EOF", "integrity_failed"},
 		{"short tree read", "ReadFull(<data/aaaaaaaa>): file is too short: readFull: unexpected EOF", "integrity_failed"},
 		{"unknown bare pack error survives transport", "pack header parse failed: unsupported format\nLoad(<data/bbbbbbbb>, 0, 0) failed: EOF\nFatal: repository contains errors", "check_inconclusive"},
