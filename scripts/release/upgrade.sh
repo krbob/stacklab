@@ -447,14 +447,11 @@ main() {
   install -d -m 0700 "${data_dir}"
   install -d -o root -g root -m 0700 /var/lib/stacklab-backup-helper
 
-  log "Installing release ${release_name} into ${install_dir}"
-  cp -R "${artifact_root}" "${install_dir}"
-
   if [[ "${install_unit}" -eq 1 ]]; then
     log "Installing systemd template files if missing"
     ensure_service_account "${service_user}" "${service_group}" "${stacklab_root}" "${app_root}" "${data_dir}"
-    install_env_file "${install_dir}/systemd/stacklab.env.example" "${env_path}" "${stacklab_root}" "${data_dir}"
-    install_service_unit "${install_dir}/systemd/stacklab.service.example" "${unit_path}"
+    install_env_file "${artifact_root}/systemd/stacklab.env.example" "${env_path}" "${stacklab_root}" "${data_dir}"
+    install_service_unit "${artifact_root}/systemd/stacklab.service.example" "${unit_path}"
   fi
   # Existing installations also need this migration when --install-unit is absent.
   # Verify before switching the release symlink or stopping the old process.
@@ -462,6 +459,9 @@ main() {
   if [[ "${install_unit}" -eq 1 ]]; then
     systemctl enable "${service_name}" >/dev/null 2>&1 || true
   fi
+  # A policy conflict must not leave an incomplete release that prevents retry.
+  log "Installing release ${release_name} into ${install_dir}"
+  cp -R "${artifact_root}" "${install_dir}"
   secure_runtime_file_modes "${stacklab_root}" "${data_dir}" "${env_path}" "${service_user}" "${service_group}"
 
   if [[ -L "${current_link}" || -e "${current_link}" ]]; then

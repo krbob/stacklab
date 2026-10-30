@@ -274,6 +274,10 @@ EOF
       fi
       test "$(readlink -f /opt/stacklab/app/current)" = "${release_c}"
       test "$(grep -c "^restart stacklab$" /var/tmp/stacklab-systemctl.log)" = "${restart_count}"
+      test ! -e /opt/stacklab/app/releases/stacklab-upgrade-e
+      "${artifact_a}/host-tools/upgrade.sh" --no-health-check /tmp/release-assets/stacklab-upgrade-e.tar.gz
+      test "$(readlink -f /opt/stacklab/app/current)" = /opt/stacklab/app/releases/stacklab-upgrade-e
+      cmp /etc/systemd/system/stacklab.service /tmp/operator-unit
     '
 }
 
