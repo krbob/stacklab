@@ -40,6 +40,7 @@ import { PlanEditor } from './backups/plan-editor'
 import { RecoveryWorkspace } from './backups/recovery-workspace'
 import { ProtectionDashboard } from './backups/protection-dashboard'
 import { RunHistory } from './backups/run-history'
+import { ResticVersion } from './backups/restic-version'
 import { RunPlanDialog } from './backups/run-plan-dialog'
 import { scheduleDescription } from './backups/schedule-utils'
 import { SourceLabel } from './backups/source-label'
@@ -284,10 +285,7 @@ export function BackupsPage() {
                 Restic is unavailable on this host. Install the supported backup tools before running backups.
               </p>
             )}
-            {data.restic_available && <p className="text-xs leading-5 text-[var(--muted)]">
-              Restic {data.restic_version || 'version unknown'}.
-              {data.restic_version && /^0\.(14|15|16)\./.test(data.restic_version) && ' This version provides limited retry diagnostics. If checks remain inconclusive, preserve existing copies, inspect the native check output and consider upgrading restic before repeating the required check.'}
-            </p>}
+            {data.restic_available && <ResticVersion version={data.restic_version} />}
             {data.helper_ready === false && (
               <p role={data.helper_configured === false ? 'status' : 'alert'} className="rounded-md border border-[var(--warning)]/30 p-3 text-sm text-[var(--warning)]">
                 {data.helper_configured === false

@@ -340,6 +340,43 @@ test.describe('Backup round four repository decisions', () => {
 
 test.describe('Backup review polling interaction', () => {
   for (const width of [1440, 390, 320]) {
+    test(`keeps no-hold cleanup controls stable at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 })
+      await mockBackupUI(page)
+      await page.goto('/backups?view=destinations')
+      await expect(page.getByRole('button', { name: 'Run retention cleanup', exact: true })).toBeVisible()
+      let releaseRefresh!: () => void
+      const refreshing = new Promise<void>(resolve => { releaseRefresh = resolve })
+      await page.route('**/api/backups', async route => {
+        await refreshing
+        await route.fulfill({ json: { destinations: [destination], plans: [], runs: [], protection: [], restic_available: true, helper_ready: true, rclone_available: true } })
+      })
+      await page.getByRole('button', { name: 'Run retention cleanup', exact: true }).click()
+      const dialog = page.getByRole('dialog')
+      const cancel = dialog.getByRole('button', { name: 'Cancel', exact: true })
+      await expect(dialog.getByRole('status')).toContainText('Refreshing')
+      const position = await cancel.boundingBox()
+      const size = await dialog.boundingBox()
+      releaseRefresh()
+      await expect(dialog.getByRole('button', { name: 'Start cleanup', exact: true })).toBeEnabled()
+      expect((await cancel.boundingBox())?.y).toBe(position?.y)
+      expect((await dialog.boundingBox())?.height).toBe(size?.height)
+      let releaseSubmit!: () => void
+      const submitting = new Promise<void>(resolve => { releaseSubmit = resolve })
+      await page.route('**/api/backups/destinations/nas/prune', async route => {
+        await submitting
+        await route.fulfill({ status: 409, json: { error: { message: 'Repository busy' } } })
+      })
+      await dialog.getByRole('button', { name: 'Start cleanup', exact: true }).click()
+      await expect(dialog.getByRole('status')).toContainText('Starting cleanup')
+      expect((await cancel.boundingBox())?.y).toBe(position?.y)
+      expect((await dialog.boundingBox())?.height).toBe(size?.height)
+      await page.screenshot({ path: test.info().outputPath(`prune-no-hold-${width}.png`) })
+      releaseSubmit()
+      await expect(dialog).toContainText('Repository busy')
+    })
+  }
+  for (const width of [1440, 390, 320]) {
     test(`keeps focus inside prune when acknowledgement changes at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 1000 })
       await page.clock.install()

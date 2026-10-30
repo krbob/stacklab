@@ -42,3 +42,12 @@ it('retains focus on the panel while the focused submit and cancel controls are 
   expect(screen.getByRole('dialog')).toHaveFocus()
   expect(screen.getByRole('status')).toHaveTextContent('Starting cleanup')
 })
+
+it('explains a destination rename without claiming repository evidence changed', () => {
+  const { rerender } = render(<PruneReviewDialog {...callbacks} destination={destination} />)
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'NAS' } })
+  rerender(<PruneReviewDialog {...callbacks} destination={{ ...destination, name: 'Archive' }} />)
+  expect(screen.getByRole('textbox')).toHaveValue('')
+  expect(screen.getByRole('textbox')).toHaveAccessibleDescription(/Destination name changed/)
+  expect(screen.getByRole('status')).not.toHaveTextContent('Repository evidence changed')
+})

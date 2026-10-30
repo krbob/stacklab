@@ -5,6 +5,10 @@ import { BackupDate, BackupError, BackupStatus, buttonClass, Field, inputClass, 
 import { checkScopeLabel, requiredCheckScope } from './repository-evidence'
 import { CheckHoldWarning } from './check-hold-warning'
 
+const refreshNotice = 'Refreshing repository evidence. Cleanup is disabled until this finishes.'
+const resetNotice = 'Repository evidence changed. Typed confirmation was reset; review the current evidence before confirming again.'
+const clearNotice = 'Repository evidence is now clear; acknowledgement is no longer required.'
+
 // Bind the typed confirmation to the evidence fingerprint without remounting
 // the dialog: changed evidence clears the field and explains the reset.
 export function PruneReviewDialog({ destination, revision = 0, pending, refreshing, refreshFailed, error, onCancel, onConfirm, onRefresh }: {
@@ -35,9 +39,11 @@ export function PruneReviewDialog({ destination, revision = 0, pending, refreshi
     if (previousRequirement !== requiresAcknowledgement) {
       setEvidenceNotice(requiresAcknowledgement
         ? 'Cleanup now requires acknowledgement of new repository evidence.'
-        : 'Repository evidence is now clear; acknowledgement is no longer required.')
+        : clearNotice)
     } else if (confirmation !== '') {
-      setEvidenceNotice('Repository evidence changed. Typed confirmation was reset; review the current evidence before confirming again.')
+      setEvidenceNotice(previousName !== destination.name
+        ? 'Destination name changed. Typed confirmation was reset; enter the current name before confirming again.'
+        : resetNotice)
     }
   }
   const textRef = useRef<HTMLInputElement>(null)
@@ -52,7 +58,7 @@ export function PruneReviewDialog({ destination, revision = 0, pending, refreshi
     }
   }, [requiresAcknowledgement])
   const status = pending ? 'Starting cleanup. Please wait.' : refreshing
-    ? 'Refreshing repository evidence. Cleanup is disabled until this finishes.'
+    ? refreshNotice
     : !error ? evidenceNotice : null
   const failures = ([['Repository metadata evidence', destination.metadata_check], ['Stored data evidence', destination.data_check]] as const).filter(([, evidence]) => evidence.status === 'failed')
   return (
@@ -62,7 +68,7 @@ export function PruneReviewDialog({ destination, revision = 0, pending, refreshi
         <p className="break-all font-mono text-xs text-[var(--text)]">{destination.repository}</p>
         <BackupError error={error} />
         <div className="grid text-sm leading-5">
-          {requiresAcknowledgement && <span aria-hidden="true" className="invisible col-start-1 row-start-1">Repository evidence changed. Typed confirmation was reset; review the current evidence before confirming again.</span>}
+          {[refreshNotice, requiresAcknowledgement ? resetNotice : clearNotice].map(message => <span key={message} aria-hidden="true" data-placeholder={message} className="invisible col-start-1 row-start-1 after:content-[attr(data-placeholder)]" />)}
           <p id={statusId} role="status" aria-atomic="true" className={`col-start-1 row-start-1 ${requiresAcknowledgement && !refreshing && !pending ? 'text-[var(--warning)]' : 'text-[var(--muted)]'}`}>{status}</p>
         </div>
         {requiresAcknowledgement && !destination.maintenance_review_token && <p className="text-sm text-[var(--warning)]">The current evidence review token is unavailable. Refresh repository evidence before confirming cleanup.</p>}
