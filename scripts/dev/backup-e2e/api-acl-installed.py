@@ -116,7 +116,8 @@ def main():
                 except (ValueError, AttributeError):
                     error_message = None
                 if (req.get_method() == 'DELETE' and error.code == 409
-                        and error_message == 'backup configuration is in use'
+                        and isinstance(error_message, str)
+                        and error_message.startswith('backup configuration is in use')
                         and time.monotonic() < deadline):
                     time.sleep(0.2)
                     continue

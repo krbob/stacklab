@@ -421,6 +421,7 @@ test.describe('Backup review polling interaction', () => {
       await expect(page.getByRole('dialog')).toContainText('Typed confirmation was reset')
       await expect(page.getByRole('button', { name: 'Start cleanup' })).toBeDisabled()
       await expect(input).toHaveAccessibleDescription(/Typed confirmation was reset/)
+      await page.screenshot({ path: test.info().outputPath('prune-evidence-reset.png'), fullPage: true })
       const before = await input.boundingBox()
       await input.pressSequentially('N')
       await expect(page.getByRole('status')).toContainText('Typed confirmation was reset')

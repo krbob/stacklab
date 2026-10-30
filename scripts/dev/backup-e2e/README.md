@@ -397,3 +397,40 @@ a successful native run alone does not rule out those races.
 If a browser cannot route directly to the VM, create an SSH tunnel using an account
 with SSH access (`ssh -N -L 18080:127.0.0.1:8080 operator@test-vm`) and give the browser
 harness `--base-url http://127.0.0.1:18080`. Direct VM URLs remain valid where routable.
+
+## Installed service stop during SFTP checks
+
+`service-stop-installed.py` runs as root on the exclusive disposable VM, with
+backup schedules paused and a prebuilt `Dockerfile.sftp` image. It seeds its own
+64 MiB encrypted repository and uses the installed API for full checks. A temporary
+systemd PATH drop-in selects a wrapper that executes the real restic binary with
+its native download limit, keeping a check active while storage and SSH stay
+available. It verifies the wrapper is accessible to the service account; an
+unreadable wrapper can silently fall back to the system restic on PATH and
+invalidate the interruption test.
+
+```sh
+python3 service-stop-installed.py --run-id unique-stop-id \
+  --package /tmp/stacklab-candidate.deb --expected-commit EXACT_INSTALLED_COMMIT \
+  --image stacklab-sftp-fixture:r4 --legacy-restic /usr/local/bin/restic-0.14
+```
+
+For each selected native version, it installs the candidate package and tests two
+restarts while a lock exists and the check job is running. Supply `--initial-commit`
+when starting from an older installed source; `--expected-commit` must identify
+the final candidate. It requires a non-successful
+interrupted job, zero remaining locks, unchanged dated integrity evidence, no new
+hold, and a successful subsequent full check. The report distinguishes a version-changing package upgrade from reinstalling
+the same version; both exercise the package's service restart path. The
+report and package logs remain private under `/root/stacklab-stop-RUN_ID`.
+The script removes its drop-in and restarts the ordinary service even on failure;
+it preserves failed repository/container fixtures for diagnosis. On success it
+removes its destination, repository and container and revokes its API session.
+
+Temporarily stop the active `apt-daily.timer` and `apt-daily-upgrade.timer` during
+exclusive installed validation, after confirming no package operation is running.
+Record their original state and restore it afterward. `dpkg -i` can clear the
+package hold, leaving a window before `apt-mark hold` in which unattended-upgrades
+may replace the candidate. Restore the hold after every install and compare source,
+version and binary identity before and after the exercise; a replaced candidate
+invalidates the claimed installed test.
