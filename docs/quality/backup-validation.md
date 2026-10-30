@@ -50,8 +50,9 @@ were corrected independently in `86edba9`.
 Final installed package: `2026.10.0~review9fix3`, production source `89641c1ad34e`.
 The service-stop wrapper executes the real selected restic with a native bandwidth
 limit. It does not invent diagnostics or remove locks itself. The final source
-adds only the legacy lock-detail correction to the separately successful six-case
-stop/reinstall run on `54e79e7`. SHA256:
+adds only the legacy lock-detail correction to an earlier, separate six-case
+stop/reinstall run on `54e79e7`. The six cases and timings in the table refer to the
+later `89641c1` package run; these are two runs, not twelve cases on one source. SHA256:
 
 - Debian package: `507f6dea00d2002d996660412f620ecd42a8ef4745c966baaa8b8b20dbd38e72`.
 - Installed backend: `b700ee248ffd304c163429e48155bfbdd89a50ad257c316aa2560bfea06a44ee`.
@@ -71,8 +72,8 @@ removed on success. Private evidence stays outside Git; `reviews/` is locally
 excluded. Existing operator pause, repositories and host restic remain unchanged.
 Global configuration leases remain deferred: 409 guidance now includes background
 inventory. No automatic repair, forced unlock or increased minimum restic version
-is introduced. Final delivery reports the pushed documentation/test revision and
-its exact CI run.
+is introduced. Final documentation/test revision `1e36c6a` passed PR Quality run
+`41041142331` (frontend, backend, monitoring and `ci-required`).
 
 ## Round-Eight Operation Lifecycle And Compatibility — 2026-10-28
 
@@ -109,6 +110,9 @@ backoffs. Its retained runner log records `requests=220` and `3m9.873669705s`;
 the partial-body case records 22 requests and `1m34.278071768s`. Backend requests
 and internal SDK retries add time beyond restic's printed delays. Sanitized stderr
 fixtures preserve diagnostic provenance, but cannot alone reproduce elapsed time.
+The 88.37-second listing measurement covers the faulted check invocation through
+its returned failure, including native retries and cancellation cleanup; it excludes
+repository setup, the preceding healthy baseline and subsequent repair/recovery.
 
 Native exhaustion runs use the production ten-minute Stacklab budget. For modern
 restic, the fixture explicitly selects `RESTIC_FEATURES=backend-error-redesign=false`

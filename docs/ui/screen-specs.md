@@ -372,11 +372,17 @@ starts without that action's error.
 
 Prune review forces fresh evidence on opening, manual refresh and acknowledgement
 conflicts. Its input stays focusable but read-only while freshness is unresolved;
-the dialog exposes busy state and reserves space for status guidance. Background
-polling preserves typing. Changed tokens invalidate confirmation. When acknowledgement
+the status region remains mounted and announces refresh/pending state without marking
+the whole dialog busy. It reserves space for guidance with and without a check hold.
+Background polling preserves typing. Changed tokens invalidate confirmation. When acknowledgement
 becomes required or ceases to be required, focus remains inside the mounted dialog
-and a specific status explains the transition. Reset guidance clears when typing
-resumes. Check dialogs explain automatic scope changes and missing backend tools.
+and a specific status explains the transition. Reset guidance remains until the full
+current destination name is entered; renaming explains the name change separately.
+HTTP 409 keeps the same dialog mounted. During submission, if both buttons become
+disabled, focus stays on the dialog panel. Check dialogs explain automatic scope
+changes and missing backend tools. The overview reports the detected restic version,
+warns below 0.14, explains limited 0.14–0.16 diagnostics and the 0.14 cancellation lock
+limitation, and labels an unknown version explicitly.
 
 Adjacent summary and workflow panels use a consistent vertical gap, including
 both sides of Protection status and the two destination recovery steps. Warnings,

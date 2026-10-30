@@ -17,9 +17,11 @@ uses the existing job endpoint. Capture and apply take exclusive lifecycle
 coordination; upload and repository work reserve the affected repository resources.
 Remote snapshot and catalog reads conflict with mutations of the same repository,
 while unrelated repositories and stack operations remain available during upload. Concurrent reads are allowed; destination edits
-return conflict until those leases are released. Background hourly inventory can
-also pin configuration globally while no visible job is active; a 409 explains
-that the caller should wait and retry. Destination-scoped configuration writes
+return conflict until those leases are released. Browser snapshot/catalog/comparison
+reads and restore validation also pin configuration. Background inventory runs hourly,
+retrying failed destinations every five minutes (up to 90 seconds per snapshots request).
+It can pin configuration globally while no visible job is active; HTTP 409 uses the
+general `conflict` code and explains that the caller should wait and retry. Destination-scoped configuration writes
 remain separate roadmap work.
 
 A run's durable capture and per-destination records are separate from the job

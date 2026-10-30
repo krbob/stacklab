@@ -34,6 +34,7 @@ def main():
     parser.add_argument('--initial-commit', help='expected old source when testing a version-changing upgrade')
     parser.add_argument('--image', default='stacklab-sftp-fixture:r4')
     parser.add_argument('--legacy-restic', help='optional native 0.14 binary')
+    parser.add_argument('--early-lock', action='store_true', help='also restart immediately after lock publication (legacy 0.14 may leave its fixture lock)')
     args = parser.parse_args()
     if os.geteuid() != 0 or not re.fullmatch('[a-z0-9-]{1,30}', args.run_id):
         raise RuntimeError('requires root and a fresh simple run ID')
@@ -41,8 +42,13 @@ def main():
     initial_commit = Path('/usr/lib/stacklab/metadata/commit.txt').read_text().strip()
     if initial_commit != (args.initial_commit or args.expected_commit):
         raise RuntimeError('installed source differs from expected commit')
-    if command(['systemctl', 'show', 'stacklab', '-p', 'KillMode', '--value']) != 'mixed':
-        raise RuntimeError('installed unit does not use mixed termination')
+    initial_mode = command(['systemctl', 'show', 'stacklab', '-p', 'KillMode', '--value'])
+    if initial_mode != 'mixed' and not args.initial_commit:
+        raise RuntimeError('a pre-fix unit requires --initial-commit and a version-changing upgrade')
+    initially_held = 'stacklab' in command(['apt-mark', 'showhold']).splitlines()
+
+    def restore_package_hold():
+        command(['apt-mark', 'hold' if initially_held else 'unhold', 'stacklab'])
     os.umask(0o077)
     workspace = Path('/var/lib/stacklab-stop-' + args.run_id)
     report_dir = Path('/root/stacklab-stop-' + args.run_id)
@@ -50,7 +56,8 @@ def main():
     if any(p.exists() for p in (workspace, report_dir, dropin)):
         raise RuntimeError('fixture path already exists')
     report_dir.mkdir()
-    report = {'commit': args.expected_commit, 'initial_commit': initial_commit, 'checks': [], 'succeeded': False}
+    report = {'commit': args.expected_commit, 'initial_commit': initial_commit, 'initial_kill_mode': initial_mode,
+              'initially_held': initially_held, 'checks': [], 'succeeded': False}
     settings = {}
     for line in Path('/etc/stacklab/stacklab.env').read_text().splitlines():
         if '=' in line and not line.lstrip().startswith('#'):
@@ -103,6 +110,23 @@ def main():
     def destination():
         return next(d for d in request('/api/backups')['destinations'] if d['id'] == destination_id)
 
+    def active_native_reader():
+        for entry in Path('/proc').iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                argv = (entry / 'cmdline').read_bytes().split(b'\0')
+                if b'check' not in argv or b'--limit-download' not in argv:
+                    continue
+                if argv[argv.index(b'--limit-download') + 1] != b'1024':
+                    continue
+                if repository_address.encode() not in argv or 'stacklab.service' not in (entry / 'cgroup').read_text():
+                    continue
+                return int(entry.name)
+            except (OSError, IndexError):
+                continue
+        raise AssertionError('no actual rate-limited native check in the service cgroup')
+
     identity = pwd.getpwnam('stacklab')
     container = 'stacklab-stop-' + args.run_id
     destination_id = None
@@ -142,6 +166,8 @@ def main():
                         break
             except OSError:
                 time.sleep(.1)
+        else:
+            raise TimeoutError('fixture sshd did not become ready')
         host_key = (workspace / 'host_key.pub').read_text().split()
         known = f'[127.0.0.1]:{port} {host_key[0]} {host_key[1]}\n'
         repository_password = secrets.token_urlsafe(32)
@@ -157,9 +183,10 @@ def main():
                         '/usr/bin/restic', '-r', str(workspace / 'repository')]
         command(local_restic + ['init'])
         command(local_restic + ['backup', str(payload)])
+        repository_address = f'sftp://fixture@127.0.0.1:{port}//fixture/repository'
         destination_id = request('/api/backups/destinations', {
             'name': 'Service stop ' + args.run_id, 'kind': 'sftp',
-            'repository': f'sftp://fixture@127.0.0.1:{port}//fixture/repository',
+            'repository': repository_address,
             'secrets': {'password': repository_password, 'ssh_private_key': (workspace / 'client_key').read_text(), 'ssh_known_hosts': known},
             'check_schedule': {'frequency': 'manual'}, 'prune_schedule': {'frequency': 'manual'}, 'check_read_data': 'all',
         })['destination']['id']
@@ -179,9 +206,14 @@ def main():
             command(['systemctl', 'daemon-reload'])
             command(['systemctl', 'restart', 'stacklab'])
             reconnect()
-            assert request('/api/backups')['restic_version'] == native_version
+            reported_version = request('/api/backups').get('restic_version')
+            if Path('/usr/lib/stacklab/metadata/commit.txt').read_text().strip() == args.expected_commit:
+                assert reported_version == native_version
             assert wait_job(check())['state'] == 'succeeded'
-            for mode in ('package-install', 'restart', 'restart'):
+            modes = ['package-install', 'restart', 'restart']
+            if args.early_lock:
+                modes += ['restart-creating-lock'] * 3
+            for mode in modes:
                 baseline = destination()
                 slow.touch()
                 job = check()
@@ -190,19 +222,22 @@ def main():
                 while not any(locks.iterdir()):
                     if time.monotonic() > deadline:
                         raise TimeoutError('native check did not acquire lock')
-                    time.sleep(.05)
+                    time.sleep(.005)
                 # Allow the native reader to reach data while its 1 MiB/s limit
                 # keeps the 64 MiB check active. Storage and SSH remain available.
-                time.sleep(2)
-                assert request('/api/jobs/' + job)['job']['state'] == 'running'
+                early = mode == 'restart-creating-lock'
+                if not early:
+                    time.sleep(2)
+                    assert request('/api/jobs/' + job)['job']['state'] == 'running'
+                reader_pid = active_native_reader()
                 started = time.monotonic()
                 package_before = command(['dpkg-query', '-W', '-f=${Version}', 'stacklab'])
-                if mode == 'restart':
+                if mode.startswith('restart'):
                     command(['systemctl', 'restart', 'stacklab'])
                 else:
                     result = subprocess.run(['dpkg', '--force-confold', '-i', str(package)], capture_output=True)
                     (report_dir / ('dpkg-' + native_version + '.log')).write_bytes(result.stdout + result.stderr)
-                    command(['apt-mark', 'hold', 'stacklab'])
+                    restore_package_hold()
                     result.check_returncode()
                     package_after = command(['dpkg-query', '-W', '-f=${Version}', 'stacklab'])
                     mode = 'package-upgrade' if package_before != package_after else 'package-reinstall'
@@ -211,14 +246,28 @@ def main():
                 slow.unlink()
                 outcome = wait_job(job)
                 current = destination()
-                assert outcome['state'] in ('failed', 'cancelled', 'interrupted'), outcome['state']
-                assert not list(locks.iterdir()), 'native SFTP check left locks after service stop'
+                assert outcome['state'] == 'cancelled', outcome['state']
+                assert '(cancelled)' in current.get('last_check_attempt_error', ''), current.get('last_check_attempt_error')
+                assert command(['systemctl', 'show', 'stacklab', '-p', 'KillMode', '--value']) == 'mixed'
+                remaining = list(locks.iterdir())
+                if remaining:
+                    assert early and native_version.startswith('0.14.'), 'native SFTP check left unexpected locks after service stop'
+                    assert len(remaining) == 1, 'unexpected fixture locks'
+                    lock = json.loads(command(local_restic + ['cat', 'lock', remaining[0].name, '--no-lock']))
+                    assert lock['pid'] == reader_pid and lock['hostname'] == socket.gethostname()
+                    assert not Path('/proc/' + str(reader_pid)).exists(), 'fixture owner still exists'
+                    # Explicit test cleanup of this disposable repository only.
+                    # Stacklab never bypasses its fresh-lock ownership guard.
+                    command(local_restic + ['unlock'])
+                    assert not list(locks.iterdir()), 'fixture cleanup failed'
                 assert not current.get('check_hold'), 'shutdown created a hold'
                 for key in ('metadata_check', 'data_check'):
                     assert current[key] == baseline[key], 'shutdown changed integrity evidence'
                 report['checks'].append({'mode': mode, 'restic': native_version, 'state': outcome['state'],
                                          'attempt_error': current.get('last_check_attempt_error'),
-                                         'seconds': round(time.monotonic() - started, 3), 'remaining_locks': 0})
+                                         'seconds': round(time.monotonic() - started, 3), 'remaining_locks': len(remaining),
+                                         'native_reader_pid': reader_pid, 'verified_bandwidth_limit': True,
+                                         'legacy_fixture_cleanup': bool(remaining)})
                 assert wait_job(check())['state'] == 'succeeded'
         request(endpoint, method='DELETE')
         destination_id = None
@@ -231,7 +280,7 @@ def main():
         slow.unlink(missing_ok=True)
         command(['systemctl', 'daemon-reload'])
         command(['systemctl', 'restart', 'stacklab'])
-        command(['apt-mark', 'hold', 'stacklab'])
+        restore_package_hold()
         try:
             reconnect()
             request('/api/auth/logout', {})

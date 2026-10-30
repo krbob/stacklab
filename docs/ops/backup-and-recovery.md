@@ -4,7 +4,17 @@
 
 The backup panel reports the detected restic version (or explicitly says it is unknown).
 Versions 0.14–0.16 have less precise backend diagnostics; the panel explains what
-to do when an inconclusive check persists. Version detection never opens a repository.
+to do when an inconclusive check persists. Versions below 0.14 trigger an explicit
+compatibility warning. Version detection never opens a repository.
+
+Restic 0.14 can leave its own fresh lock when cancellation arrives during lock
+creation, including manual cancellation, restart and package upgrade. This also
+occurs in native restic without Stacklab; the installed tests did not reproduce it
+with 0.18. Prefer a validated newer restic for normal operation. Stacklab still
+refuses locks younger than 30 minutes: PID, hostname and time alone cannot prove
+ownership across PID namespaces or host restarts. Investigate remaining locks
+using the procedure below; no automatic fresh-lock removal is performed. An
+unreachable backend can also prevent any restic version from removing its lock.
 
 Install restic 0.14 or newer, rclone 1.60 or newer, GNU tar, OpenSSH client and
 CA certificates. Debian packages depend on the tools and recommend `ca-certificates`.
@@ -213,16 +223,21 @@ ownership, not repeatedly pressing unlock.
 | `unavailable`, `permission_denied`, `credentials_rejected` | Fix transport, access or credentials, then repeat the intended check. Dated integrity proof remains historical; this failed attempt provides no new proof. |
 | `cancelled`, `timeout` | Inspect why work stopped; restore normal service and repeat the intended check. Coordinate any remaining lock owners before unlock. |
 | `repository_locked` | Wait for legitimate work; inspect owners if the lock persists. Follow the stale-lock procedure above. |
+| `storage_full` | Restore free space or quota without deleting recovery material blindly, then repeat the check. |
+| `repository_missing` | Verify the address and mount/backend; do not initialize over a repository expected to contain existing copies. |
+| `operation_failed` | Inspect the native operation privately with the same identity and credentials. This generic failure does not prove corruption. |
 | `unlock_refused` | No unlock was attempted. Refresh vanished/changed metadata or resolve the specific ownership problem; do not infer storage corruption. |
 | `unlock_incomplete` | Unlock was attempted, but its result or remaining inventory is uncertain. Refresh the lock inventory and inspect owners before retrying. |
 | `check_inconclusive` / check hold | Preserve independent copies and run the scope required by the hold. If it recurs, record the panel's restic version, reproduce the native check privately with the same identity/credentials, and inspect the unknown diagnostics. Test a supported restic upgrade on an independent copy when legacy diagnostics prevent a reliable result. Do not repeatedly prune, repair or clear state to dismiss the warning. |
 | `integrity_failed` | Preserve a complete independent copy, diagnose the specific damage, then follow the matching repair procedure below. A successful full check is required for data failures. |
 
-Configuration edits can return HTTP 409 while an hourly background repository
-inventory is reading, even when no user job appears active. Wait for that bounded
-read to finish and retry. Cancelling visible jobs does not cancel this background
-work. Reservations currently protect configuration globally; finer destination
-reservations are deferred roadmap work.
+Configuration edits can return HTTP 409 while snapshot/catalog browsing, comparison,
+restore validation or background inventory holds a read reservation, even without a
+visible job. Normal inventory runs hourly; failed inventory retries every five minutes
+and can hold configuration for up to 90 seconds per snapshots request. Wait for the
+read to finish and retry. Cancelling visible jobs does not cancel background work or
+another browser's read. The API currently uses the general `conflict` code. Reservations
+protect configuration globally; finer destination reservations remain roadmap work.
 
 ### Repository Integrity Failure
 
@@ -247,6 +262,8 @@ A pending listing retry remains uncertain until recovery, a terminal cause, or
 progress into the next check phase establishes its outcome. Restic emits failed
 listing causes before pack comparisons. A later snapshot failure cannot turn an
 earlier missing pack into a listing outage merely by repeating its error text.
+Starting data listing also establishes that index loading completed; an exhausted
+listing cannot retroactively turn an earlier recovered index retry into failure.
 Unrecognized intervening diagnostics preserve uncertainty. Unrelated download
 failures do not invalidate a completed listing. Bounded retry-correlation eviction
 is separate from evidence loss: hundreds of recovered legacy retries do not create
@@ -267,16 +284,38 @@ bounded state whose overflow conservatively prevents verification. Silence never
 triggers this monitor. Quiet healthy checks retain the overall job limit; completely
 silent backend hangs still depend on request timeouts and that limit. Restic 0.14
 can remain silent for minutes after losing SFTP access.
+If a check appears stuck, inspect backend health and native process activity before
+cancelling and repeating it. Silence alone does not distinguish a large healthy
+check from a hang; there is no universal safe number of idle minutes. Overall jobs
+remain bounded at 24 hours. Consider upgrading legacy restic when this recurs.
 
 On service stop or upgrade, Stacklab cancels workers before draining HTTP. The
-packaged unit uses `KillMode=mixed`: systemd initially signals Stacklab alone, so
+packaged unit and migrated tarball service use `KillMode=mixed`: systemd initially signals Stacklab alone, so
 restic can clean up its locks through a still-running SSH process. Cancellation
 allows restic five seconds for cleanup before terminating its process group;
-systemd retains its final service stop deadline. An automatic stop preserves previously observed unexplained diagnostics and
+systemd retains its final service stop deadline. Stacklab waits up to 25 seconds for
+workers; once its main process exits, systemd can immediately kill remaining children.
+The tarball upgrader installs and verifies its shutdown-policy drop-in before restart;
+see [tarball service migration](install-from-tarball.md#service-file-notes).
+An automatic backend-failure stop preserves previously observed unexplained diagnostics and
 corruption. Later cancellation residue cannot create a hold or establish missing
 objects from interrupted inventory. Explicit corruption is retained even if emitted
-after the stop request. Recognized temporary-cache housekeeping warnings do not
-invalidate an otherwise successful check; unrelated unknown diagnostics still do.
+after the stop request. Manual cancellation and service shutdown preserve concrete
+damage but do not create a new hold from earlier unknown diagnostics.
+
+Recognized cache failures and lock-cleanup warnings produce fixed job events without
+invalidating an otherwise successful check. A cleanup warning can mean a lock remains;
+inspect ownership before the next operation. Recognized rclone notices are limited to
+default-config fallback and skipped symlinks with non-object filenames in repository
+object directories. Skipping a valid object ID or an unknown NOTICE/INFO remains
+inconclusive. Unknown diagnostics still create a hold even with exit zero. A JSON
+diagnostic following a newline-free warning is interpreted separately.
+
+During ordinary lock acquisition, a vanished foreign lock does not stop the check.
+During unlock preflight, vanished metadata refuses unlock and requires an inventory
+refresh. Local, S3, SFTP and REST/rclone formats are recognized. On restic 0.14, native
+missing-object retries can approach the 90-second preflight command budget; a timeout
+also refuses the operation safely. Refresh inventory before retrying.
 
 For confirmed damage, use the following preparation and choose only the repair
 matching the diagnosis. Stacklab intentionally does not automate repair.

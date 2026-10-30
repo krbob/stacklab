@@ -122,6 +122,9 @@ of changed `main` revisions provide the soak channel between stable releases.
   Retain credential lifetime and deletion protection; expose which operation holds
   a reservation and a bounded retry path. Current global reservations intentionally
   remain in place until those races and restart behavior have regression coverage.
+  Prioritize correcting credentials/settings or replacing an unavailable destination
+  while its inventory retries, without weakening credential lifetime guarantees.
+  Repository type/address remain immutable; this does not propose in-place address edits.
 
 - expand Compose and Docker diagnostics for restart policies, healthchecks,
   startup ordering, resource limits, log growth, and daemon configuration;

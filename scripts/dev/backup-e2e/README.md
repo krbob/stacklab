@@ -405,21 +405,25 @@ backup schedules paused and a prebuilt `Dockerfile.sftp` image. It seeds its own
 64 MiB encrypted repository and uses the installed API for full checks. A temporary
 systemd PATH drop-in selects a wrapper that executes the real restic binary with
 its native download limit, keeping a check active while storage and SSH stay
-available. It verifies the wrapper is accessible to the service account; an
+available. It verifies the wrapper is accessible to the service account and inspects
+the real check child's `/proc` arguments, repository and service cgroup; an
 unreadable wrapper can silently fall back to the system restic on PATH and
 invalidate the interruption test.
 
 ```sh
 python3 service-stop-installed.py --run-id unique-stop-id \
   --package /tmp/stacklab-candidate.deb --expected-commit EXACT_INSTALLED_COMMIT \
-  --image stacklab-sftp-fixture:r4 --legacy-restic /usr/local/bin/restic-0.14
+  --image stacklab-sftp-fixture:r4 --legacy-restic /usr/local/bin/restic-0.14 --early-lock
 ```
 
 For each selected native version, it installs the candidate package and tests two
 restarts while a lock exists and the check job is running. Supply `--initial-commit`
 when starting from an older installed source; `--expected-commit` must identify
-the final candidate. It requires a non-successful
-interrupted job, zero remaining locks, unchanged dated integrity evidence, no new
+the final candidate. An explicitly identified older source may start with the pre-fix
+`control-group` unit; the candidate must install effective mixed termination. This
+supports testing an actual pre-fix package, not just reinstalling a corrected one.
+The ordinary interruption cases require exactly `cancelled` and a `(cancelled)`
+check-attempt diagnostic, zero remaining locks, unchanged dated integrity evidence, no new
 hold, and a successful subsequent full check. The report distinguishes a version-changing package upgrade from reinstalling
 the same version; both exercise the package's service restart path. The
 report and package logs remain private under `/root/stacklab-stop-RUN_ID`.
@@ -427,10 +431,36 @@ The script removes its drop-in and restarts the ordinary service even on failure
 it preserves failed repository/container fixtures for diagnosis. On success it
 removes its destination, repository and container and revokes its API session.
 
+`--early-lock` adds three restarts immediately after lock publication per version.
+These target the short creation window rather than the normal two-second delay;
+scheduling can still move an individual interruption past that window. Restic 0.14
+may leave one lock. The harness verifies it belongs to its captured child PID and
+hostname, verifies process exit, records the limitation, and uses ordinary native
+unlock on its exclusive disposable repository before continuing. This is explicit
+fixture cleanup, not Stacklab automatic unlock. Other versions must leave no lock.
+
+The harness records and restores the original APT hold after package installation
+and in cleanup; it does not permanently hold an initially unheld package.
+
 Temporarily stop the active `apt-daily.timer` and `apt-daily-upgrade.timer` during
 exclusive installed validation, after confirming no package operation is running.
 Record their original state and restore it afterward. `dpkg -i` can clear the
 package hold, leaving a window before `apt-mark hold` in which unattended-upgrades
-may replace the candidate. Restore the hold after every install and compare source,
+may replace the candidate. Preserve the original hold after every install and compare source,
 version and binary identity before and after the exercise; a replaced candidate
 invalidates the claimed installed test.
+
+## Native diagnostic housekeeping and vanished metadata
+
+`TestNativeCheckHousekeeping` runs when restic/rclone are installed. It creates an
+owned repository, obstructs a local cache directory, and creates an invalid-name
+symlink that native rclone reports as NOTICE. Healthy checks must establish proof
+without a hold and publish fixed warning events. A symlink named as a valid object
+ID must still create a hold. No subprocess output is fabricated.
+
+Set `STACKLAB_TEST_NATIVE_MISSING_LOCK=1` to additionally run native `cat lock` on
+a missing ID for local and REST/rclone. With `STACKLAB_TEST_SFTP_RECOVERY=1`, the
+same check also runs in the owned SFTP recovery fixture. These cases can take over
+a minute on 0.14 because native restic retries missing objects. Select an older
+binary through a private PATH directory whose executable is named `restic`, for
+example `PATH=/private/fixture/restic-0.14:$PATH`; do not replace the host binary.
