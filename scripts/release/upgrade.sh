@@ -279,6 +279,23 @@ install_service_unit() {
   fi
 }
 
+install_shutdown_policy() {
+  local service_name="$1"
+  local dropin_dir="/etc/systemd/system/${service_name}.service.d"
+  install -d -m 0755 "${dropin_dir}"
+  cat >"${dropin_dir}/20-stacklab-shutdown.conf" <<'EOF'
+# Managed by Stacklab's tarball upgrade script. Preserve the operator's unit.
+[Service]
+# Let Stacklab cancel restic before systemd kills its SSH transport.
+KillMode=mixed
+EOF
+  chmod 0644 "${dropin_dir}/20-stacklab-shutdown.conf"
+  systemctl daemon-reload
+  local effective_mode
+  effective_mode="$(systemctl show "${service_name}.service" -p KillMode --value)"
+  [[ "${effective_mode}" == mixed ]] || die "effective KillMode is ${effective_mode}; resolve conflicting service drop-ins before retrying this upgrade (required: mixed)"
+}
+
 ensure_service_account() {
   local service_user="$1"
   local service_group="$2"
@@ -438,7 +455,11 @@ main() {
     ensure_service_account "${service_user}" "${service_group}" "${stacklab_root}" "${app_root}" "${data_dir}"
     install_env_file "${install_dir}/systemd/stacklab.env.example" "${env_path}" "${stacklab_root}" "${data_dir}"
     install_service_unit "${install_dir}/systemd/stacklab.service.example" "${unit_path}"
-    systemctl daemon-reload
+  fi
+  # Existing installations also need this migration when --install-unit is absent.
+  # Verify before switching the release symlink or stopping the old process.
+  install_shutdown_policy "${service_name}"
+  if [[ "${install_unit}" -eq 1 ]]; then
     systemctl enable "${service_name}" >/dev/null 2>&1 || true
   fi
   secure_runtime_file_modes "${stacklab_root}" "${data_dir}" "${env_path}" "${service_user}" "${service_group}"

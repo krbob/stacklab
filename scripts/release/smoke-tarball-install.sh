@@ -99,6 +99,11 @@ main() {
 #!/usr/bin/env bash
 set -euo pipefail
 printf "%s\n" "$*" >> /var/tmp/stacklab-systemctl.log
+if [[ "${1:-}" == "show" ]]; then
+  # This smoke uses a systemctl stand-in. Real systemd is exercised on the VM.
+  test -f /etc/systemd/system/stacklab.service.d/20-stacklab-shutdown.conf
+  printf "%s\n" "${SYSTEMCTL_KILL_MODE:-mixed}"
+fi
 if [[ "${1:-}" == "restart" && "${SYSTEMCTL_FAIL_RESTART:-0}" == "1" ]]; then
   exit 1
 fi
@@ -180,6 +185,12 @@ EOF
 
       make_archive stacklab-upgrade-b 0.0.0-smoke-upgrade
 
+      # Simulate an old, operator-customized unit with no shutdown migration.
+      sed -i "/^KillMode=/d" /etc/systemd/system/stacklab.service
+      printf "\n# operator customization retained\n" >>/etc/systemd/system/stacklab.service
+      cp /etc/systemd/system/stacklab.service /tmp/operator-unit
+      rm /etc/systemd/system/stacklab.service.d/20-stacklab-shutdown.conf
+
       cp /tmp/release-assets/stacklab-upgrade-b.tar.gz /tmp/release-assets/stacklab-missing-checksum.tar.gz
       if "${artifact_a}/host-tools/upgrade.sh" --no-health-check /tmp/release-assets/stacklab-missing-checksum.tar.gz; then
         echo "expected a missing checksum to reject the archive" >&2
@@ -197,6 +208,8 @@ EOF
       test "$(readlink -f /opt/stacklab/app/current)" = "${release_a}"
 
       "${artifact_a}/host-tools/upgrade.sh" --no-health-check /tmp/release-assets/stacklab-upgrade-b.tar.gz
+      cmp /etc/systemd/system/stacklab.service /tmp/operator-unit
+      grep -q "^KillMode=mixed$" /etc/systemd/system/stacklab.service.d/20-stacklab-shutdown.conf
       test "$(stat -c %U:%G /opt/stacklab/stacks/demo/.env)" = "root:stacklab"
       test "$(stat -c %a /opt/stacklab/stacks/demo/.env)" = "640"
 
@@ -253,6 +266,14 @@ EOF
         exit 1
       fi
       echo "[stacklab-smoke] Rollback verified at ${release_c}"
+
+      make_archive stacklab-upgrade-e 0.0.0-smoke-conflicting-unit
+      if SYSTEMCTL_KILL_MODE=control-group "${artifact_a}/host-tools/upgrade.sh" --no-health-check /tmp/release-assets/stacklab-upgrade-e.tar.gz; then
+        echo "expected an effective shutdown-policy conflict to stop the upgrade" >&2
+        exit 1
+      fi
+      test "$(readlink -f /opt/stacklab/app/current)" = "${release_c}"
+      test "$(grep -c "^restart stacklab$" /var/tmp/stacklab-systemctl.log)" = "${restart_count}"
     '
 }
 

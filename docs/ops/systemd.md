@@ -134,6 +134,8 @@ Restart=on-failure
 RestartSec=5
 TimeoutStartSec=30
 TimeoutStopSec=30
+# Keep SSH alive while Stacklab asks restic to clean up its locks.
+KillMode=mixed
 # Must remain false if any opt-in sudo helper is enabled.
 NoNewPrivileges=false
 PrivateTmp=true

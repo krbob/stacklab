@@ -227,7 +227,17 @@ The example unit assumes:
 - unit path: `/etc/systemd/system/stacklab.service`
 - env file path: `/etc/stacklab/stacklab.env`
 
-If you already have a working unit, the upgrade script leaves it in place and only updates the app release under `/opt/stacklab/app`.
+If you already have a working unit, the upgrade script preserves it. Every upgrade,
+including one without `--install-unit`, writes the script-owned
+`/etc/systemd/system/stacklab.service.d/20-stacklab-shutdown.conf` (using the selected
+service name) with `[Service]` and `KillMode=mixed`. This lets Stacklab cancel restic
+before systemd kills its SSH transport. Custom settings in the main unit remain intact.
+
+The script reloads systemd and verifies the effective `KillMode` before switching the
+release or restarting. If an operator drop-in overrides it, resolve that conflict and
+retry; the running release has not been switched. Keep `TimeoutStopSec=30` or longer
+for Stacklab's 25-second worker shutdown budget. The drop-in remains on rollback and
+must also be removed when manually uninstalling the tarball service.
 
 ## Verification Commands
 
@@ -235,6 +245,7 @@ After install or upgrade:
 
 ```bash
 systemctl status stacklab
+systemctl show stacklab -p KillMode -p TimeoutStopUSec
 journalctl -u stacklab -n 200
 curl -fsS http://127.0.0.1:8080/api/ready
 ```
