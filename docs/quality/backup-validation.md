@@ -26,6 +26,54 @@ file modes and Linux file capabilities are rejected; shared set-group-ID
 directories remain supported. Restore preview rejects paths outside managed or explicitly approved
 roots before stopping any service.
 
+## Round-Nine Evidence, Shutdown And Review Corrections — 2026-10-30
+
+The approved correction plan was committed first (`e812b0f`). Core diagnostics,
+shutdown and version reporting are in `3f5731e`; accessible cleanup review and
+focus continuity in `cf28dd9`. Recovered index retry state was refined in
+`54e79e7`, and actual restic 0.14 lock-detail output in `89641c1`. The maintained
+installed service-stop/upgrade harness is in `2886243`. Monitoring legend labels
+were corrected independently in `86edba9`.
+
+| Area | Evidence and result |
+| --- | --- |
+| Diagnostic provenance | Deterministic regressions cover an earlier missing pack followed by an identically worded snapshot outage, changed connection ports/causes, wrapped snapshot errors, short Load/ReadFull records, unknown plain stderr beside transport, lock housekeeping and vanished lock metadata. Real damage wins; unknown diagnostics retain a hold. |
+| Retry state and cancellation | 512 distinct legacy retries followed by exit zero no longer create a hold; an independent unknown error still does. Recovered index reads clear their uncertainty. A directly signalled child exercises the external SIGTERM boundary without cancelling the parent context; prior damage survives. Existing manual/automatic cancellation and oversized-output tests remain in force. |
+| Backend quality | Full Go packages pass. Final package coverage passes all floors (global 72.1%, backup 79.9%, HTTP API 54.0%). Full backup/jobs/notifications/application race tests pass; final diagnostic refinements also pass focused race tests. Formatting, vet, repository hygiene and documentation checks pass. |
+| Frontend | 683 unit tests, typecheck, lint, build and asset checks pass. Chromium: 16/16 backup scenarios, including 409 without remount/focus escape, focus on a pending dialog, persistent accessible status text and stable input position at 1440, 390 and 320 px. Three reset screenshots were captured; desktop and 320 px were visually inspected. Live-region DOM/roles are tested, not an actual screen-reader announcement. |
+| Native SFTP interruption | Real sshd loss at pack-read and OPENDIR boundaries, encrypted-pack truncation and recovery. Debian restic 0.18.0 passes in 25.16/26.93 s on the initial correction binary. Final Linux test binary with 0.14.0 passes in 54.92/40.40 s, including the legacy stale-lock diagnostic. These use the fixture's two-second failure budget, not a new ten-minute exhaustion run. |
+| Native S3 | Final source, local restic 0.19.1 and real HTTPS S3 faults: listing/GET failures, partial bodies, mixed encrypted-pack truncation and recovery pass in 68.76 s. The fixture uses the shortened failure budget. The retained 0.14/0.18 exhaustion transcripts are replayed in unit tests; their older measured wall-clock runs remain recorded below. |
+| Installed stop/upgrade | Actual systemd mixed termination with storage and SSH available. Final exercise upgrades `review9fix2` to `review9fix3` during a native SFTP full check, then tests two restarts on 0.18.0; the 0.14.0 run tests a package reinstall and two restarts. All six jobs end cancelled, leave zero locks, preserve dated metadata/data proof and create no hold. A subsequent full check succeeds after every interruption. The upgrade takes 8.241 s; restarts take 0.869–5.980 s. The five-second subprocess escalation remains enabled. |
+| Installed API | Final package passes 13 assertions across 14 jobs: initialization/capture, ordinary unlock, isolated/full/selected recovery, reviewed apply with ACL/xattr/hardlink preservation, current-evidence cleanup, native index repair and recovery afterward. Two deliberate corruption checks fail as intended. Existing configuration/policy and package identity are preserved. |
+| Installed browser | Final packaged UI/API: 22 assertions, 17 screenshots, no page errors or failed assets; session revoked. Four explicit skips: unavailable helper, held protection, system-caused pause and selected-destination hold. Maintained Chromium fixtures cover dynamic hold and focus transitions. |
+
+Final installed package: `2026.10.0~review9fix3`, production source `89641c1ad34e`.
+The service-stop wrapper executes the real selected restic with a native bandwidth
+limit. It does not invent diagnostics or remove locks itself. The final source
+adds only the legacy lock-detail correction to the separately successful six-case
+stop/reinstall run on `54e79e7`. SHA256:
+
+- Debian package: `507f6dea00d2002d996660412f620ecd42a8ef4745c966baaa8b8b20dbd38e72`.
+- Installed backend: `b700ee248ffd304c163429e48155bfbdd89a50ad257c316aa2560bfea06a44ee`.
+- Final Linux backup test binary: `720ee50385c8a956067abe2f60e83a277e790ed80546807723fbeee2de647626`.
+
+Failed setup attempts are not counted as passes. The first stop fixture's wrapper
+directory was inaccessible to the service user, allowing PATH fallback and a check
+to finish before stop; the harness now asserts executable resolution. The first
+legacy SFTP run exposed unrecognized multi-line lock metadata; its correction and
+both native reruns pass. Unattended upgrades briefly replaced an early candidate
+between `dpkg -i` and restoration of its hold; no validation is attributed to that
+installation. Active APT timers were stopped for the exclusive validation window,
+then restored with the package hold retained.
+
+Owned service drop-ins, containers, destinations and repository workspaces are
+removed on success. Private evidence stays outside Git; `reviews/` is locally
+excluded. Existing operator pause, repositories and host restic remain unchanged.
+Global configuration leases remain deferred: 409 guidance now includes background
+inventory. No automatic repair, forced unlock or increased minimum restic version
+is introduced. Final delivery reports the pushed documentation/test revision and
+its exact CI run.
+
 ## Round-Eight Operation Lifecycle And Compatibility — 2026-10-28
 
 The approved contract preceded implementation (`f139605`). Operation lifecycle and
@@ -55,6 +103,12 @@ identity. SHA256:
 - Debian package: `85017c0ae5ad783bd4e2e657328621e909d2aa537c52b2641a647e98ccaa6db2`.
 - Installed backend: `30ef4be7c2f89e5c90512e16a452a828323742a582bd2117c81f85bb3e5e66ef`.
 - Native Linux test binary with terminal-read assertion: `bec30320963c849331ad9424cd49d33d368cba877006badf02dabb20c6c5628e`.
+
+The legacy pack-GET measurement is wall-clock time, not a sum of printed retry
+backoffs. Its retained runner log records `requests=220` and `3m9.873669705s`;
+the partial-body case records 22 requests and `1m34.278071768s`. Backend requests
+and internal SDK retries add time beyond restic's printed delays. Sanitized stderr
+fixtures preserve diagnostic provenance, but cannot alone reproduce elapsed time.
 
 Native exhaustion runs use the production ten-minute Stacklab budget. For modern
 restic, the fixture explicitly selects `RESTIC_FEATURES=backend-error-redesign=false`

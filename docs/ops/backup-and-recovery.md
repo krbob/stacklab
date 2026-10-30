@@ -2,6 +2,10 @@
 
 ## Prepare The Host
 
+The backup panel reports the detected restic version (or explicitly says it is unknown).
+Versions 0.14–0.16 have less precise backend diagnostics; the panel explains what
+to do when an inconclusive check persists. Version detection never opens a repository.
+
 Install restic 0.14 or newer, rclone 1.60 or newer, GNU tar, OpenSSH client and
 CA certificates. Debian packages depend on the tools and recommend `ca-certificates`.
 Private CA certificates installed in the system trust store are supported. Tarball operators
@@ -166,7 +170,8 @@ corruption. Recognized access, credential and cancellation failures retain their
 own diagnostics rather than becoming ownership refusals. Jobs record the remaining lock count. `unlock_incomplete` means ordinary
 unlock ran but locks remain or the postflight inventory could not be read; it is different
 from a preflight refusal. If the unlock command itself fails, its access/cancellation
-diagnostic is retained; some locks may already have been removed. Refresh the lock
+diagnostic is retained; an unknown command outcome becomes `unlock_incomplete`,
+not an inconclusive repository check. Some locks may already have been removed. Refresh the lock
 inventory before deciding what to retry.
 
 Run Stacklab and its restic subprocesses in the host PID namespace. Do not add
@@ -201,6 +206,24 @@ failed attempt remains history. Unlock itself does not establish integrity or cl
 an existing failure/hold. A fresh-lock refusal requires waiting and investigating
 ownership, not repeatedly pressing unlock.
 
+### Check Outcome And Next Action
+
+| Latest outcome | Meaning and next action |
+| --- | --- |
+| `unavailable`, `permission_denied`, `credentials_rejected` | Fix transport, access or credentials, then repeat the intended check. Dated integrity proof remains historical; this failed attempt provides no new proof. |
+| `cancelled`, `timeout` | Inspect why work stopped; restore normal service and repeat the intended check. Coordinate any remaining lock owners before unlock. |
+| `repository_locked` | Wait for legitimate work; inspect owners if the lock persists. Follow the stale-lock procedure above. |
+| `unlock_refused` | No unlock was attempted. Refresh vanished/changed metadata or resolve the specific ownership problem; do not infer storage corruption. |
+| `unlock_incomplete` | Unlock was attempted, but its result or remaining inventory is uncertain. Refresh the lock inventory and inspect owners before retrying. |
+| `check_inconclusive` / check hold | Preserve independent copies and run the scope required by the hold. If it recurs, record the panel's restic version, reproduce the native check privately with the same identity/credentials, and inspect the unknown diagnostics. Test a supported restic upgrade on an independent copy when legacy diagnostics prevent a reliable result. Do not repeatedly prune, repair or clear state to dismiss the warning. |
+| `integrity_failed` | Preserve a complete independent copy, diagnose the specific damage, then follow the matching repair procedure below. A successful full check is required for data failures. |
+
+Configuration edits can return HTTP 409 while an hourly background repository
+inventory is reading, even when no user job appears active. Wait for that bounded
+read to finish and retry. Cancelling visible jobs does not cancel this background
+work. Reservations currently protect configuration globally; finer destination
+reservations are deferred roadmap work.
+
 ### Repository Integrity Failure
 
 Distinguish an unsuccessful check attempt from an explicit data-integrity failure.
@@ -220,9 +243,14 @@ proof.
 
 Checks stop after exhausted backend reads or listing failures, independently of a
 provider's wording. Explicit corruption inside a retried read remains corruption.
-A pending listing retry makes absence-based evidence uncertain until recovery or
-an exhausted cause establishes the outcome. Unrelated download failures do not
-invalidate a completed listing.
+A pending listing retry remains uncertain until recovery, a terminal cause, or
+progress into the next check phase establishes its outcome. Restic emits failed
+listing causes before pack comparisons. A later snapshot failure cannot turn an
+earlier missing pack into a listing outage merely by repeating its error text.
+Unrecognized intervening diagnostics preserve uncertainty. Unrelated download
+failures do not invalidate a completed listing. Bounded retry-correlation eviction
+is separate from evidence loss: hundreds of recovered legacy retries do not create
+a hold when the check completes successfully.
 
 | Restic version | Backend diagnostics used by Stacklab |
 | --- | --- |
@@ -240,8 +268,11 @@ triggers this monitor. Quiet healthy checks retain the overall job limit; comple
 silent backend hangs still depend on request timeouts and that limit. Restic 0.14
 can remain silent for minutes after losing SFTP access.
 
-Cancellation allows restic five seconds for cleanup before terminating its process
-group. An automatic stop preserves previously observed unexplained diagnostics and
+On service stop or upgrade, Stacklab cancels workers before draining HTTP. The
+packaged unit uses `KillMode=mixed`: systemd initially signals Stacklab alone, so
+restic can clean up its locks through a still-running SSH process. Cancellation
+allows restic five seconds for cleanup before terminating its process group;
+systemd retains its final service stop deadline. An automatic stop preserves previously observed unexplained diagnostics and
 corruption. Later cancellation residue cannot create a hold or establish missing
 objects from interrupted inventory. Explicit corruption is retained even if emitted
 after the stop request. Recognized temporary-cache housekeeping warnings do not
@@ -358,6 +389,27 @@ sudo install -o stacklab -g stacklab -m 0600 /secure/known_hosts /var/lib/stackl
 sudo -u stacklab env RESTIC_REPOSITORY=sftp://user@nas:22//backup/stacklab \
   RESTIC_PASSWORD_FILE=/var/lib/stacklab-repair/password \
   restic --no-cache -o 'sftp.command=ssh -F /dev/null -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/var/lib/stacklab-repair/known_hosts -i /var/lib/stacklab-repair/ssh_key -p 22 user@nas -s sftp' check --read-data
+```
+
+For lock review, keep the same backend options and substitute `list locks --no-lock`,
+then `cat lock LOCK_ID --no-lock`. Only after the ownership procedure above, run
+ordinary `unlock` and re-list. Local and rclone examples using the prepared files:
+
+```bash
+sudo -u stacklab env RESTIC_REPOSITORY=/mnt/backup/stacklab RESTIC_PASSWORD_FILE=/var/lib/stacklab-repair/password restic --no-cache list locks --no-lock
+sudo -u stacklab env RESTIC_REPOSITORY=/mnt/backup/stacklab RESTIC_PASSWORD_FILE=/var/lib/stacklab-repair/password restic --no-cache cat lock LOCK_ID --no-lock
+sudo -u stacklab env RESTIC_REPOSITORY=/mnt/backup/stacklab RESTIC_PASSWORD_FILE=/var/lib/stacklab-repair/password restic --no-cache unlock
+sudo -u stacklab sh -c 'set -a; . /var/lib/stacklab-repair/rclone.env; set +a; exec restic --no-cache list locks --no-lock'
+sudo -u stacklab sh -c 'set -a; . /var/lib/stacklab-repair/rclone.env; set +a; exec restic --no-cache cat lock LOCK_ID --no-lock'
+sudo -u stacklab sh -c 'set -a; . /var/lib/stacklab-repair/rclone.env; set +a; exec restic --no-cache unlock'
+```
+
+For SFTP, keep the explicitly pinned SSH command on **each** invocation:
+
+```bash
+sudo -u stacklab env RESTIC_REPOSITORY=sftp://user@nas:22//backup/stacklab RESTIC_PASSWORD_FILE=/var/lib/stacklab-repair/password restic --no-cache -o 'sftp.command=ssh -F /dev/null -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/var/lib/stacklab-repair/known_hosts -i /var/lib/stacklab-repair/ssh_key -p 22 user@nas -s sftp' list locks --no-lock
+sudo -u stacklab env RESTIC_REPOSITORY=sftp://user@nas:22//backup/stacklab RESTIC_PASSWORD_FILE=/var/lib/stacklab-repair/password restic --no-cache -o 'sftp.command=ssh -F /dev/null -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/var/lib/stacklab-repair/known_hosts -i /var/lib/stacklab-repair/ssh_key -p 22 user@nas -s sftp' cat lock LOCK_ID --no-lock
+sudo -u stacklab env RESTIC_REPOSITORY=sftp://user@nas:22//backup/stacklab RESTIC_PASSWORD_FILE=/var/lib/stacklab-repair/password restic --no-cache -o 'sftp.command=ssh -F /dev/null -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/var/lib/stacklab-repair/known_hosts -i /var/lib/stacklab-repair/ssh_key -p 22 user@nas -s sftp' unlock
 ```
 
 Host, user and port in `sftp.command` must match the saved URL; the double slash

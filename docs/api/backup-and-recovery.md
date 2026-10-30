@@ -17,7 +17,10 @@ uses the existing job endpoint. Capture and apply take exclusive lifecycle
 coordination; upload and repository work reserve the affected repository resources.
 Remote snapshot and catalog reads conflict with mutations of the same repository,
 while unrelated repositories and stack operations remain available during upload. Concurrent reads are allowed; destination edits
-return conflict until those leases are released.
+return conflict until those leases are released. Background hourly inventory can
+also pin configuration globally while no visible job is active; a 409 explains
+that the caller should wait and retry. Destination-scoped configuration writes
+remain separate roadmap work.
 
 A run's durable capture and per-destination records are separate from the job
 state. A run with one failed destination finishes with a failed job while
@@ -268,6 +271,9 @@ command output.
 - Overview `helper_configured`, `helper_ready` and `helper_error` distinguish
   unconfigured integration from current privileged recovery protocol
   readiness. Capture may remain usable when helper recovery permissions need repair.
+- Overview `restic_version` is the detected semantic version, omitted when unknown.
+  Probing is bounded to two seconds, cached for one minute and invalidated on a
+  binary change; it runs outside the backup state mutex and never opens a repository.
 - Overview `recovery_error` explains degraded backup operation while the panel
   remains available. Unsafe capture/apply is blocked until recovery is resolved.
 - Copy protection includes `snapshot_status`, `snapshot_checked_at`,

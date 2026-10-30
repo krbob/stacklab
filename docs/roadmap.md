@@ -117,6 +117,12 @@ of changed `main` revisions provide the soak channel between stable releases.
 
 ### 3. Runtime Reliability
 
+- Backup configuration reservations: separate background inventory from unrelated
+  configuration edits using destination-scoped leases and immutable read snapshots.
+  Retain credential lifetime and deletion protection; expose which operation holds
+  a reservation and a bounded retry path. Current global reservations intentionally
+  remain in place until those races and restart behavior have regression coverage.
+
 - expand Compose and Docker diagnostics for restart policies, healthchecks,
   startup ordering, resource limits, log growth, and daemon configuration;
 - add notifications for the existing digest-based image update checks without

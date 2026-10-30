@@ -2,8 +2,8 @@
 
 ## Status And Scope
 
-Implemented and validated through the eighth-review corrective scope, 2026-10-28.
-The [validation record](../quality/backup-validation.md#round-eight-operation-lifecycle-and-compatibility--2026-10-28)
+Implemented and validated through the ninth-review corrective scope, 2026-10-30.
+The [validation record](../quality/backup-validation.md#round-nine-evidence-shutdown-and-review-corrections--2026-10-30)
 identifies native, installed and synthetic evidence and their limits.
 This extends [repository safety](backup-repository-safety.md) and
 [ADR 0009](../adr/0009-backup-maintenance-safety.md). Existing scoped evidence,
@@ -105,9 +105,10 @@ lifecycle, rather than a collection of independent error phrases:
    classification and the failure watchdog. Track bounded, operation-specific
    pending causes. Restic 0.14–0.15 has no retry-success record; 0.16 adds that
    record; 0.17 adds terminal backend failure records. A repeated standalone cause
-   can establish legacy inventory failure. Missing references after an unresolved
-   inventory retry cannot prove corruption; absent a terminal cause they remain
-   inconclusive. Successful retries restore inventory confidence. Unrelated pack
+   can establish legacy inventory failure. The original eighth-review rule kept
+   missing references after any unresolved retry inconclusive; the ninth-review
+   phase-aware rule below supersedes that rule. Successful retries restore inventory
+   confidence. Unrelated pack
    reads never invalidate data listing. Associate terminal Load/Stat failures and
    legacy `pack … failed to download` with their causes, preserving specific access
    failures and independent unknown object diagnostics.
@@ -145,7 +146,7 @@ repair, relax unknown-diagnostic holds, or raise the supported tool minimum.
 
 ## Ninth-Review Correction Plan — 2026-10-30
 
-Accepted for implementation. Preserve the restic 0.14 minimum and the distinction
+Implemented. Preserve the restic 0.14 minimum and the distinction
 between availability, integrity evidence, check holds and operation outcomes.
 
 1. Preserve damage before interpreting backend wrappers. Associate legacy retry
