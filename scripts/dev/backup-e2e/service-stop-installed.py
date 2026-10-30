@@ -165,7 +165,11 @@ def main():
                     if connection.recv(100).startswith(b'SSH-'):
                         break
             except OSError:
-                time.sleep(.1)
+                pass
+            # Docker can accept TCP before sshd is ready and return an empty
+            # banner. Back off on that path too, rather than exhausting 100
+            # probes within a fraction of a second.
+            time.sleep(.1)
         else:
             raise TimeoutError('fixture sshd did not become ready')
         host_key = (workspace / 'host_key.pub').read_text().split()
