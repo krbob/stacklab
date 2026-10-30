@@ -28,7 +28,7 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
   const control = isValidElement<{ id?: string; 'aria-describedby'?: string; className?: string }>(children)
     ? cloneElement(children, {
         id,
-        'aria-describedby': hint ? `${id}-hint` : undefined,
+        'aria-describedby': [children.props['aria-describedby'], hint ? `${id}-hint` : undefined].filter(Boolean).join(' ') || undefined,
         ...(isSelect ? { className: cn(children.props.className, 'appearance-none pr-9') } : {}),
       })
     : children

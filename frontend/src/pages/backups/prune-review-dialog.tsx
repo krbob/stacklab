@@ -7,8 +7,9 @@ import { CheckHoldWarning } from './check-hold-warning'
 
 // Bind the typed confirmation to the evidence fingerprint without remounting
 // the dialog: changed evidence clears the field and explains the reset.
-export function PruneReviewDialog({ destination, pending, refreshing, refreshFailed, error, onCancel, onConfirm, onRefresh }: {
+export function PruneReviewDialog({ destination, revision = 0, pending, refreshing, refreshFailed, error, onCancel, onConfirm, onRefresh }: {
   destination: BackupDestination
+  revision?: number
   pending: boolean
   refreshing: boolean
   refreshFailed: boolean
@@ -18,12 +19,16 @@ export function PruneReviewDialog({ destination, pending, refreshing, refreshFai
   onRefresh: () => void
 }) {
   const [confirmation, setConfirmation] = useState('')
+  const [previousRevision, setPreviousRevision] = useState(revision)
+  const [previousName, setPreviousName] = useState(destination.name)
   const [reviewToken, setReviewToken] = useState(destination.maintenance_review_token)
   const requiresAcknowledgement = !!requiredCheckScope(destination)
   const [previousRequirement, setPreviousRequirement] = useState(requiresAcknowledgement)
   const [evidenceNotice, setEvidenceNotice] = useState<string | null>(null)
   const statusId = useId()
-  if (reviewToken !== destination.maintenance_review_token || previousRequirement !== requiresAcknowledgement) {
+  if (reviewToken !== destination.maintenance_review_token || previousRequirement !== requiresAcknowledgement || previousRevision !== revision || previousName !== destination.name) {
+    setPreviousRevision(revision)
+    setPreviousName(destination.name)
     setReviewToken(destination.maintenance_review_token)
     setPreviousRequirement(requiresAcknowledgement)
     setConfirmation('')
@@ -46,18 +51,19 @@ export function PruneReviewDialog({ destination, pending, refreshing, refreshFai
       nextFocus.current?.focus()
     }
   }, [requiresAcknowledgement])
-  const status = refreshing
+  const status = pending ? 'Starting cleanup. Please wait.' : refreshing
     ? 'Refreshing repository evidence. Cleanup is disabled until this finishes.'
     : !error ? evidenceNotice : null
   const failures = ([['Repository metadata evidence', destination.metadata_check], ['Stored data evidence', destination.data_check]] as const).filter(([, evidence]) => evidence.status === 'failed')
   return (
-    <Dialog title="Run retention cleanup" onClose={onCancel} preventClose={pending} busy={pending || refreshing} initialFocusRef={initialFocusRef}>
+    <Dialog title="Run retention cleanup" onClose={onCancel} preventClose={pending} initialFocusRef={initialFocusRef}>
       <div className="mt-4 space-y-4">
         <p className="text-sm text-[var(--muted)]">Reclaim storage no longer referenced by retained snapshots. Cleanup locks this repository and may take time or incur provider transfer charges.</p>
         <p className="break-all font-mono text-xs text-[var(--text)]">{destination.repository}</p>
         <BackupError error={error} />
-        <div className="min-h-[4.5em] text-sm">
-          <p id={statusId} role={status ? 'status' : undefined} className={refreshing ? 'text-[var(--muted)]' : 'text-[var(--warning)]'}>{status}</p>
+        <div className="grid text-sm leading-5">
+          {requiresAcknowledgement && <span aria-hidden="true" className="invisible col-start-1 row-start-1">Repository evidence changed. Typed confirmation was reset; review the current evidence before confirming again.</span>}
+          <p id={statusId} role="status" aria-atomic="true" className={`col-start-1 row-start-1 ${requiresAcknowledgement && !refreshing && !pending ? 'text-[var(--warning)]' : 'text-[var(--muted)]'}`}>{status}</p>
         </div>
         {requiresAcknowledgement && !destination.maintenance_review_token && <p className="text-sm text-[var(--warning)]">The current evidence review token is unavailable. Refresh repository evidence before confirming cleanup.</p>}
         {(error || (requiresAcknowledgement && !destination.maintenance_review_token)) && <button className={buttonClass} disabled={pending || refreshing} onClick={onRefresh}>Refresh repository evidence</button>}
@@ -73,7 +79,7 @@ export function PruneReviewDialog({ destination, pending, refreshing, refreshFai
           </div>
         )}
         {requiresAcknowledgement && <Field label={`Type ${destination.name} to confirm`}>
-          <input ref={textRef} className={`${inputClass} read-only:opacity-70`} value={confirmation} onChange={(event) => { setConfirmation(event.target.value); setEvidenceNotice(null) }} readOnly={pending || refreshing || refreshFailed} aria-describedby={status ? statusId : undefined} />
+          <input ref={textRef} className={`${inputClass} read-only:opacity-70`} value={confirmation} onChange={(event) => { setConfirmation(event.target.value); if (event.target.value === destination.name) setEvidenceNotice(null) }} readOnly={pending || refreshing || refreshFailed} aria-describedby={status ? statusId : undefined} />
         </Field>}
         <div className="flex justify-end gap-2">
           <button ref={cancelRef} className={buttonClass} disabled={pending} onClick={onCancel}>Cancel</button>

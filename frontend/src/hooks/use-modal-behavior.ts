@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { isTopmostModalLayer, registerModalLayer } from '@/lib/modal-state'
 
 interface UseModalBehaviorOptions {
@@ -36,6 +36,18 @@ export function useModalBehavior<T extends HTMLElement>({
       if (previouslyFocused?.isConnected) previouslyFocused.focus()
     }
   }, [active, initialFocusRef, layer])
+
+  // Removing or disabling the focused control can move browser focus to BODY.
+  // Keep it on the panel until another enabled control is chosen. A nested
+  // modal owns its own focus; background layers must never reclaim it.
+  useLayoutEffect(() => {
+    if (!active || !isTopmostModalLayer(layer)) return
+    const panel = panelRef.current
+    const focused = document.activeElement
+    if (panel && (focused === document.body || (focused instanceof HTMLElement && panel.contains(focused) && focused.matches(':disabled')))) {
+      panel.focus()
+    }
+  })
 
   const requestClose = useCallback(() => {
     if (!isTopmostModalLayer(layer) || preventClose) return

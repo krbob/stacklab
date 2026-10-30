@@ -297,6 +297,8 @@ test.describe('Backup round four repository decisions', () => {
     await page.setViewportSize({ width: 390, height: 844 })
     await mockBackupUI(page)
     let changed = false
+    let release!: () => void
+    const pendingRequest = new Promise<void>(resolve => { release = resolve })
     const requests: unknown[] = []
     await page.route('**/api/backups', route => route.fulfill({ json: {
       destinations: [{ ...destination, ...(changed ? { maintenance_review_token: 'proof-b', check_hold: { scope: 'metadata', error: 'Index discovery was inconclusive', checked_at: '2026-10-15T09:00:00Z' } } : {}) }], plans: [], runs: [], protection: [], helper_ready: true, helper_configured: true, restic_available: true, rclone_available: true, staging_directory: '/staging',
@@ -304,13 +306,28 @@ test.describe('Backup round four repository decisions', () => {
     await page.route('**/api/backups/destinations/nas/prune', async route => {
       requests.push(route.request().postDataJSON())
       changed = true
+      if (requests.length === 1) await pendingRequest
       await route.fulfill({ status: 409, json: { error: { code: requests.length === 1 ? 'maintenance_acknowledgement_required' : 'busy', message: requests.length === 1 ? 'Raw acknowledgement contract' : 'Repository busy' } } })
     })
     await page.goto('/backups?view=destinations')
     await page.getByRole('button', { name: 'Run retention cleanup', exact: true }).click()
-    await page.getByRole('button', { name: 'Start cleanup', exact: true }).click()
     const dialog = page.getByRole('dialog')
+    await dialog.evaluate(element => {
+      element.setAttribute('data-original-dialog', 'yes')
+      document.body.dataset.conflictFocusEscapes = '0'
+      document.addEventListener('focusin', event => {
+        if (event.target instanceof Element && !event.target.closest('[role="dialog"]')) {
+          document.body.dataset.conflictFocusEscapes = String(Number(document.body.dataset.conflictFocusEscapes) + 1)
+        }
+      })
+    })
+    await page.getByRole('button', { name: 'Start cleanup', exact: true }).click()
+    await expect(dialog).toBeFocused()
+    await expect(dialog.getByRole('status')).toHaveText('Starting cleanup. Please wait.')
+    release()
     await expect(dialog).toContainText('Review the latest evidence and confirm')
+    await expect(dialog).toHaveAttribute('data-original-dialog', 'yes')
+    expect(await page.evaluate(() => document.body.dataset.conflictFocusEscapes)).toBe('0')
     await expect(dialog.getByRole('alert').filter({ hasText: 'Cleanup can remove recovery material' })).toContainText('Index discovery was inconclusive')
     await expect(dialog.getByRole('button', { name: 'Start cleanup', exact: true })).toBeDisabled()
     await dialog.getByRole('textbox').fill('NAS')
@@ -322,7 +339,7 @@ test.describe('Backup round four repository decisions', () => {
 })
 
 test.describe('Backup review polling interaction', () => {
-  for (const width of [1440, 390]) {
+  for (const width of [1440, 390, 320]) {
     test(`keeps focus inside prune when acknowledgement changes at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 1000 })
       await page.clock.install()
@@ -362,7 +379,7 @@ test.describe('Backup review polling interaction', () => {
       expect(await page.evaluate(() => document.body.dataset.focusEscapes)).toBe('0')
     })
   }
-  for (const width of [1440, 390]) {
+  for (const width of [1440, 390, 320]) {
     test(`preserves typing and focus during polling, but resets changed evidence at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 })
       await page.clock.install()
@@ -403,6 +420,15 @@ test.describe('Backup review polling interaction', () => {
       await expect(input).toBeFocused()
       await expect(page.getByRole('dialog')).toContainText('Typed confirmation was reset')
       await expect(page.getByRole('button', { name: 'Start cleanup' })).toBeDisabled()
+      await expect(input).toHaveAccessibleDescription(/Typed confirmation was reset/)
+      const before = await input.boundingBox()
+      await input.pressSequentially('N')
+      await expect(page.getByRole('status')).toContainText('Typed confirmation was reset')
+      expect((await input.boundingBox())?.y).toBe(before?.y)
+      await input.pressSequentially('AS')
+      await expect(page.getByRole('status')).toBeEmpty()
+      expect((await input.boundingBox())?.y).toBe(before?.y)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false)
     })
   }
 })
