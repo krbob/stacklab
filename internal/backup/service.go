@@ -46,6 +46,7 @@ type state struct {
 }
 
 type Service struct {
+	toolVersion           toolVersionCache
 	mu                    sync.Mutex
 	cfg                   config.Config
 	jobs                  *jobs.Service
@@ -198,6 +199,7 @@ func clone[T any](value T) T {
 }
 
 func (s *Service) Overview(ctx context.Context) (Overview, error) {
+	resticAvailable, resticVersion := s.toolVersion.restic(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	result := Overview{Destinations: []Destination{}, Plans: []Plan{}, Runs: []Run{}, Protection: []PlanProtection{}, StagingDirectory: filepath.Join(s.directory, "staging"), RecoveryError: s.recoveryError, HelperConfigured: s.cfg.BackupHelperPath != "", HelperReady: s.helperReady, HelperError: s.helperError}
@@ -205,9 +207,8 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 		result.RecoveryError = "Backup module is unavailable: " + s.initErr.Error() + ". Inspect the saved backup state; other Stacklab features remain available."
 		return result, nil
 	}
-	_, err := exec.LookPath("restic")
-	result.ResticAvailable = err == nil
-	_, err = exec.LookPath("rclone")
+	result.ResticAvailable, result.ResticVersion = resticAvailable, resticVersion
+	_, err := exec.LookPath("rclone")
 	result.RcloneAvailable = err == nil
 	for _, d := range s.state.Destinations {
 		normalizeCheckEvidence(&d)
@@ -225,6 +226,10 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	sort.Slice(result.Protection, func(i, j int) bool { return result.Protection[i].PlanName < result.Protection[j].PlanName })
 	sort.Slice(result.Runs, func(i, j int) bool { return result.Runs[i].CreatedAt.After(result.Runs[j].CreatedAt) })
 	return clone(result), nil
+}
+
+func configurationBusyError() error {
+	return fmt.Errorf("%w: a backup job or background repository inventory is active; wait for it to finish and retry", ErrBusy)
 }
 
 func (s *Service) configurationBusyLocked() bool {
@@ -264,7 +269,7 @@ func (s *Service) SaveDestination(ctx context.Context, id string, input Destinat
 		return Destination{}, s.initErr
 	}
 	if s.configurationBusyLocked() {
-		return Destination{}, ErrBusy
+		return Destination{}, configurationBusyError()
 	}
 	for existingID, destination := range s.state.Destinations {
 		if existingID != id && repositoryKey(destination) == repositoryKey(Destination{Kind: input.Kind, Repository: input.Repository}) {
@@ -350,7 +355,7 @@ func (s *Service) DeleteDestination(ctx context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.configurationBusyLocked() {
-		return ErrBusy
+		return configurationBusyError()
 	}
 	d, ok := s.state.Destinations[id]
 	if !ok {
@@ -475,7 +480,7 @@ func (s *Service) SavePlan(ctx context.Context, id string, p Plan) (Plan, error)
 		return Plan{}, s.initErr
 	}
 	if s.configurationBusyLocked() {
-		return Plan{}, ErrBusy
+		return Plan{}, configurationBusyError()
 	}
 	previous, exists := s.state.Plans[id]
 	if id != "" && !exists {
@@ -542,7 +547,7 @@ func (s *Service) DeletePlan(ctx context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.configurationBusyLocked() {
-		return ErrBusy
+		return configurationBusyError()
 	}
 	p, ok := s.state.Plans[id]
 	if !ok {

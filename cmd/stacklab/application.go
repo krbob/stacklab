@@ -292,14 +292,20 @@ func (a *application) Start() error {
 	return a.startErr
 }
 
+// BeginShutdown closes worker admission and requests cancellation without waiting
+// for HTTP drain. Shared resources stay available until Shutdown finishes.
+func (a *application) BeginShutdown() {
+	if a != nil && a.workers != nil {
+		a.workers.Stop()
+	}
+}
+
 func (a *application) Shutdown(ctx context.Context) error {
 	if a == nil {
 		return nil
 	}
 	a.shutdownOnce.Do(func() {
-		if a.workers != nil {
-			a.workers.Stop()
-		}
+		a.BeginShutdown()
 		var shutdownErrors []error
 		if a.handler != nil {
 			if err := a.handler.Shutdown(ctx); err != nil {

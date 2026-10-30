@@ -16,7 +16,7 @@ func TestDiagnosticOperationLifecycle(t *testing.T) {
 	for _, tc := range []struct{ name, transcript, code string }{
 		{"legacy S3 listing", "List(data) returned error, retrying after 1s: We encountered an internal error. Please try again.\nWe encountered an internal error. Please try again.\npack aaaaaaaa: does not exist\nFatal: repository contains errors", "unavailable"},
 		{"legacy SFTP listing", "List(data) returned error, retrying after 1s: Walk /repo/data: connection lost\nWalk /repo/data: connection lost\npack aaaaaaaa: does not exist", "unavailable"},
-		{"legacy unresolved listing", "List(data) returned error, retrying after 1s: EOF\npack aaaaaaaa: does not exist", "check_inconclusive"},
+		{"legacy completed listing", "List(data) returned error, retrying after 1s: EOF\npack aaaaaaaa: does not exist", "integrity_failed"},
 		{"recovered listing still finds missing pack", "List(data) returned error, retrying after 1s: EOF\nList(data) operation successful after 1 retries\npack aaaaaaaa: does not exist", "integrity_failed"},
 		{"legacy index", "List(index) returned error, retrying after 1s: provider failure\nprovider failure\nid aaaaaaaa not found in repository", "unavailable"},
 		{"unrelated retry", "Load(<data/bbbbbbbb>, 0, 0) returned error, retrying after 1s: EOF\npack aaaaaaaa: does not exist", "integrity_failed"},

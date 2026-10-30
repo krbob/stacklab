@@ -110,7 +110,7 @@ func (runner nativeRunner) RunProgress(ctx context.Context, name string, args, e
 	cmd.Stderr = &diagnostic
 	runErr := cmd.Run()
 	diagnostic.finish()
-	if runErr != nil || ctx.Err() != nil {
+	if runErr != nil || ctx.Err() != nil || diagnostic.evidence.cancelled {
 		classified := classifyDiagnosticEvidence(name, runErr, &diagnostic.evidence)
 		if ctx.Err() != nil {
 			var commandErr *repositoryCommandError
@@ -124,6 +124,10 @@ func (runner nativeRunner) RunProgress(ctx context.Context, name string, args, e
 				return nil, classified
 			}
 			return nil, commandContextError(context.Cause(ctx))
+		}
+		var externalExit *exec.ExitError
+		if (diagnostic.evidence.cancelled || (errors.As(runErr, &externalExit) && externalExit.ExitCode() == 130)) && !diagnostic.evidence.integrityFailure() {
+			return nil, commandContextError(context.Canceled)
 		}
 		// Remote backends may echo credential-bearing URLs or rclone configuration.
 		// Never include raw subprocess output in errors, events, or API responses.
@@ -549,6 +553,8 @@ func classifyDiagnosticEvidence(name string, err error, evidence *diagnosticEvid
 			kind, message = "credentials_rejected", "repository rejected the encryption password; verify its saved credentials"
 		case evidence.integrityFailure():
 			kind, message = "integrity_failed", "repository integrity verification failed; inspect the repository and preserve existing copies"
+		case evidence.missingLock:
+			kind, message = "unlock_refused", "lock metadata vanished; refresh the lock inventory before retrying"
 		case evidence.unexplainedFailure():
 			kind, message = "check_inconclusive", "repository check was inconclusive; preserve existing copies and run the required check before resuming maintenance"
 		case evidence.locked:
@@ -563,6 +569,8 @@ func classifyDiagnosticEvidence(name string, err error, evidence *diagnosticEvid
 			kind, message = "permission_denied", "destination denied access; verify transport credentials and directory permissions"
 		case evidence.missingRepository:
 			kind, message = "repository_missing", "repository is missing or uninitialized; verify the address before initializing"
+		case code == 130:
+			kind, message = "cancelled", "repository operation was cancelled"
 		case evidence.summary:
 			// Restic prints these summaries for transport failures too. Only
 			// unexplained summaries create a hold; they never prove corruption.

@@ -97,7 +97,7 @@ func (s *Service) unlockRepository(ctx context.Context, job store.Job, d Destina
 			var diagnostic *repositoryCommandError
 			if errors.As(err, &diagnostic) {
 				switch diagnostic.Code {
-				case "cancelled", "timeout", "unavailable", "credentials_rejected", "permission_denied", "repository_missing":
+				case "cancelled", "timeout", "unavailable", "credentials_rejected", "permission_denied", "repository_missing", "unlock_refused":
 					return err
 				}
 			}
@@ -121,7 +121,14 @@ func (s *Service) unlockRepository(ctx context.Context, job store.Job, d Destina
 		return unlockRefused("lock inventory changed during ownership review")
 	}
 	if _, err := s.restic(ctx, d, "", "unlock"); err != nil {
-		return err
+		var diagnostic *repositoryCommandError
+		if errors.As(err, &diagnostic) {
+			switch diagnostic.Code {
+			case "cancelled", "timeout", "unavailable", "credentials_rejected", "permission_denied", "repository_missing", "repository_locked", "storage_full":
+				return err
+			}
+		}
+		return unlockIncomplete("unlock outcome could not be established; refresh the lock inventory before retrying")
 	}
 	remaining, err := s.repositoryLockIDs(ctx, d)
 	if err != nil {

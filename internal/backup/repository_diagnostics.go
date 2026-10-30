@@ -7,6 +7,10 @@ import (
 	"strings"
 )
 
+var resticTerminalControl = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~])?`)
+var resticSignal = regexp.MustCompile(`^signal (?:interrupt|terminated) received, cleaning up$`)
+var resticSnapshotFailure = regexp.MustCompile(`^(?:error: )?failed to load snapshot ([a-f0-9]{8,64}): (.+)$`)
+
 var resticEOFDiagnostic = regexp.MustCompile(`\beof\b`)
 var resticHTTPFailureDiagnostic = regexp.MustCompile(`\b(?:http(?:/[^ ]+)?[ :]+|status(?: code)?[ :=]+)(?:500|502|503|504)\b`)
 var resticMissingPackDiagnostic = regexp.MustCompile(`pack [a-f0-9]{8,64}: does not exist`)
@@ -84,7 +88,7 @@ func resticIntegrityFailure(diagnostic string, inventory resticInventoryFailure)
 	for _, line := range strings.Split(diagnostic, "\n") {
 		// Normal EOF before the expected length in local/SFTP pack reads is
 		// truncation, unlike a connection interrupted during the download.
-		if strings.Contains(line, "file is too short") && containsDiagnostic(line, "load(<data/", "download error:", "pack ") {
+		if strings.Contains(line, "file is too short") && containsDiagnostic(line, "load(<data/", "readfull(<data/", "download error:", "pack ") {
 			return true
 		}
 	}
@@ -105,7 +109,10 @@ type diagnosticEvidence struct {
 	treeErrors, summary, explained, unknown, incomplete                    bool
 	transport, locked, credentials, storage, permission, missingRepository bool
 	operationCauses                                                        map[string]bool
-	pendingOperations                                                      map[string]string
+	pendingOperations                                                      map[string]pendingDiagnostic
+	pendingInventory                                                       resticInventoryFailure
+	retrySequence                                                          uint64
+	missingLock                                                            bool
 	unmatchedCauses                                                        map[string]bool
 	cancelled                                                              bool
 }
@@ -157,16 +164,20 @@ func (e *diagnosticEvidence) operational(line string) bool {
 	e.storage = e.storage || storage
 	e.permission = e.permission || permission
 	e.missingRepository = e.missingRepository || missing
-	return transport || locked || credentials || storage || permission || missing
+	return transport || locked || credentials || storage || permission || missing || strings.HasPrefix(line, "ssh host key does not match pinned key")
 }
 
 func (e *diagnosticEvidence) add(record resticDiagnosticRecord) {
 	for _, raw := range strings.Split(record.message, "\n") {
-		line := strings.TrimSpace(resticQuotedText.ReplaceAllString(raw, `""`))
+		line := strings.TrimSpace(resticTerminalControl.ReplaceAllString(resticQuotedText.ReplaceAllString(raw, `""`), ""))
 		if line == "" || resticCacheHousekeeping(line) {
 			continue
 		}
 		if containsDiagnostic(line, "unable to refresh lock", "failed to refresh lock", "remove(<lock/") {
+			continue
+		}
+		if resticSignal.MatchString(line) {
+			e.cancelled = true
 			continue
 		}
 		// Cancellation changes the provenance of subsequent output. Drained
@@ -176,8 +187,24 @@ func (e *diagnosticEvidence) add(record resticDiagnosticRecord) {
 			e.explicitDamage = e.explicitDamage || explicitResticDamage(line)
 			continue
 		}
+		if explicitResticDamage(line) {
+			e.explicitDamage = true
+		}
+		e.advanceCheckPhase(line)
 		if op, ok := parseBackendDiagnostic(line); ok {
 			e.backend(op)
+			continue
+		}
+		if snapshot := resticSnapshotFailure.FindStringSubmatch(line); snapshot != nil {
+			// Preserve object decode/format errors; only read failures belong to
+			// backend correlation, never arbitrary snapshot diagnostics.
+			cause := diagnosticCause(snapshot[2])
+			if e.legacyFailure(cause) || e.operational(cause) {
+				e.explained = true
+				continue
+			}
+		}
+		if e.legacyListingFailure(line) {
 			continue
 		}
 		if containsDiagnostic(line, "repository contains errors", "repository contains damaged pack files", "repository is damaged and must be repaired", "repository index is damaged and must be repaired") {
@@ -268,7 +295,7 @@ func (e *diagnosticEvidence) add(record resticDiagnosticRecord) {
 			e.remember(cause, false)
 			continue
 		}
-		if record.errorRecord || strings.HasPrefix(line, "error: ") {
+		if record.errorRecord || strings.HasPrefix(line, "error: ") || !resticDiagnosticNoise(line) {
 			e.remember(cause, false)
 		}
 	}
@@ -282,4 +309,12 @@ func (e *diagnosticEvidence) unexplainedFailure() bool {
 	inventory := e.uncertainInventory()
 	ambiguousMissing := (e.missingPack && inventory.packs && !e.inventory.packs) || (e.missingBlob && inventory.indexes && !e.inventory.indexes)
 	return e.incomplete || e.unknown || ambiguousMissing || len(e.unmatchedCauses) > 0 || (e.summary && !e.explained)
+}
+
+// Plain check stderr can contain unwrapped pack errors. Only known non-error
+// messages may disappear; unknown text remains a hold even beside transport errors.
+func resticDiagnosticNoise(line string) bool {
+	return strings.HasPrefix(line, "subprocess ssh:") ||
+		strings.HasPrefix(line, "warning: permanently added ") ||
+		strings.HasPrefix(line, "warning: at least one source file could not be read")
 }

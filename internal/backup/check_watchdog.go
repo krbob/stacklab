@@ -61,6 +61,9 @@ func (w *checkFailureTracker) observe(now time.Time, record resticDiagnosticReco
 			continue
 		}
 		if ok && op.read() && op.phase == "failed" {
+			if diagnosticCause(op.cause) == "context canceled" || diagnosticCause(op.cause) == "context cancelled" {
+				continue
+			}
 			return true
 		}
 		if resticLegacyDownload.MatchString(line) || (containsDiagnostic(line, "download error:", "failed to load ") && resticTransportFailure(line)) {

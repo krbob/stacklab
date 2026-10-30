@@ -808,6 +808,11 @@ export interface components {
       /** @description Unresolved service recovery or backup state issue; the panel remains available. */
       recovery_error?: string;
       restic_available: boolean;
+      /**
+       * @description Detected restic semantic version; omitted when probing cannot determine it. Cached for at most one minute and refreshed when the binary changes.
+       * @example 0.18.0
+       */
+      restic_version?: string;
       runs: components["schemas"]["BackupRun"][];
       staging_directory: string;
     };

@@ -6728,6 +6728,10 @@ components:
             $ref: '#/components/schemas/BackupPlanProtection'
         restic_available:
           type: boolean
+        restic_version:
+          type: string
+          description: Detected restic semantic version; omitted when probing cannot determine it. Cached for at most one minute and refreshed when the binary changes.
+          example: "0.18.0"
         rclone_available:
           type: boolean
         staging_directory:

@@ -94,6 +94,9 @@ type shutdownComponent interface {
 
 func shutdownApplication(ctx context.Context, stopAccepting, runtime shutdownComponent) error {
 	var shutdownErrors []error
+	if early, ok := runtime.(interface{ BeginShutdown() }); ok {
+		early.BeginShutdown()
+	}
 	if stopAccepting != nil {
 		if err := stopAccepting.Shutdown(ctx); err != nil {
 			shutdownErrors = append(shutdownErrors, err)

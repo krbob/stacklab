@@ -95,6 +95,44 @@ func TestShutdownApplicationStopsServerBeforeRuntime(t *testing.T) {
 	}
 }
 
+func TestShutdownCancelsWorkersWhileHTTPDrains(t *testing.T) {
+	workers := lifecycle.New(context.Background())
+	app := &application{workers: workers}
+	var mu sync.Mutex
+	var order []string
+	started, release := make(chan struct{}), make(chan struct{})
+	server := &blockingShutdownComponent{name: "server", mu: &mu, order: &order, started: started, release: release}
+	done := make(chan error, 1)
+	go func() { done <- shutdownApplication(context.Background(), server, app) }()
+	t.Cleanup(func() {
+		close(release)
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Error(err)
+			}
+		case <-time.After(time.Second):
+			t.Error("shutdown did not finish after HTTP drain")
+		}
+	})
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("HTTP drain did not start")
+	}
+	if workers.Context().Err() == nil {
+		t.Error("workers still running during HTTP drain")
+	}
+	if workers.Go(func(context.Context) {}) {
+		t.Error("new work admitted during HTTP drain")
+	}
+	select {
+	case <-done:
+		t.Error("shutdown returned before HTTP drain")
+	default:
+	}
+}
+
 func TestApplicationExplicitlyOwnsWorkersAndClosesStoreAfterDrain(t *testing.T) {
 	appStore, err := store.Open(t.TempDir() + "/stacklab.db")
 	if err != nil {

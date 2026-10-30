@@ -57,6 +57,7 @@ type unlockGuardRunner struct {
 	unlocks         int
 	listError       error
 	metadataError   error
+	unlockError     error
 	postUnlockError error
 	listingSequence [][]string
 	lists           int
@@ -79,7 +80,7 @@ func (r *unlockGuardRunner) Run(ctx context.Context, name string, args, env []st
 	}
 	if commandIn(args, "unlock") {
 		r.unlocks++
-		return nil, nil
+		return nil, r.unlockError
 	}
 	return r.base.Run(ctx, name, args, env, dir)
 }

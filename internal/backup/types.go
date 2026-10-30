@@ -196,6 +196,7 @@ type Overview struct {
 	Plans            []Plan           `json:"plans"`
 	Runs             []Run            `json:"runs"`
 	Protection       []PlanProtection `json:"protection"`
+	ResticVersion    string           `json:"restic_version,omitempty"`
 	ResticAvailable  bool             `json:"restic_available"`
 	RcloneAvailable  bool             `json:"rclone_available"`
 	StagingDirectory string           `json:"staging_directory"`

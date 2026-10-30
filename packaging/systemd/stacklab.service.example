@@ -18,6 +18,8 @@ Restart=on-failure
 RestartSec=5
 TimeoutStartSec=30
 TimeoutStopSec=30
+# Let Stacklab cancel restic before its SSH transport; kill stragglers on timeout.
+KillMode=mixed
 # Must remain false to allow the opt-in Docker admin helper to elevate via sudo.
 NoNewPrivileges=false
 PrivateTmp=true
