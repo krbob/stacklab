@@ -28,7 +28,7 @@ func TestDiagnosticPhaseAndObjectProvenance(t *testing.T) {
 		{"lock saving is housekeeping", "Save(<lock/aaaaaaaa>) failed: EOF\nLoad(<data/bbbbbbbb>, 0, 0) failed: EOF", "unavailable"},
 		{"legacy lock details", "repository is already locked exclusively by PID 321 on fixture by fixture (UID 1000, GID 1000)\nlock was created at 2026-10-30 10:00:00 (2m1.3s ago)\nstorage ID aaaaaaaa\nthe `unlock` command can be used to remove stale locks", "repository_locked"},
 		{"unknown beside lock", "repository is already locked exclusively by PID 321\nunsupported lock contents", "check_inconclusive"},
-		{"vanished lock", "Load(<lock/aaaaaaaa>, 0, 0) failed: open /repo/locks/aaaaaaaa: no such file or directory", "unlock_refused"},
+		{"vanished lock outside preflight", "Load(<lock/aaaaaaaa>, 0, 0) failed: open /repo/locks/aaaaaaaa: no such file or directory", "repository_locked"},
 		{"vanished data is uncertain", "Load(<data/aaaaaaaa>, 0, 0) failed: open /repo/data/aaaaaaaa: no such file or directory", "check_inconclusive"},
 	} {
 		t.Run(tc.name, func(t *testing.T) { assertDiagnosticCode(t, tc.text, tc.code) })

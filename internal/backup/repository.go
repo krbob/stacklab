@@ -39,7 +39,11 @@ func (runner nativeRunner) Run(ctx context.Context, name string, args, env []str
 	return runner.RunProgress(ctx, name, args, env, dir, nil)
 }
 func (runner nativeRunner) RunProgress(ctx context.Context, name string, args, env []string, dir string, callback progressCallback) ([]byte, error) {
-	if filepath.Base(name) == "restic" && commandIn(args, "backup") {
+	invocation, ok := ctx.Value(resticInvocationKey{}).(resticInvocation)
+	if !ok {
+		invocation = resticInvocationFromArgs(args)
+	}
+	if filepath.Base(name) == "restic" && invocation.command == "backup" {
 		transferCtx, cancel := context.WithCancelCause(ctx)
 		defer cancel(nil)
 		watchdog := newTransferWatchdog(time.Now())
@@ -59,7 +63,7 @@ func (runner nativeRunner) RunProgress(ctx context.Context, name string, args, e
 		ctx = transferCtx
 	}
 	var checkWatchdog *checkFailureWatchdog
-	if filepath.Base(name) == "restic" && commandIn(args, "check") {
+	if filepath.Base(name) == "restic" && invocation.command == "check" {
 		checkCtx, cancel := context.WithCancelCause(ctx)
 		defer cancel(nil)
 		budget := runner.checkFailureBudget
@@ -104,12 +108,17 @@ func (runner nativeRunner) RunProgress(ctx context.Context, name string, args, e
 	output := progressBuffer{callback: callback}
 	cmd.Stdout = &output
 	diagnostic := diagnosticStream{observe: runner.diagnosticObserver, cancelled: func() bool { return ctx.Err() != nil }}
+	diagnostic.evidence.invocation = invocation
 	if checkWatchdog != nil {
 		diagnostic.onRecord = checkWatchdog.observe
 	}
 	cmd.Stderr = &diagnostic
 	runErr := cmd.Run()
 	diagnostic.finish()
+	if filepath.Base(name) == "restic" {
+		warning, _ := ctx.Value(repositoryWarningKey{}).(repositoryWarning)
+		diagnostic.evidence.reportWarnings(warning)
+	}
 	if runErr != nil || ctx.Err() != nil || diagnostic.evidence.cancelled {
 		classified := classifyDiagnosticEvidence(name, runErr, &diagnostic.evidence)
 		if ctx.Err() != nil {
@@ -133,7 +142,7 @@ func (runner nativeRunner) RunProgress(ctx context.Context, name string, args, e
 		// Never include raw subprocess output in errors, events, or API responses.
 		return nil, classified
 	}
-	if filepath.Base(name) == "restic" && commandIn(args, "check") && (diagnostic.evidence.integrityFailure() || diagnostic.evidence.unexplainedFailure()) {
+	if filepath.Base(name) == "restic" && invocation.command == "check" && (diagnostic.evidence.integrityFailure() || diagnostic.evidence.unexplainedFailure()) {
 		return nil, classifyDiagnosticEvidence(name, nil, &diagnostic.evidence)
 	}
 	output.finish()
@@ -274,6 +283,7 @@ func cleanProcessEnvironment() []string {
 }
 func shellWord(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'" }
 func (s *Service) restic(ctx context.Context, d Destination, dir string, args ...string) ([]byte, error) {
+	ctx = context.WithValue(ctx, resticInvocationKey{}, resticInvocationFromArgs(args))
 	if len(args) > 0 && (args[0] == "snapshots" || args[0] == "cat" || args[0] == "dump" || args[0] == "ls" || args[0] == "stats" || args[0] == "init") {
 		var cancel context.CancelFunc
 		budget := 90 * time.Second
@@ -528,8 +538,9 @@ func commandIn(args []string, wanted string) bool {
 	return false
 }
 
-func classifyCommandError(name string, err error, diagnostic string) error {
+func classifyCommandError(name string, err error, diagnostic string, args ...string) error {
 	stream := diagnosticStream{}
+	stream.evidence.invocation = resticInvocationFromArgs(args)
 	_, _ = stream.Write([]byte(diagnostic))
 	stream.finish()
 	return classifyDiagnosticEvidence(name, err, &stream.evidence)
@@ -553,8 +564,6 @@ func classifyDiagnosticEvidence(name string, err error, evidence *diagnosticEvid
 			kind, message = "credentials_rejected", "repository rejected the encryption password; verify its saved credentials"
 		case evidence.integrityFailure():
 			kind, message = "integrity_failed", "repository integrity verification failed; inspect the repository and preserve existing copies"
-		case evidence.missingLock:
-			kind, message = "unlock_refused", "lock metadata vanished; refresh the lock inventory before retrying"
 		case evidence.unexplainedFailure():
 			kind, message = "check_inconclusive", "repository check was inconclusive; preserve existing copies and run the required check before resuming maintenance"
 		case evidence.locked:
@@ -569,6 +578,10 @@ func classifyDiagnosticEvidence(name string, err error, evidence *diagnosticEvid
 			kind, message = "permission_denied", "destination denied access; verify transport credentials and directory permissions"
 		case evidence.missingRepository:
 			kind, message = "repository_missing", "repository is missing or uninitialized; verify the address before initializing"
+		case evidence.missingLock && evidence.invocation.lockInspection():
+			kind, message = "unlock_refused", "lock metadata vanished; refresh the lock inventory before retrying"
+		case evidence.missingLock:
+			kind, message = "repository_locked", "repository lock inventory changed while acquiring a lock; wait for other clients to finish and retry"
 		case code == 130:
 			kind, message = "cancelled", "repository operation was cancelled"
 		case evidence.summary:

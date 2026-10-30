@@ -56,9 +56,15 @@ unchanged apart from terminal-control removal. It exposed the legacy tree
 `ReadFull(<data/…>): cause` wrapper before `pack … failed to download: StreamPack: cause`.
 The corpus replays the production watchdog's stop boundary for all S3 transcripts;
 otherwise post-SIGINT output would incorrectly lose its cancellation provenance.
+The legacy corpus and the native-driven correction were committed in `2adb3a1`.
+The pack-read transcript predates that correction; its exact pre-fix binary revision
+was not retained, so it is not evidence of a passing run on the corrected source.
 
 The equivalent `restic-0.18.0-s3-*-outage.stderr` files were captured on the same
 disposable Debian host using its original stable-distribution restic 0.18.0.
 All three faults, the corruption/transport mixture, and final healthy recovery
 passed. This run used the same explicit retry-exhaustion policy and real TLS proxy;
 only terminal control characters were removed from the retained stderr.
+The passing minimum/stable operation model is `2adb3a1`, as recorded in
+`docs/quality/backup-validation.md`; later oversized-record behavior belongs to
+`ec77d69` and its separate deterministic/installed validation.

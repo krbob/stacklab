@@ -19,7 +19,11 @@ func TestUnlockNativeDiagnosticOutcomes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s, _, base := newTestService(t)
 			d := addDestination(t, s, "Outcome")
-			nativeErr := classifyCommandError("restic", errors.New("exit"), tc.text)
+			args := []string{"unlock"}
+			if tc.preflight {
+				args = []string{"cat", "lock"}
+			}
+			nativeErr := classifyCommandError("restic", errors.New("exit"), tc.text, args...)
 			runner := &unlockGuardRunner{base: base}
 			if tc.preflight {
 				runner.ids = []string{strings.Repeat("a", 64)}

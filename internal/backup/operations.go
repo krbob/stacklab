@@ -73,6 +73,7 @@ func (s *Service) ExecuteRepositoryJob(ctx context.Context, job store.Job, id, a
 	defer s.releaseRepositories(job.ID)
 	ctx, cancel := context.WithTimeout(ctx, 24*time.Hour)
 	defer cancel()
+	ctx = s.withRepositoryWarnings(ctx, job)
 	unregister := s.jobs.RegisterCancel(job.ID, cancel)
 	defer unregister()
 	s.mu.Lock()

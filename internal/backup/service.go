@@ -229,7 +229,7 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 }
 
 func configurationBusyError() error {
-	return fmt.Errorf("%w: a backup job or background repository inventory is active; wait for it to finish and retry", ErrBusy)
+	return fmt.Errorf("%w: a backup job, repository read or background inventory is active; wait for it to finish and retry", ErrBusy)
 }
 
 func (s *Service) configurationBusyLocked() bool {
@@ -744,6 +744,11 @@ func (s *Service) saveRun(run Run, p Plan) error {
 func (s *Service) event(ctx context.Context, job store.Job, message string) {
 	_ = s.jobs.PublishEvent(ctx, job, "job_progress", message, "", nil)
 }
+func (s *Service) withRepositoryWarnings(ctx context.Context, job store.Job) context.Context {
+	return context.WithValue(ctx, repositoryWarningKey{}, repositoryWarning(func(message string) {
+		s.event(ctx, job, message)
+	}))
+}
 func (s *Service) finish(ctx context.Context, job store.Job, err error) {
 	finishCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -761,6 +766,7 @@ func (s *Service) ExecuteRun(ctx context.Context, job store.Job, runID string) {
 	defer s.releaseRepositories(job.ID)
 	ctx, cancel := context.WithTimeout(ctx, 24*time.Hour)
 	defer cancel()
+	ctx = s.withRepositoryWarnings(ctx, job)
 	unregister := s.jobs.RegisterCancel(job.ID, cancel)
 	defer unregister()
 	s.mu.Lock()

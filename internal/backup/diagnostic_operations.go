@@ -37,6 +37,10 @@ func (op backendDiagnostic) read() bool {
 	return strings.HasPrefix(op.key, "list(") || strings.HasPrefix(op.key, "load(") || strings.HasPrefix(op.key, "stat(")
 }
 
+func (op backendDiagnostic) vanishedLock() bool {
+	return (strings.HasPrefix(op.key, "load(<lock/") || strings.HasPrefix(op.key, "stat(<lock/")) && missingBackendObject(op.cause)
+}
+
 func explicitResticDamage(line string) bool {
 	return resticIntegrityFailure(line, resticInventoryFailure{packs: true, indexes: true})
 }
@@ -89,6 +93,16 @@ func (e *diagnosticEvidence) retainUntrackedInventory(key string) {
 // index loading and pack inventory in restic check. Retire only unresolved retry
 // correlations. A previously reported terminal inventory failure remains evidence.
 func (e *diagnosticEvidence) advanceCheckPhase(line string) {
+	if op, ok := parseBackendDiagnostic(line); ok && op.key == "list(data)" && !e.unknown && !e.incomplete && len(e.unmatchedCauses) == 0 {
+		// Restic aborts on LoadIndex failure before starting Packs/List(data).
+		// Retire only pending index retries, never established terminal failures.
+		e.pendingInventory.indexes = false
+		for key := range e.pendingOperations {
+			if key == "list(index)" || strings.HasPrefix(key, "load(<index/") {
+				delete(e.pendingOperations, key)
+			}
+		}
+	}
 	packs := strings.HasPrefix(line, "pack ")
 	structure := strings.HasPrefix(line, "error for tree ") || strings.HasPrefix(line, "error: failed to load snapshot ") ||
 		strings.HasPrefix(line, "load(<snapshot/") || strings.HasPrefix(line, "list(snapshot)") ||
@@ -106,8 +120,11 @@ func (e *diagnosticEvidence) advanceCheckPhase(line string) {
 
 func missingBackendObject(cause string) bool {
 	return containsDiagnostic(cause, "no such file or directory", "specified key does not exist", "nosuchkey") ||
-		cause == "not found" || cause == "does not exist"
+		cause == "not found" || cause == "does not exist" || cause == "file does not exist" ||
+		strings.HasSuffix(cause, ": file does not exist") || resticMissingBackendObject.MatchString(cause)
 }
+
+var resticMissingBackendObject = regexp.MustCompile(`^<(?:lock|data|index|snapshot|key)/[a-f0-9]{8,64}> does not exist$`)
 
 func (e *diagnosticEvidence) backend(op backendDiagnostic) {
 	if op.phase == "recovered" {
@@ -118,21 +135,28 @@ func (e *diagnosticEvidence) backend(op backendDiagnostic) {
 		return
 	}
 	if !op.read() {
-		return // Lock refresh/removal is not repository evidence.
+		if !strings.Contains(op.key, "(<lock/") && op.phase == "failed" {
+			e.explained = e.operational(op.cause) || e.explained
+		}
+		return // Writes do not establish check evidence.
 	}
 	if explicitResticDamage(op.cause) {
 		e.explicitDamage = true
 	}
 	if op.phase == "retry" {
+		if op.vanishedLock() && !e.invocation.lockInspection() {
+			return // A foreign lock may disappear during normal lock acquisition.
+		}
 		e.retainRetry(op)
 		return
 	}
 	if diagnosticCause(op.cause) == "context canceled" || diagnosticCause(op.cause) == "context cancelled" {
 		return // An individual restic worker cancellation does not diagnose storage.
 	}
-	if missingBackendObject(op.cause) && strings.HasPrefix(op.key, "load(<") {
-		if strings.HasPrefix(op.key, "load(<lock/") {
+	if missingBackendObject(op.cause) && (strings.HasPrefix(op.key, "load(<") || strings.HasPrefix(op.key, "stat(<")) {
+		if op.vanishedLock() {
 			e.missingLock = true
+			delete(e.pendingOperations, op.key)
 		} else {
 			e.unknown = true
 		}
@@ -196,5 +220,9 @@ func (e *diagnosticEvidence) legacyListingFailure(line string) bool {
 func resticCacheHousekeeping(line string) bool {
 	line = strings.TrimPrefix(line, "error: ")
 	return strings.HasPrefix(line, "error removing temporary cache directory: ") ||
-		strings.HasPrefix(line, "unable to create temporary directory for cache during check, disabling cache: ")
+		strings.HasPrefix(line, "unable to create temporary directory for cache during check, disabling cache: ") ||
+		strings.HasPrefix(line, "unable to open cache: ") ||
+		strings.HasPrefix(line, "unable to find old cache directories: ") ||
+		(strings.HasPrefix(line, "unable to create cache directory ") && strings.Contains(line, ", disabling cache: ")) ||
+		strings.HasPrefix(line, "using temporary cache in ")
 }

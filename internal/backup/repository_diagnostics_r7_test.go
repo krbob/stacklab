@@ -124,13 +124,13 @@ func TestNativeCheckFailureStopPreservesEvidenceAndCleanup(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			program, marker := filepath.Join(dir, "restic"), filepath.Join(dir, "cleaned")
-			body := "#!/bin/sh\ntrap 'printf cleaned > \"$1\"; exit 130' INT\nprintf '%s\\n' " + shellWord(tc.messages) + " >&2\nwhile :; do sleep 0.05; printf '%s\\n' " + shellWord(tc.messages) + " >&2; done\n"
+			body := "#!/bin/sh\ntrap 'printf cleaned > \"$2\"; exit 130' INT\nprintf '%s\\n' " + shellWord(tc.messages) + " >&2\nwhile :; do sleep 0.05; printf '%s\\n' " + shellWord(tc.messages) + " >&2; done\n"
 			if err := os.WriteFile(program, []byte(body), 0700); err != nil {
 				t.Fatal(err)
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
-			_, err := (nativeRunner{checkFailureBudget: 100 * time.Millisecond}).Run(ctx, program, []string{marker, "check"}, cleanProcessEnvironment(), dir)
+			_, err := (nativeRunner{checkFailureBudget: 100 * time.Millisecond}).Run(ctx, program, []string{"check", marker}, cleanProcessEnvironment(), dir)
 			var diagnostic *repositoryCommandError
 			if !errors.As(err, &diagnostic) || diagnostic.Code != tc.code {
 				t.Fatalf("got %v, want %s", err, tc.code)

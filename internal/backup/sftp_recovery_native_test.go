@@ -150,6 +150,9 @@ exec /usr/sbin/sshd -D -e -f /fixture/sshd_config
 	if err := operation("backup_repository_init"); err != nil {
 		t.Fatal(err)
 	}
+	if !inventory && os.Getenv("STACKLAB_TEST_NATIVE_MISSING_LOCK") == "1" {
+		testNativeMissingLock(t, s, d)
+	}
 	source := filepath.Join(base, "source")
 	if err := os.Mkdir(source, 0700); err != nil {
 		t.Fatal(err)

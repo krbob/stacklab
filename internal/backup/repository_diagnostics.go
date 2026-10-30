@@ -34,6 +34,12 @@ type resticDiagnostics []resticDiagnosticRecord
 func parseResticDiagnostics(diagnostic string) resticDiagnostics {
 	var records resticDiagnostics
 	for _, line := range strings.Split(diagnostic, "\n") {
+		// Some native Warnf calls omit a newline. Preserve a following JSON
+		// record instead of swallowing it with the housekeeping prefix.
+		if at := strings.Index(line, `{"message_type"`); at > 0 && json.Valid([]byte(line[at:])) {
+			records = append(records, parseResticDiagnostics(line[:at])...)
+			line = line[at:]
+		}
 		var encoded struct {
 			MessageType string `json:"message_type"`
 			Message     string `json:"message"`
@@ -105,6 +111,8 @@ const diagnosticCauseLimit = 128
 const diagnosticCauseBytes = 4096
 
 type diagnosticEvidence struct {
+	invocation                                                             resticInvocation
+	cacheWarning, cleanupWarning, backendNotice                            bool
 	inventory                                                              resticInventoryFailure
 	explicitDamage, missingPack, missingBlob                               bool
 	treeErrors, summary, explained, unknown, incomplete                    bool
@@ -170,10 +178,11 @@ func (e *diagnosticEvidence) operational(line string) bool {
 
 func (e *diagnosticEvidence) add(record resticDiagnosticRecord) {
 	for _, raw := range strings.Split(record.message, "\n") {
-		line := strings.TrimSpace(resticTerminalControl.ReplaceAllString(resticQuotedText.ReplaceAllString(raw, `""`), ""))
-		if line == "" || resticCacheHousekeeping(line) {
+		line := strings.TrimSpace(resticTerminalControl.ReplaceAllString(raw, ""))
+		if line == "" || e.housekeeping(line) {
 			continue
 		}
+		line = resticQuotedText.ReplaceAllString(line, `""`)
 		if containsDiagnostic(line, "unable to refresh lock", "failed to refresh lock", "remove(<lock/") {
 			continue
 		}
@@ -253,7 +262,7 @@ func (e *diagnosticEvidence) add(record resticDiagnosticRecord) {
 			e.explained = e.operational(line) || e.explained
 			continue
 		}
-		if diagnosticCause(line) == "context canceled" || diagnosticCause(line) == "context cancelled" || (strings.HasPrefix(line, "readfull(<") && strings.HasSuffix(line, "): context canceled")) {
+		if diagnosticCause(line) == "context canceled" || diagnosticCause(line) == "context cancelled" {
 			continue
 		}
 		if resticMissingReference(line) {

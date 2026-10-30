@@ -29,6 +29,10 @@ func (w *checkFailureTracker) observe(now time.Time, record resticDiagnosticReco
 	for _, raw := range strings.Split(record.message, "\n") {
 		line := strings.TrimSpace(resticQuotedText.ReplaceAllString(raw, `""`))
 		op, ok := parseBackendDiagnostic(line)
+		if ok && op.vanishedLock() {
+			delete(w.pending, op.key)
+			continue // Restic retries acquisition after another client drops its lock.
+		}
 		if ok && op.phase == "recovered" {
 			delete(w.pending, op.key)
 			continue
