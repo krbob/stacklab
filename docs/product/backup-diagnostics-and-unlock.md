@@ -2,9 +2,8 @@
 
 ## Status And Scope
 
-Implemented and validated through the ninth-review corrective scope, 2026-10-30.
-The tenth-review correction plan below is approved and awaiting implementation.
-The [validation record](../quality/backup-validation.md#round-nine-evidence-shutdown-and-review-corrections--2026-10-30)
+Implemented and validated through the tenth-review corrective scope, 2026-10-30.
+The [validation record](../quality/backup-validation.md#round-ten-command-context-and-delivery-corrections--2026-10-30)
 identifies native, installed and synthetic evidence and their limits.
 This extends [repository safety](backup-repository-safety.md) and
 [ADR 0009](../adr/0009-backup-maintenance-safety.md). Existing scoped evidence,
@@ -187,7 +186,7 @@ full quality gates plus installed Linux validation, then push and verify final C
 
 ## Tenth-Review Correction Plan — 2026-10-30
 
-Approved. Preserve the minimum restic 0.14 version, conservative unknown-diagnostic
+Implemented and validated. Preserve the minimum restic 0.14 version, conservative unknown-diagnostic
 holds, scoped integrity evidence and the 30-minute unlock guard.
 
 1. Carry command context into diagnostic interpretation. Vanished lock metadata

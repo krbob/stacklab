@@ -26,6 +26,73 @@ file modes and Linux file capabilities are rejected; shared set-group-ID
 directories remain supported. Restore preview rejects paths outside managed or explicitly approved
 roots before stopping any service.
 
+## Round-Ten Command Context And Delivery Corrections — 2026-10-30
+
+Plan `5e87a87` preceded implementation. Command/object/phase diagnostics and fixed
+operational warning events are in `2a67fc4`; cleanup layout and version guidance in
+`1c77a40`; tarball migration in `43559cd`, refined by `0f95b2f` so a configuration
+conflict cannot leave an incomplete release that prevents retry. Installed-harness
+assertions/guidance are in `e8f6c59`, SSH startup backoff in `2344241`, and ten native
+transcripts with runner replay in `a293d69`.
+
+| Area | Evidence and result |
+| --- | --- |
+| Diagnostic context | Synthetic production-runner cases cover vanished locks on all four backend formats mixed with unknown errors, concrete damage and transport. Check/backup never produce an unlock-preflight diagnosis. A disappearing foreign lock does not trigger the check watchdog. Repository names equal to command names do not select the wrong command. |
+| Legacy index phase | Retry, recovered and terminal data-listing records retire only pending index retries. Identical provider causes cannot erase independently established missing-blob evidence. Actual terminal index failures and unknown intervening evidence remain conservative. |
+| Housekeeping | Cache and cleanup warnings produce fixed job events without a data hold. Unknown plain diagnostics, unknown rclone NOTICE/INFO, skipped valid object IDs and damage still prevent verification, including exit zero. Concatenated warning/JSON records preserve their suffix across every possible write split. |
+| Backend gates | Full Go packages and coverage pass: global 72.2%, backup 80.3%, all package floors satisfied. Full backup/jobs/notifications/application race suite passes. The later ten-transcript replay also passes with race detection. Vet, formatting, documentation, repository hygiene, production dependency audit and lint pass. |
+| Frontend | 695 unit tests; API generation, typecheck, build and asset checks pass. Chromium: 19/19 backup scenarios. No-hold refresh/idle/pending control positions and dialog height remain stable at 1440, 390 and 320 px. The 320 px screenshot was visually inspected. Existing focus/409/evidence transition checks pass; actual screen-reader speech was not measured. |
+| Native local/rclone | Debian restic 0.18.0: cache/NOTICE checks plus absent-lock preflight pass in 42.71 s; 0.14.0 in 103.36 s. Both preserve proof without a hold for known warnings, publish warning events, and retain a hold for a skipped valid snapshot ID. Actual local and REST/rclone missing-lock output maps to refusal. Local 0.19.1 additionally exercises the normal native suite. |
+| Native SFTP | Real absent-lock preflight, interrupted pack reads, encrypted-pack truncation and healthy recovery pass on 0.18.0 in 25.58 s and 0.14.0 in 75.60 s. Native missing-object retries use the production 90-second command budget; the outage fixture retains its shortened two-second watchdog budget. No new ten-minute exhaustion measurement is claimed. |
+| Native S3 | Local restic 0.19.1 with the owned TLS S3 fault proxy: listing/GET failures, partial bodies, corruption mixed with transport and final recovery pass in 47.19 s. Uses the shortened watchdog budget. |
+| Installed Debian migration | A real pre-R9 package from `9ec336be986d`, initially `KillMode=control-group`, upgrades during a full SFTP check to `2026.10.0~r10fix1` / `e8f6c59131fb0f5b71c63500632edad1a3c9b7e9`. Effective mixed termination is checked after restart. All 12 interruptions end exactly `cancelled` with a `(cancelled)` attempt diagnostic, unchanged dated integrity evidence and no new hold. Actual child arguments/cgroup prove the native bandwidth limit was used. Details below. |
+| Installed API/browser | Same `r10fix1` package: API 13 assertions across 14 jobs, including reviewed apply with ACL/xattr/hardlink preservation, current-evidence cleanup, native index repair and recovery. Package identity is unchanged before/after. Browser: 22 assertions, 17 screenshots, zero page errors/failed assets; session revoked. Four explicit skips: unavailable helper, held protection, system pause and selected-destination hold; maintained browser fixtures cover hold transitions. |
+| Tarball migration | Final `2026.10.0~r10fix2` / `0f95b2f09c0bd8aff52eff01e489c44728e3b59a`: an isolated real systemd service on the disposable VM upgrades from the old tarball without `--install-unit`, becomes ready with `KillMode=mixed`, and preserves the customized unit byte-for-byte. Separate Debian container smoke covers install, local/HTTP upgrades, checksum rejection, rollback, policy-conflict refusal before restart and successful retry with the same artifact. That smoke uses a systemctl stand-in; the VM supplies the real-systemd evidence. |
+
+Installed interruption matrix (`service-stop-installed.py --early-lock`):
+
+| Restic / phase | Cases | Remaining locks before explicit fixture cleanup |
+| --- | --- | --- |
+| 0.18, data reading | pre-R9 package upgrade + two restarts | 0 in all three |
+| 0.18, just after lock publication | three restarts | 0 in all three |
+| 0.14, data reading | package reinstall + two restarts | 0 in all three |
+| 0.14, just after lock publication | three restarts | 1 own lock in each; native upstream limitation reproduced |
+
+The old-package upgrade took 6.479 s; ordinary restarts 0.378–5.407 s. Each
+interruption was followed by a successful full check. Only the three legacy early
+cases used explicit fixture cleanup: inspect the lock's PID/hostname, verify the
+captured child has exited, then ordinary native unlock on the owned repository.
+Stacklab's fresh-lock refusal remains unchanged. This test neither proves arbitrary
+external lock ownership nor introduces automatic unlock.
+
+Artifact identities:
+
+- Installed Debian package SHA256: `0ed48240a24ed2f2810fbd65c87ef41756944fe6e20e7b8c54f52993b76a548e`.
+- Installed backend SHA256: `7c71697ef7e628017f24b4ae5d4c8437bb5e8f3b2d94cd0a4b9fd0111058ca5e`.
+- Native Linux diagnostic test binary SHA256: `7cc986b29ca23b0a5cf772a38041c84c98d6daeaace6b4e72350871a72121964`.
+- Final tarball SHA256: `ffd5a93164d9615ec60b0a1dfc05cceba55e915fc794411eb70b1c4af589a4cd`.
+
+Debian API/stop evidence belongs to `r10fix1/e8f6c59`; final tarball evidence belongs
+to `r10fix2/0f95b2f`. The intervening changes add harness/corpus coverage and refine
+the tarball script; backend and UI implementation are unchanged. They are not two
+names for the same installed artifact.
+
+Setup failures are not passes. The first interruption fixture exhausted its SSH
+banner probes while Docker accepted connections before sshd was ready; backoff now
+also covers an empty banner. An initial API invocation was rejected for wrong fixture
+directory prefixes. A subsequent API attempt correctly refused apply because its
+administrative container mounted the host root writable; the failed owned fixtures
+were removed and the full passing exercise ran directly on the VM through UTM.
+No writer guard was bypassed. An incomplete SSH log capture of the first legacy
+native run was replaced with a complete run saved on the VM.
+
+The test host keeps its original restic, backup pause and repositories. Owned
+containers, service drop-ins, tarball service and test destinations are removed;
+temporary API sessions are revoked. Active APT timers and the original package hold
+are restored after the exclusive validation window. Private logs/review inputs and
+credentials remain outside Git. Global configuration leases and automatic fresh-lock
+cleanup remain deferred. Final delivery identifies the pushed revision and its CI run.
+
 ## Round-Nine Evidence, Shutdown And Review Corrections — 2026-10-30
 
 The approved correction plan was committed first (`e812b0f`). Core diagnostics,

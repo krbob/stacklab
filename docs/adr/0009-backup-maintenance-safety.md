@@ -35,7 +35,7 @@ resolve pending inventory retries, but quiet time alone cannot. Unknown plain
 diagnostics remain evidence on exit zero. Service shutdown is a cancellation
 boundary; concrete damage survives, while shutdown residue cannot create a hold.
 
-The approved tenth-review correction plan adds command/object context, separates
+The implemented tenth-review correction adds command/object context, separates
 known operational housekeeping from integrity, and closes the tarball service
 migration gap. It retains fresh-lock refusal, including restic 0.14's upstream
 lock-creation cancellation limitation. Automatic removal would require a separate
