@@ -3067,7 +3067,7 @@
         {
           "refId": "A",
           "expr": "max_over_time(ALERTS{stacklab_monitoring=\"true\",host=\"$host\",alertstate=\"firing\"}[$__rate_interval])",
-          "legendFormat": "{{alertname}} · {{mountpoint}} {{device}} {{name}}",
+          "legendFormat": "{{alertname}} · {{job}} · {{mountpoint}} {{device}} {{name}}",
           "range": true,
           "instant": false,
           "datasource": {

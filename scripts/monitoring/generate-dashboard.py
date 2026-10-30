@@ -180,7 +180,7 @@ panel("Active infrastructure alerts", [(f'sum(ALERTS{{{alert_selector}}}) or (0 
       kind="stat", width=6, height=4,
       thresholds=[{"color": "green", "value": None}, {"color": "red", "value": 1}],
       description="All infrastructure alerts for this host, regardless of Compose project selection. No data means the bundled rules are not loaded or Prometheus is unavailable. Notifications require an Alertmanager receiver.")
-panel("Infrastructure alert history", [(f'max_over_time(ALERTS{{{alert_selector}}}[$__rate_interval])', "{{alertname}} · {{mountpoint}} {{device}} {{name}}")],
+panel("Infrastructure alert history", [(f'max_over_time(ALERTS{{{alert_selector}}}[$__rate_interval])', "{{alertname}} · {{job}} · {{mountpoint}} {{device}} {{name}}")],
       kind="state-timeline", x=6, width=18, height=4, maximum=1,
       description="Colored intervals contain a firing evaluation within the sampling window. The window grows with the time range so brief alerts remain visible; it can extend the displayed interval. Gaps alone do not prove health. See Active infrastructure alerts for the current state.")
 panels.append({"id": len(panels) + 1, "type": "text", "title": "Reading container network traffic",
