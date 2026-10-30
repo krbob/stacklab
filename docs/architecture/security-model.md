@@ -364,6 +364,26 @@ Because Docker access is privileged in practice:
 - Docker socket access must be treated as privileged access
 - backend must never expose arbitrary Docker API pass-through to the browser
 
+The packaged backend runs as a native systemd service with supplementary group
+`docker`. Its non-root UID and service sandbox do not contain a compromised
+process that can direct a rootful Docker daemon. The authenticated operator can
+edit and deploy Compose without a host-mount restriction policy; compromise of
+that session must therefore also be treated as possible host compromise, without
+requiring a host shell or container escape. An ordinary application container
+does not automatically inherit that administrative access.
+
+Workspace path validation confines Stacklab's file editing and definition
+placement. It does not confine Docker bind sources, named-volume driver options
+or other privileges requested by Compose. Containers may intentionally use data
+outside the workspace, including `/mnt` disks and shares.
+
+The 2026-10-30 discussion defers path restrictions and stronger execution
+separation. The proposed [stack access visibility](../product/stack-access-visibility.md)
+feature would explain these permissions and draft changes without blocking
+existing workflows. It is advisory future work, not an implemented isolation
+boundary. LAN/VPN access remains the intended deployment posture; it does not
+change the privileges of an authenticated operator or a compromised backend.
+
 ## Secret Handling
 
 Secrets may appear in:

@@ -14,6 +14,11 @@ and the [protection/recovery experience](product/backup-experience.md)
 have been implemented; the remaining baseline and goals retain their previous
 review date.
 
+Stack access discussion recorded: 2026-10-30. The
+[visibility proposal](product/stack-access-visibility.md) is candidate advisory
+work, with no assigned delivery priority. Host-path restrictions are deferred;
+intentional `/mnt` mounts remain supported.
+
 Second-round backup review repairs are implemented and exercised under the
 [reliability acceptance contract](product/backup-reliability-completion.md).
 Its retained limits and regression requirements apply to further backup work.
@@ -153,6 +158,9 @@ of changed `main` revisions provide the soak channel between stable releases.
 
 ## Later / Conditional
 
+- [stack access visibility](product/stack-access-visibility.md): per-stack host
+  access evidence, service/resource details and Compose change previews; preserve
+  existing deployments and external data mounts without introducing enforcement;
 - vulnerability scanning as an optional image-maintenance module;
 - read-only Docker object inventory where it materially improves diagnosis;
 - a CLI or API-key automation surface with a deliberately smaller permission
