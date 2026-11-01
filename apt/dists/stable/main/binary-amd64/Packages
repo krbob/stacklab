@@ -1,21 +1,4 @@
 Package: stacklab
-Version: 2026.04.0
-Architecture: amd64
-Maintainer: Stacklab Maintainers <maintainers@stacklab.invalid>
-Depends: systemd, docker.io | docker-ce | moby-engine, docker-compose | docker-compose-plugin, git
-Recommends: ca-certificates
-Filename: pool/stable/main/s/stacklab/stacklab_2026.04.0_amd64.deb
-Size: 4532438
-MD5sum: eaaf90346c2e1701d076c15dab45bb12
-SHA1: 84504cf0d637e88b12fb77b4b06294d26baca5fd
-SHA256: a615a8ba89d82621d8e951bc1a3560127f86cf1899198195e873a6d5aba5ed17
-Section: admin
-Priority: optional
-Description: Compose-first control panel for Docker Compose homelabs
- Stacklab is a host-native, filesystem-first control panel for Docker Compose
- homelabs running on a single Linux host.
-
-Package: stacklab
 Version: 2026.05.0
 Architecture: amd64
 Maintainer: Stacklab Maintainers <maintainers@stacklab.invalid>
@@ -95,6 +78,24 @@ Size: 11251210
 MD5sum: 47cff04763d677bad46346e2c5965aec
 SHA1: 083eca1f9862d8f74a2c447215ccccf843f8b757
 SHA256: 7c291090934566b6facdd103d53f8d9a3b63adfa4eef57a09b5b7483df4cb156
+Section: admin
+Priority: optional
+Homepage: https://github.com/krbob/stacklab
+Description: Host-native web control panel for Docker Compose stacks
+ Stacklab is a host-native web control panel for managing Docker Compose stacks
+ on a single Linux server.
+
+Package: stacklab
+Version: 2026.11.0
+Architecture: amd64
+Maintainer: Krzysztof Bobiński <krzysztof@bobinski.net>
+Depends: restic (>= 0.14), rclone (>= 1.60), tar, openssh-client, acl, adduser, systemd, docker.io | docker-ce | moby-engine, docker-cli | docker-ce-cli | moby-cli | docker.io (<< 26.0), docker-compose | docker-compose-plugin, git
+Recommends: ca-certificates, python3 (>= 3.9), python3-yaml
+Filename: pool/stable/main/s/stacklab/stacklab_2026.11.0_amd64.deb
+Size: 15190188
+MD5sum: 5e82a68fd4fcb1f7783e8df27e8d7314
+SHA1: d1c8598ca1f2d450086470ab25eb9005c4224201
+SHA256: b4d0ecffeeacfc8e10c042a9c543624e09de1c628595b9f9a604f27671b7da43
 Section: admin
 Priority: optional
 Homepage: https://github.com/krbob/stacklab
