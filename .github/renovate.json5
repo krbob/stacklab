@@ -22,6 +22,11 @@
   prHourlyLimit: 0,
   rebaseWhen: 'conflicted',
   rangeStrategy: 'bump',
+  // npm 12 fails on Tailwind's bundled dependencies with --package-lock-only.
+  // Remove after https://github.com/npm/cli/issues/9800 is fixed and verified.
+  constraints: {
+    npm: '^11.19.0',
+  },
   lockFileMaintenance: {
     enabled: true,
     schedule: [

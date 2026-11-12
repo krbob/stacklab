@@ -64,6 +64,13 @@ frontend peer-dependency and generation toolchain does not support them. Remove
 the narrow `<7` constraints only after a focused compatibility update makes the
 normal PR and nightly gates pass.
 
+Renovate temporarily uses npm `^11.19.0` to generate npm lockfiles, including
+lockfile-only maintenance. npm 12 currently fails with `EALLOWREMOTE` when
+`--package-lock-only` inspects Tailwind's bundled dependencies
+([npm/cli#9800](https://github.com/npm/cli/issues/9800)). Remove this tool
+constraint once a fixed npm release can regenerate the frontend lockfile and
+pass `make check-frontend`.
+
 The day-2 creation window separates the new monthly dependency train from the
 stable release day, but it is not a hard merge cutoff. GitHub platform automerge
 is intentionally schedule-independent for throughput, so a pull request armed
