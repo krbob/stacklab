@@ -63,6 +63,19 @@
   ],
   packageRules: [
     {
+      description: 'Keep the npm tool constraint below v12 until npm/cli#9800 is fixed.',
+      matchManagers: [
+        'renovate-config',
+      ],
+      matchPackageNames: [
+        'npm',
+      ],
+      matchDepTypes: [
+        'tool-constraint',
+      ],
+      allowedVersions: '<12',
+    },
+    {
       description: 'Group frontend runtime dependencies into one reviewable PR.',
       matchManagers: [
         'npm',

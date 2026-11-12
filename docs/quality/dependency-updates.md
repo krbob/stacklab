@@ -67,9 +67,11 @@ normal PR and nightly gates pass.
 Renovate temporarily uses npm `^11.19.0` to generate npm lockfiles, including
 lockfile-only maintenance. npm 12 currently fails with `EALLOWREMOTE` when
 `--package-lock-only` inspects Tailwind's bundled dependencies
-([npm/cli#9800](https://github.com/npm/cli/issues/9800)). Remove this tool
-constraint once a fixed npm release can regenerate the frontend lockfile and
-pass `make check-frontend`.
+([npm/cli#9800](https://github.com/npm/cli/issues/9800)). A package rule also
+limits updates of this tool constraint to `<12`, so Renovate cannot upgrade its
+own npm constraint back to the affected major. Remove both restrictions once a
+fixed npm release can regenerate the frontend lockfile and pass
+`make check-frontend`.
 
 The day-2 creation window separates the new monthly dependency train from the
 stable release day, but it is not a hard merge cutoff. GitHub platform automerge
