@@ -24,6 +24,12 @@ It can pin configuration globally while no visible job is active; HTTP 409 uses 
 general `conflict` code and explains that the caller should wait and retry. Destination-scoped configuration writes
 remain separate roadmap work.
 
+Successful initialization, access tests and repository checks also refresh the
+snapshot inventory before the job finishes. Only a successful listing clears an
+earlier inventory error. A failed listing records its own error and attempt time,
+preserving the last confirmed inventory and the successful primary operation.
+Initialization and access tests do not establish repository integrity evidence.
+
 A run's durable capture and per-destination records are separate from the job
 state. A run with one failed destination finishes with a failed job while
 preserving successful copies and snapshot IDs. Retry selects failed copies or

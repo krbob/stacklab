@@ -130,9 +130,6 @@ func (s *Service) ExecuteRepositoryJob(ctx context.Context, job store.Job, id, a
 	case "backup_check":
 		operationErr = s.check(ctx, d, check.ReadData)
 		recordCheckAttempt(&d, check.ReadData, s.now(), operationErr)
-		if operationErr == nil {
-			_ = s.refreshInventory(ctx, d)
-		}
 	case "backup_prune":
 		if operationErr = validatePruneAcknowledgement(d, job.RequestedBy, prune); operationErr != nil {
 			break
@@ -185,6 +182,12 @@ func (s *Service) ExecuteRepositoryJob(ctx context.Context, job store.Job, id, a
 		}
 	default:
 		operationErr = fmt.Errorf("%w: unsupported repository operation", ErrInvalid)
+	}
+	if operationErr == nil && (action == "backup_repository_init" || action == "backup_destination_test" || action == "backup_check") {
+		// A new repository or repaired access should immediately replace stale
+		// inventory evidence. A listing failure remains separate from the
+		// successful operation and must not erase the last confirmed inventory.
+		_ = s.refreshInventory(ctx, d)
 	}
 	if operationErr == nil && (action == "backup_check" || action == "backup_destination_test" || action == "backup_prune") {
 		if output, statsErr := s.restic(ctx, d, "", "stats", "--mode", "raw-data"); statsErr == nil {
