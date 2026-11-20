@@ -264,11 +264,15 @@ export function DestinationEditor({
           )}
           {jobId && (
             <div role="status" className="space-y-2 text-sm text-[var(--text)]">
-              <span>{jobAction}: </span>
-              <BackupStatus value={jobState ?? 'queued'} />
-              <button className={buttonClass} onClick={() => openJob(jobId)}>
-                Operation details
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex flex-wrap items-center gap-2">
+                  <span>{jobAction}:</span>
+                  <BackupStatus value={jobState ?? 'queued'} />
+                </span>
+                <button className={buttonClass} onClick={() => openJob(jobId)}>
+                  Operation details
+                </button>
+              </div>
               {jobState === 'succeeded' && (
                 <p className="text-xs text-[var(--muted)]">
                   Repository ready. Create a plan, select its sources, then use Back up now for the first copy.

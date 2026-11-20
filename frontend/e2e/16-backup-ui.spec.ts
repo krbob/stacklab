@@ -115,6 +115,49 @@ async function mockBackupUI(page: Page, waitForSearch?: () => Promise<void>) {
 test.describe('Backup UI failure regressions', () => {
   test.use({ timezoneId: 'Europe/Warsaw', locale: 'en-US', serviceWorkers: 'block' })
 
+  for (const width of [1440, 390, 320]) {
+    test(`separates destination verification status and details at ${width}px`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width, height: 1000 })
+      await mockBackupUI(page)
+      await page.route('**/api/backups/destinations', route => route.fulfill({ json: {
+        destination: { ...destination, name: 'B2 test', kind: 's3', status: 'ready', repository: 's3:https://s3.example.test/test/stacklab' },
+      } }))
+      const job = { id: 'setup-test', action: 'backup_destination_test', state: 'failed' }
+      await page.route('**/api/backups/destinations/nas/test', route => route.fulfill({ json: { job } }))
+      await page.route('**/api/jobs/setup-test', route => route.fulfill({ json: { job } }))
+      await page.route('**/api/jobs/setup-test/events*', route => route.fulfill({ json: { items: [] } }))
+      await page.goto('/backups?view=destinations')
+      await page.getByRole('button', { name: 'Add destination', exact: true }).click()
+      const dialog = page.getByRole('dialog', { name: 'Add destination' })
+      await dialog.getByLabel('Destination name').fill('B2 test')
+      await dialog.getByLabel('Storage type').selectOption('s3')
+      await dialog.getByLabel('S3 HTTPS endpoint').fill('https://s3.example.test')
+      await dialog.getByLabel('Bucket', { exact: true }).fill('test')
+      await dialog.getByRole('button', { name: 'Continue to credentials' }).click()
+      await dialog.getByLabel('Repository password', { exact: true }).fill('fixture-password')
+      await dialog.getByLabel('Access key ID').fill('fixture-key')
+      await dialog.getByLabel('Secret access key').fill('fixture-secret')
+      await dialog.getByRole('button', { name: 'Save destination' }).click()
+      await dialog.getByRole('button', { name: 'Test existing repository' }).click()
+      const status = dialog.getByRole('status')
+      const badge = status.getByText('failed', { exact: true })
+      const details = status.getByRole('button', { name: 'Operation details' })
+      await expect(badge).toBeVisible()
+      const badgeBox = (await badge.boundingBox())!
+      const detailsBox = (await details.boundingBox())!
+      const sameRow = detailsBox.y < badgeBox.y + badgeBox.height && badgeBox.y < detailsBox.y + detailsBox.height
+      if (sameRow) {
+        expect(detailsBox.x - badgeBox.x - badgeBox.width).toBeGreaterThanOrEqual(8)
+        expect(Math.abs((detailsBox.y + detailsBox.height / 2) - (badgeBox.y + badgeBox.height / 2))).toBeLessThanOrEqual(1)
+      } else {
+        expect(detailsBox.y - badgeBox.y - badgeBox.height).toBeGreaterThanOrEqual(8)
+      }
+      await expect(dialog.getByRole('checkbox', { name: /This location is new/ })).toBeEnabled()
+      expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+      await dialog.screenshot({ path: testInfo.outputPath(`destination-verification-${width}.png`) })
+    })
+  }
+
   test('keeps typing focus during an index request and preserves Recovery across tabs', async ({ page }) => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => {
