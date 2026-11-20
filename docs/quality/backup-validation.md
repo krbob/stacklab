@@ -26,6 +26,30 @@ file modes and Linux file capabilities are rejected; shared set-group-ID
 directories remain supported. Restore preview rejects paths outside managed or explicitly approved
 roots before stopping any service.
 
+## Destination Setup Inventory And Layout — 2026-11-20
+
+The B2 setup walkthrough exposed a stale `repository_missing` inventory error
+after successful initialization, alongside missing horizontal spacing between
+the wizard's job status and operation-details button. Initialization and access
+tests now refresh inventory before finishing; the verification row uses explicit
+gaps and wraps at narrow widths.
+
+- Deterministic tests cover successful and failed listing after initialization
+  and access tests, persistence of the new inventory state, preservation of the
+  last confirmed inventory on failure, and no invented integrity evidence.
+  Failed primary operations preserve earlier inventory evidence.
+- A real local restic 0.20.0 repository reproduces the missing-inventory state,
+  then initializes and confirms an empty inventory without retaining the error.
+- Frontend: 695 unit tests, lint, typecheck, production build and asset checks
+  pass. All 22 Chromium backup scenarios pass, including measured status/button
+  gaps, alignment and no dialog overflow at 1440, 390 and 320 px. Desktop and
+  320 px screenshots were visually inspected.
+- Full backup/jobs tests with the race detector, API and command-package tests,
+  backup vet and documentation checks pass.
+
+These are local automated regressions. They do not repeat the user's B2
+connection, upload or restore, or deploy the change to the running instance.
+
 ## Round-Ten Command Context And Delivery Corrections — 2026-10-30
 
 Plan `5e87a87` preceded implementation. Command/object/phase diagnostics and fixed
