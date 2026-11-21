@@ -65,6 +65,8 @@ Implemented and exercised on Linux staging hosts:
   audit history, live logs, stats, and container terminals;
 - Compose and `.env` editing, resolved-config preview, auxiliary file editing,
   stack create/delete, and local Git status, diff, commit, and push;
+- [reviewed incoming Git changes](product/git-incoming-changes.md), fast-forward
+  downloads and explicit configuration reload/deployment for affected stacks;
 - managed workspace permission diagnostics and helper-backed repair;
 - stack metadata from the Compose `x-stacklab` extension, including validated
   icon identifiers and external links exposed on stack cards;

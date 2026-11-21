@@ -1,4 +1,4 @@
-# Git Workspace Contract Draft
+# Git Workspace Contract
 
 This document defines the current contract for Git visibility and selective write flows inside the local Stacklab workspace.
 
@@ -9,11 +9,12 @@ It is intentionally narrower than full GitOps or a generic Git client.
 - expose local Git state for the managed `stacks/` and `config/` subtrees
 - make UI edits auditable in a Git-aware workflow
 - support selective per-file commits and later push without leaving Stacklab
+- review incoming changes, download a pinned upstream revision, and apply affected stacks
 - preserve enough metadata for stack-scoped quick selection in UI later
 
 ## Non-Goals
 
-- clone / pull / fetch / merge / rebase
+- clone, divergent-history merge / rebase, and unattended synchronization
 - branch switching
 - conflict resolution UI
 - generic Git browser for arbitrary host repositories
@@ -36,7 +37,56 @@ Only these managed subtrees are exposed:
 - `stacks/`
 - `config/`
 
-Files outside those roots must not appear in the API, even if the repository contains them.
+Local file editing, status and selective commits remain limited to those roots.
+The incoming-change review additionally lists and diffs all paths changed by a
+whole-branch fast-forward, including files outside managed roots. Those paths
+do not gain managed file editing or deletion APIs.
+
+## Incoming changes and configuration reload
+
+The [product contract](../product/git-incoming-changes.md) describes the
+`/config/remote` flow, reached through **Remote updates** in Config. Entering
+the view checks the configured upstream; **Check remote** checks again. It does
+not poll when closed or deploy automatically.
+
+- `POST /api/git/workspace/incoming` fetches only the configured upstream branch
+  with the service account's Git credentials, then returns current/target commits,
+  ahead/behind counts, checked time, changed files, `can_pull`, `blocked_reason`,
+  `expected_state`, and optional `last_pull`. Fetch does not update working files.
+- `POST /api/git/workspace/incoming/diff` accepts `path` and `expected_state`.
+  Only exact paths in that review are accepted; pathspec expansion, external diff
+  commands and textconv are disabled. Diff output is capped at 256 KiB with
+  `truncated: true` while the subprocess output continues draining.
+- `POST /api/git/workspace/pull` accepts `expected_state`. It rechecks HEAD,
+  branch/upstream and the fetched target; it applies the exact reviewed commit,
+  not an implicitly refreshed newer remote tip. Success returns `updated` and
+  `receipt` (branch, before/after commits, download time and changed files).
+
+All three require an authenticated same-origin request. An unavailable Git
+checkout or missing upstream is represented in the review. Stale reviews return
+`409 edit_conflict`; local edits, divergence, unfinished operations or submodules
+block download. Permission, authentication and SSH identity errors use existing
+Git error codes; generic failures return sanitized `502 git_sync_failed`.
+
+Download uses native fast-forward checkout, disables hooks/autostash/submodule
+recursion, and refuses overwriting ignored files. It shares the Git mutation
+lock, holds a global host-job reservation, and excludes synchronous workspace
+edits. Other processes writing this checkout still require operator coordination.
+Once admitted, checkout has a bounded context independent of browser disconnect;
+its `git_pull` job and audit entry record completion or failure.
+
+`<data-dir>/git-sync.json` stores the latest download receipt and a prepared
+receipt before checkout. If interrupted after HEAD advances, the next review
+recovers the prepared receipt by checking branch and commit ancestry. Receipt
+errors block new downloads. This is download history, not deployment evidence.
+
+The UI offers **Reload configuration** for affected existing stacks through the
+existing `recreate` action (`compose up -d --force-recreate`) and **Deploy
+configuration** (`up`) for new definitions. Both use existing jobs, validation,
+locks, progress and audit. Confirmation explains interruption and possible
+startup of stopped services. Missing/invalid definitions are not applied;
+shared paths and Dockerfile changes require dependency/build review. Applications
+that watch mounted configuration can react before the explicit Compose action.
 
 ## Repository Assumptions
 
