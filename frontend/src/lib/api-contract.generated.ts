@@ -174,6 +174,15 @@ export interface paths {
     /** @description Delete one changed regular file under config/ or a stack directory. Active stack compose.yaml and .env files, directories, and symbolic links are protected. Does not stage, commit, or push. */
     delete: operations["deleteGitWorkspaceFile"];
   };
+  "/git/workspace/incoming": {
+    post: operations["checkGitIncoming"];
+  };
+  "/git/workspace/incoming/diff": {
+    post: operations["getGitIncomingDiff"];
+  };
+  "/git/workspace/pull": {
+    post: operations["pullGitWorkspace"];
+  };
   "/git/workspace/push": {
     post: operations["pushGitWorkspace"];
   };
@@ -1472,6 +1481,53 @@ export interface components {
     };
     /** @enum {string} */
     GitFileStatus: "modified" | "added" | "deleted" | "renamed" | "untracked" | "conflicted";
+    GitIncomingDiffRequest: {
+      expected_state: string;
+      path: string;
+    };
+    GitIncomingDiffResponse: {
+      diff: string;
+      path: string;
+      truncated: boolean;
+    };
+    GitIncomingFile: {
+      managed: boolean;
+      path: string;
+      stack_id: string | null;
+      status: string;
+    };
+    GitIncomingResponse: {
+      ahead_count: number;
+      available: boolean;
+      behind_count: number;
+      blocked_reason?: string;
+      branch: string;
+      can_pull: boolean;
+      /** Format: date-time */
+      checked_at: string;
+      expected_state: string;
+      files: components["schemas"]["GitIncomingFile"][];
+      head_commit: string;
+      last_pull?: components["schemas"]["GitPullReceipt"];
+      reason?: string;
+      target_commit: string;
+      upstream_name: string;
+    };
+    GitPullReceipt: {
+      base_commit: string;
+      branch: string;
+      /** Format: date-time */
+      downloaded_at: string;
+      files: components["schemas"]["GitIncomingFile"][];
+      head_commit: string;
+    };
+    GitPullRequest: {
+      expected_state: string;
+    };
+    GitPullResponse: {
+      receipt: components["schemas"]["GitPullReceipt"];
+      updated: boolean;
+    };
     GitPushResponse: {
       ahead_count: number;
       behind_count: number;
@@ -3769,6 +3825,172 @@ export interface operations {
       };
       /** @description Git workspace is unavailable. */
       503: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  checkGitIncoming: {
+    responses: {
+      /** @description Reviewed Git synchronization result. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["GitIncomingResponse"];
+        };
+      };
+      /** @description Git synchronization cannot continue. */
+      400: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git synchronization cannot continue. */
+      401: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git synchronization cannot continue. */
+      403: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git synchronization cannot continue. */
+      404: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git synchronization cannot continue. */
+      409: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git synchronization cannot continue. */
+      413: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git synchronization cannot continue. */
+      502: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  getGitIncomingDiff: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["GitIncomingDiffRequest"];
+      };
+    };
+    responses: {
+      /** @description Reviewed Git synchronization result. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["GitIncomingDiffResponse"];
+        };
+      };
+      /** @description Git synchronization cannot continue. */
+      400: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git synchronization cannot continue. */
+      401: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git synchronization cannot continue. */
+      403: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git synchronization cannot continue. */
+      404: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git synchronization cannot continue. */
+      409: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git synchronization cannot continue. */
+      413: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git synchronization cannot continue. */
+      502: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  pullGitWorkspace: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["GitPullRequest"];
+      };
+    };
+    responses: {
+      /** @description Reviewed Git synchronization result. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["GitPullResponse"];
+        };
+      };
+      /** @description Git synchronization cannot continue. */
+      400: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git synchronization cannot continue. */
+      401: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git synchronization cannot continue. */
+      403: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git synchronization cannot continue. */
+      404: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git synchronization cannot continue. */
+      409: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git synchronization cannot continue. */
+      413: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git synchronization cannot continue. */
+      502: {
         content: {
           "application/json": components["schemas"]["ErrorResponse"];
         };

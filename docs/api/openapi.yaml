@@ -1057,6 +1057,177 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /git/workspace/incoming:
+    post:
+      tags: [Git]
+      operationId: checkGitIncoming
+      responses:
+        '200':
+          description: Reviewed Git synchronization result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitIncomingResponse'
+        '400':
+          description: Git synchronization cannot continue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Git synchronization cannot continue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Git synchronization cannot continue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Git synchronization cannot continue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Git synchronization cannot continue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Git synchronization cannot continue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Git synchronization cannot continue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /git/workspace/incoming/diff:
+    post:
+      tags: [Git]
+      operationId: getGitIncomingDiff
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GitIncomingDiffRequest'
+      responses:
+        '200':
+          description: Reviewed Git synchronization result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitIncomingDiffResponse'
+        '400':
+          description: Git synchronization cannot continue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Git synchronization cannot continue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Git synchronization cannot continue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Git synchronization cannot continue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Git synchronization cannot continue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Git synchronization cannot continue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Git synchronization cannot continue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /git/workspace/pull:
+    post:
+      tags: [Git]
+      operationId: pullGitWorkspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GitPullRequest'
+      responses:
+        '200':
+          description: Reviewed Git synchronization result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitPullResponse'
+        '400':
+          description: Git synchronization cannot continue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Git synchronization cannot continue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Git synchronization cannot continue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Git synchronization cannot continue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Git synchronization cannot continue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Git synchronization cannot continue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Git synchronization cannot continue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /git/workspace/status:
     get:
       tags: [Git]
@@ -4334,6 +4505,73 @@ components:
     GitScope:
       type: string
       enum: [stacks, config]
+    GitIncomingFile:
+      type: object
+      properties:
+        path: {type: string}
+        status: {type: string}
+        stack_id: {type: [string, 'null']}
+        managed: {type: boolean}
+      required: [path, status, stack_id, managed]
+    GitPullReceipt:
+      type: object
+      properties:
+        branch: {type: string}
+        base_commit: {type: string}
+        head_commit: {type: string}
+        downloaded_at: {type: string, format: date-time}
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/GitIncomingFile'
+      required: [branch, base_commit, head_commit, downloaded_at, files]
+    GitIncomingResponse:
+      type: object
+      properties:
+        available: {type: boolean}
+        reason: {type: string}
+        branch: {type: string}
+        upstream_name: {type: string}
+        head_commit: {type: string}
+        target_commit: {type: string}
+        ahead_count: {type: integer}
+        behind_count: {type: integer}
+        checked_at: {type: string, format: date-time}
+        can_pull: {type: boolean}
+        blocked_reason: {type: string}
+        expected_state: {type: string}
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/GitIncomingFile'
+        last_pull:
+          $ref: '#/components/schemas/GitPullReceipt'
+      required: [available, branch, upstream_name, head_commit, target_commit, ahead_count, behind_count, checked_at, can_pull, expected_state, files]
+    GitIncomingDiffRequest:
+      type: object
+      properties:
+        path: {type: string}
+        expected_state: {type: string}
+      required: [path, expected_state]
+    GitIncomingDiffResponse:
+      type: object
+      properties:
+        path: {type: string}
+        diff: {type: string}
+        truncated: {type: boolean}
+      required: [path, diff, truncated]
+    GitPullRequest:
+      type: object
+      properties:
+        expected_state: {type: string}
+      required: [expected_state]
+    GitPullResponse:
+      type: object
+      properties:
+        updated: {type: boolean}
+        receipt:
+          $ref: '#/components/schemas/GitPullReceipt'
+      required: [updated, receipt]
     GitWorkspaceStatusResponse:
       type: object
       properties:

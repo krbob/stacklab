@@ -16,9 +16,9 @@ the managed file workspace.
 Downloading requires review of the exact local and upstream commits. It never
 merges divergent histories, stashes local edits or resets the checkout. Tracked
 and untracked local changes, an unfinished Git operation, and stale reviews
-block the operation. Ignored files must not be silently overwritten. Git hooks
-and hidden-index flags (`assume-unchanged` / `skip-worktree`) cannot bypass the
-local-change guard. Submodules require an external update. Git hooks
+block the operation. Ignored files must not be silently overwritten. Checkouts
+with hidden-index flags (`assume-unchanged` / `skip-worktree`) or submodules
+require an external update or resolution of those flags. Git hooks
 and submodule recursion are disabled for this flow. Concurrent external Git
 or filesystem writers must be stopped by the operator; Git is not a filesystem
 transaction spanning other programs.
@@ -55,3 +55,5 @@ review, download failure, reload confirmation, progress and mobile layout.
 
 Branch switching, clone, conflict resolution, automatic deployment, webhooks
 and unattended background polling remain outside this increment.
+
+Execution evidence is recorded in [Git sync validation](../quality/git-sync-validation.md).

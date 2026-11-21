@@ -31,6 +31,9 @@ import type {
   GitFileDeleteRequest,
   GitFileDeleteResponse,
   GitPushResponse,
+  GitIncomingResponse,
+  GitIncomingDiffResponse,
+  GitPullResponse,
   GitWorkspaceStatusResponse,
   HealthResponse,
   LivenessResponse,
@@ -298,6 +301,18 @@ export function applyStacklabUpdate(requestBody: StacklabUpdateApplyRequest): Pr
 }
 
 // --- Git workspace ---
+
+export function checkGitIncoming(): Promise<GitIncomingResponse> {
+  return request('/api/git/workspace/incoming', { method: 'POST' })
+}
+
+export function getGitIncomingDiff(path: string, expectedState: string): Promise<GitIncomingDiffResponse> {
+  return request('/api/git/workspace/incoming/diff', { method: 'POST', body: JSON.stringify({ path, expected_state: expectedState }) })
+}
+
+export function pullGitWorkspace(expectedState: string): Promise<GitPullResponse> {
+  return request('/api/git/workspace/pull', { method: 'POST', body: JSON.stringify({ expected_state: expectedState }) })
+}
 
 export function getGitWorkspaceStatus(): Promise<GitWorkspaceStatusResponse> {
   return request('/api/git/workspace/status')

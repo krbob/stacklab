@@ -41,34 +41,35 @@ import (
 )
 
 type Handler struct {
-	backups         *backup.Service
-	backupCapture   *backup.NativeCapture
-	appCtx          context.Context
-	workers         WorkerAdmitter
-	cfg             config.Config
-	logger          *slog.Logger
-	mux             *http.ServeMux
-	served          http.Handler
-	auth            *auth.Service
-	audit           *audit.Service
-	jobs            *jobs.Service
-	terminals       *terminal.Service
-	stackReader     *stacks.ServiceReader
-	imageUpdates    *imageupdates.Service
-	hostInfo        HostInfoReader
-	dockerAdmin     DockerAdminReader
-	dockerRegistry  DockerRegistryReader
-	configFiles     ConfigWorkspaceReader
-	stackFiles      StackWorkspaceReader
-	gitStatus       GitWorkspaceReader
-	maintenance     MaintenanceReader
-	maintenanceJobs *maintenancejobs.Service
-	notifications   NotificationsManager
-	schedules       SchedulerManager
-	selfUpdate      SelfUpdateManager
-	readinessChecks []ReadinessCheck
-	serviceMetrics  *servicemetrics.Collector
-	metricsHandler  http.Handler
+	backups          *backup.Service
+	backupCapture    *backup.NativeCapture
+	appCtx           context.Context
+	workers          WorkerAdmitter
+	cfg              config.Config
+	logger           *slog.Logger
+	mux              *http.ServeMux
+	served           http.Handler
+	auth             *auth.Service
+	audit            *audit.Service
+	jobs             *jobs.Service
+	terminals        *terminal.Service
+	stackReader      *stacks.ServiceReader
+	imageUpdates     *imageupdates.Service
+	hostInfo         HostInfoReader
+	dockerAdmin      DockerAdminReader
+	dockerRegistry   DockerRegistryReader
+	configFiles      ConfigWorkspaceReader
+	stackFiles       StackWorkspaceReader
+	gitStatus        GitWorkspaceReader
+	workspaceWriteMu sync.RWMutex
+	maintenance      MaintenanceReader
+	maintenanceJobs  *maintenancejobs.Service
+	notifications    NotificationsManager
+	schedules        SchedulerManager
+	selfUpdate       SelfUpdateManager
+	readinessChecks  []ReadinessCheck
+	serviceMetrics   *servicemetrics.Collector
+	metricsHandler   http.Handler
 
 	wsMu          sync.Mutex
 	wsClosing     bool
@@ -119,6 +120,9 @@ type StackWorkspaceReader interface {
 }
 
 type GitWorkspaceReader interface {
+	Incoming(ctx context.Context) (gitworkspace.IncomingResponse, error)
+	IncomingDiff(ctx context.Context, request gitworkspace.IncomingDiffRequest) (gitworkspace.IncomingDiffResponse, error)
+	Pull(ctx context.Context, request gitworkspace.PullRequest) (gitworkspace.PullResponse, error)
 	Status(ctx context.Context) (gitworkspace.StatusResponse, error)
 	Diff(ctx context.Context, requestedPath string) (gitworkspace.DiffResponse, error)
 	DeleteFile(ctx context.Context, request gitworkspace.DeleteFileRequest) (gitworkspace.DeleteFileResponse, error)

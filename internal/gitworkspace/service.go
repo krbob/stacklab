@@ -50,6 +50,7 @@ const (
 
 type Service struct {
 	workspaceRoot string
+	syncStatePath string
 	gitBinary     string
 	mutationMu    sync.Mutex
 	repairer      RepairCapabilityReader
@@ -73,6 +74,7 @@ func NewServiceWithRepairer(cfg config.Config, repairer RepairCapabilityReader) 
 	}
 	return &Service{
 		workspaceRoot: root,
+		syncStatePath: filepath.Join(cfg.DataDir, "git-sync.json"),
 		gitBinary:     "git",
 		repairer:      repairer,
 	}

@@ -5,6 +5,9 @@ the product is heading.
 
 ## Current documents
 
+- [Incoming configuration changes](git-incoming-changes.md) — reviewed Git
+  downloads and explicit configuration reload for affected stacks.
+
 - [Stack access visibility](stack-access-visibility.md) — discussion conclusions
   and candidate plan for advisory host-access summaries and Compose change
   previews; path restrictions are deferred and `/mnt` workflows remain supported.

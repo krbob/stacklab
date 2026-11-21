@@ -398,6 +398,7 @@ export function ConfigPage() {
         <p className="mb-3 text-xs text-[var(--muted)]">
           {mode === 'files' ? 'Browse config/. Files are used when a stack mounts or references them.' : 'Changes includes files in both config/ and stacks/.'}
         </p>
+        <Link to="/config/remote" className="mb-3 block rounded-md border border-[var(--panel-border)] px-3 py-2 text-center text-sm text-[var(--accent)] hover:bg-[rgba(245,165,36,0.08)]">Remote updates</Link>
         <WorkspacePath root={workspaceRoot} path={treeLoading || treeError ? requestedTreePath : treePath} />
 
         {/* Mode toggle */}
@@ -584,6 +585,7 @@ export function ConfigPage() {
         <p className="mb-3 text-xs text-[var(--muted)]">
           {mode === 'files' ? 'Browse config/. Files are used when a stack mounts or references them.' : 'Changes includes files in both config/ and stacks/.'}
         </p>
+        <Link to="/config/remote" className="mb-3 block rounded-md border border-[var(--panel-border)] px-3 py-2 text-center text-sm text-[var(--accent)] hover:bg-[rgba(245,165,36,0.08)]">Remote updates</Link>
         <WorkspacePath root={workspaceRoot} path={treeLoading || treeError ? requestedTreePath : treePath} />
 
         {/* Mode toggle */}

@@ -180,6 +180,10 @@ export type GitFileDeleteResponse = APISchemas['GitFileDeleteResponse']
 export type GitCommitRequest = APISchemas['GitCommitRequest']
 export type GitCommitResponse = APISchemas['GitCommitResponse']
 export type GitPushResponse = APISchemas['GitPushResponse']
+export type GitIncomingResponse = APISchemas['GitIncomingResponse']
+export type GitIncomingDiffResponse = APISchemas['GitIncomingDiffResponse']
+export type GitPullResponse = APISchemas['GitPullResponse']
+export type GitPullReceipt = APISchemas['GitPullReceipt']
 
 // --- Maintenance ---
 

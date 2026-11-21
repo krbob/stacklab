@@ -6,6 +6,8 @@ records.
 
 ## Documents
 
+- [git-sync-validation.md](git-sync-validation.md) — incoming Git review, guarded download, browser layout and native configuration reload validation
+
 - [acceptance-criteria.md](acceptance-criteria.md) — MVP acceptance criteria and non-acceptance conditions
 - [ci.md](ci.md) — current GitHub Actions gates, local equivalents, advisory analysis, and release quality gate
 - [developer-checks.md](developer-checks.md) — canonical Go/Node toolchain and the reproducible `make check` workflow

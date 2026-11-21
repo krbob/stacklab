@@ -11,6 +11,7 @@ const globalScreenTitles: Record<string, string> = {
   '/stacks/new': 'Create stack',
   '/host': 'Host',
   '/config': 'Config',
+  '/config/remote': 'Remote updates',
   '/maintenance': 'Maintenance',
   '/docker': 'Docker',
   '/backups': 'Backups',

@@ -11,6 +11,7 @@ import { StacksPage } from '@/pages/stacks-page'
 const CreateStackPage = lazy(() => import('@/pages/create-stack-page').then((m) => ({ default: m.CreateStackPage })))
 import { HostPage } from '@/pages/host-page'
 const ConfigPage = lazy(() => import('@/pages/config-page').then((m) => ({ default: m.ConfigPage })))
+const ConfigRemotePage = lazy(() => import('@/pages/config-remote-page').then((m) => ({ default: m.ConfigRemotePage })))
 const MaintenancePage = lazy(() => import('@/pages/maintenance-page').then((m) => ({ default: m.MaintenancePage })))
 const DockerAdminPage = lazy(() => import('@/pages/docker-admin-page').then((m) => ({ default: m.DockerAdminPage })))
 const BackupsPage = lazy(() => import('@/pages/backups-page').then((m) => ({ default: m.BackupsPage })))
@@ -51,6 +52,7 @@ export function AppRoutes() {
           <Route path="stacks/new" element={<Suspense fallback={<PageLoading title="Create stack" />}><CreateStackPage /></Suspense>} />
           <Route path="host" element={<HostPage />} />
           <Route path="config" element={<Suspense fallback={<PageLoading title="Config" />}><ConfigPage /></Suspense>} />
+          <Route path="config/remote" element={<Suspense fallback={<PageLoading title="Remote updates" />}><ConfigRemotePage /></Suspense>} />
           <Route path="maintenance" element={<Suspense fallback={<PageLoading title="Maintenance" />}><MaintenancePage /></Suspense>} />
           <Route path="docker" element={<Suspense fallback={<PageLoading title="Docker" />}><DockerAdminPage /></Suspense>} />
           <Route path="backups" element={<Suspense fallback={<PageLoading title="Backups" />}><BackupsPage /></Suspense>} />
