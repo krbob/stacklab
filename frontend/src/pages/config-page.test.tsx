@@ -1,3 +1,4 @@
+import { clearGitSync } from '@/hooks/use-git-sync'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -17,6 +18,7 @@ const mockDeleteGitWorkspaceFile = vi.fn()
 const mockRestoreGitWorkspaceFile = vi.fn()
 const mockGetGitWorkspaceStatus = vi.fn()
 const mockGetGitWorkspaceDiff = vi.fn()
+const mockCheckGitIncoming = vi.fn()
 const mockCommitGitWorkspace = vi.fn()
 const mockPushGitWorkspace = vi.fn()
 const mockRepairConfigWorkspacePermissions = vi.fn()
@@ -29,6 +31,7 @@ const unsupportedRepairCapability = {
 }
 
 vi.mock('@/lib/api-client', () => ({
+  checkGitIncoming: (...args: unknown[]) => mockCheckGitIncoming(...args),
   getConfigTree: (...args: unknown[]) => mockGetConfigTree(...args),
   getConfigFile: (...args: unknown[]) => mockGetConfigFile(...args),
   saveConfigFile: (...args: unknown[]) => mockSaveConfigFile(...args),
@@ -304,6 +307,9 @@ function renderPage(initialEntry = '/config') {
 
 describe('ConfigPage', () => {
   beforeEach(() => {
+    clearGitSync()
+    mockCheckGitIncoming.mockReset()
+    mockCheckGitIncoming.mockResolvedValue({ available: true, branch: 'main', upstream_name: 'origin/main', head_commit: 'a', target_commit: 'a', ahead_count: 0, behind_count: 0, local_changes: 0, checked_at: '2026-11-21T12:00:00Z', files: [], expected_state: 'current', can_pull: false })
     mockGetConfigTree.mockReset()
     mockGetConfigFile.mockReset()
     mockSaveConfigFile.mockReset()

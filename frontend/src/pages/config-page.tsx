@@ -13,6 +13,8 @@ import { UnsavedChangesGuard } from '@/components/unsaved-changes-guard'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { usePendingAction } from '@/hooks/use-pending-action'
 import { StatusMessage } from '@/components/status-message'
+import { GitSyncBanner } from '@/components/git-sync-banner'
+import { checkGitSync } from '@/hooks/use-git-sync'
 
 type Mode = 'files' | 'changes'
 type TreeLoadError = { message: string; path: string }
@@ -37,7 +39,7 @@ const statusPrefixes: Record<string, { letter: string; color: string }> = {
 export function ConfigPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const requestedTreePath = searchParams.get('path') ?? ''
-  const [mode, setMode] = useState<Mode>('files')
+  const [mode, setMode] = useState<Mode>(searchParams.get('mode') === 'changes' ? 'changes' : 'files')
   const [sheetOpen, setSheetOpen] = useState(false)
 
   // --- Files mode state ---
@@ -162,6 +164,7 @@ export function ConfigPage() {
     try {
       await saveConfigFile(selectedFile.path, editContent, false, selectedFile.modified_at)
       setSaveMessage({ type: 'success', text: 'Saved' })
+      void checkGitSync(false)
       const updated = await getConfigFile(selectedFile.path)
       setSelectedFile(updated)
       setEditContent(updated.content ?? '')
@@ -388,6 +391,8 @@ export function ConfigPage() {
   }, [handleCreateFile, newFileName, requestDiscardingAction])
 
   return (
+    <div className="space-y-4">
+      <GitSyncBanner />
     <div className="flex flex-col gap-4 lg:flex-row" style={{ minHeight: 'calc(100vh - 120px)' }}>
       <h1 className="sr-only">Config</h1>
       <UnsavedChangesGuard when={isDirty} />
@@ -552,8 +557,8 @@ export function ConfigPage() {
                     selectedPaths={selectedGitPaths}
                     hasUpstream={gitHasUpstream}
                     aheadCount={gitAhead}
-                    onCommitted={loadGitStatus}
-                    onPushed={loadGitStatus}
+                    onCommitted={() => { void loadGitStatus(); void checkGitSync() }}
+                    onPushed={() => { void loadGitStatus(); void checkGitSync() }}
                   />
                 )}
               </div>
@@ -739,8 +744,8 @@ export function ConfigPage() {
                     selectedPaths={selectedGitPaths}
                     hasUpstream={gitHasUpstream}
                     aheadCount={gitAhead}
-                    onCommitted={loadGitStatus}
-                    onPushed={loadGitStatus}
+                    onCommitted={() => { void loadGitStatus(); void checkGitSync() }}
+                    onPushed={() => { void loadGitStatus(); void checkGitSync() }}
                   />
                 )}
               </div>
@@ -1041,6 +1046,7 @@ export function ConfigPage() {
           onConfirm={confirmPendingAction}
         />
       )}
+    </div>
     </div>
   )
 }

@@ -18,6 +18,7 @@ async function fixture(page: Page, rejectDownload = false) {
       case '/api/meta': json = { app: { version: 'test' }, docker: { engine_version: 'test', compose_version: 'test' } }; break
       case '/api/jobs/active': json = { items: [], summary: {} }; break
       case '/api/stacks': json = { items: [{ id: 'demo', runtime_state: 'running', config_state: 'in_sync', activity_state: 'idle' }], summary: {} }; break
+      case '/api/git/workspace/reconcile': json = { draft: null }; break
       case '/api/git/workspace/incoming': json = downloaded ? { ...review, can_pull: false, behind_count: 0, files: [], blocked_reason: 'up_to_date', last_pull: receipt } : review; break
       case '/api/git/workspace/incoming/diff':
         expect(route.request().postDataJSON().expected_state).toBe(review.expected_state)

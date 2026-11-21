@@ -33,20 +33,23 @@ type PullReceipt struct {
 	Files        []IncomingFile `json:"files"`
 }
 type IncomingResponse struct {
-	Available     bool           `json:"available"`
-	Reason        string         `json:"reason,omitempty"`
-	Branch        string         `json:"branch"`
-	UpstreamName  string         `json:"upstream_name"`
-	HeadCommit    string         `json:"head_commit"`
-	TargetCommit  string         `json:"target_commit"`
-	AheadCount    int            `json:"ahead_count"`
-	BehindCount   int            `json:"behind_count"`
-	CheckedAt     time.Time      `json:"checked_at"`
-	CanPull       bool           `json:"can_pull"`
-	BlockedReason string         `json:"blocked_reason,omitempty"`
-	ExpectedState string         `json:"expected_state"`
-	Files         []IncomingFile `json:"files"`
-	LastPull      *PullReceipt   `json:"last_pull,omitempty"`
+	Available              bool           `json:"available"`
+	Reason                 string         `json:"reason,omitempty"`
+	Branch                 string         `json:"branch"`
+	UpstreamName           string         `json:"upstream_name"`
+	HeadCommit             string         `json:"head_commit"`
+	TargetCommit           string         `json:"target_commit"`
+	AheadCount             int            `json:"ahead_count"`
+	BehindCount            int            `json:"behind_count"`
+	CheckedAt              time.Time      `json:"checked_at"`
+	CanPull                bool           `json:"can_pull"`
+	BlockedReason          string         `json:"blocked_reason,omitempty"`
+	ExpectedState          string         `json:"expected_state"`
+	Files                  []IncomingFile `json:"files"`
+	LastPull               *PullReceipt   `json:"last_pull,omitempty"`
+	LocalChanges           int            `json:"local_changes"`
+	CanReconcile           bool           `json:"can_reconcile"`
+	ReconcileBlockedReason string         `json:"reconcile_blocked_reason,omitempty"`
 }
 type IncomingDiffRequest struct {
 	Path          string `json:"path"`
@@ -170,12 +173,13 @@ func (s *Service) incoming(ctx context.Context, fetch bool) (IncomingResponse, e
 	}
 	digest := sha256.Sum256([]byte(branchRef + "\x00" + result.UpstreamName + "\x00" + result.HeadCommit + "\x00" + result.TargetCommit))
 	result.ExpectedState = hex.EncodeToString(digest[:])
+	dirty, err := s.syncGit(ctx, "status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all")
+	if err != nil {
+		return result, err
+	}
+	result.LocalChanges = strings.Count(string(dirty), "\x00")
 	if result.BehindCount == 0 {
 		result.BlockedReason = "up_to_date"
-		return result, nil
-	}
-	if result.AheadCount > 0 {
-		result.BlockedReason = "diverged"
 		return result, nil
 	}
 	changes, err := s.syncGit(ctx, "diff", "--name-status", "-z", "--no-renames", result.HeadCommit, result.TargetCommit, "--")
@@ -195,42 +199,50 @@ func (s *Service) incoming(ctx context.Context, fetch bool) (IncomingResponse, e
 		}
 		result.Files = append(result.Files, IncomingFile{Path: path, Status: records[i], StackID: stackID, Managed: managed})
 	}
-	if s.hasOperationInProgress(ctx) {
-		result.BlockedReason = "operation_in_progress"
-		return result, nil
-	}
-	// Check the whole checkout, including untracked files outside managed roots.
-	dirty, err := s.syncGit(ctx, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+	blocked, err := s.checkoutBlockReason(ctx, result.HeadCommit, result.TargetCommit, result.LocalChanges)
 	if err != nil {
 		return result, err
 	}
-	if len(dirty) > 0 {
-		result.BlockedReason = "local_changes"
+	if result.AheadCount > 0 {
+		result.BlockedReason = "diverged"
+		result.ReconcileBlockedReason = blocked
+		result.CanReconcile = blocked == ""
 		return result, nil
+	}
+	result.BlockedReason = blocked
+	result.CanPull = blocked == ""
+	return result, nil
+}
+
+func (s *Service) checkoutBlockReason(ctx context.Context, head, target string, localChanges int) (string, error) {
+	if s.hasOperationInProgress(ctx) {
+		return "operation_in_progress", nil
+	}
+	if localChanges > 0 {
+		return "local_changes", nil
 	}
 	indexEntries, err := s.syncGit(ctx, "ls-files", "-v", "-z")
 	if err != nil {
-		return result, err
+		return "", err
 	}
 	for _, entry := range strings.Split(string(indexEntries), "\x00") {
 		if len(entry) > 0 && (entry[0] == 'S' || entry[0] >= 'a' && entry[0] <= 'z') {
-			result.BlockedReason = "index_flags"
-			return result, nil
+			return "index_flags", nil
 		}
 	}
 	// Submodules need a separate lifecycle; do not silently leave them at an old revision.
-	tree, err := s.syncGit(ctx, "ls-tree", "-r", "-z", result.TargetCommit)
-	if err != nil {
-		return result, err
-	}
-	for _, entry := range strings.Split(string(tree), "\x00") {
-		if strings.HasPrefix(entry, "160000 ") {
-			result.BlockedReason = "submodules"
-			return result, nil
+	for _, commit := range []string{head, target} {
+		tree, err := s.syncGit(ctx, "ls-tree", "-r", "-z", commit)
+		if err != nil {
+			return "", err
+		}
+		for _, entry := range strings.Split(string(tree), "\x00") {
+			if strings.HasPrefix(entry, "160000 ") {
+				return "submodules", nil
+			}
 		}
 	}
-	result.CanPull = true
-	return result, nil
+	return "", nil
 }
 
 func (s *Service) IncomingDiff(ctx context.Context, request IncomingDiffRequest) (IncomingDiffResponse, error) {

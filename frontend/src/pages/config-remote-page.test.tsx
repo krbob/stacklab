@@ -1,12 +1,13 @@
+import { clearGitSync } from '@/hooks/use-git-sync'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { StrictMode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConfigRemotePage } from './config-remote-page'
 import type { GitIncomingDiffResponse, GitIncomingResponse, GitPullReceipt } from '@/lib/api-types'
 import * as api from '@/lib/api-client'
 
-vi.mock('@/lib/api-client', () => ({ checkGitIncoming: vi.fn(), getGitIncomingDiff: vi.fn(), getStacks: vi.fn(), invokeAction: vi.fn(), pullGitWorkspace: vi.fn() }))
+vi.mock('@/lib/api-client', () => ({ getGitReconcile: vi.fn(), checkGitIncoming: vi.fn(), getGitIncomingDiff: vi.fn(), getStacks: vi.fn(), invokeAction: vi.fn(), pullGitWorkspace: vi.fn() }))
 vi.mock('@/hooks/use-job-stream', () => ({ useJobStream: () => ({ state: 'running', events: [] }) }))
 vi.mock('@/components/progress-panel', () => ({ ProgressPanel: ({ jobId }: { jobId: string }) => <div>Job progress: {jobId}</div> }))
 
@@ -18,11 +19,14 @@ const incoming: GitIncomingResponse = {
 const receipt: GitPullReceipt = { branch: 'main', base_commit: incoming.head_commit, head_commit: incoming.target_commit, downloaded_at: incoming.checked_at, files: incoming.files }
 const current = { ...incoming, behind_count: 0, can_pull: false, blocked_reason: 'up_to_date', files: [], last_pull: receipt }
 
-function page() { return render(<MemoryRouter><ConfigRemotePage /></MemoryRouter>) }
+function router() { return createMemoryRouter([{ path: '*', element: <ConfigRemotePage /> }]) }
+function page() { return render(<RouterProvider router={router()} />) }
 
 describe('Remote configuration updates', () => {
   beforeEach(() => {
+    clearGitSync()
     vi.resetAllMocks()
+    vi.mocked(api.getGitReconcile).mockResolvedValue({ draft: null })
     vi.mocked(api.checkGitIncoming).mockResolvedValue(incoming)
     vi.mocked(api.getGitIncomingDiff).mockResolvedValue({ path: incoming.files[0].path, diff: '-old\n+new', truncated: false })
     vi.mocked(api.getStacks).mockResolvedValue({ items: [{ id: 'demo', runtime_state: 'running', config_state: 'in_sync', activity_state: 'idle' }] } as Awaited<ReturnType<typeof api.getStacks>>)
@@ -31,7 +35,7 @@ describe('Remote configuration updates', () => {
   })
 
   it('coalesces the initial remote fetch during StrictMode effect replay', async () => {
-    render(<StrictMode><MemoryRouter><ConfigRemotePage /></MemoryRouter></StrictMode>)
+    render(<StrictMode><RouterProvider router={router()} /></StrictMode>)
     await screen.findByRole('button', { name: 'Download reviewed changes' })
     expect(api.checkGitIncoming).toHaveBeenCalledTimes(1)
   })

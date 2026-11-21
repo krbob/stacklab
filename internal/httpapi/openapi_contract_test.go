@@ -130,6 +130,8 @@ func TestOpenAPIContractRepresentativeEndpoints(t *testing.T) {
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/git/workspace/status", nil, cookies, gitStatusResponse)
 	gitIncomingResponse := performJSONRequest(t, handler, http.MethodPost, "/api/git/workspace/incoming", nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodPost, "/api/git/workspace/incoming", nil, cookies, gitIncomingResponse)
+	gitDraftResponse := performJSONRequest(t, handler, http.MethodGet, "/api/git/workspace/reconcile", nil, cookies)
+	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/git/workspace/reconcile", nil, cookies, gitDraftResponse)
 
 	gitDiffResponse := performJSONRequest(t, handler, http.MethodGet, "/api/git/workspace/diff?path=config%2Fnextcloud%2Fapp.conf", nil, cookies)
 	assertResponseMatchesOpenAPI(t, contract, http.MethodGet, "/api/git/workspace/diff?path=config%2Fnextcloud%2Fapp.conf", nil, cookies, gitDiffResponse)

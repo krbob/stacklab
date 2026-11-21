@@ -31,6 +31,12 @@ func (c *workspaceController) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/git/workspace/incoming", c.withAuth(c.handleGitIncoming))
 	mux.HandleFunc("POST /api/git/workspace/incoming/diff", c.withAuth(c.handleGitIncomingDiff))
 	mux.HandleFunc("POST /api/git/workspace/pull", c.withAuth(c.handleGitPull))
+	mux.HandleFunc("GET /api/git/workspace/reconcile", c.withAuth(c.handleGetReconcile))
+	mux.HandleFunc("POST /api/git/workspace/reconcile/prepare", c.withAuth(c.handlePrepareReconcile))
+	mux.HandleFunc("POST /api/git/workspace/reconcile/file", c.withAuth(c.handleReconcileFile))
+	mux.HandleFunc("POST /api/git/workspace/reconcile/resolve", c.withAuth(c.handleResolveReconcile))
+	mux.HandleFunc("POST /api/git/workspace/reconcile/discard", c.withAuth(c.handleDiscardReconcile))
+	mux.HandleFunc("POST /api/git/workspace/reconcile/apply", c.withAuth(c.handleApplyReconcile))
 }
 
 func (h *workspaceController) handleConfigWorkspaceTree(w http.ResponseWriter, r *http.Request) {

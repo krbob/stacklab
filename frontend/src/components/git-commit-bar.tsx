@@ -2,6 +2,8 @@ import { useCallback, useState, type FormEvent } from 'react'
 import { commitGitWorkspace, pushGitWorkspace } from '@/lib/api-client'
 import { cn } from '@/lib/cn'
 import { StatusMessage } from '@/components/status-message'
+import { ConfirmDialog } from '@/components/confirm-dialog'
+import { checkGitSync } from '@/hooks/use-git-sync'
 
 interface GitCommitBarProps {
   selectedPaths: Set<string>
@@ -17,18 +19,14 @@ export function GitCommitBar({ selectedPaths, hasUpstream, aheadCount, onCommitt
   const [committing, setCommitting] = useState(false)
   const [pushing, setPushing] = useState(false)
   const [result, setResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [commitReview, setCommitReview] = useState<{ message: string; paths: string[]; warning: string } | null>(null)
 
-  const handleCommit = useCallback(async (e: FormEvent) => {
-    e.preventDefault()
-    if (!commitMessage.trim() || selectedPaths.size === 0) return
-
+  const performCommit = useCallback(async (payload: { message: string; paths: string[] }) => {
     setCommitting(true)
     setResult(null)
     try {
-      const res = await commitGitWorkspace({
-        message: commitMessage.trim(),
-        paths: Array.from(selectedPaths),
-      })
+      const res = await commitGitWorkspace({ message: payload.message, paths: payload.paths })
+      setCommitReview(null)
       setResult({ type: 'success', text: `Committed ${res.commit.slice(0, 8)}: ${res.summary}` })
       setCommitMessage('')
       setShowCommitInput(false)
@@ -38,12 +36,32 @@ export function GitCommitBar({ selectedPaths, hasUpstream, aheadCount, onCommitt
     } finally {
       setCommitting(false)
     }
-  }, [commitMessage, selectedPaths, onCommitted])
+  }, [onCommitted])
+
+  const handleCommit = useCallback(async (e: FormEvent) => {
+    e.preventDefault()
+    if (!commitMessage.trim() || selectedPaths.size === 0 || committing || pushing) return
+    const payload = { message: commitMessage.trim(), paths: Array.from(selectedPaths) }
+    setCommitting(true)
+    setResult(null)
+    if (hasUpstream) {
+      const incoming = await checkGitSync()
+      if (!incoming || incoming.reason || incoming.behind_count > 0) {
+        setCommitReview({ ...payload, warning: !incoming || incoming.reason ? 'The remote could not be verified. You can preserve the selected changes in a local commit and synchronize when access is restored.' : `${incoming.behind_count} incoming commits were found. Preserve your selected local changes in a commit, then use Remote updates to reconcile both versions before pushing.` })
+        setCommitting(false)
+        return
+      }
+    }
+    await performCommit(payload)
+  }, [commitMessage, selectedPaths, committing, pushing, hasUpstream, performCommit])
 
   const handlePush = useCallback(async () => {
     setPushing(true)
     setResult(null)
     try {
+      const incoming = await checkGitSync()
+      if (!incoming || incoming.reason) throw new Error('Remote not verified. Check remote access before pushing; your local commits are preserved.')
+      if (incoming.behind_count > 0) throw new Error('The remote contains new commits. Open Remote updates to reconcile both versions before pushing.')
       const res = await pushGitWorkspace()
       if (res.pushed) {
         setResult({ type: 'success', text: `Pushed to ${res.upstream_name}` })
@@ -60,6 +78,7 @@ export function GitCommitBar({ selectedPaths, hasUpstream, aheadCount, onCommitt
 
   return (
     <div className="border-t border-[var(--panel-border)] pt-3">
+      {commitReview && <ConfirmDialog title="Preserve local changes?" message={commitReview.warning} items={commitReview.paths} confirmLabel="Commit locally" confirming={committing} error={result?.type === 'error' ? result.text : null} onConfirm={() => { void performCommit(commitReview) }} onCancel={() => setCommitReview(null)} />}
       {/* Result message */}
       {result && (
         <StatusMessage className={cn('mb-2 wrap-anywhere text-xs', result.type === 'success' ? 'text-[var(--ok)]' : 'text-[var(--danger)]')}>
@@ -84,7 +103,7 @@ export function GitCommitBar({ selectedPaths, hasUpstream, aheadCount, onCommitt
           <div className="flex flex-wrap gap-2">
             <button
               type="submit"
-              disabled={committing || !commitMessage.trim() || selectedPaths.size === 0}
+              disabled={committing || pushing || !commitMessage.trim() || selectedPaths.size === 0}
               data-testid="git-commit-submit"
               className="rounded-lg border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1.5 text-xs text-[var(--text)] disabled:opacity-40"
             >
@@ -110,7 +129,7 @@ export function GitCommitBar({ selectedPaths, hasUpstream, aheadCount, onCommitt
         {!showCommitInput && (
           <button
             onClick={() => setShowCommitInput(true)}
-            disabled={selectedPaths.size === 0 || committing}
+            disabled={selectedPaths.size === 0 || committing || pushing}
             className="ml-auto rounded-md border border-[rgba(245,165,36,0.35)] bg-[rgba(245,165,36,0.14)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-40"
           >
             Commit
@@ -120,7 +139,7 @@ export function GitCommitBar({ selectedPaths, hasUpstream, aheadCount, onCommitt
         {hasUpstream && aheadCount > 0 && (
           <button
             onClick={handlePush}
-            disabled={pushing}
+            disabled={pushing || committing || commitReview !== null}
             data-testid="git-push"
             className="rounded-md border border-[var(--warning)]/30 bg-[var(--warning)]/10 px-3 py-1 text-xs text-[var(--warning)] disabled:opacity-40"
           >

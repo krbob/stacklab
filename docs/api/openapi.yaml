@@ -1057,6 +1057,354 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /git/workspace/reconcile:
+    get:
+      tags: [Git]
+      operationId: getGitReconcile
+      responses:
+        '200':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitReconcileEnvelope'
+        '400':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /git/workspace/reconcile/prepare:
+    post:
+      tags: [Git]
+      operationId: prepareGitReconcile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GitPullRequest'
+      responses:
+        '200':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitReconcileResponse'
+        '400':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /git/workspace/reconcile/file:
+    post:
+      tags: [Git]
+      operationId: getGitReconcileFile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GitReconcileFileRequest'
+      responses:
+        '200':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitReconcileFileResponse'
+        '400':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /git/workspace/reconcile/resolve:
+    post:
+      tags: [Git]
+      operationId: resolveGitReconcile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GitResolveRequest'
+      responses:
+        '200':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitReconcileResponse'
+        '400':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /git/workspace/reconcile/discard:
+    post:
+      tags: [Git]
+      operationId: discardGitReconcile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GitReconcileRequest'
+      responses:
+        '200':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitDiscardResponse'
+        '400':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /git/workspace/reconcile/apply:
+    post:
+      tags: [Git]
+      operationId: applyGitReconcile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GitReconcileRequest'
+      responses:
+        '200':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitPullResponse'
+        '400':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Git reconciliation result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /git/workspace/incoming:
     post:
       tags: [Git]
@@ -4505,6 +4853,90 @@ components:
     GitScope:
       type: string
       enum: [stacks, config]
+    GitReconcileRequest:
+      type: object
+      properties:
+        id: {type: string}
+        revision: {type: integer, minimum: 1}
+      required: [id, revision]
+    GitReconcileFileRequest:
+      type: object
+      properties:
+        id: {type: string}
+        revision: {type: integer, minimum: 1}
+        path: {type: string}
+      required: [id, revision, path]
+    GitResolveRequest:
+      type: object
+      properties:
+        id: {type: string}
+        revision: {type: integer, minimum: 1}
+        path: {type: string}
+        choice: {type: string, enum: [local, remote, delete, edit]}
+        content: {type: string}
+      required: [id, revision, path, choice]
+    GitDiscardResponse:
+      type: object
+      properties:
+        discarded: {type: boolean}
+      required: [discarded]
+    GitReconcileEnvelope:
+      type: object
+      properties:
+        draft:
+          anyOf:
+            - $ref: '#/components/schemas/GitReconcileResponse'
+            - type: ['null']
+      required: [draft]
+    GitReconcileResponse:
+      type: object
+      properties:
+        id: {type: string}
+        revision: {type: integer}
+        expected_state: {type: string}
+        branch: {type: string}
+        local_commit: {type: string}
+        remote_commit: {type: string}
+        created_at: {type: string, format: date-time}
+        ready: {type: boolean}
+        applied: {type: boolean}
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/GitIncomingFile'
+        conflicts:
+          type: array
+          items:
+            type: object
+            properties:
+              path: {type: string}
+              resolved: {type: boolean}
+            required: [path, resolved]
+      required: [id, revision, expected_state, branch, local_commit, remote_commit, created_at, ready, applied, files, conflicts]
+    GitReconcileVersion:
+      type: object
+      properties:
+        exists: {type: boolean}
+        mode: {type: string}
+        size: {type: integer}
+        text: {type: [string, 'null']}
+      required: [exists, mode, size, text]
+    GitReconcileFileResponse:
+      type: object
+      properties:
+        path: {type: string}
+        base:
+          $ref: '#/components/schemas/GitReconcileVersion'
+        local:
+          $ref: '#/components/schemas/GitReconcileVersion'
+        remote:
+          $ref: '#/components/schemas/GitReconcileVersion'
+        editable: {type: boolean}
+        choice: {type: string}
+        content: {type: string}
+        diff: {type: string}
+        truncated: {type: boolean}
+      required: [path, base, local, remote, editable, choice, content, diff, truncated]
     GitIncomingFile:
       type: object
       properties:
@@ -4538,6 +4970,9 @@ components:
         behind_count: {type: integer}
         checked_at: {type: string, format: date-time}
         can_pull: {type: boolean}
+        local_changes: {type: integer}
+        can_reconcile: {type: boolean}
+        reconcile_blocked_reason: {type: string}
         blocked_reason: {type: string}
         expected_state: {type: string}
         files:

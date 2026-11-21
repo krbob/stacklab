@@ -1,3 +1,4 @@
+import { clearGitSync } from '@/hooks/use-git-sync'
 import { createContext, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 
@@ -74,11 +75,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       if (!(error instanceof api.ApiClientError) || error.status !== 401) throw error
     }
+    clearGitSync()
     setState({ status: 'unauthenticated', session: null })
     navigate('/login', { replace: true })
   }, [navigate])
 
   const requireReauthentication = useCallback((reason?: 'password_changed' | 'session_expired') => {
+    clearGitSync()
     setState({ status: 'unauthenticated', session: null })
     navigate('/login', { replace: true, state: reason ? { reason } : undefined })
   }, [navigate])

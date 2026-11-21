@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { checkGitIncoming, getGitIncomingDiff, getStacks, invokeAction, pullGitWorkspace } from '@/lib/api-client'
-import type { GitIncomingDiffResponse, GitIncomingResponse, GitPullReceipt, StackListItem } from '@/lib/api-types'
+import { getGitIncomingDiff, getStacks, invokeAction, pullGitWorkspace } from '@/lib/api-client'
+import type { GitIncomingDiffResponse, GitPullReceipt, StackListItem } from '@/lib/api-types'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { DiffView } from '@/components/diff-view'
 import { ProgressPanel } from '@/components/progress-panel'
 import { StatusMessage } from '@/components/status-message'
 import { useJobStream } from '@/hooks/use-job-stream'
+import { useGitSync } from '@/hooks/use-git-sync'
+import { GitReconcilePanel } from '@/components/git-reconcile-panel'
 
 const button = 'rounded-md border border-[var(--panel-border)] px-3 py-2 text-sm text-[var(--text)] transition hover:bg-[rgba(245,165,36,0.08)] disabled:opacity-40'
 const panel = 'min-w-0 space-y-4 rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-4 sm:p-5'
@@ -16,7 +18,7 @@ const explanations: Record<string, string> = {
   upstream_not_configured: 'Configure a remote upstream for this branch on the host before checking updates.',
   detached_head: 'The checkout is not on a branch. Select a branch on the host before downloading updates.',
   up_to_date: 'No incoming commits. The checkout already contains the fetched version.',
-  diverged: 'Local and remote commits have diverged. Reconcile them outside Stacklab, then check again. Local commits will be preserved.',
+  diverged: 'Local and remote commits have diverged. Prepare a reconciliation draft below. Existing commits will be preserved.',
   local_changes: 'There are local edits or untracked files in this repository. Commit or resolve them before downloading. This includes files outside config/ and stacks/.',
   operation_in_progress: 'Finish the current Git operation on the host, then check again.',
   submodules: 'This checkout contains submodules. Update it outside Stacklab to manage their revisions explicitly.',
@@ -24,11 +26,9 @@ const explanations: Record<string, string> = {
 }
 
 export function ConfigRemotePage() {
-  const [incoming, setIncoming] = useState<GitIncomingResponse | null>(null)
+  const { incoming, checking, error, refresh: checkRemote } = useGitSync(false)
   const [lastPull, setLastPull] = useState<GitPullReceipt | null>(null)
-  const [checking, setChecking] = useState(false)
   const checkingRef = useRef(false)
-  const [error, setError] = useState<string | null>(null)
   const [diff, setDiff] = useState<GitIncomingDiffResponse | null>(null)
   const [diffError, setDiffError] = useState<string | null>(null)
   const [diffLoading, setDiffLoading] = useState(false)
@@ -55,21 +55,16 @@ export function ConfigRemotePage() {
   const refresh = useCallback(async () => {
     if (checkingRef.current) return
     checkingRef.current = true
-    setChecking(true)
-    setError(null)
     setSelectedPath(null)
     setDiff(null)
     setDiffError(null)
     setDiffLoading(false)
     diffRequest.current++
     try {
-      const result = await checkGitIncoming()
-      setIncoming(result)
-      setLastPull(result.last_pull ?? null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Cannot check remote updates.')
-    } finally { checkingRef.current = false; setChecking(false) }
-  }, [])
+      const result = await checkRemote()
+      if (result) setLastPull(result.last_pull ?? null)
+    } finally { checkingRef.current = false }
+  }, [checkRemote])
 
   useEffect(() => { void refresh(); void loadStacks() }, [refresh, loadStacks])
 
@@ -161,11 +156,13 @@ export function ConfigRemotePage() {
         </>}
       </section>
 
+      <GitReconcilePanel incoming={incoming} disabled={busy || !!error || reviewDownload} onApplied={async (receipt) => { setLastPull(receipt); setMessage(`Applied merge ${receipt.head_commit.slice(0, 8)}. Review the affected stacks below; push the merge commit from Changes when ready.`); await Promise.all([refresh(), loadStacks()]) }} />
+
       <section className={panel}>
         <h2 className="text-lg font-medium">2. Apply configuration</h2>
         {!lastPull && <p className="text-sm text-[var(--muted)]">After downloading, affected stacks appear here. Changes already made on this host can be applied from the <Link className="text-[var(--accent)] hover:underline" to="/stacks">Stacks</Link> view.</p>}
         {lastPull && <>
-          <p className="wrap-anywhere text-sm text-[var(--muted)]">Last downloaded: {lastPull.head_commit.slice(0, 8)} · {new Date(lastPull.downloaded_at).toLocaleString()} · {lastPull.branch}. This records a download, not a deployment.</p>
+          <p className="wrap-anywhere text-sm text-[var(--muted)]">Last synchronized: {lastPull.head_commit.slice(0, 8)} · {new Date(lastPull.downloaded_at).toLocaleString()} · {lastPull.branch}. This records a download, not a deployment.</p>
           <details className="space-y-2 text-sm">
             <summary className="cursor-pointer text-[var(--muted)]">Downloaded files ({lastPull.files.length})</summary>
             <ul className="space-y-1">{lastPull.files.map((file) => <li key={file.path} className="wrap-anywhere font-mono text-xs">{file.status} · {file.path}</li>)}</ul>

@@ -1,11 +1,14 @@
+import { clearGitSync } from '@/hooks/use-git-sync'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { GitCommitBar } from './git-commit-bar'
 
+const mockCheckGitIncoming = vi.fn()
 const mockCommitGitWorkspace = vi.fn()
 const mockPushGitWorkspace = vi.fn()
 
 vi.mock('@/lib/api-client', () => ({
+  checkGitIncoming: (...args: unknown[]) => mockCheckGitIncoming(...args),
   commitGitWorkspace: (...args: unknown[]) => mockCommitGitWorkspace(...args),
   pushGitWorkspace: (...args: unknown[]) => mockPushGitWorkspace(...args),
 }))
@@ -20,6 +23,9 @@ describe('GitCommitBar', () => {
   }
 
   beforeEach(() => {
+    clearGitSync()
+    mockCheckGitIncoming.mockReset()
+    mockCheckGitIncoming.mockResolvedValue({ available: true, branch: 'main', upstream_name: 'origin/main', head_commit: 'a', target_commit: 'a', ahead_count: 0, behind_count: 0, local_changes: 0, checked_at: '2026-11-21T12:00:00Z', files: [], expected_state: 'current', can_pull: false })
     mockCommitGitWorkspace.mockReset()
     mockPushGitWorkspace.mockReset()
     defaultProps.onCommitted = vi.fn()
@@ -122,5 +128,44 @@ describe('GitCommitBar', () => {
     fireEvent.click(screen.getByTestId('git-push'))
 
     expect(await screen.findByText('Auth failed')).toBeInTheDocument()
+  })
+
+  it('checks the remote before committing and requires an explicit local commit when updates exist', async () => {
+    mockCheckGitIncoming.mockResolvedValue({ behind_count: 2 })
+    mockCommitGitWorkspace.mockResolvedValue({ commit: 'local123', summary: 'Preserve edits' })
+    render(<GitCommitBar {...defaultProps} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Commit' }))
+    fireEvent.change(screen.getByTestId('git-commit-message'), { target: { value: 'Preserve edits' } })
+    fireEvent.click(screen.getByTestId('git-commit-submit'))
+    await screen.findByRole('dialog')
+    expect(mockCheckGitIncoming).toHaveBeenCalledOnce()
+    expect(mockCommitGitWorkspace).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toHaveTextContent('2 incoming commits')
+    fireEvent.click(screen.getByRole('button', { name: 'Commit locally' }))
+    await waitFor(() => expect(mockCommitGitWorkspace).toHaveBeenCalledWith({ message: 'Preserve edits', paths: ['config/demo/app.conf'] }))
+    expect(mockPushGitWorkspace).not.toHaveBeenCalled()
+  })
+
+  it('keeps local commits available offline but blocks an unverified push', async () => {
+    mockCheckGitIncoming.mockRejectedValue(new Error('Offline'))
+    mockCommitGitWorkspace.mockResolvedValue({ commit: 'local123', summary: 'Offline edits' })
+    render(<GitCommitBar {...defaultProps} />)
+    fireEvent.click(screen.getByTestId('git-push'))
+    await screen.findByText(/Remote not verified/)
+    expect(mockPushGitWorkspace).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Commit' }))
+    fireEvent.change(screen.getByTestId('git-commit-message'), { target: { value: 'Offline edits' } })
+    fireEvent.click(screen.getByTestId('git-commit-submit'))
+    await screen.findByRole('dialog')
+    fireEvent.click(screen.getByRole('button', { name: 'Commit locally' }))
+    await waitFor(() => expect(mockCommitGitWorkspace).toHaveBeenCalledOnce())
+  })
+
+  it('does not attempt a push when the check discovers incoming commits', async () => {
+    mockCheckGitIncoming.mockResolvedValue({ behind_count: 1 })
+    render(<GitCommitBar {...defaultProps} />)
+    fireEvent.click(screen.getByTestId('git-push'))
+    await screen.findByText(/Open Remote updates to reconcile/)
+    expect(mockPushGitWorkspace).not.toHaveBeenCalled()
   })
 })

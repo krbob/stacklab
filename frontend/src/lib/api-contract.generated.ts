@@ -186,6 +186,24 @@ export interface paths {
   "/git/workspace/push": {
     post: operations["pushGitWorkspace"];
   };
+  "/git/workspace/reconcile": {
+    get: operations["getGitReconcile"];
+  };
+  "/git/workspace/reconcile/apply": {
+    post: operations["applyGitReconcile"];
+  };
+  "/git/workspace/reconcile/discard": {
+    post: operations["discardGitReconcile"];
+  };
+  "/git/workspace/reconcile/file": {
+    post: operations["getGitReconcileFile"];
+  };
+  "/git/workspace/reconcile/prepare": {
+    post: operations["prepareGitReconcile"];
+  };
+  "/git/workspace/reconcile/resolve": {
+    post: operations["resolveGitReconcile"];
+  };
   "/git/workspace/restore": {
     /** @description Restore one modified or deleted regular file from HEAD, replacing its working copy and staged changes. Requires the state token from the reviewed diff. Does not commit, push, or deploy. */
     post: operations["restoreGitWorkspaceFile"];
@@ -1453,6 +1471,9 @@ export interface components {
       status: components["schemas"]["GitFileStatus"];
       truncated: boolean;
     };
+    GitDiscardResponse: {
+      discarded: boolean;
+    };
     GitFileDeleteRequest: {
       /** Format: date-time */
       expected_modified_at: string;
@@ -1503,13 +1524,16 @@ export interface components {
       blocked_reason?: string;
       branch: string;
       can_pull: boolean;
+      can_reconcile?: boolean;
       /** Format: date-time */
       checked_at: string;
       expected_state: string;
       files: components["schemas"]["GitIncomingFile"][];
       head_commit: string;
       last_pull?: components["schemas"]["GitPullReceipt"];
+      local_changes?: number;
       reason?: string;
+      reconcile_blocked_reason?: string;
       target_commit: string;
       upstream_name: string;
     };
@@ -1536,6 +1560,60 @@ export interface components {
       pushed: boolean;
       remote: string;
       upstream_name: string;
+    };
+    GitReconcileEnvelope: {
+      draft: components["schemas"]["GitReconcileResponse"] | null;
+    };
+    GitReconcileFileRequest: {
+      id: string;
+      path: string;
+      revision: number;
+    };
+    GitReconcileFileResponse: {
+      base: components["schemas"]["GitReconcileVersion"];
+      choice: string;
+      content: string;
+      diff: string;
+      editable: boolean;
+      local: components["schemas"]["GitReconcileVersion"];
+      path: string;
+      remote: components["schemas"]["GitReconcileVersion"];
+      truncated: boolean;
+    };
+    GitReconcileRequest: {
+      id: string;
+      revision: number;
+    };
+    GitReconcileResponse: {
+      applied: boolean;
+      branch: string;
+      conflicts: {
+          path: string;
+          resolved: boolean;
+        }[];
+      /** Format: date-time */
+      created_at: string;
+      expected_state: string;
+      files: components["schemas"]["GitIncomingFile"][];
+      id: string;
+      local_commit: string;
+      ready: boolean;
+      remote_commit: string;
+      revision: number;
+    };
+    GitReconcileVersion: {
+      exists: boolean;
+      mode: string;
+      size: number;
+      text: string | null;
+    };
+    GitResolveRequest: {
+      /** @enum {string} */
+      choice: "local" | "remote" | "delete" | "edit";
+      content?: string;
+      id: string;
+      path: string;
+      revision: number;
     };
     /** @enum {string} */
     GitScope: "stacks" | "config";
@@ -4020,6 +4098,343 @@ export interface operations {
       };
       /** @description Git workspace is unavailable. */
       503: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  getGitReconcile: {
+    responses: {
+      /** @description Git reconciliation result. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["GitReconcileEnvelope"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      400: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      401: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      403: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      404: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      409: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      413: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      502: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  applyGitReconcile: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["GitReconcileRequest"];
+      };
+    };
+    responses: {
+      /** @description Git reconciliation result. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["GitPullResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      400: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      401: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      403: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      404: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      409: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      413: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      502: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  discardGitReconcile: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["GitReconcileRequest"];
+      };
+    };
+    responses: {
+      /** @description Git reconciliation result. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["GitDiscardResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      400: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      401: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      403: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      404: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      409: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      413: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      502: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  getGitReconcileFile: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["GitReconcileFileRequest"];
+      };
+    };
+    responses: {
+      /** @description Git reconciliation result. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["GitReconcileFileResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      400: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      401: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      403: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      404: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      409: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      413: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      502: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  prepareGitReconcile: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["GitPullRequest"];
+      };
+    };
+    responses: {
+      /** @description Git reconciliation result. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["GitReconcileResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      400: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      401: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      403: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      404: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      409: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      413: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      502: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  resolveGitReconcile: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["GitResolveRequest"];
+      };
+    };
+    responses: {
+      /** @description Git reconciliation result. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["GitReconcileResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      400: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      401: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      403: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      404: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      409: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      413: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Git reconciliation result. */
+      502: {
         content: {
           "application/json": components["schemas"]["ErrorResponse"];
         };

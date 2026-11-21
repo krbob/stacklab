@@ -184,6 +184,11 @@ export type GitIncomingResponse = APISchemas['GitIncomingResponse']
 export type GitIncomingDiffResponse = APISchemas['GitIncomingDiffResponse']
 export type GitPullResponse = APISchemas['GitPullResponse']
 export type GitPullReceipt = APISchemas['GitPullReceipt']
+export type GitReconcileRequest = APISchemas['GitReconcileRequest']
+export type GitReconcileResponse = APISchemas['GitReconcileResponse']
+export type GitReconcileFileResponse = APISchemas['GitReconcileFileResponse']
+export type GitReconcileVersion = APISchemas['GitReconcileVersion']
+export type GitResolveRequest = APISchemas['GitResolveRequest']
 
 // --- Maintenance ---
 

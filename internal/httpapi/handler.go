@@ -120,6 +120,12 @@ type StackWorkspaceReader interface {
 }
 
 type GitWorkspaceReader interface {
+	PrepareReconcile(context.Context, gitworkspace.PullRequest) (gitworkspace.ReconcileResponse, error)
+	Reconcile(context.Context) (gitworkspace.ReconcileEnvelope, error)
+	ReconcileFile(context.Context, gitworkspace.ReconcileFileRequest) (gitworkspace.ReconcileFileResponse, error)
+	ResolveReconcile(context.Context, gitworkspace.ResolveRequest) (gitworkspace.ReconcileResponse, error)
+	DiscardReconcile(context.Context, gitworkspace.ReconcileRequest) error
+	ApplyReconcile(context.Context, gitworkspace.ReconcileRequest) (gitworkspace.PullResponse, error)
 	Incoming(ctx context.Context) (gitworkspace.IncomingResponse, error)
 	IncomingDiff(ctx context.Context, request gitworkspace.IncomingDiffRequest) (gitworkspace.IncomingDiffResponse, error)
 	Pull(ctx context.Context, request gitworkspace.PullRequest) (gitworkspace.PullResponse, error)

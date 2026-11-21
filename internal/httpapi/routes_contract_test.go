@@ -90,6 +90,12 @@ func domainRouteContract() []domainRoute {
 		{http.MethodPost, "/api/git/workspace/incoming", "POST /api/git/workspace/incoming"},
 		{http.MethodPost, "/api/git/workspace/incoming/diff", "POST /api/git/workspace/incoming/diff"},
 		{http.MethodPost, "/api/git/workspace/pull", "POST /api/git/workspace/pull"},
+		{http.MethodGet, "/api/git/workspace/reconcile", "GET /api/git/workspace/reconcile"},
+		{http.MethodPost, "/api/git/workspace/reconcile/prepare", "POST /api/git/workspace/reconcile/prepare"},
+		{http.MethodPost, "/api/git/workspace/reconcile/file", "POST /api/git/workspace/reconcile/file"},
+		{http.MethodPost, "/api/git/workspace/reconcile/resolve", "POST /api/git/workspace/reconcile/resolve"},
+		{http.MethodPost, "/api/git/workspace/reconcile/discard", "POST /api/git/workspace/reconcile/discard"},
+		{http.MethodPost, "/api/git/workspace/reconcile/apply", "POST /api/git/workspace/reconcile/apply"},
 		{http.MethodPost, "/api/maintenance/update-stacks", "POST /api/maintenance/update-stacks"},
 		{http.MethodGet, "/api/maintenance/images", "GET /api/maintenance/images"},
 		{http.MethodGet, "/api/templates", "GET /api/templates"},
@@ -141,8 +147,8 @@ func TestHandlerRegistersDomainRouteContract(t *testing.T) {
 	handler.registerRoutes()
 	routes := domainRouteContract()
 
-	if len(routes) != 112 {
-		t.Fatalf("route contract contains %d operations, want 112", len(routes))
+	if len(routes) != 118 {
+		t.Fatalf("route contract contains %d operations, want 118", len(routes))
 	}
 	for _, route := range routes {
 		route := route
@@ -282,8 +288,8 @@ func TestDomainRoutesPreserveAuthenticationPolicy(t *testing.T) {
 			t.Errorf("protected route %s returned %d, want %d", route.pattern, response.Code, http.StatusUnauthorized)
 		}
 	}
-	if protectedCount != 105 {
-		t.Fatalf("protected route count = %d, want 105", protectedCount)
+	if protectedCount != 111 {
+		t.Fatalf("protected route count = %d, want 111", protectedCount)
 	}
 }
 

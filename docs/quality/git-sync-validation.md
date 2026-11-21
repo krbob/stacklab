@@ -53,11 +53,54 @@ No production checkout or application container was updated by this validation.
 
 ## Retained boundaries
 
-Checks run when opening Remote updates or selecting Check remote. No unattended
-fetch or deployment is implied. Shared configuration dependencies and image
+Checks now also run when entering Config or returning to its browser tab, with a
+one-minute automatic cooldown; commit/push check explicitly. No unattended fetch
+or deployment is implied. Shared configuration dependencies and image
 build inputs require operator review. Compose/environment drift is not presented
 as proof that arbitrary mounted configuration has been reloaded. External Git
 and filesystem writers require coordination outside Stacklab's internal locks.
 
 Native checkout behavior follows the documented
 [Git merge fast-forward and ignored-file options](https://git-scm.com/docs/git-merge).
+
+## Proactive checks and reconciliation — 2026-11-21
+
+The complete frontend suite passed 713 tests. Coverage includes entry/focus fetch
+coalescing and cooldown, offline/unverified state, cache revocation after logout,
+pre-commit acknowledgement, blocked push when incoming changes exist, persisted
+conflict drafts, manual text resolution, stale approval, discarded late responses
+and protection of unsaved resolution text.
+
+The full Git workspace and HTTP API suites passed with `-race`. Native Git
+fixtures verify clean automatic merge, three-way text conflicts, exact binary
+version selection, deletion, preservation of both parent histories, persistent
+draft/resolutions after a new service instance, and checkout/index preservation
+before approval. Approval rejects new local edits, staged/untracked files,
+changed commits, hidden index flags, native locks and unfinished operations;
+ignored-file collisions retain local bytes. Additional race-tested regressions
+verify that a refused checkout leaves the draft editable and configured merge
+drivers/post-merge hooks are not executed. API tests cover authentication,
+same-origin, deployment/editor exclusion and `git_reconcile` audit completion.
+
+Eight Chromium scenarios passed: the prior fast-forward/reload flow and the new
+Config-entry/reconcile flow at 1440, 390 and 320 pixels, plus stale-operation
+errors. Draft resolutions survive page reload; approved synchronization never
+implicitly invokes a stack action. Desktop and mobile layouts were inspected.
+Browser scenarios use mocked APIs; native API/Git execution is tested separately.
+
+A second isolated Debian VM exercise used a real Compose project and divergent
+commits in the author and managed clones. The base configuration was
+`before-push`; local and remote versions conflicted. The API saved a manual
+`merged-value` resolution. Restarting the backend retained the draft ID, revision
+and readiness. Applying the merge changed the host file while preserving the
+container ID and startup value. Explicit recreation changed the container ID and
+the observed value to `merged-value`. Audit recorded successful `git_reconcile`
+and `recreate`; the synchronization receipt remained after refresh. The fixture
+backend and Compose project were stopped. No production service was changed.
+
+Retained limits: uncommitted files must first be deliberately committed; this
+workflow never silently includes untracked files. Custom conflict text is limited
+to ordinary managed UTF-8 files. Native merge failures/unsupported arrangements
+leave the checkout untouched during preparation. Apply still requires coordination
+with external writers and uses native Git checkout protections, not a multi-file
+filesystem transaction. Push and container reload remain explicit operations.

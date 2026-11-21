@@ -14,9 +14,8 @@ It is intentionally narrower than full GitOps or a generic Git client.
 
 ## Non-Goals
 
-- clone, divergent-history merge / rebase, and unattended synchronization
+- initial workspace clone, rebase, and unattended synchronization
 - branch switching
-- conflict resolution UI
 - generic Git browser for arbitrary host repositories
 
 ## Workspace Boundary
@@ -39,20 +38,28 @@ Only these managed subtrees are exposed:
 
 Local file editing, status and selective commits remain limited to those roots.
 The incoming-change review additionally lists and diffs all paths changed by a
-whole-branch fast-forward, including files outside managed roots. Those paths
-do not gain managed file editing or deletion APIs.
+whole-branch synchronization, including files outside managed roots. Those paths
+do not gain managed file editing or deletion APIs. Reconciliation can choose an
+existing version or deletion for those paths in its private merge draft; custom
+text editing remains limited to ordinary managed files.
 
 ## Incoming changes and configuration reload
 
 The [product contract](../product/git-incoming-changes.md) describes the
-`/config/remote` flow, reached through **Remote updates** in Config. Entering
-the view checks the configured upstream; **Check remote** checks again. It does
-not poll when closed or deploy automatically.
+`/config/remote` flow, reached through **Remote updates** in Config. Config fetches
+on entry and browser focus/visibility return, with a one-minute cooldown shared
+by automatic checks. The editor remains available offline; fetch never replaces
+editor contents. Remote updates and **Check remote** explicitly check again.
+Commit/push also check again: incoming changes require an explicit local-commit
+choice or reconciliation before push. There is no unattended polling/deployment.
 
 - `POST /api/git/workspace/incoming` fetches only the configured upstream branch
   with the service account's Git credentials, then returns current/target commits,
   ahead/behind counts, checked time, changed files, `can_pull`, `blocked_reason`,
-  `expected_state`, and optional `last_pull`. Fetch does not update working files.
+  `expected_state`, `local_changes` (whole-checkout uncommitted path count),
+  `can_reconcile`, optional `reconcile_blocked_reason` and `last_pull`.
+  Fetch does not update working files. Diverged histories retain a file comparison;
+  this comparison alone is not the proposed merge result.
 - `POST /api/git/workspace/incoming/diff` accepts `path` and `expected_state`.
   Only exact paths in that review are accepted; pathspec expansion, external diff
   commands and textconv are disabled. Diff output is capped at 256 KiB with
@@ -87,6 +94,51 @@ locks, progress and audit. Confirmation explains interruption and possible
 startup of stopped services. Missing/invalid definitions are not applied;
 shared paths and Dockerfile changes require dependency/build review. Applications
 that watch mounted configuration can react before the explicit Compose action.
+
+## Isolated reconciliation
+
+Local edits must first be explicitly committed in Changes. No implicit stash or
+commit is created for untracked/dirty files. Only diverged commits with a clean
+checkout, supported index flags and no submodules can start reconciliation.
+
+| Endpoint | Request | Result |
+| --- | --- | --- |
+| `GET /api/git/workspace/reconcile` | None | `draft`, or `null` when no draft exists. |
+| `POST /api/git/workspace/reconcile/prepare` | Reviewed `expected_state` | A new durable draft; an existing draft must be explicitly discarded first. |
+| `POST /api/git/workspace/reconcile/file` | `id`, `revision`, exact `path` | Base/local/remote versions for conflicts, saved resolution and the candidate diff against local HEAD. |
+| `POST /api/git/workspace/reconcile/resolve` | `id`, `revision`, `path`, `choice`, optional `content` | Updated draft with incremented revision. Choices: `local`, `remote`, `delete`, `edit`. |
+| `POST /api/git/workspace/reconcile/discard` | `id`, `revision` | `discarded: true`; only private draft data is removed. |
+| `POST /api/git/workspace/reconcile/apply` | `id`, `revision` | `updated` and synchronization `receipt`; audited as `git_reconcile`. |
+
+All endpoints require authentication; POSTs require same-origin. Draft responses
+identify both commits, branch, creation time, changed files, conflicts and their
+resolution state, `ready` and `applied`. Version responses distinguish absent
+files from empty files and include mode/size. `text: null` means a binary, large
+or non-regular version; it may still be selected without converting its contents.
+Custom text is UTF-8 without NUL, limited to 256 KiB. Diff output has the same cap
+and an explicit truncation flag. Preparation is capped at 100 conflicting paths
+and 2000 changed paths; durable draft metadata is capped at 8 MiB.
+
+`<data-dir>/git-reconcile` holds one private draft. A separate repository fetches
+the pinned local/remote commits, performs native merge, and retains immutable
+initial index stages. Resolutions rebuild a temporary candidate index; a failed
+save cannot mutate a previously saved result. Host/global Git configuration,
+external merge drivers/filters, hooks, signing and rerere are not inherited by
+this repository. Files and contents are never interpolated into shell commands.
+
+Apply creates a two-parent merge commit in the draft, imports it, and fast-forwards
+the managed checkout. It rechecks the pinned state and the entire working tree;
+hidden index flags, native locks, ignored-file collisions, concurrent editor and
+host/stack operations remain protected. A prepared receipt precedes checkout.
+No automatic force push, history rewrite or deployment occurs. The merge commit
+uses the identity `Stacklab <stacklab@localhost>`; both original histories retain
+their authors. Native checkout is not a transaction with external file writers.
+
+Stale requests return `409 draft_stale`, existing drafts `409 draft_exists`,
+unsupported checkout state `409 reconcile_blocked`, invalid resolutions
+`400 invalid_resolution`, and exceeded limits `413 content_too_large`. Other Git
+errors use the sanitized synchronization errors above. Unrelated histories and
+unsupported native merge failures preserve the checkout and return an error.
 
 ## Repository Assumptions
 
@@ -518,7 +570,7 @@ Response:
 Notes:
 
 - the current version only supports push to the current upstream
-- no branch switching, force push, pull, merge, or rebase
+- push does not switch branches, force push, pull, merge, or rebase
 - if branch has no upstream, backend should return a clear non-500 error
 - if there is nothing ahead to push, backend may return `pushed: false`
 

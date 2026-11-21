@@ -34,6 +34,10 @@ import type {
   GitIncomingResponse,
   GitIncomingDiffResponse,
   GitPullResponse,
+  GitReconcileRequest,
+  GitReconcileResponse,
+  GitReconcileFileResponse,
+  GitResolveRequest,
   GitWorkspaceStatusResponse,
   HealthResponse,
   LivenessResponse,
@@ -312,6 +316,25 @@ export function getGitIncomingDiff(path: string, expectedState: string): Promise
 
 export function pullGitWorkspace(expectedState: string): Promise<GitPullResponse> {
   return request('/api/git/workspace/pull', { method: 'POST', body: JSON.stringify({ expected_state: expectedState }) })
+}
+
+export function getGitReconcile(): Promise<{ draft: GitReconcileResponse | null }> {
+  return request('/api/git/workspace/reconcile')
+}
+export function prepareGitReconcile(expectedState: string): Promise<GitReconcileResponse> {
+  return request('/api/git/workspace/reconcile/prepare', { method: 'POST', body: JSON.stringify({ expected_state: expectedState }) })
+}
+export function getGitReconcileFile(draft: GitReconcileRequest, path: string): Promise<GitReconcileFileResponse> {
+  return request('/api/git/workspace/reconcile/file', { method: 'POST', body: JSON.stringify({ ...draft, path }) })
+}
+export function resolveGitReconcile(resolution: GitResolveRequest): Promise<GitReconcileResponse> {
+  return request('/api/git/workspace/reconcile/resolve', { method: 'POST', body: JSON.stringify(resolution) })
+}
+export function discardGitReconcile(draft: GitReconcileRequest): Promise<{ discarded: boolean }> {
+  return request('/api/git/workspace/reconcile/discard', { method: 'POST', body: JSON.stringify(draft) })
+}
+export function applyGitReconcile(draft: GitReconcileRequest): Promise<GitPullResponse> {
+  return request('/api/git/workspace/reconcile/apply', { method: 'POST', body: JSON.stringify(draft) })
 }
 
 export function getGitWorkspaceStatus(): Promise<GitWorkspaceStatusResponse> {
