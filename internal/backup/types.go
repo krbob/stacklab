@@ -129,6 +129,9 @@ type Plan struct {
 	StagingMaxBytes    int64        `json:"staging_max_bytes"`
 	StagingTTLHours    int          `json:"staging_ttl_hours"`
 	StopTimeoutSeconds int          `json:"stop_timeout_seconds"`
+
+	// Computed from current source and destination identities when a plan is read.
+	UpdateBackupFingerprint string `json:"update_backup_fingerprint,omitempty"`
 }
 
 type CopyResult struct {

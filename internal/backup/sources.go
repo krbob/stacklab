@@ -352,6 +352,9 @@ func (c *NativeCapture) resolveSource(ctx context.Context, source Source, contai
 		if err != nil {
 			return item, err
 		}
+		if stackID, gated := ctx.Value(updateBackupStackKey{}).(string); gated && !pathContains(filepath.Join(canonicalRoot, stackID), resolved) {
+			return item, errors.New("configuration resolves outside the selected backup stack")
+		}
 		if !pathContains(canonicalRoot, resolved) {
 			return item, errors.New("configuration source escapes managed configuration")
 		}

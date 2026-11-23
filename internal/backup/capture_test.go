@@ -162,7 +162,13 @@ func TestStateCaptureExcludesTransientDataAndEnforcesBudget(t *testing.T) {
 	root := t.TempDir()
 	state := t.TempDir()
 	stage := filepath.Join(state, "backup", "staging", "run")
-	for name, content := range map[string]string{"stacklab.db": "live-db", "stacklab.db-wal": "wal", "backup/credentials/destination.json": "secret", "backup/cache/x": "cache", "backup/restores/old/x": "restore", "backup/staging/old/x": "previous", "settings": "settings"} {
+	for name, content := range map[string]string{
+		"stacklab.db": "live-db", "stacklab.db-wal": "wal", "settings": "settings",
+		"backup/credentials/destination.json": "secret", "backup/cache/x": "cache",
+		"backup/restores/old/x": "restore", "backup/staging/old/x": "previous",
+		"maintenance-rollback/run/stack/old.tar": "old image",
+		"nested/maintenance-rollback/legitimate": "keep",
+	} {
 		path := filepath.Join(state, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 			t.Fatal(err)
@@ -188,7 +194,10 @@ func TestStateCaptureExcludesTransientDataAndEnforcesBudget(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(path, "private-state", "backup", "credentials", "destination.json")); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"stacklab.db", "stacklab.db-wal", "backup/staging", "backup/restores", "backup/cache"} {
+	if _, err := os.Stat(filepath.Join(path, "private-state", "nested", "maintenance-rollback", "legitimate")); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"stacklab.db", "stacklab.db-wal", "backup/staging", "backup/restores", "backup/cache", "maintenance-rollback"} {
 		if _, err := os.Stat(filepath.Join(path, "private-state", name)); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("transient %s retained: %v", name, err)
 		}

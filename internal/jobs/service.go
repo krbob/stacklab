@@ -123,15 +123,15 @@ func (s *Service) Start(ctx context.Context, stackID, action, requestedBy string
 }
 
 func (s *Service) StartWithResources(ctx context.Context, stackID, action, requestedBy string, requestedResources ...Resource) (store.Job, error) {
-	return s.start(ctx, stackID, action, requestedBy, requestedResources, false, nil)
+	return s.start(ctx, stackID, action, requestedBy, requestedResources, false, nil, nil)
 }
 
 func (s *Service) StartWithWorkflow(ctx context.Context, stackID, action, requestedBy string, workflow []store.JobWorkflowStep) (store.Job, error) {
-	return s.start(ctx, stackID, action, requestedBy, nil, false, workflow)
+	return s.start(ctx, stackID, action, requestedBy, nil, false, workflow, nil)
 }
 
 func (s *Service) StartWithResourcesAndWorkflow(ctx context.Context, stackID, action, requestedBy string, workflow []store.JobWorkflowStep, requestedResources ...Resource) (store.Job, error) {
-	return s.start(ctx, stackID, action, requestedBy, requestedResources, false, workflow)
+	return s.start(ctx, stackID, action, requestedBy, requestedResources, false, workflow, nil)
 }
 
 // StartDraining atomically starts an unscoped job and installs an exclusive
@@ -139,14 +139,39 @@ func (s *Service) StartWithResourcesAndWorkflow(ctx context.Context, stackID, ac
 // resource; once installed, all new jobs fail until the drain job reaches a
 // terminal state or the process restarts.
 func (s *Service) StartDraining(ctx context.Context, action, requestedBy string, barrier Resource) (store.Job, error) {
-	return s.start(ctx, "", action, requestedBy, []Resource{barrier}, true, nil)
+	return s.start(ctx, "", action, requestedBy, []Resource{barrier}, true, nil, nil)
 }
 
 func (s *Service) StartDrainingWithWorkflow(ctx context.Context, action, requestedBy string, barrier Resource, workflow []store.JobWorkflowStep) (store.Job, error) {
-	return s.start(ctx, "", action, requestedBy, []Resource{barrier}, true, workflow)
+	return s.start(ctx, "", action, requestedBy, []Resource{barrier}, true, workflow, nil)
 }
 
-func (s *Service) start(ctx context.Context, stackID, action, requestedBy string, requestedResources []Resource, draining bool, workflow []store.JobWorkflowStep) (store.Job, error) {
+type updateBackupParent struct {
+	id    string
+	stack Resource
+}
+
+// StartBackupForUpdate admits a native capture performed synchronously by an
+// update that already holds its target stack. Parent stack leases stay in place
+// for the entire update, including while the backup transfers to a repository.
+func (s *Service) StartBackupForUpdate(ctx context.Context, parentID, stackID string, repositories ...Resource) (store.Job, error) {
+	parent, err := s.store.JobByID(ctx, parentID)
+	if err != nil {
+		return store.Job{}, err
+	}
+	if parent.Action != "update_stacks" || parent.State != "running" || stackID == "" || len(repositories) == 0 {
+		return store.Job{}, fmt.Errorf("%w: pre-update backup requires a running update, a stack and a repository", ErrInvalidResource)
+	}
+	for _, repository := range repositories {
+		if repository.Kind() != ResourceKindBackupRepository {
+			return store.Job{}, fmt.Errorf("%w: expected a backup repository", ErrInvalidResource)
+		}
+	}
+	resources := append([]Resource{GlobalResource()}, repositories...)
+	return s.start(ctx, "", "backup_run", parent.RequestedBy, resources, false, nil, &updateBackupParent{parent.ID, StackResource(stackID)})
+}
+
+func (s *Service) start(ctx context.Context, stackID, action, requestedBy string, requestedResources []Resource, draining bool, workflow []store.JobWorkflowStep, parent *updateBackupParent) (store.Job, error) {
 	now := time.Now().UTC()
 	job := store.Job{
 		ID:          "job_" + randomToken(18),
@@ -174,7 +199,7 @@ func (s *Service) start(ctx context.Context, stackID, action, requestedBy string
 	if err != nil {
 		return store.Job{}, err
 	}
-	if err := s.lockMany(job.ID, resources, draining); err != nil {
+	if err := s.lockMany(job.ID, resources, draining, parent); err != nil {
 		return store.Job{}, err
 	}
 	unlockEvents := s.lockJobEvents(job.ID)
@@ -704,7 +729,7 @@ func markWorkflowCancelRequested(steps []store.JobWorkflowStep) []store.JobWorkf
 	return cloned
 }
 
-func (s *Service) lockMany(jobID string, resources []Resource, draining bool) error {
+func (s *Service) lockMany(jobID string, resources []Resource, draining bool, parent *updateBackupParent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -727,8 +752,14 @@ func (s *Service) lockMany(jobID string, resources []Resource, draining bool) er
 		}
 	}
 
+	if parent != nil && s.lockedByResource[parent.stack] != parent.id {
+		return fmt.Errorf("%w: update does not own the requested stack", ErrInvalidResource)
+	}
 	for _, requested := range resources {
 		for conflicting, currentJobID := range s.lockedByResource {
+			if parent != nil && currentJobID == parent.id && requested == GlobalResource() && conflicting.Kind() == ResourceKindStack {
+				continue
+			}
 			if currentJobID != "" && currentJobID != jobID && ResourcesConflict(requested, conflicting) {
 				return &ResourceConflictError{
 					Reason:           ConflictReasonResourceHeld,

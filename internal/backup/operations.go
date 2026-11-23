@@ -202,6 +202,26 @@ func (s *Service) ExecuteRepositoryJob(ctx context.Context, job store.Job, id, a
 	return result, operationErr
 }
 
+// Convert legacy short restic output into an immutable full identity while
+// the repository remains reserved, before persisting a recovery reference.
+func (s *Service) fullSnapshotID(ctx context.Context, d Destination, id string) (string, error) {
+	if len(id) == 64 && snapshotID.MatchString(id) {
+		return id, nil
+	}
+	if !snapshotID.MatchString(id) {
+		return "", fmt.Errorf("%w: invalid snapshot ID", ErrInvalid)
+	}
+	output, err := s.restic(ctx, d, "", "snapshots", id)
+	if err != nil {
+		return "", err
+	}
+	var snapshots []Snapshot
+	if json.Unmarshal(output, &snapshots) != nil || len(snapshots) != 1 || len(snapshots[0].ID) != 64 || !snapshotID.MatchString(snapshots[0].ID) || !strings.HasPrefix(snapshots[0].ID, id) {
+		return "", fmt.Errorf("%w: restore requires a uniquely resolved snapshot ID", ErrInvalid)
+	}
+	return snapshots[0].ID, nil
+}
+
 func (s *Service) restore(ctx context.Context, d Destination, request RestoreRequest) (result RestoreResult, resultErr error) {
 	s.mu.Lock()
 	libraryFull := len(s.state.Restores) >= 200
@@ -213,19 +233,11 @@ func (s *Service) restore(ctx context.Context, d Destination, request RestoreReq
 	if err := validateRestoreSelection(request); err != nil {
 		return result, err
 	}
-	if len(request.SnapshotID) < 64 {
-		// A short ID is accepted as input, but durable proof is bound to the
-		// unique immutable full ID returned by this repository before restore.
-		output, err := s.restic(ctx, d, "", "snapshots", request.SnapshotID)
-		if err != nil {
-			return result, err
-		}
-		var snapshots []Snapshot
-		if err := json.Unmarshal(output, &snapshots); err != nil || len(snapshots) != 1 || len(snapshots[0].ID) != 64 || !snapshotID.MatchString(snapshots[0].ID) || !strings.HasPrefix(snapshots[0].ID, request.SnapshotID) {
-			return result, fmt.Errorf("%w: restore requires a uniquely resolved snapshot ID", ErrInvalid)
-		}
-		request.SnapshotID, result.SnapshotID = snapshots[0].ID, snapshots[0].ID
+	fullID, err := s.fullSnapshotID(ctx, d, request.SnapshotID)
+	if err != nil {
+		return result, err
 	}
+	request.SnapshotID, result.SnapshotID = fullID, fullID
 	exactSelection := []string{}
 	if len(request.SourceIDs) > 0 || len(request.Files) > 0 {
 		manifest, selectionErr := s.snapshotManifest(ctx, d, request.SnapshotID)

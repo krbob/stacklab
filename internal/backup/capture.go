@@ -588,7 +588,7 @@ func (c *NativeCapture) prepareState(ctx context.Context, stagingDir string, bud
 		if rel == "." {
 			return nil
 		}
-		if rel == filepath.Join("backup", "staging") || rel == filepath.Join("backup", "cache") || rel == filepath.Join("backup", "journals") || rel == filepath.Join("backup", "restores") || pathContains(path, current) {
+		if rel == "maintenance-rollback" || rel == filepath.Join("backup", "staging") || rel == filepath.Join("backup", "cache") || rel == filepath.Join("backup", "journals") || rel == filepath.Join("backup", "restores") || pathContains(path, current) {
 			if entry.IsDir() {
 				return filepath.SkipDir
 			}

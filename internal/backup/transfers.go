@@ -44,6 +44,9 @@ func (s *Service) executeCopy(ctx context.Context, job store.Job, run Run, plan 
 			copy.UploadedAt = s.timePointer()
 		}
 	}
+	if _, gated := ctx.Value(updateBackupStackKey{}).(string); gated && err == nil {
+		copy.SnapshotID, err = s.fullSnapshotID(ctx, d, copy.SnapshotID)
+	}
 	if err == nil {
 		err = update(copy, "verify")
 		if err == nil {

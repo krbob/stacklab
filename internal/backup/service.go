@@ -215,6 +215,9 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 		result.Destinations = append(result.Destinations, d)
 	}
 	for _, p := range s.state.Plans {
+		if len(p.Sources) > 0 {
+			p.UpdateBackupFingerprint, _ = s.updateBackupFingerprintLocked(p.Sources[0].StackID, p)
+		}
 		result.Plans = append(result.Plans, p)
 		result.Protection = append(result.Protection, s.protectionLocked(p))
 	}
@@ -471,6 +474,7 @@ func normalizePlan(p *Plan) error {
 	return nil
 }
 func (s *Service) SavePlan(ctx context.Context, id string, p Plan) (Plan, error) {
+	p.UpdateBackupFingerprint = ""
 	if err := normalizePlan(&p); err != nil {
 		return Plan{}, err
 	}
@@ -592,6 +596,10 @@ func (s *Service) DeletePlan(ctx context.Context, id string) error {
 }
 
 func (s *Service) StartRun(ctx context.Context, planID string, request RunRequest, requestedBy string) (store.Job, Run, error) {
+	return s.startRun(ctx, planID, request, requestedBy, nil)
+}
+
+func (s *Service) startRun(ctx context.Context, planID string, request RunRequest, requestedBy string, update *updateBackupRequest) (store.Job, Run, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.initErr != nil {
@@ -623,8 +631,28 @@ func (s *Service) StartRun(ctx context.Context, planID string, request RunReques
 	if err != nil {
 		return store.Job{}, Run{}, err
 	}
-	resources = append(resources, jobs.GlobalResource())
-	job, err := s.jobs.StartWithResources(ctx, "", "backup_run", requestedBy, resources...)
+	var job store.Job
+	if update == nil {
+		resources = append(resources, jobs.GlobalResource())
+		job, err = s.jobs.StartWithResources(ctx, "", "backup_run", requestedBy, resources...)
+	} else {
+		fingerprint, checkErr := s.validateUpdateBackupLocked(update.stackID, p, update.sourceIDs)
+		if checkErr != nil {
+			return store.Job{}, Run{}, checkErr
+		}
+		if fingerprint != update.fingerprint {
+			return store.Job{}, Run{}, fmt.Errorf("%w: pre-update backup plan changed; review its capture scope and destinations", ErrInvalid)
+		}
+		if s.policy.Paused {
+			return store.Job{}, Run{}, fmt.Errorf("%w: automatic backup is paused", ErrBusy)
+		}
+		for _, c := range copies {
+			if blocked := retentionBlockedError(s.state.Destinations[c.DestinationID]); blocked != nil {
+				return store.Job{}, Run{}, blocked
+			}
+		}
+		job, err = s.jobs.StartBackupForUpdate(ctx, update.parentID, update.stackID, resources...)
+	}
 	if err != nil {
 		return store.Job{}, Run{}, err
 	}
@@ -840,6 +868,8 @@ func (s *Service) ExecuteRun(ctx context.Context, job store.Job, runID string) {
 		manifest, err := s.capture.Prepare(ctx, p, run.ID, stage)
 		if err != nil {
 			s.recordRecoveryFailure(err)
+		} else if _, gated := ctx.Value(updateBackupStackKey{}).(string); gated {
+			err = validateUpdateCapture(p, manifest)
 		}
 		run.CaptureDurationSeconds = time.Since(captureStarted).Seconds()
 		if err != nil {
