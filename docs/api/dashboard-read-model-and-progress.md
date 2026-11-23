@@ -78,6 +78,26 @@ x-stacklab:
 }
 ```
 
+### Per-service maintenance warnings
+
+The stack list also exposes an optional `update_warnings` array. Each entry
+names a Compose service and the running containers that still use the previous
+image after a maintenance attempt. In a partially updated service, the list
+contains only replicas whose image IDs still match the older images seen before
+that attempt. `rolled_back` means Stacklab restored the
+previous image and verified readiness. `not_applied` means the attempt left a
+previous image running despite evidence of a different candidate. If a
+requested pull failed before the new image arrived, the last registry check
+can supply that evidence when its digests match the inspected image.
+
+The dashboard displays these entries on cards and in the list, counts their
+stacks under **Problems**, and opens the corresponding maintenance job while
+its history is available. Warnings survive restarts and fresh registry checks.
+After a pull the local tag can already match the registry even though the
+container still uses the previous image. The inventory supplies the names of
+the replicas currently affected. A successful replacement removes the warning
+from the dashboard.
+
 ## Slice B — image update checks
 
 Promotes the backlog item "image update checks that can notify when a registry

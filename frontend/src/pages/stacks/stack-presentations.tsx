@@ -1,11 +1,14 @@
 import { ArrowDown, ArrowUp, ExternalLink } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { useJobDrawer } from '@/hooks/use-job-drawer'
 import type { StackListItem } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
 import { DASHBOARD_HISTORY_WINDOW_MS, type DashboardHistory, type DashboardHistoryPoint } from '@/lib/dashboard-history'
 
 export type StackSortKey = 'name' | 'cpu' | 'memory'
 export type StackView = 'cards' | 'list'
+
+const updateAttemptTime = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
 const stateLabels: Record<string, { label: string; color: string }> = {
   running: { label: 'Running', color: 'text-[var(--ok)] bg-[var(--ok)]/10' },
@@ -69,6 +72,30 @@ function UpdateBadge({ stack }: { stack: StackListItem }) {
       className="inline-block shrink-0 rounded border border-[rgba(245,165,36,0.2)] bg-[rgba(245,165,36,0.08)] px-2 py-0.5 text-xs text-[var(--accent)]">
       {count > 1 ? count + ' updates' : 'Update available'}
     </span>
+  )
+}
+
+function UpdateWarnings({ warnings }: { warnings: StackListItem['update_warnings'] }) {
+  const { openJob } = useJobDrawer()
+  if (!warnings?.length) return null
+  return (
+    <ul aria-label="Image update warnings" className="space-y-2">
+      {warnings.map(({ service_name, container_names, outcome, attempted_at, job_id }) => (
+        <li key={service_name} className="min-w-0 border-l-2 border-[var(--warning)] pl-2 text-xs [overflow-wrap:anywhere]">
+          <p className="font-medium text-[var(--warning)]">
+            {service_name} · {outcome === 'rolled_back' ? 'Image update rolled back' : 'Image update not applied'}
+          </p>
+          <p className="mt-0.5 text-[var(--text)]">Still on the previous image · {container_names.join(', ')}</p>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[var(--muted)]">
+            <time dateTime={attempted_at}>{updateAttemptTime.format(new Date(attempted_at))}</time>
+            {job_id && <button type="button" onClick={() => openJob(job_id)} aria-label={'View update job for ' + service_name}
+              className="relative z-10 rounded-sm text-[var(--accent)] underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]">
+              View job
+            </button>}
+          </div>
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -161,6 +188,7 @@ export function StackCards({ stacks, history, nowMs }: PresentationProps) {
                 <UpdateBadge stack={stack} />
               </div>
               <div className="mt-1"><ConfigBadges stack={stack} /></div>
+              <UpdateWarnings warnings={stack.update_warnings} />
             </div>
             <dl className="grid grid-cols-2 gap-6 px-5 pb-4 pt-5">
               {(['cpu', 'memory'] as const).map((metric) => (
@@ -242,7 +270,13 @@ export function StackTable({ stacks, history, nowMs, sortKey, onSortChange }: Pr
                 <td aria-label={stack.name + ' RAM usage'} className="whitespace-nowrap px-4 py-4 text-right font-mono text-sm tabular-nums">{stack.stats ? formatMemory(stack.stats.memory_bytes) : '—'}</td>
                 <td className="min-w-28 px-4 py-4"><HistoryChart points={stack.stats ? history[stack.id]?.points ?? [] : []} metric="cpu" label={stack.name + ' CPU history'} nowMs={nowMs} /></td>
                 <td className="px-4 py-4"><LastAction stack={stack} nowMs={nowMs} /></td>
-                <td className="px-4 py-4"><div className="flex flex-col items-start gap-2"><UpdateBadge stack={stack} /><StackLinks stack={stack} /></div></td>
+                <td className="px-4 py-4">
+                  <div className="flex flex-col items-start gap-2">
+                    <UpdateBadge stack={stack} />
+                    <UpdateWarnings warnings={stack.update_warnings} />
+                    <StackLinks stack={stack} />
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>

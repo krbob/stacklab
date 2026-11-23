@@ -145,6 +145,37 @@ describe('StacksPage', () => {
     expect(screen.queryByTestId('stack-card-adguardhome')).not.toBeInTheDocument()
   })
 
+  it('shows unresolved maintenance updates on healthy stacks in both dashboard views', async () => {
+    const attemptedAt = '2026-11-22T23:20:12Z'
+    mockGetStacks.mockResolvedValue({
+      ...response,
+      items: [
+        makeStack({ id: 'demo', updates: { state: 'up_to_date', services_with_updates: 0, checked_at: attemptedAt }, update_warnings: [
+          { service_name: 'web', container_names: ['demo-web-1', 'demo-web-2'], outcome: 'rolled_back', attempted_at: attemptedAt, job_id: 'job_update' },
+          { service_name: 'worker', container_names: ['demo-worker-1'], outcome: 'not_applied', attempted_at: attemptedAt },
+        ] }),
+        makeStack({ id: 'unaffected' }),
+      ],
+    })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: 'Problems 1' }))
+    expect(screen.queryByRole('link', { name: 'unaffected' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Update all/ })).not.toBeInTheDocument()
+
+    for (const view of ['Cards', 'List']) {
+      fireEvent.click(screen.getByRole('button', { name: view }))
+      const warnings = within(screen.getByRole('list', { name: 'Image update warnings' }))
+      expect(warnings.getByText('web · Image update rolled back')).toBeVisible()
+      expect(warnings.getByText('Still on the previous image · demo-web-1, demo-web-2')).toBeVisible()
+      expect(warnings.getByText('worker · Image update not applied')).toBeVisible()
+      expect(warnings.getByText('Still on the previous image · demo-worker-1')).toBeVisible()
+      expect(warnings.queryByRole('button', { name: 'View update job for worker' })).not.toBeInTheDocument()
+      fireEvent.click(warnings.getByRole('button', { name: 'View update job for web' }))
+      expect(mockOpenJob).toHaveBeenLastCalledWith('job_update')
+    }
+    expect(mockOpenJob).toHaveBeenCalledTimes(2)
+  })
+
   it('shows an initial error without false counts and recovers on Retry', async () => {
     mockGetStacks
       .mockReset()

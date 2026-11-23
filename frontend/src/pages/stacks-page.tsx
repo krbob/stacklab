@@ -23,7 +23,8 @@ function hasProblem(stack: StackListItem): boolean {
     stack.display_state === 'partial' ||
     stack.display_state === 'orphaned' ||
     stack.config_state === 'invalid' ||
-    stack.health_summary.unhealthy_container_count > 0
+    stack.health_summary.unhealthy_container_count > 0 ||
+    Boolean(stack.update_warnings?.length)
   )
 }
 
