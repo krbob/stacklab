@@ -144,7 +144,7 @@ export function RootLayout() {
     <div className="flex h-[var(--app-shell-height)] flex-col overflow-hidden lg:block lg:h-auto lg:min-h-screen lg:overflow-visible">
       <header
         className="grid shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-[var(--panel-border)] bg-[var(--bg)] px-4 py-3 lg:hidden"
-        style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
+        style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}
       >
         <span aria-hidden />
         <div className="font-brand text-xs uppercase tracking-[0.32em] text-[var(--accent)]">Stacklab</div>

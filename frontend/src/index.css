@@ -67,6 +67,26 @@ body {
   padding-right: env(safe-area-inset-right);
 }
 
+.pwa-status-bar {
+  display: none;
+}
+
+/* WebKit samples a fixed element at the top edge of Home Screen apps.
+   Keep it visible even when the system already reserves the status bar. */
+@supports (-webkit-touch-callout: none) {
+  @media (display-mode: standalone) {
+    .pwa-status-bar {
+      display: block;
+      position: fixed;
+      inset: 0 0 auto;
+      height: max(8px, env(safe-area-inset-top));
+      background-color: var(--bg);
+      pointer-events: none;
+      z-index: 80;
+    }
+  }
+}
+
 /* Native form controls follow the accent, not the UA default blue */
 input[type="checkbox"],
 input[type="radio"],
