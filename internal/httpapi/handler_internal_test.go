@@ -2065,7 +2065,7 @@ func TestHandlerMaintenanceUpdateStacksWorkflow(t *testing.T) {
 	if payload.Job.Action != "update_stacks" || payload.Job.State != "running" || payload.Job.ID == "" {
 		t.Fatalf("unexpected maintenance job payload: %#v", payload.Job)
 	}
-	waitForInternalJobState(t, served, cookies, payload.Job.ID, "succeeded")
+	waitForInternalJobStateWithin(t, served, cookies, payload.Job.ID, "succeeded", 15*time.Second)
 
 	jobResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/jobs/"+payload.Job.ID, nil, cookies)
 	if jobResponse.Code != http.StatusOK {
@@ -2078,14 +2078,18 @@ func TestHandlerMaintenanceUpdateStacksWorkflow(t *testing.T) {
 	if payload.Job.StackID != nil {
 		t.Fatalf("expected maintenance job stack_id to be null, got %#v", payload.Job.StackID)
 	}
-	if payload.Job.Workflow == nil || len(payload.Job.Workflow.Steps) != 4 {
+	wantActions := []string{"verify_before", "pull", "build", "up", "verify_after", "prune"}
+	if payload.Job.Workflow == nil || len(payload.Job.Workflow.Steps) != len(wantActions) {
 		t.Fatalf("unexpected maintenance workflow: %#v", payload.Job.Workflow)
 	}
-	if payload.Job.Workflow.Steps[0].Action != "pull" || payload.Job.Workflow.Steps[0].TargetStackID != "demo" {
-		t.Fatalf("unexpected first maintenance step: %#v", payload.Job.Workflow.Steps[0])
-	}
-	if payload.Job.Workflow.Steps[3].Action != "prune" || payload.Job.Workflow.Steps[3].TargetStackID != "" {
-		t.Fatalf("unexpected prune maintenance step: %#v", payload.Job.Workflow.Steps[3])
+	for i, step := range payload.Job.Workflow.Steps {
+		wantTarget := "demo"
+		if wantActions[i] == "prune" {
+			wantTarget = ""
+		}
+		if step.Action != wantActions[i] || step.TargetStackID != wantTarget || step.State != "succeeded" {
+			t.Fatalf("unexpected maintenance step %d: %+v", i, step)
+		}
 	}
 
 	auditEntry := waitForInternalAuditAction(t, served, cookies, "update_stacks")
@@ -2239,7 +2243,7 @@ func TestHandlerMaintenanceUpdateWithServiceExclusionsDefaultsRemoveOrphansOff(t
 	if payload.Job.State != "running" || payload.Job.ID == "" {
 		t.Fatalf("unexpected maintenance job payload: %#v", payload.Job)
 	}
-	waitForInternalJobState(t, served, cookies, payload.Job.ID, "succeeded")
+	waitForInternalJobStateWithin(t, served, cookies, payload.Job.ID, "succeeded", 15*time.Second)
 
 	jobResponse := performInternalJSONRequest(t, served, http.MethodGet, "/api/jobs/"+payload.Job.ID, nil, cookies)
 	if jobResponse.Code != http.StatusOK {
@@ -2249,12 +2253,14 @@ func TestHandlerMaintenanceUpdateWithServiceExclusionsDefaultsRemoveOrphansOff(t
 	if payload.Job.State != "succeeded" {
 		t.Fatalf("unexpected finished maintenance job payload: %#v", payload.Job)
 	}
-	if payload.Job.Workflow == nil || len(payload.Job.Workflow.Steps) != 1 {
+	wantActions := []string{"verify_before", "up", "verify_after"}
+	if payload.Job.Workflow == nil || len(payload.Job.Workflow.Steps) != len(wantActions) {
 		t.Fatalf("unexpected maintenance workflow: %#v", payload.Job.Workflow)
 	}
-	step := payload.Job.Workflow.Steps[0]
-	if step.Action != "up" || step.TargetStackID != "demo" || !reflect.DeepEqual(step.TargetServiceNames, []string{"app"}) {
-		t.Fatalf("unexpected maintenance step: %#v", step)
+	for i, step := range payload.Job.Workflow.Steps {
+		if step.Action != wantActions[i] || step.TargetStackID != "demo" || !reflect.DeepEqual(step.TargetServiceNames, []string{"app"}) {
+			t.Fatalf("unexpected maintenance step %d: %+v", i, step)
+		}
 	}
 
 	recorded, err := os.ReadFile(logPath)
@@ -2262,7 +2268,7 @@ func TestHandlerMaintenanceUpdateWithServiceExclusionsDefaultsRemoveOrphansOff(t
 		t.Fatalf("ReadFile(docker log) error = %v", err)
 	}
 	recordedText := string(recorded)
-	if !strings.Contains(recordedText, "compose up -d app") {
+	if !strings.Contains(recordedText, "compose up -d --no-deps app") {
 		t.Fatalf("expected docker log to contain targeted up, got %q", recordedText)
 	}
 	if strings.Contains(recordedText, "--remove-orphans") {
@@ -2578,8 +2584,12 @@ func assertInternalRunningJob(t *testing.T, response *httptest.ResponseRecorder,
 
 func waitForInternalJobState(t *testing.T, served http.Handler, cookies []*http.Cookie, jobID, want string) {
 	t.Helper()
+	waitForInternalJobStateWithin(t, served, cookies, jobID, want, 5*time.Second)
+}
 
-	deadline := time.Now().Add(5 * time.Second)
+func waitForInternalJobStateWithin(t *testing.T, served http.Handler, cookies []*http.Cookie, jobID, want string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
 	var lastState string
 	for time.Now().Before(deadline) {
 		response := performInternalJSONRequest(t, served, http.MethodGet, "/api/jobs/"+jobID, nil, cookies)
@@ -2653,6 +2663,12 @@ append_log() {
 if [ "$1" = "ps" ]; then
   shift
   case "$*" in
+    *label=com.docker.compose.project=demo*)
+      if [ -f "$log_file" ] && grep -q '^compose up ' "$log_file"; then
+        echo "container-used app False"
+      fi
+      exit 0
+      ;;
     *"--filter"*)
       exit 0
       ;;
@@ -2667,7 +2683,7 @@ if [ "$1" = "ps" ]; then
 fi
 
 if [ "$1" = "inspect" ]; then
-  echo '[{"Image":"sha256:used","Config":{"Image":"ghcr.io/example/app:latest","Labels":{"com.docker.compose.project":"demo","com.docker.compose.service":"app"}},"Mounts":[{"Name":"demo_data","Type":"volume"}],"NetworkSettings":{"Networks":{"demo_default":{},"external_shared":{}}}}]'
+  echo '[{"Id":"container-used","State":{"Status":"running","Health":{"Status":"healthy"}},"Image":"sha256:used","Config":{"Image":"ghcr.io/example/app:latest","Labels":{"com.docker.compose.project":"demo","com.docker.compose.service":"app"}},"Mounts":[{"Name":"demo_data","Type":"volume"}],"NetworkSettings":{"Networks":{"demo_default":{},"external_shared":{}}}}]'
   exit 0
 fi
 
@@ -2786,10 +2802,19 @@ if [ "$1" = "compose" ]; then
 
   sub=""
   args=""
+  compose_file=""
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --project-directory|-f|--env-file)
+      -f)
+        compose_file="$2"
         shift 2
+        ;;
+      --project-directory|--env-file|--profile)
+        shift 2
+        ;;
+      config)
+        cat "$compose_file"
+        exit 0
         ;;
       pull|build|up|down|restart|stop)
         sub="$1"

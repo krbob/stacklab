@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { JobEvent, JobProgress, JobStepState } from '@/lib/ws-types'
 import type { JobDetail } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
+import { jobStepLabel } from '@/lib/job-step-label'
 
 interface StepCardsProps {
   events: JobEvent[]
@@ -124,7 +125,7 @@ function StepCard({ step }: { step: StepData }) {
       {/* Header */}
       <div className="flex items-center gap-2">
         <span className={cn('inline-block size-2 shrink-0 rounded-full', dot)} />
-        <span className="font-mono text-xs font-medium text-[var(--text)]">{step.action}</span>
+        <span className="font-mono text-xs font-medium text-[var(--text)]">{jobStepLabel(step.action)}</span>
         {step.targetStackId && (
           <span className="text-xs text-[var(--muted)]">· {step.targetStackId}</span>
         )}

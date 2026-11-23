@@ -219,6 +219,9 @@ func TestIntegrationMaintenanceUpdateStacksWithRealDocker(t *testing.T) {
 			"  app:",
 			"    image: busybox:1.36",
 			"    command: [\"sh\", \"-c\", \"while true; do echo maintenance; sleep 2; done\"]",
+			"    healthcheck:",
+			"      test: ['CMD', 'true']",
+			"      interval: 1s",
 			"",
 		}, "\n"),
 		"env":                 "",
@@ -270,11 +273,14 @@ func TestIntegrationMaintenanceUpdateStacksWithRealDocker(t *testing.T) {
 	if payload.Job.State != "queued" && payload.Job.State != "running" && payload.Job.State != "succeeded" {
 		t.Fatalf("unexpected maintenance job state: %q", payload.Job.State)
 	}
-	if payload.Job.Workflow == nil || len(payload.Job.Workflow.Steps) != 2 {
+	actions := []string{"verify_before", "pull", "up", "verify_after"}
+	if payload.Job.Workflow == nil || len(payload.Job.Workflow.Steps) != len(actions) {
 		t.Fatalf("unexpected maintenance workflow: %#v", payload.Job.Workflow)
 	}
-	if payload.Job.Workflow.Steps[0].Action != "pull" || payload.Job.Workflow.Steps[0].TargetStackID != stackID {
-		t.Fatalf("unexpected first maintenance step: %#v", payload.Job.Workflow.Steps[0])
+	for i, step := range payload.Job.Workflow.Steps {
+		if step.Action != actions[i] || step.TargetStackID != stackID {
+			t.Fatalf("unexpected maintenance step %d: %+v", i, step)
+		}
 	}
 	waitForIntegrationJobSucceeded(t, handler, cookies, payload.Job.ID)
 	waitForIntegrationStackRuntimeState(t, handler, cookies, stackID, "running")

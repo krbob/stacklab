@@ -20,13 +20,14 @@ import (
 )
 
 type fakeMaintenanceStackReader struct {
-	details          map[string]stacks.StackDetailResponse
-	stepCalls        []maintenanceStepCall
-	baselineCalls    int
-	baselineErr      error
-	invalidateCalls  int
-	invalidatedImage []invalidatedImageCall
-	stepResults      map[string][]maintenanceStepResult
+	details            map[string]stacks.StackDetailResponse
+	stepCalls          []maintenanceStepCall
+	baselineCalls      int
+	baselineErr        error
+	invalidateCalls    int
+	invalidatedImage   []invalidatedImageCall
+	stepResults        map[string][]maintenanceStepResult
+	unverifiedServices []string
 }
 
 type maintenanceStepCall struct {
@@ -79,10 +80,25 @@ func (f *fakeMaintenanceStackReader) RunMaintenanceStep(ctx context.Context, sta
 }
 
 func (f *fakeMaintenanceStackReader) RunMaintenanceStepStreaming(ctx context.Context, stackID, action string, options stacks.MaintenanceStepOptions, onProgress func(stacks.StepProgress)) (string, error) {
+	return f.runStep(stackID, action, options.ServiceNames)
+}
+
+func (f *fakeMaintenanceStackReader) CaptureMaintenanceHealth(ctx context.Context, stackID string, serviceNames []string) (stacks.MaintenanceHealthBaseline, string, error) {
+	var baseline stacks.MaintenanceHealthBaseline
+	output, err := f.runStep(stackID, "verify_before", serviceNames)
+	return baseline, output, err
+}
+
+func (f *fakeMaintenanceStackReader) VerifyMaintenanceHealth(ctx context.Context, stackID string, serviceNames []string, baseline stacks.MaintenanceHealthBaseline) (stacks.MaintenanceHealthReport, error) {
+	output, err := f.runStep(stackID, "verify_after", serviceNames)
+	return stacks.MaintenanceHealthReport{Summary: output, UnverifiedServices: f.unverifiedServices}, err
+}
+
+func (f *fakeMaintenanceStackReader) runStep(stackID, action string, serviceNames []string) (string, error) {
 	f.stepCalls = append(f.stepCalls, maintenanceStepCall{
 		StackID:      stackID,
 		Action:       action,
-		ServiceNames: append([]string(nil), options.ServiceNames...),
+		ServiceNames: append([]string(nil), serviceNames...),
 	})
 	key := stackID + "/" + action
 	if results := f.stepResults[key]; len(results) > 0 {
@@ -168,10 +184,14 @@ func TestBuildUpdateWorkflowUsesServiceTargets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildUpdateWorkflow() error = %v", err)
 	}
-	if len(workflow) != 3 {
-		t.Fatalf("len(workflow) = %d, want 3: %#v", len(workflow), workflow)
+	wantActions := []string{"verify_before", "pull", "build", "up", "verify_after"}
+	if len(workflow) != len(wantActions) {
+		t.Fatalf("workflow = %#v, want %v", workflow, wantActions)
 	}
-	for _, step := range workflow {
+	for i, step := range workflow {
+		if step.Action != wantActions[i] {
+			t.Errorf("step %d action = %s, want %s", i, step.Action, wantActions[i])
+		}
 		if step.TargetStackID != "demo" {
 			t.Fatalf("TargetStackID = %q, want demo", step.TargetStackID)
 		}
@@ -237,7 +257,7 @@ func TestRunUpdatePreservesInactiveStacksForBulkPolicies(t *testing.T) {
 		target            UpdateTarget
 		trigger           string
 		preserveInactive  bool
-		wantAction        string
+		wantActions       []string
 		wantStepCalls     int
 		wantBaselineCalls int
 	}{
@@ -245,7 +265,7 @@ func TestRunUpdatePreservesInactiveStacksForBulkPolicies(t *testing.T) {
 			name:              "manual all",
 			target:            UpdateTarget{Mode: "all"},
 			trigger:           "manual",
-			wantAction:        "preserve_inactive",
+			wantActions:       []string{"preserve_inactive"},
 			wantStepCalls:     0,
 			wantBaselineCalls: 0,
 		},
@@ -253,7 +273,7 @@ func TestRunUpdatePreservesInactiveStacksForBulkPolicies(t *testing.T) {
 			name:              "scheduled selected",
 			target:            UpdateTarget{Mode: "selected", StackIDs: []string{"demo"}},
 			trigger:           "scheduled",
-			wantAction:        "preserve_inactive",
+			wantActions:       []string{"preserve_inactive"},
 			wantStepCalls:     0,
 			wantBaselineCalls: 0,
 		},
@@ -261,15 +281,15 @@ func TestRunUpdatePreservesInactiveStacksForBulkPolicies(t *testing.T) {
 			name:              "manual selected",
 			target:            UpdateTarget{Mode: "selected", StackIDs: []string{"demo"}},
 			trigger:           "manual",
-			wantAction:        "up",
-			wantStepCalls:     1,
+			wantActions:       []string{"verify_before", "up", "verify_after"},
+			wantStepCalls:     3,
 			wantBaselineCalls: 1,
 		},
 		{
 			name:              "dashboard selected",
 			target:            UpdateTarget{Mode: "selected", StackIDs: []string{"demo"}},
 			preserveInactive:  true,
-			wantAction:        "preserve_inactive",
+			wantActions:       []string{"preserve_inactive"},
 			wantStepCalls:     0,
 			wantBaselineCalls: 0,
 		},
@@ -293,8 +313,13 @@ func TestRunUpdatePreservesInactiveStacksForBulkPolicies(t *testing.T) {
 			if err != nil {
 				t.Fatalf("RunUpdate() error = %v", err)
 			}
-			if job.Workflow == nil || len(job.Workflow.Steps) != 1 || job.Workflow.Steps[0].Action != tt.wantAction {
-				t.Fatalf("RunUpdate() workflow = %#v, want one %q step", job.Workflow, tt.wantAction)
+			if job.Workflow == nil || len(job.Workflow.Steps) != len(tt.wantActions) {
+				t.Fatalf("RunUpdate() workflow = %#v, want %v", job.Workflow, tt.wantActions)
+			}
+			for i, action := range tt.wantActions {
+				if got := job.Workflow.Steps[i].Action; got != action {
+					t.Fatalf("step %d action = %q, want %q", i, got, action)
+				}
 			}
 			if len(reader.stepCalls) != tt.wantStepCalls {
 				t.Fatalf("step calls = %#v, want %d", reader.stepCalls, tt.wantStepCalls)
@@ -368,8 +393,13 @@ func TestRunUpdateRecordsDeployBaselineOnlyForFullStackUp(t *testing.T) {
 	if partialReader.invalidateCalls != 0 {
 		t.Fatalf("partial image invalidations = %#v, want none for up-only update", partialReader.invalidatedImage)
 	}
-	if len(partialReader.stepCalls) != 1 || !reflect.DeepEqual(partialReader.stepCalls[0].ServiceNames, []string{"app"}) {
-		t.Fatalf("partial step calls = %#v, want one app-targeted up", partialReader.stepCalls)
+	wantCalls := []maintenanceStepCall{
+		{StackID: "demo", Action: "verify_before", ServiceNames: []string{"app"}},
+		{StackID: "demo", Action: "up", ServiceNames: []string{"app"}},
+		{StackID: "demo", Action: "verify_after", ServiceNames: []string{"app"}},
+	}
+	if !reflect.DeepEqual(partialReader.stepCalls, wantCalls) {
+		t.Fatalf("partial step calls = %#v, want %#v", partialReader.stepCalls, wantCalls)
 	}
 }
 
@@ -534,6 +564,111 @@ func TestRunUpdateRetriesTransientPullAndSucceedsWithWarnings(t *testing.T) {
 	}
 }
 
+func TestRunUpdatePersistsHealthObservationsAndSkipsPruneOnFailure(t *testing.T) {
+	t.Parallel()
+
+	const observations = "app unhealthy\nworker skipped: no healthcheck"
+	for _, tt := range []struct {
+		action       string
+		result       maintenanceStepResult
+		wantState    string
+		unverified   []string
+		wantWarnings int
+		wantCalls    []string
+	}{
+		{
+			action:    "verify_before",
+			result:    maintenanceStepResult{Err: errors.New("Docker inspection unavailable")},
+			wantState: "failed",
+			wantCalls: []string{"verify_before"},
+		},
+		{
+			action:     "verify_after",
+			result:     maintenanceStepResult{Output: observations, Err: errors.New("app failed its health check")},
+			unverified: []string{"worker"},
+			wantState:  "failed",
+			wantCalls:  []string{"verify_before", "pull", "up", "verify_after"},
+		},
+		{
+			action:       "verify_after",
+			result:       maintenanceStepResult{Output: "worker and scheduler running without healthchecks"},
+			unverified:   []string{"scheduler", "worker"},
+			wantWarnings: 1,
+			wantState:    "succeeded",
+			wantCalls:    []string{"verify_before", "pull", "up", "verify_after"},
+		},
+		{
+			action:    "verify_after",
+			result:    maintenanceStepResult{Output: "app healthy"},
+			wantState: "succeeded",
+			wantCalls: []string{"verify_before", "pull", "up", "verify_after"},
+		},
+	} {
+		t.Run(tt.action+"/"+tt.wantState, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			reader := fakeMaintenanceReader()
+			reader.unverifiedServices = tt.unverified
+			reader.stepResults["demo/"+tt.action] = []maintenanceStepResult{tt.result}
+			pruner := &fakeMaintenancePruneRunner{}
+			service := newMaintenanceTestServiceWithPruner(t, reader, pruner)
+			job, err := service.RunUpdate(ctx, UpdateRequest{
+				Target:  UpdateTarget{Mode: "selected", StackIDs: []string{"demo"}},
+				Options: UpdateOptions{PullImages: true, PruneAfter: true},
+			}, "test")
+			if err != nil || job.State != tt.wantState {
+				t.Fatalf("RunUpdate() state = %q, err = %v, want %s", job.State, err, tt.wantState)
+			}
+			var actions []string
+			for _, call := range reader.stepCalls {
+				actions = append(actions, call.Action)
+			}
+			if !reflect.DeepEqual(actions, tt.wantCalls) {
+				t.Fatalf("executed %v, want %v", actions, tt.wantCalls)
+			}
+			if got := len(pruner.systemPruneCalls); (got > 0) != (tt.wantState == "succeeded") {
+				t.Fatalf("prune ran %d times after %s", got, tt.wantState)
+			}
+			if tt.result.Err != nil && !strings.Contains(job.ErrorMessage, tt.result.Err.Error()) {
+				t.Errorf("job error %q does not identify the failed check", job.ErrorMessage)
+			}
+			events, err := service.jobs.ReplayEvents(ctx, job.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var warnings int
+			var logged bool
+			for _, event := range events {
+				switch event.Event {
+				case "job_log":
+					if event.Step != nil && event.Step.Action == tt.action && event.Data == tt.result.Output {
+						logged = true
+					}
+				case "job_warning":
+					warnings++
+					if event.Step == nil || event.Step.Action != "verify_after" || event.Step.TargetStackID != "demo" || event.Step.State != "running" {
+						t.Errorf("unexpected warning step: %+v", event.Step)
+					}
+					for _, name := range tt.unverified {
+						if !strings.Contains(event.Message, name) {
+							t.Errorf("warning omits %q: %q", name, event.Message)
+						}
+					}
+					if !strings.Contains(event.Message, "without a healthcheck") {
+						t.Errorf("warning omits reason: %q", event.Message)
+					}
+				}
+			}
+			if tt.result.Output != "" && !logged {
+				t.Errorf("missing health details for %s: %q", tt.action, tt.result.Output)
+			}
+			if warnings != tt.wantWarnings {
+				t.Errorf("got %d warnings, want %d", warnings, tt.wantWarnings)
+			}
+		})
+	}
+}
+
 func TestRunUpdateRetriesTransientBuildAndSucceedsWithWarnings(t *testing.T) {
 	t.Parallel()
 
@@ -629,7 +764,7 @@ func TestRunUpdateExhaustsTransientBuildRetriesAndSkipsUp(t *testing.T) {
 	if !strings.Contains(job.ErrorMessage, "demo/build after 3 attempt(s)") {
 		t.Fatalf("RunUpdate() error message = %q", job.ErrorMessage)
 	}
-	if job.Workflow == nil || len(job.Workflow.Steps) != 2 || job.Workflow.Steps[0].State != "failed" || job.Workflow.Steps[1].State != "skipped" {
+	if job.Workflow == nil || len(job.Workflow.Steps) != 4 || job.Workflow.Steps[1].State != "failed" || job.Workflow.Steps[2].State != "skipped" || job.Workflow.Steps[3].State != "skipped" {
 		t.Fatalf("RunUpdate() workflow = %#v, want failed build and skipped up", job.Workflow)
 	}
 	buildCalls := 0
@@ -686,7 +821,7 @@ func TestRunUpdateContinuesAfterExhaustedPullAndSkipsDependentSteps(t *testing.T
 	if !strings.Contains(job.ErrorMessage, "demo/pull after 3 attempt(s)") {
 		t.Fatalf("RunUpdate() error message = %q", job.ErrorMessage)
 	}
-	wantStates := []string{"failed", "skipped", "succeeded", "succeeded", "skipped"}
+	wantStates := []string{"succeeded", "failed", "skipped", "skipped", "succeeded", "succeeded", "succeeded", "succeeded", "skipped"}
 	if job.Workflow == nil || len(job.Workflow.Steps) != len(wantStates) {
 		t.Fatalf("workflow = %#v, want %d steps", job.Workflow, len(wantStates))
 	}
@@ -696,7 +831,7 @@ func TestRunUpdateContinuesAfterExhaustedPullAndSkipsDependentSteps(t *testing.T
 		}
 	}
 	for _, call := range reader.stepCalls {
-		if call.StackID == "demo" && call.Action != "pull" {
+		if call.StackID == "demo" && call.Action != "pull" && call.Action != "verify_before" {
 			t.Fatalf("unexpected dependent demo call after pull failure: %#v", call)
 		}
 	}

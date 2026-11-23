@@ -4,6 +4,7 @@ import { useActivity } from '@/hooks/use-activity'
 import { useJobDrawer } from '@/hooks/use-job-drawer'
 import type { ActiveJobItem, JobDetail } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
+import { jobStepLabel } from '@/lib/job-step-label'
 
 const COMPLETED_LINGER_MS = 5_000
 const FAILED_LINGER_MS = 30_000
@@ -18,7 +19,7 @@ function formatElapsed(startedAt: string): string {
 
 function jobLabel(job: ActiveJobItem): string {
   const target = job.current_step?.target_stack_id ?? job.stack_id
-  const action = job.current_step?.action ?? job.action
+  const action = job.current_step ? jobStepLabel(job.current_step.action) : job.action
   return target ? `${action} · ${target}` : action
 }
 
@@ -220,7 +221,7 @@ export function GlobalActivity({ variant = 'sidebar' }: { variant?: 'sidebar' | 
 function JobRow({ job, terminal = false, onOpen }: { job: ActiveJobItem; terminal?: boolean; onOpen?: () => void }) {
   const { openJob } = useJobDrawer()
   const target = job.current_step?.target_stack_id ?? job.stack_id
-  const action = job.current_step?.action ?? job.action
+  const action = job.current_step ? jobStepLabel(job.current_step.action) : job.action
   const elapsed = job.started_at ? formatElapsed(job.started_at) : '—'
   const isFailure = job.state === 'failed' || job.state === 'timed_out'
   const isSuccess = job.state === 'succeeded' || job.state === 'cancelled'

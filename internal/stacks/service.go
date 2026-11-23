@@ -180,6 +180,17 @@ type MaintenanceStepOptions struct {
 	ServiceNames  []string
 }
 
+func (options MaintenanceStepOptions) upArgs() []string {
+	args := []string{"-d"}
+	if len(options.ServiceNames) > 0 {
+		args = append(args, "--no-deps")
+	}
+	if options.RemoveOrphans {
+		args = append(args, "--remove-orphans")
+	}
+	return append(args, options.ServiceNames...)
+}
+
 func NewServiceReader(cfg config.Config, logger *slog.Logger) *ServiceReader {
 	if err := secureExistingStackEnvFiles(cfg.RootDir); err != nil && logger != nil {
 		logger.Warn("failed to secure existing stack environment files", slog.String("err", err.Error()))
@@ -902,12 +913,7 @@ func (s *ServiceReader) RunMaintenanceStep(ctx context.Context, stackID, action 
 	case "build":
 		return s.runComposeActionOutput(ctx, stack, "build", options.ServiceNames...)
 	case "up":
-		args := []string{"-d"}
-		if options.RemoveOrphans {
-			args = append(args, "--remove-orphans")
-		}
-		args = append(args, options.ServiceNames...)
-		return s.runComposeActionOutput(ctx, stack, "up", args...)
+		return s.runComposeActionOutput(ctx, stack, "up", options.upArgs()...)
 	default:
 		return "", ErrUnsupportedAction
 	}
@@ -984,15 +990,20 @@ type definitionSnapshot struct {
 }
 
 type dockerInspectContainer struct {
-	ID     string `json:"Id"`
-	Name   string `json:"Name"`
-	Image  string `json:"Image"`
+	ID           string `json:"Id"`
+	Name         string `json:"Name"`
+	Image        string `json:"Image"`
+	RestartCount int    `json:"RestartCount"`
+	HostConfig   struct {
+		NetworkMode string `json:"NetworkMode"`
+	} `json:"HostConfig"`
 	Config struct {
 		Image  string            `json:"Image"`
 		Labels map[string]string `json:"Labels"`
 	} `json:"Config"`
 	State struct {
 		Status    string `json:"Status"`
+		ExitCode  int    `json:"ExitCode"`
 		StartedAt string `json:"StartedAt"`
 		Health    *struct {
 			Status string `json:"Status"`
@@ -1000,7 +1011,10 @@ type dockerInspectContainer struct {
 	} `json:"State"`
 	NetworkSettings struct {
 		Ports    map[string][]dockerPortBinding `json:"Ports"`
-		Networks map[string]any                 `json:"Networks"`
+		Networks map[string]struct {
+			IPAddress         string `json:"IPAddress"`
+			GlobalIPv6Address string `json:"GlobalIPv6Address"`
+		} `json:"Networks"`
 	} `json:"NetworkSettings"`
 }
 

@@ -52,6 +52,8 @@ type stackReader interface {
 	List(ctx context.Context, query stacks.ListQuery) (stacks.StackListResponse, error)
 	Get(ctx context.Context, stackID string) (stacks.StackDetailResponse, error)
 	MaintenanceNeedsBuild(ctx context.Context, stackID string) (bool, error)
+	CaptureMaintenanceHealth(ctx context.Context, stackID string, serviceNames []string) (stacks.MaintenanceHealthBaseline, string, error)
+	VerifyMaintenanceHealth(ctx context.Context, stackID string, serviceNames []string, baseline stacks.MaintenanceHealthBaseline) (stacks.MaintenanceHealthReport, error)
 	RunMaintenanceStep(ctx context.Context, stackID, action string, options stacks.MaintenanceStepOptions) (string, error)
 	RunMaintenanceStepStreaming(ctx context.Context, stackID, action string, options stacks.MaintenanceStepOptions, onProgress func(stacks.StepProgress)) (string, error)
 	RecordDeployBaseline(ctx context.Context, stackID, jobID string, deployedAt time.Time) error
@@ -304,6 +306,7 @@ func (s *Service) ExecuteUpdate(ctx context.Context, job store.Job, run UpdateRu
 	workflow := append([]store.JobWorkflowStep(nil), run.Workflow...)
 	failures := make([]updateStepFailure, 0)
 	blockedStacks := make(map[string]updateStepFailure)
+	healthBaselines := make(map[string]stacks.MaintenanceHealthBaseline)
 
 	for index := range workflow {
 		step := workflow[index]
@@ -329,7 +332,7 @@ func (s *Service) ExecuteUpdate(ctx context.Context, job store.Job, run UpdateRu
 		}
 
 		step = workflow[index]
-		result, runErr := s.runUpdateWorkflowStepWithRetry(ctx, job, workflow, index, run.Request.Options, run.ManagedStackIDs, run.Request.Trigger)
+		result, runErr := s.runUpdateWorkflowStepWithRetry(ctx, job, workflow, index, run, healthBaselines)
 		if runErr != nil {
 			if ctx.Err() != nil || errors.Is(runErr, context.Canceled) {
 				finishCtx, finishCancel := jobFinalizationContext()
@@ -339,11 +342,16 @@ func (s *Service) ExecuteUpdate(ctx context.Context, job store.Job, run UpdateRu
 				return finishedJob, finishErr
 			}
 
+			summary := summarizeMaintenanceError(result.Output, runErr)
+			if step.Action == "verify_before" || step.Action == "verify_after" {
+				// Health output lists every service. The error identifies the failed checks.
+				summary = truncateRunes(runErr.Error(), maintenanceErrorSummaryLimit)
+			}
 			failure := updateStepFailure{
 				StackID:  step.TargetStackID,
 				Action:   step.Action,
 				Attempts: result.Attempts,
-				Message:  summarizeMaintenanceError(result.Output, runErr),
+				Message:  summary,
 			}
 			failures = append(failures, failure)
 			if step.TargetStackID != "" {
@@ -609,7 +617,7 @@ func jobFinalizationContext() (context.Context, context.CancelFunc) {
 }
 
 func (s *Service) buildUpdateWorkflow(ctx context.Context, stackIDs []string, serviceTargets map[string][]string, options UpdateOptions, preserveInactive bool) ([]store.JobWorkflowStep, error) {
-	steps := make([]store.JobWorkflowStep, 0, len(stackIDs)*3+1)
+	steps := make([]store.JobWorkflowStep, 0, len(stackIDs)*5+1)
 	for _, stackID := range stackIDs {
 		serviceNames := serviceTargets[stackID]
 		if serviceNames != nil && len(serviceNames) == 0 {
@@ -623,6 +631,9 @@ func (s *Service) buildUpdateWorkflow(ctx context.Context, stackIDs []string, se
 				return nil, err
 			}
 			keepInactive = detail.Stack.RuntimeState == stacks.RuntimeStateDefined || detail.Stack.RuntimeState == stacks.RuntimeStateStopped
+		}
+		if !keepInactive {
+			steps = append(steps, store.JobWorkflowStep{Action: "verify_before", State: "queued", TargetStackID: stackID, TargetServiceNames: serviceNames})
 		}
 		if options.PullImages {
 			steps = append(steps, store.JobWorkflowStep{Action: "pull", State: "queued", TargetStackID: stackID, TargetServiceNames: serviceNames})
@@ -641,6 +652,7 @@ func (s *Service) buildUpdateWorkflow(ctx context.Context, stackIDs []string, se
 			continue
 		}
 		steps = append(steps, store.JobWorkflowStep{Action: "up", State: "queued", TargetStackID: stackID, TargetServiceNames: serviceNames})
+		steps = append(steps, store.JobWorkflowStep{Action: "verify_after", State: "queued", TargetStackID: stackID, TargetServiceNames: serviceNames})
 	}
 	if options.PruneAfter {
 		steps = append(steps, store.JobWorkflowStep{Action: "prune", State: "queued"})
@@ -648,23 +660,40 @@ func (s *Service) buildUpdateWorkflow(ctx context.Context, stackIDs []string, se
 	return steps, nil
 }
 
-func (s *Service) runUpdateWorkflowStep(ctx context.Context, step store.JobWorkflowStep, options UpdateOptions, targetStackIDs []string, onProgress func(stacks.StepProgress)) (string, error) {
-	if step.Action == "prune" {
-		return s.maintenance.RunSystemPrune(ctx, options.IncludeVolumes, targetStackIDs)
-	}
-	if step.Action == "skip" {
+func (s *Service) runUpdateWorkflowStep(ctx context.Context, job store.Job, step store.JobWorkflowStep, stepRef *store.JobEventStep, run UpdateRun, healthBaselines map[string]stacks.MaintenanceHealthBaseline) (string, error) {
+	switch step.Action {
+	case "verify_before":
+		baseline, output, err := s.stackReader.CaptureMaintenanceHealth(ctx, step.TargetStackID, step.TargetServiceNames)
+		if err == nil {
+			healthBaselines[step.TargetStackID] = baseline
+		}
+		return output, err
+	case "verify_after":
+		baseline, ok := healthBaselines[step.TargetStackID]
+		if !ok {
+			return "", errors.New("missing pre-update health observations")
+		}
+		report, err := s.stackReader.VerifyMaintenanceHealth(ctx, step.TargetStackID, step.TargetServiceNames, baseline)
+		if err == nil && len(report.UnverifiedServices) > 0 {
+			message := fmt.Sprintf("Readiness unverified for %s in %s. At least one container is running without a healthcheck.", strings.Join(report.UnverifiedServices, ", "), step.TargetStackID)
+			_ = s.jobs.PublishEvent(ctx, job, "job_warning", message, "", stepRef)
+		}
+		return report.Summary, err
+	case "prune":
+		return s.maintenance.RunSystemPrune(ctx, run.Request.Options.IncludeVolumes, run.ManagedStackIDs)
+	case "skip":
 		return "Skipped " + step.TargetStackID + " because all services are excluded.", nil
-	}
-	if step.Action == "preserve_inactive" {
+	case "preserve_inactive":
 		return "Skipped deployment for " + step.TargetStackID + " because it was inactive before maintenance.", nil
 	}
+	onProgress := s.progressPublisher(ctx, job, step, stepRef)
 	return s.stackReader.RunMaintenanceStepStreaming(ctx, step.TargetStackID, step.Action, stacks.MaintenanceStepOptions{
-		RemoveOrphans: options.RemoveOrphans,
+		RemoveOrphans: run.Request.Options.RemoveOrphans,
 		ServiceNames:  step.TargetServiceNames,
 	}, onProgress)
 }
 
-func (s *Service) runUpdateWorkflowStepWithRetry(ctx context.Context, job store.Job, workflow []store.JobWorkflowStep, index int, options UpdateOptions, targetStackIDs []string, trigger string) (updateStepResult, error) {
+func (s *Service) runUpdateWorkflowStepWithRetry(ctx context.Context, job store.Job, workflow []store.JobWorkflowStep, index int, run UpdateRun, healthBaselines map[string]stacks.MaintenanceHealthBaseline) (updateStepResult, error) {
 	step := workflow[index]
 	delays := []time.Duration(nil)
 	if step.Action == "pull" || step.Action == "build" {
@@ -675,8 +704,7 @@ func (s *Service) runUpdateWorkflowStepWithRetry(ctx context.Context, job store.
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		result.Attempts = attempt
-		onProgress := s.progressPublisher(ctx, job, step, workflowStepRef(workflow, index))
-		output, runErr := s.runUpdateWorkflowStep(ctx, step, options, targetStackIDs, onProgress)
+		output, runErr := s.runUpdateWorkflowStep(ctx, job, step, workflowStepRef(workflow, index), run, healthBaselines)
 		result.Output = output
 		if trimmed := strings.TrimSpace(output); trimmed != "" {
 			message := updateStepMessage("Output", step)
@@ -699,7 +727,7 @@ func (s *Service) runUpdateWorkflowStepWithRetry(ctx context.Context, job store.
 		if s.logger != nil {
 			s.logger.Warn("maintenance update step retry scheduled",
 				slog.String("job_id", job.ID),
-				slog.String("trigger", fallbackTrigger(trigger)),
+				slog.String("trigger", fallbackTrigger(run.Request.Trigger)),
 				slog.String("stack_id", step.TargetStackID),
 				slog.String("action", step.Action),
 				slog.Int("attempt", attempt),
@@ -946,6 +974,10 @@ func pruneStepMessage(prefix string, step store.JobWorkflowStep) string {
 
 func maintenanceActionLabel(action string) string {
 	switch action {
+	case "verify_before":
+		return "Pre-update health check"
+	case "verify_after":
+		return "Post-update health check"
 	case "pull":
 		return "Pull"
 	case "build":

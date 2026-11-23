@@ -149,13 +149,45 @@ Recommended execution order:
 1. determine target stacks
 2. process targets in deterministic order
 3. for each target stack:
+   - record service readiness before changing images if deployment is planned
    - pull images
    - build when needed
    - run `up -d --remove-orphans` when the stack was already active
    - for manual selected-stack updates, also deploy explicitly selected stopped stacks
    - for all-stacks and scheduled updates, skip deployment when the stack was
      inactive so operator intent is preserved
+   - check readiness again after `up` for the services included in the update
 4. optionally run prune after all selected stacks succeed
+
+### Readiness during updates
+
+The job history records a `verify_before` step and a `verify_after` step.
+Docker healthchecks declared in Compose or inherited from an image supply the
+native readiness signal. If a service is running without a probe, the step
+records a warning naming the services whose readiness remains unverified.
+Verification waits up to three minutes per stack. It requires two passing
+observations of the same instances, two seconds apart, so containers may
+finish starting before the step completes.
+
+To check a service from the Stacklab host, add these labels to its Compose
+definition. The port is the service's internal port.
+
+```yaml
+services:
+  app:
+    labels:
+      io.stacklab.health.http: /readyz
+      io.stacklab.health.port: "8080"
+```
+
+The endpoint must accept an unauthenticated HTTP GET and return a 2xx status
+when the service is ready. Stacklab connects directly to the inspected
+container address. The host must be able to reach it. Redirects count as a
+failed check. Use an application-local test that can run during startup.
+
+If readiness verification fails, the job records the affected service and
+skips the optional prune. Independent stacks can continue. The operator can
+use the recorded outcomes to decide whether to restore an image or data.
 
 Recommended target order:
 
@@ -228,6 +260,7 @@ Field rules:
 - `options.remove_orphans`:
   - default `true`, except manual requests that include service exclusions
     default it to `false`
+  - updates with service exclusions deploy the included services with `up --no-deps` so Compose keeps excluded dependencies in their current state
 - `options.prune_after.enabled`:
   - default `false`
 - `options.prune_after.include_volumes`:
@@ -246,9 +279,14 @@ Response:
     "workflow": {
       "steps": [
         {
-          "action": "pull",
+          "action": "verify_before",
           "target_stack_id": "nextcloud",
           "state": "running"
+        },
+        {
+          "action": "pull",
+          "target_stack_id": "nextcloud",
+          "state": "queued"
         },
         {
           "action": "build",
@@ -261,8 +299,8 @@ Response:
           "state": "queued"
         },
         {
-          "action": "pull",
-          "target_stack_id": "traefik",
+          "action": "verify_after",
+          "target_stack_id": "nextcloud",
           "state": "queued"
         }
       ]

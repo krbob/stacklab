@@ -4,12 +4,13 @@ import { useApi } from '@/hooks/use-api'
 import { useJobDrawer } from '@/hooks/use-job-drawer'
 import type { ActiveJobItem } from '@/lib/api-types'
 import { cn } from '@/lib/cn'
+import { jobStepLabel } from '@/lib/job-step-label'
 
 function jobChipLabel(job: ActiveJobItem): string {
   const step = job.current_step
   if (step) {
     const target = step.target_stack_id ? ` · ${step.target_stack_id}` : ''
-    return `${step.action}${target} · ${step.index}/${step.total}`
+    return `${jobStepLabel(step.action)}${target} · ${step.index}/${step.total}`
   }
   return job.stack_id ? `${job.action} · ${job.stack_id}` : job.action
 }

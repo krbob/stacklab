@@ -54,12 +54,7 @@ func (s *ServiceReader) RunMaintenanceStepStreaming(ctx context.Context, stackID
 	case "build":
 		return s.runComposeActionStreaming(ctx, stack, onProgress, "build", options.ServiceNames...)
 	case "up":
-		args := []string{"-d"}
-		if options.RemoveOrphans {
-			args = append(args, "--remove-orphans")
-		}
-		args = append(args, options.ServiceNames...)
-		return s.runComposeActionStreaming(ctx, stack, onProgress, "up", args...)
+		return s.runComposeActionStreaming(ctx, stack, onProgress, "up", options.upArgs()...)
 	default:
 		return "", ErrUnsupportedAction
 	}

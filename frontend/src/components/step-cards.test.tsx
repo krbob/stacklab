@@ -24,6 +24,19 @@ describe('StepCards', () => {
     vi.useRealTimers()
   })
 
+  it('shows unverified services alongside post-update readiness', () => {
+    const warning = makeEvent({
+      event: 'job_warning',
+      state: 'running',
+      message: 'Readiness unverified for worker.',
+      timestamp: '2026-04-09T10:00:00Z',
+      step: { index: 3, total: 3, action: 'verify_after', target_stack_id: 'demo' },
+    })
+    render(<StepCards events={[warning]} />)
+    expect(screen.getByText('Check readiness after update')).toBeVisible()
+    expect(screen.getByText(warning.message)).toBeVisible()
+  })
+
   it('groups step logs into the matching step card', () => {
     const events: JobEvent[] = [
       makeEvent({
