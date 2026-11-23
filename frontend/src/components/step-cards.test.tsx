@@ -37,6 +37,14 @@ describe('StepCards', () => {
     expect(screen.getByText(warning.message)).toBeVisible()
   })
 
+  it('links a verified pre-update copy to the exact recovery set', () => {
+    render(<StepCards events={[]} job={{ state: 'failed', workflow: { steps: [{
+      action: 'backup_before', state: 'succeeded', target_stack_id: 'demo',
+      backup_run_id: 'run', backup_destination_id: 'local', backup_snapshot_id: 'snap',
+    }] } }} />)
+    expect(screen.getByRole('link', { name: 'Review pre-update backup' })).toHaveAttribute('href', '/backups?view=recovery&destination=local&snapshot=snap')
+  })
+
   it('groups step logs into the matching step card', () => {
     const events: JobEvent[] = [
       makeEvent({

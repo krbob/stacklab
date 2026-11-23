@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 	"unicode"
 )
@@ -46,10 +47,10 @@ var maintenanceHTTPClient = &http.Client{
 	Timeout:       2 * time.Second,
 }
 
-func (check maintenanceHTTPCheck) probe(ctx context.Context, c dockerInspectContainer, client *http.Client) (string, bool) {
+func (check maintenanceHTTPCheck) probe(ctx context.Context, c dockerInspectContainer, client *http.Client) maintenanceHTTPResult {
 	mode := c.HostConfig.NetworkMode
 	if mode == "" || mode == "host" || mode == "none" || strings.HasPrefix(mode, "container:") || strings.HasPrefix(mode, "service:") {
-		return "HTTP readiness unavailable for this network mode", false
+		return maintenanceHTTPResult{note: "HTTP readiness unavailable for this network mode"}
 	}
 	var addresses []string
 	for _, network := range c.NetworkSettings.Networks {
@@ -61,28 +62,30 @@ func (check maintenanceHTTPCheck) probe(ctx context.Context, c dockerInspectCont
 		}
 	}
 	if len(addresses) == 0 {
-		return "HTTP readiness has no private container address", false
+		return maintenanceHTTPResult{note: "HTTP readiness has no private container address"}
 	}
 	sort.Strings(addresses)
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
+	allRefused := true
 	for _, address := range addresses {
 		u := *check.path
 		u.Scheme = "http"
 		u.Host = net.JoinHostPort(address, check.port)
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 		if err != nil {
-			return "invalid HTTP readiness request", false
+			return maintenanceHTTPResult{note: "invalid HTTP readiness request"}
 		}
 		response, err := client.Do(req)
 		if err != nil {
+			allRefused = allRefused && errors.Is(err, syscall.ECONNREFUSED)
 			continue
 		}
 		response.Body.Close()
 		if response.StatusCode >= 200 && response.StatusCode < 300 {
-			return "HTTP ready", true
+			return maintenanceHTTPResult{note: "HTTP ready", ready: true}
 		}
-		return "HTTP readiness returned " + strconv.Itoa(response.StatusCode), false
+		return maintenanceHTTPResult{note: "HTTP readiness returned " + strconv.Itoa(response.StatusCode), regression: true}
 	}
-	return "HTTP readiness unreachable", false
+	return maintenanceHTTPResult{note: "HTTP readiness unreachable", regression: allRefused}
 }

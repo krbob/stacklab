@@ -207,6 +207,7 @@ export function BackupsPage() {
     setSearch((previous) => {
       previous.set('view', 'recovery')
       previous.set('destination', id)
+      previous.delete('snapshot')
       return previous
     })
   }
@@ -341,6 +342,7 @@ export function BackupsPage() {
                     helperReady={data.helper_ready}
                     helperError={data.helper_error}
                     initialDestinationId={search.get('destination') ?? undefined}
+                    initialSnapshotId={search.get('snapshot') ?? undefined}
                     plans={plans}
                     toolsAvailable={data.restic_available}
                     rcloneAvailable={data.rclone_available}
@@ -348,11 +350,17 @@ export function BackupsPage() {
                       setSearch(
                         (previous) => {
                           previous.set('destination', id)
+                          previous.delete('snapshot')
                           return previous
                         },
                         { replace: true },
                       )
                     }
+                    onSnapshotChange={search.has('snapshot') ? (snapshot) => setSearch(previous => {
+                      if (snapshot) previous.set('snapshot', snapshot)
+                      else previous.delete('snapshot')
+                      return previous
+                    }, { replace: true }) : undefined}
                     onStarted={(result, id, test) => started(result, true, { destinationIds: [id], snapshots: test, restores: true })}
                     onUnlock={(destination) => openReview({ kind: 'unlock', destination })}
                   />

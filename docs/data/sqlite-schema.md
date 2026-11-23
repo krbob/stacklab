@@ -7,7 +7,7 @@ the filesystem as the source of truth for stack definitions.
 
 The authoritative schema is the migration registry in
 [`internal/store/migrations.go`](../../internal/store/migrations.go). This
-document describes the current schema at version 5 and its application-level
+document describes the current schema at version 6 and its application-level
 contract. When this document and executable migrations disagree, migrations
 win and this document must be corrected in the same change.
 
@@ -48,10 +48,11 @@ with nanosecond precision.
 | `job_events` | Retained, ordered job event stream |
 | `audit_entries` | Durable summaries of operations |
 | `image_update_status` | Cached image digest comparison results |
+| `image_update_warnings` | Per-service evidence of a maintenance attempt that left a previous image running |
 | `stack_deploy_baselines` | Last successful deployment snapshots for drift detection |
 
 There are no `job_locks`, `terminal_audit_events`, or `metrics_rollups` tables
-in schema version 5. Job locks are process-local, terminal metadata uses
+in schema version 6. Job locks are process-local, terminal metadata uses
 `audit_entries`, and charts keep a frontend-session buffer.
 
 ## Table specifications
@@ -85,6 +86,7 @@ Current registry:
 | 3 | `password_version` | Adds credential generations to password and session rows |
 | 4 | `job_event_sequence` | Adds and backfills `jobs.event_sequence` |
 | 5 | `job_request_id` | Adds optional `jobs.request_id` correlation |
+| 6 | `image_update_warnings` | Records unresolved service image updates for the dashboard |
 
 Before rolling application code back across a schema-changing release, restore
 the corresponding database backup or use a binary that supports the recorded
@@ -297,6 +299,25 @@ missing local images or inaccessible registry metadata.
 These rows are a cache, not authoritative runtime inventory, and are not
 removed by the operational retention job.
 
+### `image_update_warnings`
+
+Each `(stack_id, service_name)` identifies one maintenance outcome.
+
+| Column | Contract |
+|---|---|
+| `stack_id`, `service_name` | Composite primary key |
+| `project_name`, `image_ref` | Compose project and configured service image reference |
+| `definition_fingerprint` | Hashes of the stack definition and its environment used to identify configuration-dependent targets |
+| `previous_image_ids` | JSON array of distinct previous Docker image IDs still observed on affected replicas |
+| `candidate_image_id`, `candidate_remote_digest` | Local candidate image ID or registry manifest evidence, depending on which was observable |
+| `outcome` | `not_applied` or `rolled_back` |
+| `job_id`, `attempted_at` | Originating maintenance job and time of the attempt |
+
+Dashboard reads match this evidence against current containers. Registry checks can update
+`image_update_status` independently. A retained warning can outlive its job,
+in which case the dashboard omits the job link. Removing a stack definition
+clears its records.
+
 ### `stack_deploy_baselines`
 
 Stores the last successful deployment snapshot used for drift detection and
@@ -322,7 +343,7 @@ Rules:
 - stack-scoped files outside Compose and `.env` are not included in the drift
   hash.
 
-`env_exists` has no database default in schema version 5; every insert must
+`env_exists` has no database default. Every insert must
 supply it explicitly.
 
 ## Retention behavior
@@ -369,7 +390,7 @@ Important atomic boundaries are:
 Read models combine several sources:
 
 - stack list state = filesystem + Docker + `jobs` +
-  `stack_deploy_baselines` + `image_update_status`;
+  `stack_deploy_baselines` + `image_update_status` + `image_update_warnings`;
 - audit screens = `audit_entries`;
 - job recovery after navigation = `jobs` + `job_events`.
 

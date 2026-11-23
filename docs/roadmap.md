@@ -157,8 +157,8 @@ of changed `main` revisions provide the soak channel between stable releases.
   only when operator demand justifies its delivery and configuration cost;
 - add optional scheduled-update config snapshot commits only when a job starts
   from a clean workspace, changes controlled files, and succeeds;
-- extend native backups with database-specific dump/restore profiles, optional
-  pre-update backups, and scheduled isolated restore tests after the first
+- extend native backups with database-specific dump/restore profiles
+  and scheduled isolated restore tests after the first
   end-to-end recovery release;
 - add optional Docker credential-helper integration after portability and
   package-upgrade behavior are validated;

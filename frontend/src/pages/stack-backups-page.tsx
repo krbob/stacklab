@@ -5,6 +5,7 @@ import { getStackBackups } from '@/lib/backup-api'
 import { BackupPanel, BackupStatus, buttonClass, primaryClass } from './backups/backup-primitives'
 import { SourceLabel } from './backups/source-label'
 import { sourceCoverage } from './backups/source-coverage'
+import { UpdateProtectionPanel } from './backups/update-protection-panel'
 
 export function StackBackupsPage() {
   const { stackId = '' } = useParams()
@@ -12,6 +13,8 @@ export function StackBackupsPage() {
   const data = state.data
   return (
     <div className="space-y-4">
+      <UpdateProtectionPanel key={stackId} stackId={stackId} plans={data?.plans ?? []}
+        destinations={data?.destinations ?? []} refreshPlans={state.refetch} />
       <BackupPanel
         title="Backup coverage"
         actions={

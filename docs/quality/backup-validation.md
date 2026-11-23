@@ -26,6 +26,25 @@ file modes and Linux file capabilities are rejected; shared set-group-ID
 directories remain supported. Restore preview rejects paths outside managed or explicitly approved
 roots before stopping any service.
 
+## Maintenance update protection
+
+- `TestStackCoverageApprovesBackupAndImageRollbackTogether` configures both
+  options through the HTTP API, opens a SQLite backup and checks the selection
+  and policy revision. `TestNativePreUpdateSnapshotSupportsIsolatedRecovery`
+  uses GNU tar and an encrypted local restic repository to recover the old
+  contents of a file after the live file has changed.
+- `TestIntegrationMaintenanceRollsBackPartialUp` exercises the HTTP maintenance
+  workflow on Docker. The candidate fails during startup. The failed job records
+  successful recovery, the volume retains its marker, and an excluded service
+  keeps its original container ID. The dashboard identifies the affected
+  container and its job. Applying a working replacement clears the warning.
+- `TestDockerMaintenanceImageRollback` deploys an unhealthy image, removes the
+  private tag, then exercises recovery from the archived image. The fixture also
+  checks pending configuration edits and a second protection cycle after recovery.
+  It passed on a local Docker engine with Compose 2.39.4 and 5.7.0.
+  Set `STACKLAB_DOCKER_ROLLBACK_TEST=1` to run this fixture on a local Docker
+  context with a Unix socket.
+
 ## Destination Setup Inventory And Layout — 2026-11-20
 
 The B2 setup walkthrough exposed a stale `repository_missing` inventory error

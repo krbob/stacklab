@@ -118,15 +118,25 @@ func (c *backupController) stackCoverage(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	plans := []backup.Plan{}
+	assigned := map[string]bool{}
 	for _, p := range overview.Plans {
 		for _, s := range p.Sources {
 			if s.StackID == id {
 				plans = append(plans, p)
+				for _, assignment := range p.Destinations {
+					assigned[assignment.DestinationID] = true
+				}
 				break
 			}
 		}
 	}
-	writeJSON(w, 200, map[string]any{"sources": sources, "plans": plans})
+	destinations := []backup.Destination{}
+	for _, destination := range overview.Destinations {
+		if assigned[destination.ID] {
+			destinations = append(destinations, destination)
+		}
+	}
+	writeJSON(w, 200, map[string]any{"sources": sources, "plans": plans, "destinations": destinations})
 }
 func (c *backupController) record(r *http.Request, action, id string) {
 	now := time.Now().UTC()

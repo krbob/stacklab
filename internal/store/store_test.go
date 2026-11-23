@@ -1122,8 +1122,8 @@ func TestStackDeployBaselineRoundTrip(t *testing.T) {
 		t.Fatalf("ListStackDeployBaselines() = %#v", items)
 	}
 
-	if err := testStore.DeleteStackDeployBaseline(ctx, "demo"); err != nil {
-		t.Fatalf("DeleteStackDeployBaseline() error = %v", err)
+	if err := testStore.RemoveStackDefinitionState(ctx, "demo"); err != nil {
+		t.Fatalf("RemoveStackDefinitionState() error = %v", err)
 	}
 	if _, ok, err := testStore.StackDeployBaseline(ctx, "demo"); err != nil || ok {
 		t.Fatalf("StackDeployBaseline(after delete) ok=%v err=%v, want false nil", ok, err)

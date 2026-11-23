@@ -157,6 +157,7 @@ func newApplication(parent context.Context, cfg config.Config, logger *slog.Logg
 	}
 	backupCapture := backup.NewNativeCapture(cfg, stackReader, appStore.Snapshot)
 	backupService := backup.NewService(cfg, jobService, backupCapture)
+	maintenanceRunner.ConfigureUpdateProtection(backupService)
 	backupService.SetOperationalNotifier(func(ctx context.Context, alert backup.OperationalAlert) error {
 		summary := notifications.BackupSummary{PlanID: alert.PlanID, PlanName: alert.PlanName, DestinationID: alert.DestinationID, DestinationName: alert.DestinationName}
 		if !alert.DueAt.IsZero() {

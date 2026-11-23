@@ -22,6 +22,8 @@ type maintenanceController struct {
 }
 
 func (c *maintenanceController) registerRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/stacks/{stackId}/update-protection", c.withAuth(c.handleUpdateProtection))
+	mux.HandleFunc("PUT /api/stacks/{stackId}/update-protection", c.withAuth(c.handleUpdateProtection))
 	mux.HandleFunc("POST /api/maintenance/update-stacks", c.withAuth(c.handleUpdateStacksMaintenance))
 	mux.HandleFunc("GET /api/maintenance/images", c.withAuth(c.handleMaintenanceImages))
 	mux.HandleFunc("GET /api/templates", c.withAuth(c.handleTemplates))
@@ -35,6 +37,62 @@ func (c *maintenanceController) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/maintenance/volumes/{name}", c.withAuth(c.handleDeleteMaintenanceVolume))
 	mux.HandleFunc("GET /api/maintenance/prune-preview", c.withAuth(c.handleMaintenancePrunePreview))
 	mux.HandleFunc("POST /api/maintenance/prune", c.withAuth(c.handleMaintenancePrune))
+}
+
+func (c *maintenanceController) handleUpdateProtection(w http.ResponseWriter, r *http.Request) {
+	stackID := r.PathValue("stackId")
+	var policy maintenancejobs.UpdateProtectionPolicy
+	var err error
+	if r.Method == http.MethodPut {
+		if !auth.SameOrigin(r) {
+			writeError(w, http.StatusForbidden, "forbidden", "Cross-origin request rejected.", nil)
+			return
+		}
+		var input struct {
+			ExpectedRevision      *string  `json:"revision"`
+			AutoRollback          *bool    `json:"auto_rollback"`
+			BackupPlanID          string   `json:"backup_plan_id"`
+			BackupSourceIDs       []string `json:"backup_source_ids"`
+			BackupPlanFingerprint string   `json:"backup_plan_fingerprint"`
+		}
+		if err := decodeJSON(w, r, &input); err != nil {
+			writeDecodeJSONError(w, err)
+			return
+		}
+		if input.AutoRollback == nil {
+			writeError(w, http.StatusBadRequest, "validation_failed", "Specify whether automatic image rollback is enabled.", nil)
+			return
+		}
+		policy, err = c.maintenanceJobs.SetUpdateProtectionIfCurrent(r.Context(), stackID, maintenancejobs.UpdateProtectionPolicy{
+			AutoRollback: *input.AutoRollback, BackupPlanID: input.BackupPlanID, BackupSourceIDs: input.BackupSourceIDs,
+			BackupPlanFingerprint: input.BackupPlanFingerprint,
+		}, input.ExpectedRevision)
+	} else {
+		policy, err = c.maintenanceJobs.GetUpdateProtection(r.Context(), stackID)
+	}
+	if err != nil {
+		switch {
+		case errors.Is(err, stacks.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Stack was not found.", nil)
+		case errors.Is(err, maintenancejobs.ErrUpdateProtectionChanged):
+			writeError(w, http.StatusConflict, "conflict", err.Error(), nil)
+		case errors.Is(err, maintenancejobs.ErrInvalidUpdateProtection):
+			writeError(w, http.StatusBadRequest, "validation_failed", err.Error(), nil)
+		default:
+			c.logger.Error("access stack update protection failed", "stack_id", stackID, "err", err)
+			writeError(w, http.StatusInternalServerError, "internal_error", "Could not access update protection.", nil)
+		}
+		return
+	}
+	if r.Method == http.MethodPut {
+		now := time.Now().UTC()
+		if err := c.audit.RecordSystemEvent(r.Context(), "update_protection", "local", "succeeded", now, &now, map[string]any{
+			"stack_id": stackID, "auto_rollback": policy.AutoRollback, "backup_plan_id": policy.BackupPlanID, "backup_source_ids": policy.BackupSourceIDs,
+		}); err != nil {
+			c.logger.Warn("record update protection audit failed", "stack_id", stackID, "err", err)
+		}
+	}
+	writeJSON(w, http.StatusOK, policy)
 }
 
 type maintenanceUpdateStacksRequest struct {

@@ -20,14 +20,23 @@ import (
 )
 
 type fakeMaintenanceStackReader struct {
-	details            map[string]stacks.StackDetailResponse
-	stepCalls          []maintenanceStepCall
-	baselineCalls      int
-	baselineErr        error
-	invalidateCalls    int
-	invalidatedImage   []invalidatedImageCall
-	stepResults        map[string][]maintenanceStepResult
-	unverifiedServices []string
+	details             map[string]stacks.StackDetailResponse
+	stepCalls           []maintenanceStepCall
+	baselineCalls       int
+	baselineErr         error
+	invalidateCalls     int
+	invalidatedImage    []invalidatedImageCall
+	stepResults         map[string][]maintenanceStepResult
+	unverifiedServices  []string
+	rollbackCalls       []bool
+	rollbackErr         error
+	prepareErr          error
+	prepareWarning      string
+	released            int
+	imageWarningJobs    []string
+	recoveriesAtWarning []int
+	registryAtWarning   []bool
+	imageWarningChecks  []string
 }
 
 type maintenanceStepCall struct {
@@ -92,6 +101,30 @@ func (f *fakeMaintenanceStackReader) CaptureMaintenanceHealth(ctx context.Contex
 func (f *fakeMaintenanceStackReader) VerifyMaintenanceHealth(ctx context.Context, stackID string, serviceNames []string, baseline stacks.MaintenanceHealthBaseline) (stacks.MaintenanceHealthReport, error) {
 	output, err := f.runStep(stackID, "verify_after", serviceNames)
 	return stacks.MaintenanceHealthReport{Summary: output, UnverifiedServices: f.unverifiedServices}, err
+}
+
+func (f *fakeMaintenanceStackReader) PrepareMaintenanceRollback(context.Context, string, stacks.MaintenanceHealthBaseline) (stacks.MaintenanceRollback, string, error) {
+	return stacks.MaintenanceRollback{Warning: f.prepareWarning}, "Previous images", f.prepareErr
+}
+
+func (f *fakeMaintenanceStackReader) RecordMaintenanceImageFailure(_ context.Context, job store.Job, _ stacks.MaintenanceHealthBaseline, _ stacks.MaintenanceImageRecovery, pullPending bool) error {
+	f.registryAtWarning = append(f.registryAtWarning, pullPending)
+	f.imageWarningJobs = append(f.imageWarningJobs, job.ID)
+	f.recoveriesAtWarning = append(f.recoveriesAtWarning, len(f.rollbackCalls))
+	return nil
+}
+func (f *fakeMaintenanceStackReader) ClearMaintenanceImageWarnings(_ context.Context, stackID string, _ stacks.MaintenanceHealthReport) error {
+	f.imageWarningChecks = append(f.imageWarningChecks, stackID)
+	return nil
+}
+func (f *fakeMaintenanceStackReader) RollbackMaintenanceImages(_ context.Context, _ stacks.MaintenanceRollback, _ stacks.MaintenanceHealthReport, upFailed bool) (stacks.MaintenanceImageRecovery, error) {
+	f.rollbackCalls = append(f.rollbackCalls, upFailed)
+	return stacks.MaintenanceImageRecovery{Summary: "Image recovery result"}, f.rollbackErr
+}
+
+func (f *fakeMaintenanceStackReader) ReleaseMaintenanceRollback(context.Context, stacks.MaintenanceRollback) error {
+	f.released++
+	return nil
 }
 
 func (f *fakeMaintenanceStackReader) runStep(stackID, action string, serviceNames []string) (string, error) {

@@ -14,6 +14,7 @@ interface StepData {
   total: number
   action: string
   targetStackId?: string
+  recoveryURL?: string
   state: JobStepState
   startedAt: string | null
   finishedAt: string | null
@@ -133,6 +134,12 @@ function StepCard({ step }: { step: StepData }) {
         <span className={cn('ml-auto text-xs', status.color)}>{status.text}</span>
         <span className="text-xs text-[var(--muted)]">{elapsed}</span>
       </div>
+
+      {step.recoveryURL && (
+        <a href={step.recoveryURL} className="mt-2 inline-block text-sm text-[var(--accent)] underline">
+          Review pre-update backup
+        </a>
+      )}
 
       {/* Structured progress meter (running steps with streaming data) */}
       {step.progress && step.state === 'running' && step.progress.total > 0 && (
@@ -260,20 +267,25 @@ function buildSteps(events: JobEvent[], job: StepCardsProps['job']): StepData[] 
     job.workflow.steps.forEach((workflowStep, index) => {
       const key = `${index + 1}-${workflowStep.action}-${workflowStep.target_stack_id ?? ''}`
       const existing = stepsMap.get(key)
+      const recoveryURL = workflowStep.backup_destination_id && workflowStep.backup_snapshot_id
+        ? '/backups?' + new URLSearchParams({ view: 'recovery', destination: workflowStep.backup_destination_id, snapshot: workflowStep.backup_snapshot_id }).toString()
+        : undefined
       if (!existing) {
         stepsMap.set(key, {
           index: index + 1,
           total: job.workflow!.steps.length,
           action: workflowStep.action,
           targetStackId: workflowStep.target_stack_id,
+          recoveryURL,
           state: workflowStep.state,
           startedAt: null,
           finishedAt: null,
           progress: null,
           logLines: [],
         })
-      } else if (job && isTerminal(job.state)) {
-        existing.state = workflowStep.state
+      } else {
+        existing.recoveryURL = recoveryURL
+        if (job && isTerminal(job.state)) existing.state = workflowStep.state
       }
     })
   }

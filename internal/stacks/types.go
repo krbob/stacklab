@@ -77,10 +77,19 @@ type StackListResponse struct {
 
 type StackListItem struct {
 	StackHeader
-	ServiceCount ServiceCount  `json:"service_count"`
-	LastAction   *LastAction   `json:"last_action"`
-	Stats        *StackStats   `json:"stats"`
-	Updates      *StackUpdates `json:"updates"`
+	ServiceCount   ServiceCount         `json:"service_count"`
+	LastAction     *LastAction          `json:"last_action"`
+	Stats          *StackStats          `json:"stats"`
+	Updates        *StackUpdates        `json:"updates"`
+	UpdateWarnings []ImageUpdateWarning `json:"update_warnings,omitempty"`
+}
+
+type ImageUpdateWarning struct {
+	ServiceName    string    `json:"service_name"`
+	ContainerNames []string  `json:"container_names"`
+	Outcome        string    `json:"outcome"`
+	AttemptedAt    time.Time `json:"attempted_at"`
+	JobID          string    `json:"job_id,omitempty"`
 }
 
 // StackUpdates is the per-stack rollup of image update checks (Slice B/A3).
@@ -202,6 +211,7 @@ type Service struct {
 }
 
 type Container struct {
+	oneOff       bool
 	ID           string        `json:"id"`
 	Name         string        `json:"name"`
 	ServiceName  string        `json:"service_name"`

@@ -150,6 +150,7 @@ Recommended execution order:
 2. process targets in deterministic order
 3. for each target stack:
    - record service readiness before changing images if deployment is planned
+   - run the stack's required backup and prepare its original images when those options are enabled
    - pull images
    - build when needed
    - run `up -d --remove-orphans` when the stack was already active
@@ -157,6 +158,7 @@ Recommended execution order:
    - for all-stacks and scheduled updates, skip deployment when the stack was
      inactive so operator intent is preserved
    - check readiness again after `up` for the services included in the update
+   - attempt image recovery once when an eligible service regresses or deployment partially fails
 4. optionally run prune after all selected stacks succeed
 
 ### Readiness during updates
@@ -186,8 +188,70 @@ container address. The host must be able to reach it. Redirects count as a
 failed check. Use an application-local test that can run during startup.
 
 If readiness verification fails, the job records the affected service and
-skips the optional prune. Independent stacks can continue. The operator can
-use the recorded outcomes to decide whether to restore an image or data.
+skips the optional prune. Independent stacks can continue.
+
+### Per-stack image rollback and backup
+
+Open the stack's **Backups → Maintenance update protection** panel. Both options
+default to off. They apply independently to manual and scheduled maintenance
+when the workflow plans to deploy that stack.
+
+- **Automatic image rollback** captures the exact local image ID and running
+  replica count of each included, previously healthy service. A Docker or HTTP
+  probe must have passed and all replicas must use the same image. The running
+  containers must also match the service configuration for the deployment.
+  Pending changes such as a different database mount make that service ineligible.
+  Services using Compose `configs` or `secrets` are skipped because their
+  deployed content cannot be verified from the service hash. One-shot services
+  and services without a confirmed readiness signal are also skipped. Preparation logs the eligible
+  services and any omissions before the pull or build begins.
+- **Required backup before deployment** uses an enabled native backup plan
+  dedicated to this stack. Review its selected mounts, stack definition or
+  managed configuration, exclusions, consistency mode and enabled destinations.
+  Maintenance requires a freshly verified copy at every enabled destination.
+  Changes to the approved source selection, consistency or destination identity
+  require a new review in the panel. A failed copy or a changed plan blocks
+  deployment for this stack. Other stacks can continue.
+
+When the updated service fails its readiness check, Stacklab checks that the
+regression still exists. A partial `compose up` failure can also trigger recovery.
+Stacklab recreates the changed eligible services together with a local Compose
+override and checks their original image IDs, replica counts and readiness.
+Choose this option for applications whose previous version can safely open the
+data left by the new version. Data migrations and writes made during the update
+require their own recovery decision.
+
+The job keeps its failed update status even after successful image recovery.
+Its `rollback_images` step records the recovery outcome. The stack definition
+and its usual image tag keep the requested update. A subsequent ordinary
+`compose up` can therefore deploy that image again.
+
+On the dashboard, **Problems** includes services that still run the previous
+image after a confirmed rollback or an unsuccessful attempt to apply a different
+image. Both stack views show the affected containers and link to the job while
+its history is retained.
+
+The `backup_before` step records the plan, source IDs, backup run, repository
+and snapshot. **Review pre-update backup** opens that exact snapshot. Recover
+the desired files or sources into a separate directory, then preview and
+approve any application to live data. Shared storage is included only when its
+source belongs to the approved plan. A private **Stacklab recovery** backup
+includes the per-stack policies and backup plans in the SQLite snapshot.
+
+Image preparation can use up to 16 GiB per stack under
+`<STACKLAB_DATA_DIR>/maintenance-rollback/<job_id>/<stack_id>/` and requires
+512 MiB of free space in reserve. Failure to prepare eligible images blocks the
+deployment. A successful update or verified rollback releases the temporary
+images and archive. If deployment is interrupted, recovery fails, or its outcome
+is uncertain, inspect the job and the retained directory. Its `manifest.json`
+identifies the original images, private tags, replica counts and SHA-256 of
+`images.tar`. For manual recovery, verify the archive checksum, load it with
+`docker image load -i images.tar`, then review `compose.rollback.yaml` against
+the live stack and the manifest before recreating any services. Retained archives
+require manual cleanup. After resolving the job and confirming the running
+images, remove only its private tags that still match the recorded image IDs
+and its per-stack archive directory. These local image archives are excluded
+from the native backup of Stacklab state.
 
 Recommended target order:
 
@@ -212,6 +276,19 @@ Failure semantics:
   immediately
 
 ## REST Endpoints
+
+## `GET` and `PUT /api/stacks/{stackId}/update-protection`
+
+`GET` returns the saved policy and its `revision`. Include this revision in
+`PUT` to prevent a stale edit from overwriting a newer policy. On HTTP 409,
+reload the settings and review the change. `PUT` replaces the policy and
+requires the boolean `auto_rollback`. To require a backup, send the selected plan's
+`backup_plan_id`, complete `backup_source_ids` and current
+`backup_plan_fingerprint`. The stack coverage API exposes the fingerprint as
+`update_backup_fingerprint` on each eligible plan. To clear the backup
+requirement, omit the three backup fields. The admitted maintenance job uses
+the policy saved when it was created. Removing the stack definition resets its
+policy so a new stack created with the same ID starts with protection disabled.
 
 ## `POST /api/maintenance/update-stacks`
 

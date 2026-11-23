@@ -47,7 +47,9 @@ const terminal = ['succeeded', 'failed', 'cancelled', 'timed_out']
 export function RecoveryWorkspace({
   destinations,
   initialDestinationId,
+  initialSnapshotId,
   onDestinationChange,
+  onSnapshotChange,
   plans = [],
   toolsAvailable = true,
   rcloneAvailable = true,
@@ -63,7 +65,9 @@ export function RecoveryWorkspace({
 }: {
   destinations: BackupDestination[]
   initialDestinationId?: string
+  initialSnapshotId?: string
   onDestinationChange?: (id: string) => void
+  onSnapshotChange?: (snapshot: string) => void
   plans?: BackupPlan[]
   toolsAvailable?: boolean
   rcloneAvailable?: boolean
@@ -121,6 +125,8 @@ export function RecoveryWorkspace({
         <div key={destination.id} hidden={destination.id !== destinationId}>
           <DestinationRecovery
             destination={destination}
+            initialSnapshotId={initialDestinationId === destination.id ? initialSnapshotId : undefined}
+            onSnapshotChange={onSnapshotChange}
             plans={plans}
             active={active && destination.id === destinationId}
             refreshKey={refreshKey}
@@ -141,6 +147,8 @@ export function RecoveryWorkspace({
 
 function DestinationRecovery({
   destination,
+  initialSnapshotId,
+  onSnapshotChange,
   plans,
   toolsAvailable,
   active,
@@ -154,6 +162,8 @@ function DestinationRecovery({
   onUnlock,
 }: {
   destination: BackupDestination
+  initialSnapshotId?: string
+  onSnapshotChange?: (id: string) => void
   plans: BackupPlan[]
   toolsAvailable: boolean
   active: boolean
@@ -175,7 +185,10 @@ function DestinationRecovery({
   const { refetch: refreshRestores, backgroundRefetch: pollRestores } = restores
   useVisibleRefresh(pollRestores, 30000, active)
   const { openJob } = useJobDrawer()
-  const [snapshotId, setSnapshotId] = useState('')
+  const [snapshotId, setSnapshotId] = useState(initialSnapshotId ?? '')
+  useEffect(() => {
+    if (initialSnapshotId !== undefined) setSnapshotId(initialSnapshotId)
+  }, [initialSnapshotId])
   const [restoreId, setRestoreId] = useState<string | null>(null)
   const [selectionReset, setSelectionReset] = useState(0)
   const [pending, setPending] = useState(false)
@@ -252,7 +265,7 @@ function DestinationRecovery({
                 className={inputClass}
                 value={snapshotId}
                 disabled={pending || running}
-                onChange={(event) => setSnapshotId(event.target.value)}
+                onChange={(event) => { setSnapshotId(event.target.value); onSnapshotChange?.(event.target.value) }}
               >
                 <option value="">Select a snapshot</option>
                 {snapshotId && !selectedSnapshot && <option value={snapshotId} disabled>Unavailable snapshot {snapshotId.slice(0, 8)}</option>}

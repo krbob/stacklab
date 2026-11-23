@@ -199,9 +199,14 @@ executed partial-failure, mount, shared-volume, interruption, permission and
 fresh-host exercises from provider-specific and workload-size limits that remain
 untested. These scenarios remain regression requirements for subsequent releases.
 
-Follow-up work includes database-specific profiles, optional pre-update
-backups, scheduled isolated restore tests, and migration of existing Backrest
-plans. Existing restic repositories may be evaluated for adoption, but their
+Operators can require a verified backup before a maintenance deployment, choose
+its sources and destinations through a dedicated stack plan, and open the exact
+snapshot from job history. Automatic image rollback has a separate per-stack
+setting. Both settings are included in private Stacklab recovery backups.
+See [maintenance workflows](../api/maintenance-workflows.md#per-stack-image-rollback-and-backup).
+
+Follow-up work includes database-specific profiles, scheduled isolated restore
+tests and migration of existing Backrest plans. Existing restic repositories may be evaluated for adoption, but their
 snapshots must not be pruned under new policies without an explicit ownership
 and retention review. Do not require migration to a proprietary backup format.
 

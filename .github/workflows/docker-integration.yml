@@ -50,3 +50,8 @@ jobs:
 
       - name: Run Docker-backed integration tests
         run: go test -tags=integration ./internal/httpapi -count=1 -v
+
+      - name: Verify image recovery after an unhealthy deployment
+        env:
+          STACKLAB_DOCKER_ROLLBACK_TEST: "1"
+        run: go test ./internal/stacks -run '^TestDockerMaintenanceImageRollback$' -count=1 -v

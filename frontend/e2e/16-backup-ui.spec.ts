@@ -185,6 +185,22 @@ test.describe('Backup UI failure regressions', () => {
     await expect(page.getByLabel('Filter by result')).toHaveValue('failed')
   })
 
+  test('opens the exact pre-update snapshot and keeps recovery an operator action', async ({ page }) => {
+    await mockBackupUI(page)
+    const mutations: string[] = []
+    page.on('request', request => {
+      if (request.method() !== 'GET' && request.url().includes('/api/backups/')) mutations.push(request.url())
+    })
+    await page.goto('/backups?view=recovery&destination=nas&snapshot=snapshot')
+    await expect(page.getByLabel('Recovery destination')).toHaveValue('nas')
+    await expect(page.getByLabel('Recovery set', { exact: true })).toHaveValue('snapshot')
+    await expect(page.getByRole('button', { name: 'Restore complete set and test retrieval' })).toBeEnabled()
+    await page.goto('/backups?view=recovery&destination=nas&snapshot=expired')
+    await expect(page.getByText(/selected snapshot expired is no longer in this repository/i)).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Restore complete set and test retrieval' })).toHaveCount(0)
+    expect(mutations).toEqual([])
+  })
+
   test('shows the schedule zone in a browser with a different timezone', async ({ page }) => {
     await mockBackupUI(page)
     await page.goto('/backups?view=destinations')

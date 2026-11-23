@@ -146,6 +146,22 @@ Changing an assignment's schedule resets its outstanding deadline and grace peri
 the previous overdue condition no longer applies. Saving an unchanged schedule
 preserves the existing overdue history.
 
+### Before a maintenance deployment
+
+Create an enabled plan for one stack and select just the data needed to recover
+its application. For example, a database volume and service configuration can
+have a dedicated plan even when the same stack also mounts a large media library.
+Choose whether writers need to stop during capture. In the stack's **Backups**
+tab, select that plan under **Maintenance update protection**, review its sources
+and repositories, and save. A global **Stacklab recovery** plan backs up these
+settings with the private SQLite state.
+
+If an update fails, open its job details and choose **Review pre-update backup**
+to inspect the snapshot. Retrieve the desired files into an isolated directory
+and review the target and overwrite mode before applying them to a stack. An
+image rollback can run independently and leaves recovery of application data to
+the operator. See [maintenance workflows](../api/maintenance-workflows.md#per-stack-image-rollback-and-backup).
+
 ## Failures And Retrying
 
 Review the parent job and each destination result. Upload, verification and

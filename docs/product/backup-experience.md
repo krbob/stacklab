@@ -249,7 +249,7 @@ must not expose credentials or silently produce incomplete recovery results.
 ## Subsequent Work
 
 Scheduled isolated restore tests need an explicit automatic cleanup/quota policy
-before unattended operation. Database dump profiles, pre-update backups, richer
+before unattended operation. Database dump profiles, richer
 application probes, arbitrary cron, additional notification channels and embedded
 provider OAuth remain follow-up work. Raw command hooks, multi-host management
 and an unrestricted restic command console are not required for this experience.

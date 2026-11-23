@@ -1448,8 +1448,10 @@ func newTestHandler(t *testing.T) (*httpapi.Handler, config.Config) {
 	})
 	workspaceRepairer := workspacerepair.NewService(cfg)
 	backupCapture := backup.NewNativeCapture(cfg, stackReader, testStore.Snapshot)
+	backupService := backup.NewService(cfg, jobService, backupCapture)
+	maintenanceRunner.ConfigureUpdateProtection(backupService)
 	handler, err := httpapi.NewHandler(cfg, logger, httpapi.Dependencies{
-		Backups:         backup.NewService(cfg, jobService, backupCapture),
+		Backups:         backupService,
 		BackupCapture:   backupCapture,
 		RuntimeContext:  workers.Context(),
 		Workers:         workerAdmitter,

@@ -110,10 +110,16 @@ type JobWorkflow struct {
 }
 
 type JobWorkflowStep struct {
-	Action             string   `json:"action"`
-	State              string   `json:"state"`
-	TargetStackID      string   `json:"target_stack_id,omitempty"`
-	TargetServiceNames []string `json:"target_service_names,omitempty"`
+	Action                string   `json:"action"`
+	State                 string   `json:"state"`
+	TargetStackID         string   `json:"target_stack_id,omitempty"`
+	TargetServiceNames    []string `json:"target_service_names,omitempty"`
+	BackupPlanID          string   `json:"backup_plan_id,omitempty"`
+	BackupPlanFingerprint string   `json:"backup_plan_fingerprint,omitempty"`
+	BackupSourceIDs       []string `json:"backup_source_ids,omitempty"`
+	BackupRunID           string   `json:"backup_run_id,omitempty"`
+	BackupDestinationID   string   `json:"backup_destination_id,omitempty"`
+	BackupSnapshotID      string   `json:"backup_snapshot_id,omitempty"`
 }
 
 type JobEvent struct {
@@ -346,16 +352,39 @@ func (s *Store) UpdatePasswordAndRevokeSessions(ctx context.Context, expectedVer
 }
 
 func (s *Store) AppSetting(ctx context.Context, key string) (string, bool, error) {
-	var value string
-	err := s.db.QueryRowContext(ctx, `SELECT value_json FROM app_settings WHERE key = ?`, key).Scan(&value)
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-		return "", false, nil
-	case err != nil:
-		return "", false, fmt.Errorf("load app setting %q: %w", key, err)
-	default:
-		return value, true, nil
+	value, revision, err := s.AppSettingWithRevision(ctx, key)
+	return value, revision != "", err
+}
+
+// A missing key has an empty revision; stored settings use their update timestamp.
+func (s *Store) AppSettingWithRevision(ctx context.Context, key string) (string, string, error) {
+	var value, revision string
+	err := s.db.QueryRowContext(ctx, `SELECT value_json, updated_at FROM app_settings WHERE key = ?`, key).Scan(&value, &revision)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", nil
 	}
+	if err != nil {
+		return "", "", fmt.Errorf("load app setting %q: %w", key, err)
+	}
+	return value, revision, nil
+}
+
+// CompareAndSetAppSetting atomically reserves an absent row or replaces the
+// precise version read by the caller. No matching row means another write won.
+func (s *Store) CompareAndSetAppSetting(ctx context.Context, key, value, expectedRevision string, updatedAt time.Time) (bool, error) {
+	var result sql.Result
+	var err error
+	next := updatedAt.UTC().Format(time.RFC3339Nano)
+	if expectedRevision == "" {
+		result, err = s.db.ExecContext(ctx, `INSERT INTO app_settings(key,value_json,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO NOTHING`, key, value, next)
+	} else {
+		result, err = s.db.ExecContext(ctx, `UPDATE app_settings SET value_json=?,updated_at=? WHERE key=? AND updated_at=?`, value, next, key, expectedRevision)
+	}
+	if err != nil {
+		return false, fmt.Errorf("conditionally store app setting %q: %w", key, err)
+	}
+	count, err := result.RowsAffected()
+	return count == 1, err
 }
 
 func (s *Store) SetAppSetting(ctx context.Context, key, valueJSON string, updatedAt time.Time) error {
@@ -1748,11 +1777,31 @@ func (s *Store) ListStackDeployBaselines(ctx context.Context) ([]StackDeployBase
 	return items, nil
 }
 
-func (s *Store) DeleteStackDeployBaseline(ctx context.Context, stackID string) error {
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM stack_deploy_baselines WHERE stack_id = ?`, stackID); err != nil {
+func StackUpdateProtectionKey(stackID string) string {
+	return "maintenance.protection." + stackID
+}
+
+func (s *Store) RemoveStackDefinitionState(ctx context.Context, stackID string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin stack definition cleanup: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM stack_deploy_baselines WHERE stack_id = ?`, stackID); err != nil {
 		return fmt.Errorf("delete stack deploy baseline: %w", err)
 	}
-	return nil
+	if _, err := tx.ExecContext(ctx, `DELETE FROM image_update_warnings WHERE stack_id = ?`, stackID); err != nil {
+		return fmt.Errorf("delete stack image update warnings: %w", err)
+	}
+	// Give the default policy a fresh revision so an in-flight save for the
+	// removed definition cannot re-enable recovery on a future stack of the same name.
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO app_settings (key, value_json, updated_at) VALUES (?, '{"auto_rollback":false}', ?)
+		 ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
+		StackUpdateProtectionKey(stackID), time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		return fmt.Errorf("reset stack update protection: %w", err)
+	}
+	return tx.Commit()
 }
 
 func boolInt(value bool) int {

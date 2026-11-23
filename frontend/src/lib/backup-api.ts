@@ -42,6 +42,11 @@ export const getBackupSources = (stackId?: string, signal?: AbortSignal) =>
   request<components['schemas']['BackupSourcesResponse']>(`${base}/sources${stackId ? `?stack_id=${encode(stackId)}` : ''}`, { signal })
 export const getStackBackups = (stackId: string, signal?: AbortSignal) =>
   request<components['schemas']['BackupCoverageResponse']>(`/api/stacks/${encode(stackId)}/backups`, { signal })
+export type UpdateProtectionPolicy = components['schemas']['UpdateProtectionPolicy'] & { revision: string }
+export const getUpdateProtection = (stackId: string, signal?: AbortSignal) =>
+  request<UpdateProtectionPolicy>(`/api/stacks/${encode(stackId)}/update-protection`, { signal })
+export const saveUpdateProtection = (stackId: string, policy: UpdateProtectionPolicy) =>
+  request<UpdateProtectionPolicy>(`/api/stacks/${encode(stackId)}/update-protection`, { method: 'PUT', body: JSON.stringify(policy) })
 export const saveBackupDestination = (input: BackupDestinationInput, id?: string) =>
   request<components['schemas']['BackupDestinationResponse']>(`${base}/destinations${id ? `/${encode(id)}` : ''}`, {
     ...post(input),

@@ -235,7 +235,7 @@ func TestMaintenanceHTTPPathAndPinnedTransport(t *testing.T) {
 	}
 	for _, tc := range []struct{ ip, mode string }{{"127.0.0.1", "bridge"}, {"169.254.169.254", "bridge"}, {"8.8.8.8", "bridge"}, {"172.18.0.7", "host"}, {"172.18.0.7", "container:other"}} {
 		buildContainer(tc.ip, tc.mode)
-		if _, ready := check.probe(t.Context(), c, nil); ready {
+		if result := check.probe(t.Context(), c, nil); result.ready || result.regression {
 			t.Fatal(tc)
 		}
 	}
@@ -268,9 +268,9 @@ func TestMaintenanceHTTPPathAndPinnedTransport(t *testing.T) {
 			}
 			client := *maintenanceHTTPClient
 			client.Transport = transport
-			note, ready := check.probe(t.Context(), c, &client)
-			if ready != (status == 200) || requests != 1 {
-				t.Fatalf("%s (%d requests)", note, requests)
+			result := check.probe(t.Context(), c, &client)
+			if result.ready != (status == 200) || result.regression != (status >= 300) || requests != 1 {
+				t.Fatalf("%+v (%d requests)", result, requests)
 			}
 		})
 	}

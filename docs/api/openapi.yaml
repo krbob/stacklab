@@ -2342,6 +2342,53 @@ paths:
           $ref: '#/components/responses/ErrorUnauthorized'
         '404':
           $ref: '#/components/responses/ErrorNotFound'
+  /stacks/{stackId}/update-protection:
+    parameters:
+      - $ref: '#/components/parameters/StackId'
+    get:
+      tags: [Maintenance]
+      operationId: getStackUpdateProtection
+      responses:
+        '200':
+          description: Protection applied to future maintenance updates of this stack.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateProtectionPolicy'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+    put:
+      tags: [Maintenance]
+      operationId: setStackUpdateProtection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProtectionPolicy'
+      responses:
+        '200':
+          description: Saved protection settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateProtectionPolicy'
+        '400':
+          $ref: '#/components/responses/ErrorValidationFailed'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorInvalidState'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
   /stacks/{stackId}/definition:
     parameters:
       - $ref: '#/components/parameters/StackId'
@@ -5260,7 +5307,32 @@ components:
               $ref: '#/components/schemas/StackStats'
             updates:
               $ref: '#/components/schemas/StackUpdates'
+            update_warnings:
+              type: array
+              description: Services with running containers still on the previous image after a maintenance update attempt.
+              items:
+                $ref: '#/components/schemas/ServiceImageUpdateWarning'
           required: [service_count, last_action, stats, updates]
+    ServiceImageUpdateWarning:
+      type: object
+      required: [service_name, container_names, outcome, attempted_at]
+      properties:
+        service_name:
+          type: string
+        container_names:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        outcome:
+          type: string
+          enum: [rolled_back, not_applied]
+        attempted_at:
+          type: string
+          format: date-time
+        job_id:
+          type: string
+          description: Maintenance job with details of the attempt, while retained in job history.
     StackListSummary:
       type: object
       properties:
@@ -6257,6 +6329,20 @@ components:
                     type: array
                     items:
                       type: string
+                  backup_plan_id:
+                    type: string
+                  backup_plan_fingerprint:
+                    type: string
+                  backup_source_ids:
+                    type: array
+                    items:
+                      type: string
+                  backup_run_id:
+                    type: string
+                  backup_destination_id:
+                    type: string
+                  backup_snapshot_id:
+                    type: string
                 required: [action, state]
           required: [steps]
       required:
@@ -6390,6 +6476,29 @@ components:
         cancel_requested_count:
           type: integer
       required: [active_count, running_count, queued_count, cancel_requested_count]
+    UpdateProtectionPolicy:
+      type: object
+      additionalProperties: false
+      required: [auto_rollback]
+      properties:
+        revision:
+          type: string
+          description: Opaque revision returned on each read or successful write. Supply the last observed revision on PUT to reject concurrent edits with HTTP 409.
+        auto_rollback:
+          type: boolean
+          description: Attempt image recovery after a failed maintenance deployment.
+        backup_plan_id:
+          type: string
+          description: Enabled backup plan dedicated to this stack.
+        backup_source_ids:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+          description: Complete set of approved source IDs from the selected plan.
+        backup_plan_fingerprint:
+          type: string
+          description: The update_backup_fingerprint of the plan reviewed by the operator.
     MaintenanceUpdateStacksRequest:
       type: object
       properties:
@@ -7027,6 +7136,10 @@ components:
     BackupPlan:
       type: object
       properties:
+        update_backup_fingerprint:
+          type: string
+          readOnly: true
+          description: Review identity for a plan eligible for pre-update backups.
         id:
           type: string
         name:
@@ -8074,6 +8187,11 @@ components:
       - sources
       - plans
       properties:
+        destinations:
+          type: array
+          description: Repositories assigned to the plans in this stack coverage response.
+          items:
+            $ref: '#/components/schemas/BackupDestination'
         sources:
           type: array
           items:

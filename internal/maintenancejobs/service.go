@@ -54,6 +54,11 @@ type stackReader interface {
 	MaintenanceNeedsBuild(ctx context.Context, stackID string) (bool, error)
 	CaptureMaintenanceHealth(ctx context.Context, stackID string, serviceNames []string) (stacks.MaintenanceHealthBaseline, string, error)
 	VerifyMaintenanceHealth(ctx context.Context, stackID string, serviceNames []string, baseline stacks.MaintenanceHealthBaseline) (stacks.MaintenanceHealthReport, error)
+	PrepareMaintenanceRollback(context.Context, string, stacks.MaintenanceHealthBaseline) (stacks.MaintenanceRollback, string, error)
+	RollbackMaintenanceImages(context.Context, stacks.MaintenanceRollback, stacks.MaintenanceHealthReport, bool) (stacks.MaintenanceImageRecovery, error)
+	RecordMaintenanceImageFailure(context.Context, store.Job, stacks.MaintenanceHealthBaseline, stacks.MaintenanceImageRecovery, bool) error
+	ClearMaintenanceImageWarnings(context.Context, string, stacks.MaintenanceHealthReport) error
+	ReleaseMaintenanceRollback(context.Context, stacks.MaintenanceRollback) error
 	RunMaintenanceStep(ctx context.Context, stackID, action string, options stacks.MaintenanceStepOptions) (string, error)
 	RunMaintenanceStepStreaming(ctx context.Context, stackID, action string, options stacks.MaintenanceStepOptions, onProgress func(stacks.StepProgress)) (string, error)
 	RecordDeployBaseline(ctx context.Context, stackID, jobID string, deployedAt time.Time) error
@@ -71,6 +76,7 @@ type Service struct {
 	audit                 *audit.Service
 	stackReader           stackReader
 	maintenance           pruneRunner
+	backups               preUpdateBackups
 	updateStepRetryDelays []time.Duration
 	retryWait             retryWaitFunc
 }
@@ -271,6 +277,10 @@ func (s *Service) StartUpdate(ctx context.Context, request UpdateRequest, reques
 	if err != nil {
 		return store.Job{}, UpdateRun{}, err
 	}
+	workflow, err = s.protectUpdateWorkflow(ctx, workflow)
+	if err != nil {
+		return store.Job{}, UpdateRun{}, err
+	}
 
 	if len(workflow) > 0 {
 		workflow = markWorkflowRunning(workflow, 0)
@@ -306,11 +316,30 @@ func (s *Service) ExecuteUpdate(ctx context.Context, job store.Job, run UpdateRu
 	workflow := append([]store.JobWorkflowStep(nil), run.Workflow...)
 	failures := make([]updateStepFailure, 0)
 	blockedStacks := make(map[string]updateStepFailure)
-	healthBaselines := make(map[string]stacks.MaintenanceHealthBaseline)
+	states := make(map[string]*stackUpdateState)
+	// Once deployment begins a cancellation or persistence error can leave
+	// changed containers. Keep the saved images for operator recovery then.
+	defer func() {
+		for _, state := range states {
+			if state.prepared && !state.deployBegan {
+				finishCtx, finishCancel := jobFinalizationContext()
+				s.releaseRollback(finishCtx, job, nil, state)
+				finishCancel()
+			}
+		}
+	}()
 
 	for index := range workflow {
 		step := workflow[index]
+		state := states[step.TargetStackID]
+		if state == nil {
+			state = &stackUpdateState{pullPending: run.Request.Options.PullImages}
+			states[step.TargetStackID] = state
+		}
 		if reason := updateStepSkipReason(step, failures, blockedStacks); reason != "" {
+			if step.Action == "rollback_images" {
+				s.releaseRollback(ctx, job, workflowStepRef(workflow, index), state)
+			}
 			workflow = markWorkflowState(workflow, index, "skipped")
 			updatedJob, updateErr := s.jobs.UpdateWorkflow(ctx, job, workflow)
 			if updateErr != nil {
@@ -332,8 +361,34 @@ func (s *Service) ExecuteUpdate(ctx context.Context, job store.Job, run UpdateRu
 		}
 
 		step = workflow[index]
-		result, runErr := s.runUpdateWorkflowStepWithRetry(ctx, job, workflow, index, run, healthBaselines)
-		if runErr != nil {
+		result, runErr := s.runUpdateWorkflowStepWithRetry(ctx, job, workflow, index, run, state)
+		if step.Action == "pull" && runErr == nil {
+			state.pullPending = false
+		}
+		if err := s.updateDashboardImageWarnings(ctx, job, step, state, runErr); err != nil {
+			_ = s.jobs.PublishEvent(ctx, job, "job_warning", "Could not refresh dashboard image update warnings.", err.Error(), workflowStepRef(workflow, index))
+		}
+		if step.Action == "backup_before" {
+			workflow[index].BackupRunID = state.backup.RunID
+			workflow[index].BackupDestinationID = state.backup.DestinationID
+			workflow[index].BackupSnapshotID = state.backup.SnapshotID
+		}
+		rollbackUnneeded := step.Action == "rollback_images" && errors.Is(runErr, stacks.ErrMaintenanceRollbackNotApplicable)
+		rollbackSkipped := rollbackUnneeded || (step.Action == "rollback_images" && errors.Is(runErr, stacks.ErrMaintenanceRollbackUncertain))
+		if rollbackSkipped {
+			_ = s.jobs.PublishEvent(ctx, job, "job_warning", "Image rollback skipped.", runErr.Error(), workflowStepRef(workflow, index))
+		}
+		if step.Action == "rollback_images" && (runErr == nil || rollbackUnneeded) {
+			s.releaseRollback(ctx, job, workflowStepRef(workflow, index), state)
+		}
+		if step.Action == "rollback_images" && runErr == nil {
+			for index := range failures {
+				if failures[index].StackID == step.TargetStackID {
+					failures[index].Message += " Previous images restored and verified."
+				}
+			}
+		}
+		if runErr != nil && !rollbackSkipped {
 			if ctx.Err() != nil || errors.Is(runErr, context.Canceled) {
 				finishCtx, finishCancel := jobFinalizationContext()
 				terminalState, errorCode, errorMessage := maintenanceFailure(ctx, "update_stacks_failed", runErr, s.jobCancelRequested(job.ID))
@@ -342,10 +397,11 @@ func (s *Service) ExecuteUpdate(ctx context.Context, job store.Job, run UpdateRu
 				return finishedJob, finishErr
 			}
 
-			summary := summarizeMaintenanceError(result.Output, runErr)
-			if step.Action == "verify_before" || step.Action == "verify_after" {
-				// Health output lists every service. The error identifies the failed checks.
-				summary = truncateRunes(runErr.Error(), maintenanceErrorSummaryLimit)
+			summary := truncateRunes(runErr.Error(), maintenanceErrorSummaryLimit)
+			switch step.Action {
+			case "up", "pull", "build", "prune":
+				// Compose and prune commands report operation details in their output.
+				summary = summarizeMaintenanceError(result.Output, runErr)
 			}
 			failure := updateStepFailure{
 				StackID:  step.TargetStackID,
@@ -356,6 +412,7 @@ func (s *Service) ExecuteUpdate(ctx context.Context, job store.Job, run UpdateRu
 			failures = append(failures, failure)
 			if step.TargetStackID != "" {
 				blockedStacks[step.TargetStackID] = failure
+				state.failedStep = step.Action
 			}
 
 			workflow = markWorkflowState(workflow, index, "failed")
@@ -370,24 +427,34 @@ func (s *Service) ExecuteUpdate(ctx context.Context, job store.Job, run UpdateRu
 			continue
 		}
 
-		if step.TargetStackID != "" && updateStepInvalidatesImageUpdates(step.Action) {
+		if step.TargetStackID != "" && !rollbackSkipped && updateStepInvalidatesImageUpdates(step.Action) {
 			if err := s.stackReader.InvalidateImageUpdateStatus(ctx, step.TargetStackID, step.TargetServiceNames); err != nil && s.logger != nil {
 				s.logger.Warn("invalidate image update status failed", slog.String("stack_id", step.TargetStackID), slog.String("job_id", job.ID), slog.String("err", err.Error()))
 			}
 		}
-		if step.Action == "up" && step.TargetStackID != "" && step.TargetServiceNames == nil {
+		deploymentAccepted := step.Action == "up" && !state.prepared || step.Action == "verify_after" && state.prepared
+		if deploymentAccepted && step.TargetStackID != "" && step.TargetServiceNames == nil {
 			if baselineErr := s.stackReader.RecordDeployBaseline(ctx, step.TargetStackID, job.ID, time.Now().UTC()); baselineErr != nil && s.logger != nil {
 				s.logger.Warn("record deploy baseline failed", slog.String("stack_id", step.TargetStackID), slog.String("job_id", job.ID), slog.String("err", baselineErr.Error()))
 			}
 		}
 
+		stepMessage := updateStepMessage("Finished", step)
 		workflow = markWorkflowSucceeded(workflow, index)
+		switch {
+		case rollbackSkipped:
+			workflow = markWorkflowState(workflow, index, "skipped")
+			stepMessage = "Image rollback skipped: " + runErr.Error()
+		case step.Action == "prepare_rollback" && !state.images.Eligible():
+			workflow = markWorkflowState(workflow, index, "skipped")
+			stepMessage = "No previous images were eligible for automatic rollback."
+		}
 		updatedJob, updateErr := s.jobs.UpdateWorkflow(ctx, job, workflow)
 		if updateErr != nil {
 			return s.finishUpdateExecutionError(ctx, job, workflow, index, updateErr, run)
 		}
 		job = updatedJob
-		_ = s.jobs.PublishEvent(ctx, job, "job_step_finished", updateStepMessage("Finished", step), "", workflowStepRef(workflow, index))
+		_ = s.jobs.PublishEvent(ctx, job, "job_step_finished", stepMessage, "", workflowStepRef(workflow, index))
 	}
 
 	finishCtx, finishCancel := jobFinalizationContext()
@@ -660,25 +727,59 @@ func (s *Service) buildUpdateWorkflow(ctx context.Context, stackIDs []string, se
 	return steps, nil
 }
 
-func (s *Service) runUpdateWorkflowStep(ctx context.Context, job store.Job, step store.JobWorkflowStep, stepRef *store.JobEventStep, run UpdateRun, healthBaselines map[string]stacks.MaintenanceHealthBaseline) (string, error) {
+func (s *Service) runUpdateWorkflowStep(ctx context.Context, job store.Job, step store.JobWorkflowStep, stepRef *store.JobEventStep, run UpdateRun, state *stackUpdateState) (string, error) {
 	switch step.Action {
 	case "verify_before":
 		baseline, output, err := s.stackReader.CaptureMaintenanceHealth(ctx, step.TargetStackID, step.TargetServiceNames)
 		if err == nil {
-			healthBaselines[step.TargetStackID] = baseline
+			state.health, state.hasBaseline = baseline, true
 		}
 		return output, err
 	case "verify_after":
-		baseline, ok := healthBaselines[step.TargetStackID]
-		if !ok {
+		if !state.hasBaseline {
 			return "", errors.New("missing pre-update health observations")
 		}
-		report, err := s.stackReader.VerifyMaintenanceHealth(ctx, step.TargetStackID, step.TargetServiceNames, baseline)
+		report, err := s.stackReader.VerifyMaintenanceHealth(ctx, step.TargetStackID, step.TargetServiceNames, state.health)
+		state.after = report
 		if err == nil && len(report.UnverifiedServices) > 0 {
 			message := fmt.Sprintf("Readiness unverified for %s in %s. At least one container is running without a healthcheck.", strings.Join(report.UnverifiedServices, ", "), step.TargetStackID)
 			_ = s.jobs.PublishEvent(ctx, job, "job_warning", message, "", stepRef)
 		}
 		return report.Summary, err
+	case "backup_before":
+		if s.backups == nil {
+			return "", errors.New("required pre-update backup is unavailable")
+		}
+		result, err := s.backups.CreateUpdateBackup(ctx, job, step.TargetStackID, step.BackupPlanID, step.BackupSourceIDs, step.BackupPlanFingerprint)
+		state.backup = result
+		if err != nil {
+			return "", err
+		}
+		if result.RunID == "" || result.DestinationID == "" || result.SnapshotID == "" {
+			return "", errors.New("required pre-update backup has no verified snapshot reference")
+		}
+		return fmt.Sprintf("Verified backup %s, destination %s, snapshot %s.", result.RunID, result.DestinationID, result.SnapshotID), nil
+	case "prepare_rollback":
+		if !state.hasBaseline {
+			return "", errors.New("missing pre-update health observations for image rollback")
+		}
+		images, summary, err := s.stackReader.PrepareMaintenanceRollback(ctx, job.ID, state.health)
+		if err == nil {
+			state.images, state.prepared = images, true
+			if images.Warning != "" {
+				_ = s.jobs.PublishEvent(ctx, job, "job_warning", "Some services are ineligible for automatic image rollback.", images.Warning, stepRef)
+			}
+		}
+		return summary, err
+	case "rollback_images":
+		if !state.prepared {
+			return "", errors.New("missing prepared images for rollback")
+		}
+		recovery, err := s.stackReader.RollbackMaintenanceImages(ctx, state.images, state.after, state.failedStep == "up")
+		state.recovery = recovery
+		return recovery.Summary, err
+	case "up":
+		state.deployBegan = true
 	case "prune":
 		return s.maintenance.RunSystemPrune(ctx, run.Request.Options.IncludeVolumes, run.ManagedStackIDs)
 	case "skip":
@@ -693,7 +794,7 @@ func (s *Service) runUpdateWorkflowStep(ctx context.Context, job store.Job, step
 	}, onProgress)
 }
 
-func (s *Service) runUpdateWorkflowStepWithRetry(ctx context.Context, job store.Job, workflow []store.JobWorkflowStep, index int, run UpdateRun, healthBaselines map[string]stacks.MaintenanceHealthBaseline) (updateStepResult, error) {
+func (s *Service) runUpdateWorkflowStepWithRetry(ctx context.Context, job store.Job, workflow []store.JobWorkflowStep, index int, run UpdateRun, state *stackUpdateState) (updateStepResult, error) {
 	step := workflow[index]
 	delays := []time.Duration(nil)
 	if step.Action == "pull" || step.Action == "build" {
@@ -704,7 +805,7 @@ func (s *Service) runUpdateWorkflowStepWithRetry(ctx context.Context, job store.
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		result.Attempts = attempt
-		output, runErr := s.runUpdateWorkflowStep(ctx, job, step, workflowStepRef(workflow, index), run, healthBaselines)
+		output, runErr := s.runUpdateWorkflowStep(ctx, job, step, workflowStepRef(workflow, index), run, state)
 		result.Output = output
 		if trimmed := strings.TrimSpace(output); trimmed != "" {
 			message := updateStepMessage("Output", step)
@@ -750,6 +851,13 @@ func (s *Service) runUpdateWorkflowStepWithRetry(ctx context.Context, job store.
 func updateStepSkipReason(step store.JobWorkflowStep, failures []updateStepFailure, blockedStacks map[string]updateStepFailure) string {
 	if step.Action == "prune" && len(failures) > 0 {
 		return "Skipped prune because one or more stack updates failed."
+	}
+	if step.Action == "rollback_images" {
+		failure := blockedStacks[step.TargetStackID]
+		if failure.Action == "verify_after" || failure.Action == "up" {
+			return ""
+		}
+		return "Skipped image rollback because no deployment failure requires recovery."
 	}
 	if failure, ok := blockedStacks[step.TargetStackID]; ok && step.TargetStackID != "" {
 		return fmt.Sprintf("Skipped %s for %s because %s failed.", strings.ToLower(maintenanceActionLabel(step.Action)), step.TargetStackID, strings.ToLower(maintenanceActionLabel(failure.Action)))
@@ -974,6 +1082,12 @@ func pruneStepMessage(prefix string, step store.JobWorkflowStep) string {
 
 func maintenanceActionLabel(action string) string {
 	switch action {
+	case "backup_before":
+		return "Pre-update backup"
+	case "prepare_rollback":
+		return "Save previous images"
+	case "rollback_images":
+		return "Restore and verify previous images"
 	case "verify_before":
 		return "Pre-update health check"
 	case "verify_after":
@@ -1004,7 +1118,7 @@ func maintenanceActionLabel(action string) string {
 }
 
 func updateStepInvalidatesImageUpdates(action string) bool {
-	return action == "pull" || action == "build"
+	return action == "pull" || action == "build" || action == "rollback_images"
 }
 
 func buildPruneWorkflow(scope maintenance.PruneScope) []store.JobWorkflowStep {

@@ -10,7 +10,7 @@ import (
 
 var ErrSchemaTooNew = errors.New("sqlite schema is newer than this Stacklab version")
 
-const currentSchemaVersion = 5
+const currentSchemaVersion = 6
 
 type schemaMigration struct {
 	version int
@@ -24,6 +24,7 @@ var schemaMigrations = []schemaMigration{
 	{version: 3, name: "password_version", up: migratePasswordVersion},
 	{version: 4, name: "job_event_sequence", up: migrateJobEventSequence},
 	{version: 5, name: "job_request_id", up: migrateJobRequestID},
+	{version: 6, name: "image_update_warnings", up: migrateImageUpdateWarnings},
 }
 
 func (s *Store) runMigrations(ctx context.Context) error {
@@ -274,6 +275,24 @@ func migrateJobEventSequence(ctx context.Context, tx *sql.Tx) error {
 
 func migrateJobRequestID(ctx context.Context, tx *sql.Tx) error {
 	return addColumnIfMissing(ctx, tx, "jobs", "request_id", `ALTER TABLE jobs ADD COLUMN request_id TEXT`)
+}
+
+func migrateImageUpdateWarnings(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, `CREATE TABLE image_update_warnings (
+		stack_id TEXT NOT NULL,
+		project_name TEXT NOT NULL,
+		service_name TEXT NOT NULL,
+		image_ref TEXT NOT NULL,
+		definition_fingerprint TEXT NOT NULL,
+		previous_image_ids TEXT NOT NULL,
+		candidate_image_id TEXT NOT NULL,
+		candidate_remote_digest TEXT NOT NULL,
+		outcome TEXT NOT NULL CHECK (outcome IN ('rolled_back', 'not_applied')),
+		job_id TEXT NOT NULL,
+		attempted_at TEXT NOT NULL,
+		PRIMARY KEY (stack_id, service_name)
+	)`)
+	return err
 }
 
 func addColumnIfMissing(ctx context.Context, tx *sql.Tx, table, column, alterStatement string) error {

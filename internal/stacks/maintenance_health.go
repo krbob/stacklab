@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
@@ -26,6 +27,7 @@ const (
 type MaintenanceHealthBaseline struct {
 	stackID      string
 	project      string
+	configDigest string
 	serviceNames []string
 	targets      map[string]maintenanceHealthTarget
 	before       map[string]maintenanceServiceHealth
@@ -36,23 +38,36 @@ type MaintenanceHealthBaseline struct {
 type MaintenanceHealthReport struct {
 	Summary            string
 	UnverifiedServices []string
+	FailedServices     []string
+	verified           map[string]maintenanceServiceHealth
 }
 
 type maintenanceHealthTarget struct {
-	replicas           int
-	explicitScale      bool
-	requiresNative     bool
-	completionExpected bool
-	httpCheck          *maintenanceHTTPCheck
+	image               string
+	replicas            int
+	explicitScale       bool
+	requiresNative      bool
+	completionExpected  bool
+	httpCheck           *maintenanceHTTPCheck
+	externalDefinitions bool
+	namedVolumes        map[string]string
+	networks            []string
 }
 
 type maintenanceServiceHealth struct {
-	summary    string
-	ready      bool
-	unverified bool
-	native     int
-	instances  int
-	identity   string
+	summary         string
+	ready           bool
+	unverified      bool
+	regression      bool
+	imageID         string
+	runningImageIDs []string
+	configHash      string
+	resourceDrift   bool
+	imageRef        string
+	containerCount  int
+	native          int
+	instances       int
+	identity        string
 }
 
 func (s *ServiceReader) CaptureMaintenanceHealth(ctx context.Context, stackID string, serviceNames []string) (MaintenanceHealthBaseline, string, error) {
@@ -62,7 +77,31 @@ func (s *ServiceReader) CaptureMaintenanceHealth(ctx context.Context, stackID st
 	if err := s.validateStackRoot(stackID, false); err != nil {
 		return baseline, "", err
 	}
-	paths := stackPaths(s.cfg.RootDir, stackID)
+	resolved, err := s.maintenanceHealthConfig(ctx, stackID, serviceNames)
+	if err != nil {
+		return baseline, "", err
+	}
+	project, targets, err := parseMaintenanceHealthTargets(resolved, serviceNames)
+	if err != nil {
+		return baseline, "", err
+	}
+	if project == "" {
+		project = stackID
+	}
+	before, err := observeMaintenanceHealth(ctx, project, targets, nil)
+	if err != nil {
+		return baseline, "", err
+	}
+	baseline = MaintenanceHealthBaseline{stackID: stackID, project: project, configDigest: contentSHA256(string(resolved)), serviceNames: slices.Clone(serviceNames), targets: targets, before: before}
+	return baseline, "Before deployment: " + describeMaintenanceHealth(before), nil
+}
+
+func (s *ServiceReader) maintenanceHealthConfig(ctx context.Context, stackID string, serviceNames []string) ([]byte, error) {
+	root, err := filepath.Abs(s.cfg.RootDir)
+	if err != nil {
+		return nil, err
+	}
+	paths := stackPaths(root, stackID)
 	command, args := composeCommand(ctx, paths.RootPath, paths.ComposeFilePath, paths.EnvFilePath)
 	if len(serviceNames) > 0 {
 		// Explicitly selected services can activate profiles in Compose up.
@@ -74,31 +113,30 @@ func (s *ServiceReader) CaptureMaintenanceHealth(ctx context.Context, stackID st
 	output := limitedio.NewBuffer(MaxComposeOutputBytes)
 	cmd.Stdout = output
 	if err := cmd.Run(); err != nil || output.Err() != nil {
-		return baseline, "", errors.New("could not resolve maintenance health targets from Compose")
+		return nil, errors.New("could not resolve maintenance health targets from Compose")
 	}
-	project, targets, err := parseMaintenanceHealthTargets(output.Bytes(), serviceNames)
-	if err != nil {
-		return baseline, "", err
-	}
-	if project == "" {
-		project = stackID
-	}
-	before, err := observeMaintenanceHealth(ctx, project, targets, nil)
-	if err != nil {
-		return baseline, "", err
-	}
-	baseline = MaintenanceHealthBaseline{stackID: stackID, project: project, serviceNames: slices.Clone(serviceNames), targets: targets, before: before}
-	return baseline, "Before deployment: " + describeMaintenanceHealth(before), nil
+	return output.Bytes(), nil
 }
 
 func parseMaintenanceHealthTargets(content []byte, names []string) (string, map[string]maintenanceHealthTarget, error) {
 	var config struct {
-		Name     string `yaml:"name"`
+		Name    string `yaml:"name"`
+		Volumes map[string]struct {
+			Name string `yaml:"name"`
+		} `yaml:"volumes"`
+		Networks map[string]struct {
+			Name string `yaml:"name"`
+		} `yaml:"networks"`
 		Services map[string]struct {
-			Scale  *int `yaml:"scale"`
+			Image  string `yaml:"image"`
+			Scale  *int   `yaml:"scale"`
 			Deploy struct {
 				Replicas *int `yaml:"replicas"`
 			} `yaml:"deploy"`
+			Volumes     []any             `yaml:"volumes"`
+			Networks    any               `yaml:"networks"`
+			Configs     []any             `yaml:"configs"`
+			Secrets     []any             `yaml:"secrets"`
 			DependsOn   any               `yaml:"depends_on"`
 			Labels      map[string]string `yaml:"labels"`
 			Healthcheck struct {
@@ -138,13 +176,38 @@ func parseMaintenanceHealthTargets(content []byte, names []string) (string, map[
 			return "", nil, fmt.Errorf("%s: %w", name, err)
 		}
 		healthTest := service.Healthcheck.Test
-		targets[name] = maintenanceHealthTarget{
-			replicas:           replicas,
-			explicitScale:      service.Deploy.Replicas != nil || service.Scale != nil,
-			requiresNative:     !service.Healthcheck.Disable && len(healthTest) > 0 && healthTest[0] != "NONE",
-			completionExpected: completion[name],
-			httpCheck:          check,
+		target := maintenanceHealthTarget{
+			image:               service.Image,
+			replicas:            replicas,
+			explicitScale:       service.Deploy.Replicas != nil || service.Scale != nil,
+			requiresNative:      !service.Healthcheck.Disable && len(healthTest) > 0 && healthTest[0] != "NONE",
+			completionExpected:  completion[name],
+			httpCheck:           check,
+			externalDefinitions: len(service.Configs) > 0 || len(service.Secrets) > 0,
 		}
+		// Service hashes contain logical resource references. Check project-level
+		// Docker names separately; a renamed volume could select different data.
+		for _, mount := range service.Volumes {
+			fields, _ := mount.(map[string]any)
+			if fields["type"] != "volume" {
+				continue
+			}
+			src, _ := fields["source"].(string)
+			dst, _ := fields["target"].(string)
+			if src != "" && dst != "" && config.Volumes[src].Name != "" {
+				if target.namedVolumes == nil {
+					target.namedVolumes = map[string]string{}
+				}
+				target.namedVolumes[dst] = config.Volumes[src].Name
+			}
+		}
+		networks, _ := service.Networks.(map[string]any)
+		for key := range networks {
+			if n := config.Networks[key].Name; n != "" {
+				target.networks = append(target.networks, n)
+			}
+		}
+		targets[name] = target
 	}
 	for _, name := range names {
 		if _, found := targets[name]; !found {
@@ -186,11 +249,15 @@ func waitForMaintenanceHealth(ctx context.Context, baseline MaintenanceHealthBas
 						report.UnverifiedServices = append(report.UnverifiedServices, name)
 					}
 					last, found := previous[name]
+					if found && last.regression && health.regression {
+						report.FailedServices = append(report.FailedServices, name)
+					}
 					if !found || !last.ready || !health.ready || health.identity != last.identity {
 						stable = false
 					}
 				}
 				if stable {
+					report.verified = current
 					sort.Strings(report.UnverifiedServices)
 					return report, nil
 				}
@@ -227,6 +294,23 @@ func waitForMaintenanceHealth(ctx context.Context, baseline MaintenanceHealthBas
 }
 
 func observeMaintenanceHealth(ctx context.Context, project string, targets map[string]maintenanceHealthTarget, before map[string]maintenanceServiceHealth) (map[string]maintenanceServiceHealth, error) {
+	byService, err := inspectMaintenanceTargets(ctx, project, targets)
+	if err != nil {
+		return nil, err
+	}
+	httpResults := sampleMaintenanceHTTP(ctx, targets, byService)
+	result := make(map[string]maintenanceServiceHealth, len(targets))
+	for name, target := range targets {
+		prior := before[name]
+		result[name] = assessMaintenanceService(target, byService[name], prior, httpResults)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func inspectMaintenanceTargets(ctx context.Context, project string, targets map[string]maintenanceHealthTarget) (map[string][]dockerInspectContainer, error) {
 	ps := exec.CommandContext(ctx, "docker", "ps", "-a", "--filter", "label=com.docker.compose.project="+project, "--format", `{{.ID}} {{.Label "com.docker.compose.service"}} {{.Label "com.docker.compose.oneoff"}}`)
 	output, err := ps.Output()
 	if err != nil {
@@ -260,21 +344,13 @@ func observeMaintenanceHealth(ctx context.Context, project string, targets map[s
 			}
 		}
 	}
-	httpResults := sampleMaintenanceHTTP(ctx, targets, byService)
-	result := make(map[string]maintenanceServiceHealth, len(targets))
-	for name, target := range targets {
-		prior := before[name]
-		result[name] = assessMaintenanceService(target, byService[name], prior, httpResults)
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	return result, nil
+	return byService, nil
 }
 
 type maintenanceHTTPResult struct {
-	note  string
-	ready bool
+	note       string
+	ready      bool
+	regression bool
 }
 
 // Limit simultaneous requests across replicas and services on a stack.
@@ -299,9 +375,9 @@ func sampleMaintenanceHTTP(ctx context.Context, targets map[string]maintenanceHe
 			}
 			workers.Go(func() {
 				defer func() { <-limit }()
-				note, ready := target.httpCheck.probe(ctx, c, maintenanceHTTPClient)
+				result := target.httpCheck.probe(ctx, c, maintenanceHTTPClient)
 				mu.Lock()
-				results[c.ID] = maintenanceHTTPResult{note, ready}
+				results[c.ID] = result
 				mu.Unlock()
 			})
 		}
@@ -314,7 +390,12 @@ func assessMaintenanceService(target maintenanceHealthTarget, containers []docke
 	if target.replicas == 0 {
 		return maintenanceServiceHealth{summary: "skipped (scaled to zero)", ready: true}
 	}
-	health := maintenanceServiceHealth{ready: true}
+	health := maintenanceServiceHealth{ready: true, containerCount: len(containers)}
+	if len(containers) > 0 {
+		health.imageID = containers[0].Image
+		health.imageRef = containers[0].Config.Image
+		health.configHash = containers[0].Config.Labels["com.docker.compose.config-hash"]
+	}
 	expected := target.replicas
 	if !target.explicitScale {
 		expected = max(expected, before.instances)
@@ -323,13 +404,43 @@ func assessMaintenanceService(target maintenanceHealthTarget, containers []docke
 	ids := make([]string, 0, len(containers))
 	if len(containers) < expected {
 		health.ready = false
+		health.regression = true
 		notes["missing container"] = expected - len(containers)
 	}
 	for _, c := range containers {
+		for _, name := range target.networks {
+			if _, ok := c.NetworkSettings.Networks[name]; !ok {
+				health.resourceDrift = true
+			}
+		}
+		for destination, name := range target.namedVolumes {
+			present := slices.ContainsFunc(c.Mounts, func(m struct {
+				Type        string
+				Name        string
+				Destination string
+			}) bool {
+				return m.Type == "volume" && m.Name == name && m.Destination == destination
+			})
+			if !present {
+				health.resourceDrift = true
+			}
+		}
+		if c.Config.Labels["com.docker.compose.config-hash"] != health.configHash {
+			health.configHash = ""
+		}
+		if c.Config.Image != health.imageRef {
+			health.imageRef = ""
+		}
+		if c.Image != health.imageID {
+			health.imageID = ""
+		}
 		ids = append(ids, c.ID+"/"+strconv.Itoa(c.RestartCount)+"/"+c.State.StartedAt)
 		hasNative := c.State.Health != nil
 		if hasNative && c.State.Status == "running" {
 			health.native++
+		}
+		if c.State.Status == "running" {
+			health.runningImageIDs = append(health.runningImageIDs, c.Image)
 		}
 		if c.State.Status == "running" || c.State.Status == "restarting" {
 			health.instances++
@@ -342,21 +453,26 @@ func assessMaintenanceService(target maintenanceHealthTarget, containers []docke
 		case target.completionExpected && c.State.Status == "running":
 			note = "waiting for one-shot completion"
 		case c.State.Status == "exited":
+			health.regression = true
 			note = fmt.Sprintf("exited (%d)", c.State.ExitCode)
 		case c.State.Status != "running":
+			health.regression = health.regression || c.State.Status == "restarting" || c.State.Status == "dead"
 			note = "container " + normalizeContainerStatus(c.State.Status)
 		case hasNative && c.State.Health.Status != "healthy":
 			switch c.State.Health.Status {
 			case "starting", "unhealthy":
+				health.regression = health.regression || c.State.Health.Status == "unhealthy"
 				note = c.State.Health.Status
 			default:
 				note = "unknown Docker health status"
 			}
 		case !hasNative && target.requiresNative:
+			health.regression = true
 			note = "configured Docker healthcheck missing"
 		case target.httpCheck != nil:
 			if result, found := httpResults[c.ID]; found {
 				note, ready = result.note, result.ready
+				health.regression = health.regression || result.regression
 			} else {
 				note = "HTTP readiness unavailable"
 			}
@@ -371,6 +487,7 @@ func assessMaintenanceService(target maintenanceHealthTarget, containers []docke
 	}
 	if missingNative := min(before.native, expected) - health.native; missingNative > 0 && !target.completionExpected {
 		notes["previous Docker healthcheck missing"] = missingNative
+		health.regression = true
 		health.ready = false
 	}
 	parts := make([]string, 0, len(notes))
@@ -379,6 +496,8 @@ func assessMaintenanceService(target maintenanceHealthTarget, containers []docke
 	}
 	sort.Strings(parts)
 	sort.Strings(ids)
+	slices.Sort(health.runningImageIDs)
+	health.runningImageIDs = slices.Compact(health.runningImageIDs)
 	health.identity = strings.Join(ids, ",")
 	health.summary = strings.Join(parts, ", ")
 	if before.summary != "" && !before.ready {

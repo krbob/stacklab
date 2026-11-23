@@ -383,6 +383,15 @@ export interface paths {
       };
     };
   };
+  "/stacks/{stackId}/update-protection": {
+    get: operations["getStackUpdateProtection"];
+    put: operations["setStackUpdateProtection"];
+    parameters: {
+      path: {
+        stackId: components["parameters"]["StackId"];
+      };
+    };
+  };
   "/stacks/{stackId}/workspace/file": {
     get: operations["getStackWorkspaceFile"];
     put: operations["saveStackWorkspaceFile"];
@@ -631,6 +640,8 @@ export interface components {
       verified_at?: string;
     };
     BackupCoverageResponse: {
+      /** @description Repositories assigned to the plans in this stack coverage response. */
+      destinations?: components["schemas"]["BackupDestination"][];
       plans: components["schemas"]["BackupPlan"][];
       sources: components["schemas"]["BackupSource"][];
     };
@@ -866,6 +877,8 @@ export interface components {
        * @default 300
        */
       stop_timeout_seconds: number;
+      /** @description Review identity for a plan eligible for pre-update backups. */
+      update_backup_fingerprint?: string;
     };
     BackupPlanProtection: {
       /**
@@ -1850,6 +1863,12 @@ export interface components {
       workflow?: {
         steps: {
             action: string;
+            backup_destination_id?: string;
+            backup_plan_fingerprint?: string;
+            backup_plan_id?: string;
+            backup_run_id?: string;
+            backup_snapshot_id?: string;
+            backup_source_ids?: string[];
             state: components["schemas"]["WorkflowStepState"];
             target_service_names?: string[];
             target_stack_id?: string;
@@ -2283,6 +2302,16 @@ export interface components {
       requests_in_flight: number;
       requests_total: number;
     };
+    ServiceImageUpdateWarning: {
+      /** Format: date-time */
+      attempted_at: string;
+      container_names: [string, ...string[]];
+      /** @description Maintenance job with details of the attempt, while retained in job history. */
+      job_id?: string;
+      /** @enum {string} */
+      outcome: "rolled_back" | "not_applied";
+      service_name: string;
+    };
     ServiceJobMetrics: {
       active: number;
       completed_total: number;
@@ -2464,6 +2493,8 @@ export interface components {
         running: number;
       };
       stats: components["schemas"]["StackStats"];
+      /** @description Services with running containers still on the previous image after a maintenance update attempt. */
+      update_warnings?: components["schemas"]["ServiceImageUpdateWarning"][];
       updates: components["schemas"]["StackUpdates"];
     };
     StackListResponse: {
@@ -2608,6 +2639,18 @@ export interface components {
     UpdatePasswordResponse: {
       reauthentication_required: boolean;
       updated: boolean;
+    };
+    UpdateProtectionPolicy: {
+      /** @description Attempt image recovery after a failed maintenance deployment. */
+      auto_rollback: boolean;
+      /** @description The update_backup_fingerprint of the plan reviewed by the operator. */
+      backup_plan_fingerprint?: string;
+      /** @description Enabled backup plan dedicated to this stack. */
+      backup_plan_id?: string;
+      /** @description Complete set of approved source IDs from the selected plan. */
+      backup_source_ids?: string[];
+      /** @description Opaque revision returned on each read or successful write. Supply the last observed revision on PUT to reject concurrent edits with HTTP 409. */
+      revision?: string;
     };
     VolumeMount: {
       source: string;
@@ -5416,6 +5459,50 @@ export interface operations {
       404: components["responses"]["ErrorNotFound"];
       409: components["responses"]["ErrorInvalidState"];
       413: components["responses"]["ErrorContentTooLarge"];
+    };
+  };
+  getStackUpdateProtection: {
+    parameters: {
+      path: {
+        stackId: components["parameters"]["StackId"];
+      };
+    };
+    responses: {
+      /** @description Protection applied to future maintenance updates of this stack. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["UpdateProtectionPolicy"];
+        };
+      };
+      401: components["responses"]["ErrorUnauthorized"];
+      404: components["responses"]["ErrorNotFound"];
+      500: components["responses"]["ErrorInternal"];
+    };
+  };
+  setStackUpdateProtection: {
+    parameters: {
+      path: {
+        stackId: components["parameters"]["StackId"];
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["UpdateProtectionPolicy"];
+      };
+    };
+    responses: {
+      /** @description Saved protection settings. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["UpdateProtectionPolicy"];
+        };
+      };
+      400: components["responses"]["ErrorValidationFailed"];
+      401: components["responses"]["ErrorUnauthorized"];
+      403: components["responses"]["ErrorInvalidState"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorConflict"];
+      500: components["responses"]["ErrorInternal"];
     };
   };
   getStackWorkspaceFile: {

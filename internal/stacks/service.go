@@ -276,7 +276,15 @@ func (s *ServiceReader) Meta(ctx context.Context) MetaResponse {
 }
 
 func (s *ServiceReader) List(ctx context.Context, query ListQuery) (StackListResponse, error) {
-	allStacks, err := s.readStacks(ctx)
+	var warningsByStack map[string][]store.ImageUpdateWarning
+	var err error
+	if s.store != nil {
+		warningsByStack, err = s.store.ListImageWarnings(ctx)
+		if err != nil {
+			return StackListResponse{}, err
+		}
+	}
+	allStacks, err := s.readStacksWithWarnings(ctx, warningsByStack)
 	if err != nil {
 		return StackListResponse{}, err
 	}
@@ -304,11 +312,12 @@ func (s *ServiceReader) List(ctx context.Context, query ListQuery) (StackListRes
 		}
 
 		items = append(items, StackListItem{
-			StackHeader:  stack.header(),
-			ServiceCount: ServiceCount{Defined: len(stack.Services), Running: stack.runningServiceCount()},
-			LastAction:   nil,
-			Stats:        stackStats,
-			Updates:      rollupUpdates(stack.Services, updateStatusByImage),
+			StackHeader:    stack.header(),
+			ServiceCount:   ServiceCount{Defined: len(stack.Services), Running: stack.runningServiceCount()},
+			LastAction:     nil,
+			Stats:          stackStats,
+			Updates:        rollupUpdates(stack.Services, updateStatusByImage),
+			UpdateWarnings: stack.updateWarnings,
 		})
 
 		summary.StackCount++
@@ -710,6 +719,8 @@ func (s *ServiceReader) RemoveRuntime(ctx context.Context, stackID string) error
 }
 
 func (s *ServiceReader) RemoveDefinition(ctx context.Context, stackID string) error {
+	s.definitionWriteMu.Lock()
+	defer s.definitionWriteMu.Unlock()
 	if err := s.validateStackRoot(stackID, true); err != nil {
 		return err
 	}
@@ -724,7 +735,7 @@ func (s *ServiceReader) RemoveDefinition(ctx context.Context, stackID string) er
 		return fmt.Errorf("remove stack root: %w", err)
 	}
 	if s.store != nil {
-		if err := s.store.DeleteStackDeployBaseline(ctx, stackID); err != nil {
+		if err := s.store.RemoveStackDefinitionState(ctx, stackID); err != nil {
 			return err
 		}
 	}
@@ -957,6 +968,7 @@ func (s *ServiceReader) findStack(ctx context.Context, stackID string) (discover
 }
 
 type discoveredStack struct {
+	updateWarnings   []ImageUpdateWarning
 	ID               string
 	RootPath         string
 	ComposeFilePath  string
@@ -977,6 +989,7 @@ type discoveredStack struct {
 }
 
 type definitionSnapshot struct {
+	ProjectName   string
 	Services      []Service
 	Metadata      *StackMetadata
 	ConfigState   ConfigState
@@ -994,7 +1007,12 @@ type dockerInspectContainer struct {
 	Name         string `json:"Name"`
 	Image        string `json:"Image"`
 	RestartCount int    `json:"RestartCount"`
-	HostConfig   struct {
+	Mounts       []struct {
+		Type        string
+		Name        string
+		Destination string
+	} `json:"Mounts"`
+	HostConfig struct {
 		NetworkMode string `json:"NetworkMode"`
 	} `json:"HostConfig"`
 	Config struct {
@@ -1023,6 +1041,10 @@ type dockerPortBinding struct {
 }
 
 func (s *ServiceReader) readStacks(ctx context.Context) ([]discoveredStack, error) {
+	return s.readStacksWithWarnings(ctx, nil)
+}
+
+func (s *ServiceReader) readStacksWithWarnings(ctx context.Context, warnings map[string][]store.ImageUpdateWarning) ([]discoveredStack, error) {
 	definedStacks, err := s.scanDefinitions()
 	if err != nil {
 		return nil, err
@@ -1041,7 +1063,9 @@ func (s *ServiceReader) readStacks(ctx context.Context) ([]discoveredStack, erro
 		ids[id] = struct{}{}
 	}
 	for id := range runtimeStacks {
-		ids[id] = struct{}{}
+		if IsValidStackID(id) {
+			ids[id] = struct{}{}
+		}
 	}
 
 	stacks := make([]discoveredStack, 0, len(ids))
@@ -1066,6 +1090,7 @@ func (s *ServiceReader) readStacks(ctx context.Context) ([]discoveredStack, erro
 		}
 
 		if definition, ok := definedStacks[id]; ok {
+			stack.updateWarnings = activeImageUpdateWarnings(id, definition, runtimeStacks, warnings[id])
 			stack.DefinitionExists = true
 			stack.Services = append([]Service{}, definition.Services...)
 			stack.Metadata = definition.Metadata
@@ -1229,7 +1254,7 @@ func (s *ServiceReader) scanDefinitions() (map[string]definitionSnapshot, error)
 			s.clearDefinitionWarning(entry.Name(), "env")
 		}
 
-		services, metadata, parseErr := parseComposeServices(stackRoot, content)
+		services, metadata, projectName, parseErr := parseComposeDefinition(stackRoot, content)
 		configState := ConfigStateUnknown
 		if parseErr != nil {
 			s.logDefinitionWarning("failed to parse compose file", entry.Name(), "parse", parseErr)
@@ -1239,6 +1264,7 @@ func (s *ServiceReader) scanDefinitions() (map[string]definitionSnapshot, error)
 		}
 
 		result[entry.Name()] = definitionSnapshot{
+			ProjectName:   projectName,
 			Services:      services,
 			Metadata:      metadata,
 			ConfigState:   configState,
@@ -1303,14 +1329,16 @@ func (s *ServiceReader) scanRuntime(ctx context.Context) map[string][]Container 
 
 	inspected, err := inspectDockerContainers(ctx, ids)
 	if err != nil {
-		s.logger.Warn("failed to inspect docker containers", slog.String("err", err.Error()))
+		if s.logger != nil {
+			s.logger.Warn("failed to inspect docker containers", slog.String("err", err.Error()))
+		}
 		return result
 	}
 
 	for _, inspectedContainer := range inspected {
 		projectID := inspectedContainer.Config.Labels["com.docker.compose.project"]
 		serviceName := inspectedContainer.Config.Labels["com.docker.compose.service"]
-		if !IsValidStackID(projectID) || serviceName == "" {
+		if projectID == "" || serviceName == "" {
 			continue
 		}
 
@@ -1363,6 +1391,7 @@ func (s *ServiceReader) scanRuntime(ctx context.Context) map[string][]Container 
 		}
 
 		result[projectID] = append(result[projectID], Container{
+			oneOff:       strings.EqualFold(inspectedContainer.Config.Labels["com.docker.compose.oneoff"], "true"),
 			ID:           inspectedContainer.ID,
 			Name:         strings.TrimPrefix(inspectedContainer.Name, "/"),
 			ServiceName:  serviceName,
@@ -1433,6 +1462,7 @@ func normalizeContainerStatus(state string) string {
 }
 
 type composeDefinition struct {
+	Name      string                    `yaml:"name"`
 	Services  map[string]composeService `yaml:"services"`
 	XStacklab *composeXStacklab         `yaml:"x-stacklab"`
 }
@@ -1488,15 +1518,20 @@ type composeService struct {
 }
 
 func parseComposeServices(stackRoot string, content []byte) ([]Service, *StackMetadata, error) {
+	services, metadata, _, err := parseComposeDefinition(stackRoot, content)
+	return services, metadata, err
+}
+
+func parseComposeDefinition(stackRoot string, content []byte) ([]Service, *StackMetadata, string, error) {
 	var doc composeDefinition
 	if err := yaml.Unmarshal(content, &doc); err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 
 	metadata := parseStackMetadata(doc.XStacklab)
 
 	if len(doc.Services) == 0 {
-		return []Service{}, metadata, nil
+		return []Service{}, metadata, doc.Name, nil
 	}
 
 	names := make([]string, 0, len(doc.Services))
@@ -1522,7 +1557,7 @@ func parseComposeServices(stackRoot string, content []byte) ([]Service, *StackMe
 		})
 	}
 
-	return services, metadata, nil
+	return services, metadata, doc.Name, nil
 }
 
 func parseServiceSource(stackRoot, image string, build any) (ServiceMode, *string, *string, *string) {

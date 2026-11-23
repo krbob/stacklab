@@ -419,6 +419,43 @@ func TestCreateListGetSaveAndDeleteStackFilesystemFlow(t *testing.T) {
 	assertMissing(t, filepath.Join(reader.cfg.RootDir, "data", stackID))
 }
 
+func TestRemovingDefinitionClearsUpdateProtectionForRecreatedStack(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	ctx := t.Context()
+	reader := newTestServiceReader(t)
+	db, err := store.Open(filepath.Join(t.TempDir(), "db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	reader.AttachStore(db)
+
+	request := CreateStackRequest{StackID: "demo", ComposeYAML: "services:\n  app:\n    image: busybox\n", CreateConfigDir: true}
+	if err := reader.CreateStack(ctx, request); err != nil {
+		t.Fatal(err)
+	}
+	const enabled = `{"auto_rollback":true,"backup_plan_id":"plan1","backup_source_ids":["src1"]}`
+	key := store.StackUpdateProtectionKey(request.StackID)
+	if err := db.SetAppSetting(ctx, key, enabled, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := reader.DeleteStack(ctx, request.StackID, DeleteStackRequest{RemoveConfig: true}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _, err := db.AppSetting(ctx, key); err != nil || got != enabled {
+		t.Fatalf("config-only deletion changed protection: %q %v", got, err)
+	}
+	if err := reader.DeleteStack(ctx, request.StackID, DeleteStackRequest{RemoveDefinition: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reader.CreateStack(ctx, request); err != nil {
+		t.Fatal(err)
+	}
+	if got, _, err := db.AppSetting(ctx, key); err != nil || got != `{"auto_rollback":false}` {
+		t.Fatalf("recreated stack inherited protection: %q %v", got, err)
+	}
+}
+
 func TestNewServiceReaderSecuresExistingStackEnvironmentFiles(t *testing.T) {
 	t.Parallel()
 
