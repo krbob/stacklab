@@ -5,6 +5,7 @@ import { useApi } from '@/hooks/use-api'
 import { useJobDrawer } from '@/hooks/use-job-drawer'
 import { AsyncState } from '@/components/async-state'
 import { Drawer } from '@/components/drawer'
+import { RemovalRecovery } from '@/components/removal-recovery'
 import { StepCards } from '@/components/step-cards'
 import type { JobHistoryEvent } from '@/lib/api-types'
 import type { JobEvent } from '@/lib/ws-types'
@@ -52,7 +53,7 @@ export function JobDetailDrawer() {
 }
 
 function JobDetailDrawerContent({ jobId }: { jobId: string }) {
-  const { closeJob } = useJobDrawer()
+  const { closeJob, openJob } = useJobDrawer()
   const titleId = useId()
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const [canceling, setCanceling] = useState(false)
@@ -215,6 +216,10 @@ function JobDetailDrawerContent({ jobId }: { jobId: string }) {
                 </div>
               )}
             </AsyncState>
+
+            {job && jobData?.removal_recovery && (
+              <RemovalRecovery jobId={job.id} recovery={jobData.removal_recovery} onStarted={openJob} />
+            )}
 
             <AsyncState
               loading={eventsLoading}

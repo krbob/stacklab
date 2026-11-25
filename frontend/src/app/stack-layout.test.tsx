@@ -76,6 +76,18 @@ describe('StackLayout page metadata', () => {
     expect(document.title).toBe('Overview — Demo stack (demo) | Stacklab')
   })
 
+  it('replaces a cached stack with recovery navigation after a confirmed 404', async () => {
+    mockGetStack.mockResolvedValueOnce(stackResponse('demo', 'Demo stack'))
+      .mockRejectedValueOnce(Object.assign(new Error('Stack was not found.'), { status: 404 }))
+
+    renderStackRoute('/stacks/demo')
+    fireEvent.click(await screen.findByRole('button', { name: 'Refresh stack' }))
+    expect(await screen.findByRole('link', { name: 'View job history' })).toHaveAttribute('href', '/audit?q=demo')
+    expect(screen.getByRole('link', { name: 'Back to stacks' })).toHaveAttribute('href', '/stacks')
+    expect(screen.queryByText('Stack child content')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument()
+  })
+
   it('uses a horizontally scrollable mobile tab bar with the current view marked', async () => {
     mockGetStack.mockResolvedValue(stackResponse('demo', 'Demo stack'))
 

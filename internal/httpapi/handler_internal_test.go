@@ -2527,6 +2527,7 @@ func newInternalTestHandler(t *testing.T) (*Handler, http.Handler, config.Config
 			DetachGracePeriod:   time.Minute,
 		}, func(event terminal.LifecycleEvent) {}),
 		stackReader:     stackReader,
+		removalRepair:   workspaceRepairer,
 		imageUpdates:    imageupdates.NewService(logger, testStore),
 		hostInfo:        hostinfo.NewService(cfg, time.Unix(1_712_598_000, 0).UTC()),
 		dockerAdmin:     dockeradmin.NewService(cfg),

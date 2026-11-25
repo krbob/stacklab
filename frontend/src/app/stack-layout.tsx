@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useParams } from 'react-router-dom'
+import { Link, NavLink, Outlet, useParams } from 'react-router-dom'
 
 import { getStack } from '@/lib/api-client'
 import { useApi } from '@/hooks/use-api'
@@ -27,7 +27,8 @@ const tabs: Tab[] = [
 export function StackLayout() {
   const { stackId = '' } = useParams()
   const { data, error, loading, refetch } = useApi(() => getStack(stackId), [stackId])
-  const stack = data?.stack.id === stackId ? data.stack : null
+  const missing = !!error && 'status' in error && error.status === 404
+  const stack = !missing && data?.stack.id === stackId ? data.stack : null
   const loadError = error
     ? new Error(`Failed to load stack: ${error.message}`)
     : data && !stack
@@ -35,6 +36,18 @@ export function StackLayout() {
       : null
 
   useStackPageIdentity(stack ? { id: stack.id, name: stack.name } : null)
+
+  if (missing) {
+    return (
+      <section className="space-y-3 rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5">
+        <h1 className="text-xl font-semibold">Stack {stackId} is no longer available</h1>
+        <div className="flex gap-4 text-sm text-[var(--accent)]">
+          <Link to="/stacks">Back to stacks</Link>
+          <Link to={`/audit?q=${encodeURIComponent(stackId)}`}>View job history</Link>
+        </div>
+      </section>
+    )
+  }
 
   return (
     <section aria-busy={loading} className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-[var(--shadow)]">

@@ -661,6 +661,10 @@ export function changePassword(currentPassword: string, newPassword: string): Pr
   })
 }
 
+export function retryRemoval(jobId: string): Promise<JobEnvelopeResponse> {
+  return request(`/api/jobs/${encodeURIComponent(jobId)}/retry-removal`, { method: 'POST' })
+}
+
 export function cancelJob(jobId: string): Promise<JobEnvelopeResponse> {
   return request(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' })
 }

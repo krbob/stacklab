@@ -688,11 +688,6 @@ func (s *ServiceReader) DeleteStack(ctx context.Context, stackID string, request
 			return err
 		}
 	}
-	if request.RemoveDefinition {
-		if err := s.RemoveDefinition(ctx, stackID); err != nil {
-			return err
-		}
-	}
 	if request.RemoveConfig {
 		if err := s.RemoveConfigDir(stackID); err != nil {
 			return err
@@ -704,6 +699,11 @@ func (s *ServiceReader) DeleteStack(ctx context.Context, stackID string, request
 		}
 	}
 
+	if request.RemoveDefinition {
+		if err := s.RemoveDefinition(ctx, stackID); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -2456,11 +2456,33 @@ func removeFileIfExists(path string) error {
 }
 
 func removeDirIfExists(path string) error {
-	err := os.RemoveAll(path)
-	if err == nil || os.IsNotExist(err) {
+	parent := filepath.Dir(path)
+	info, err := os.Lstat(parent)
+	if os.IsNotExist(err) {
 		return nil
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%w: %s must be a real directory", ErrInvalidState, parent)
+	}
+	root, err := os.OpenRoot(parent)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	pinned, err := root.Stat(".")
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(info, pinned) {
+		return fmt.Errorf("%w: %s changed during removal", ErrInvalidState, parent)
+	}
+	return root.RemoveAll(filepath.Base(path))
 }
 
 func removeDirIfEmpty(path string) error {

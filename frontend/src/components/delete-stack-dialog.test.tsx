@@ -4,13 +4,19 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { DeleteStackDialog } from './delete-stack-dialog'
 
 const mockDeleteStack = vi.fn()
+const mockGetJob = vi.fn()
+const mockRetryRemoval = vi.fn()
 
 vi.mock('@/lib/api-client', () => ({
+  getJob: (...args: unknown[]) => mockGetJob(...args),
+  retryRemoval: (...args: unknown[]) => mockRetryRemoval(...args),
   deleteStack: (...args: unknown[]) => mockDeleteStack(...args),
 }))
 
 vi.mock('@/components/progress-panel', () => ({
-  ProgressPanel: ({ jobId }: { jobId: string }) => <div data-testid="progress">{jobId}</div>,
+  ProgressPanel: ({ jobId, onDone }: { jobId: string; onDone: (state: string) => void }) => (
+    <><div data-testid="progress">{jobId}</div><button onClick={() => onDone('failed')}>Report failure</button></>
+  ),
 }))
 
 function renderDialog(onClose = vi.fn()) {
@@ -24,6 +30,22 @@ function renderDialog(onClose = vi.fn()) {
 describe('DeleteStackDialog', () => {
   beforeEach(() => {
     mockDeleteStack.mockReset()
+  })
+
+  it('offers directory repair inside the failed removal dialog and switches to the retry job', async () => {
+    mockDeleteStack.mockResolvedValue({ job: { id: 'failed' } })
+    mockGetJob.mockResolvedValue({ job: { id: 'failed' }, removal_recovery: { targets: ['data/demo'], capability: { supported: true } } })
+    mockRetryRemoval.mockResolvedValue({ job: { id: 'retry' } })
+    renderDialog()
+    fireEvent.click(screen.getByLabelText(/Delete this stack's data directory/))
+    fireEvent.click(screen.getByTestId('delete-confirm'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Report failure' }))
+    expect(await screen.findByText('data/demo')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Close' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Repair access and retry removal' }))
+    await waitFor(() => expect(screen.getByTestId('progress')).toHaveTextContent('retry'))
+    expect(mockRetryRemoval).toHaveBeenCalledWith('failed')
+    expect(mockDeleteStack).toHaveBeenCalledTimes(1)
   })
 
   it('renders with runtime checkbox checked by default', () => {

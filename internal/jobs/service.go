@@ -401,6 +401,10 @@ func (s *Service) Get(ctx context.Context, id string) (store.Job, error) {
 	return job, nil
 }
 
+func (s *Service) IsLatestStackJob(ctx context.Context, job store.Job, exceptID string) (bool, error) {
+	return s.store.IsLatestStackJob(ctx, job, exceptID)
+}
+
 func (s *Service) Events(ctx context.Context, id string) (EventsResponse, error) {
 	job, err := s.Get(ctx, id)
 	if err != nil {

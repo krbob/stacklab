@@ -84,6 +84,8 @@ Notes:
 - `recreate` applies the current definition with forced container recreation;
   image pulls and builds remain separate actions
 
+When removing a stack, Stacklab removes the selected runtime, configuration and data before deleting the definition. If directory permissions interrupt removal, the job shows the remaining targets. **Repair access and retry removal** uses the configured workspace helper for blocked directories and resumes the pending steps. The global audit log also provides this action for a failed removal whose stack has already disappeared.
+
 ## Job Model
 
 ### Job Identity

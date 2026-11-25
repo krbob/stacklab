@@ -5,6 +5,8 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"stacklab/internal/auth"
 	"stacklab/internal/jobs"
@@ -23,6 +25,7 @@ type stackController struct {
 }
 
 func (c *stackController) registerRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("POST /api/jobs/{jobId}/retry-removal", c.withAuth(c.handleRetryRemoval))
 	mux.HandleFunc("GET /api/stats/stacks", c.withAuth(c.handleStackStats))
 	mux.HandleFunc("GET /api/stacks", c.withAuth(c.handleListStacks))
 	mux.HandleFunc("POST /api/stacks", c.withAuth(c.handleCreateStack))
@@ -444,11 +447,15 @@ func (h *stackController) handleDeleteStack(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	stackID := r.PathValue("stackId")
-	workflow := deleteWorkflowSteps(request)
-	if len(workflow) > 0 {
-		workflow = markWorkflowRunning(workflow, 0)
+	h.startRemoval(w, r, r.PathValue("stackId"), deleteWorkflowSteps(request), nil)
+}
+
+func (h *stackController) startRemoval(w http.ResponseWriter, r *http.Request, stackID string, workflow []store.JobWorkflowStep, previous *store.Job) {
+	first := 0
+	for workflow[first].State == "succeeded" {
+		first++
 	}
+	workflow = markWorkflowRunning(workflow, first)
 	job, err := h.jobs.StartWithWorkflow(r.Context(), stackID, "remove_stack_definition", "local", workflow)
 	if err != nil {
 		switch {
@@ -461,24 +468,22 @@ func (h *stackController) handleDeleteStack(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if len(workflow) > 0 {
-		step := workflowStepRef(workflow, 0)
-		_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", "Starting delete workflow step.", "", step)
-		_ = h.jobs.PublishEventWithProgress(r.Context(), job, "job_progress", "Removing selected stack resources.", "", step, &store.JobProgress{
-			Phase:     workflow[0].Action,
-			Completed: 0,
-			Total:     len(workflow),
-			Unit:      "steps",
-			Detail:    "Starting " + workflow[0].Action + ".",
-		})
-	}
+	step := workflowStepRef(workflow, first)
+	_ = h.jobs.PublishEvent(r.Context(), job, "job_step_started", "Starting delete workflow step.", "", step)
+	_ = h.jobs.PublishEventWithProgress(r.Context(), job, "job_progress", "Removing selected stack resources.", "", step, &store.JobProgress{
+		Phase:     workflow[first].Action,
+		Completed: first,
+		Total:     len(workflow),
+		Unit:      "steps",
+		Detail:    "Starting " + workflow[first].Action + ".",
+	})
 
 	writeJSON(w, http.StatusAccepted, map[string]any{"job": job})
 
 	// The destructive workflow is detached from the request and starts only
 	// after the accepted response has been written. A client or proxy disconnect
 	// must not cancel Docker cleanup halfway through or leave the job running.
-	h.startWorker(func() { h.runDeleteStackJob(job, workflow, stackID, request) })
+	h.startWorker(func() { h.runDeleteStackJob(job, workflow, first, previous) })
 }
 
 func (h *stackController) handlePutDefinition(w http.ResponseWriter, r *http.Request) {
@@ -726,52 +731,36 @@ func deleteWorkflowSteps(request stacks.DeleteStackRequest) []store.JobWorkflowS
 	if request.RemoveRuntime {
 		steps = append(steps, store.JobWorkflowStep{Action: "down", State: "queued"})
 	}
-	if request.RemoveDefinition {
-		steps = append(steps, store.JobWorkflowStep{Action: "remove_stack_definition", State: "queued"})
-	}
 	if request.RemoveConfig {
 		steps = append(steps, store.JobWorkflowStep{Action: "remove_config", State: "queued"})
 	}
 	if request.RemoveData {
 		steps = append(steps, store.JobWorkflowStep{Action: "remove_data", State: "queued"})
 	}
+	if request.RemoveDefinition {
+		steps = append(steps, store.JobWorkflowStep{Action: "remove_stack_definition", State: "queued"})
+	}
 	return steps
 }
 
-func (h *stackController) runDeleteStackJob(job store.Job, workflow []store.JobWorkflowStep, stackID string, request stacks.DeleteStackRequest) {
+func (h *stackController) runDeleteStackJob(job store.Job, workflow []store.JobWorkflowStep, first int, previous *store.Job) {
 	runCtx, cancel := h.stackActionContext()
 	defer cancel()
 	unregisterCancel := h.jobs.RegisterCancel(job.ID, cancel)
 	defer unregisterCancel()
 
-	steps := make([]func(context.Context) error, 0, len(workflow))
-	if request.RemoveRuntime {
-		steps = append(steps, func(ctx context.Context) error {
-			return h.stackReader.RemoveRuntime(ctx, stackID)
-		})
+	if previous != nil {
+		if err := h.validateRemovalRetry(runCtx, *previous, job.ID); err != nil {
+			h.finishDeleteStackFailure(job, workflow, first, runCtx.Err(), err)
+			return
+		}
 	}
-	if request.RemoveDefinition {
-		steps = append(steps, func(ctx context.Context) error {
-			return h.stackReader.RemoveDefinition(ctx, stackID)
-		})
-	}
-	if request.RemoveConfig {
-		steps = append(steps, func(context.Context) error {
-			return h.stackReader.RemoveConfigDir(stackID)
-		})
-	}
-	if request.RemoveData {
-		steps = append(steps, func(context.Context) error {
-			return h.stackReader.RemoveDataDir(stackID)
-		})
-	}
-
-	for index, run := range steps {
+	for index := first; index < len(workflow); index++ {
 		if err := runCtx.Err(); err != nil {
 			h.finishDeleteStackFailure(job, workflow, index, err, err)
 			return
 		}
-		if err := run(runCtx); err != nil {
+		if err := h.runRemovalStep(runCtx, job, workflow[index].Action, previous != nil); err != nil {
 			h.finishDeleteStackFailure(job, workflow, index, runCtx.Err(), err)
 			return
 		}
@@ -812,6 +801,37 @@ func (h *stackController) runDeleteStackJob(job store.Job, workflow []store.JobW
 	}
 }
 
+func (h *stackController) runRemovalStep(ctx context.Context, job store.Job, action string, repair bool) error {
+	stackID := job.StackID
+	var remove func(string) error
+	var scope string
+	switch action {
+	case "down":
+		return h.stackReader.RemoveRuntime(ctx, stackID)
+	case "remove_stack_definition":
+		return h.stackReader.RemoveDefinition(ctx, stackID)
+	case "remove_config":
+		scope, remove = "config", h.stackReader.RemoveConfigDir
+	case "remove_data":
+		scope, remove = "data", h.stackReader.RemoveDataDir
+	default:
+		return stacks.ErrUnsupportedAction
+	}
+	err := remove(stackID)
+	if !repair || !errors.Is(err, os.ErrPermission) {
+		return err
+	}
+	target := filepath.Join(h.cfg.RootDir, scope, stackID)
+	_ = h.jobs.PublishEvent(ctx, job, "job_progress", "Repairing directory access for "+scope+"/"+stackID+".", "", nil)
+	if repairErr := h.removalRepair.RepairRemovalDirectories(ctx, target); repairErr != nil {
+		return errors.Join(err, repairErr)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return remove(stackID)
+}
+
 func (h *stackController) finishDeleteStackFailure(job store.Job, workflow []store.JobWorkflowStep, index int, runContextErr, runErr error) {
 	ctx, cancel := h.jobFinalizationContext()
 	defer cancel()
@@ -820,6 +840,9 @@ func (h *stackController) finishDeleteStackFailure(job store.Job, workflow []sto
 	errorCode := "remove_stack_failed"
 	errorMessage := runErr.Error()
 	stepMessage := "Delete workflow step failed."
+	if errors.Is(runErr, os.ErrPermission) {
+		errorCode = "remove_stack_permission_denied"
+	}
 	if errors.Is(runContextErr, context.DeadlineExceeded) || errors.Is(runErr, context.DeadlineExceeded) {
 		terminalState = "timed_out"
 		errorCode = "remove_stack_timed_out"
@@ -838,9 +861,8 @@ func (h *stackController) finishDeleteStackFailure(job store.Job, workflow []sto
 	} else {
 		h.logger.Warn("update failed delete stack workflow failed", slog.String("job_id", job.ID), slog.String("err", err.Error()))
 	}
-	eventJob := job
-	eventJob.State = terminalState
-	_ = h.jobs.PublishEvent(ctx, eventJob, "job_step_finished", stepMessage, "", workflowStepRef(workflow, index))
+	// The job becomes terminal when its error and recovery state are persisted.
+	_ = h.jobs.PublishEvent(ctx, job, "job_step_finished", stepMessage, "", workflowStepRef(workflow, index))
 
 	finishedJob, err := h.finishTerminalJob(ctx, job, terminalState, errorCode, errorMessage)
 	if err != nil {

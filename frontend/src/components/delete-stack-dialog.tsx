@@ -1,6 +1,8 @@
 import { useCallback, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { deleteStack } from '@/lib/api-client'
+import { useApi } from '@/hooks/use-api'
+import { RemovalRecovery } from '@/components/removal-recovery'
+import { deleteStack, getJob } from '@/lib/api-client'
 import { Dialog } from '@/components/dialog'
 import { ProgressPanel } from '@/components/progress-panel'
 import { OperationReview } from '@/components/operation-review'
@@ -20,10 +22,17 @@ export function DeleteStackDialog({ stackId, stackName, onClose }: DeleteStackDi
   const [deleting, setDeleting] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [failedJobId, setFailedJobId] = useState<string | null>(null)
+  const { data: failedJob, loading: loadingJob, error: loadError, refetch: reloadJob } = useApi(
+    () => getJob(failedJobId!), [failedJobId], { enabled: failedJobId !== null },
+  )
+  const recovery = failedJobId && failedJob?.job.id === failedJobId ? failedJob.removal_recovery : null
+  const scopeLocked = deleting || !!(failedJobId && (loadingJob || recovery))
   const cancelRef = useRef<HTMLButtonElement>(null)
 
   const handleDelete = useCallback(async () => {
     setDeleting(true)
+    setFailedJobId(null)
     setError(null)
     try {
       const result = await deleteStack(stackId, {
@@ -41,6 +50,7 @@ export function DeleteStackDialog({ stackId, stackName, onClose }: DeleteStackDi
 
   const handleJobDone = useCallback((state: string) => {
     setDeleting(false)
+    if (state === 'failed') setFailedJobId(jobId)
     if (state === 'succeeded') {
       if (removeDefinition) {
         navigate('/stacks')
@@ -48,7 +58,7 @@ export function DeleteStackDialog({ stackId, stackName, onClose }: DeleteStackDi
         onClose()
       }
     }
-  }, [navigate, removeDefinition, onClose])
+  }, [jobId, navigate, removeDefinition, onClose])
 
   const reviewScope = [
     removeRuntime && 'runtime containers',
@@ -75,19 +85,19 @@ export function DeleteStackDialog({ stackId, stackName, onClose }: DeleteStackDi
     >
       <div className="mt-4 space-y-3">
         <label className="flex items-center gap-2 text-sm text-[var(--text)]">
-          <input type="checkbox" checked={removeRuntime} onChange={(e) => setRemoveRuntime(e.target.checked)} disabled={deleting} className="rounded" />
+          <input type="checkbox" checked={removeRuntime} onChange={(e) => setRemoveRuntime(e.target.checked)} disabled={scopeLocked} className="rounded" />
           Stop and remove containers (runtime)
         </label>
         <label className="flex items-center gap-2 text-sm text-[var(--text)]">
-          <input type="checkbox" checked={removeDefinition} onChange={(e) => setRemoveDefinition(e.target.checked)} disabled={deleting} className="rounded" />
+          <input type="checkbox" checked={removeDefinition} onChange={(e) => setRemoveDefinition(e.target.checked)} disabled={scopeLocked} className="rounded" />
           Delete stack definition (compose.yaml, .env)
         </label>
         <label className="flex items-center gap-2 text-sm text-[var(--text)]">
-          <input type="checkbox" checked={removeConfig} onChange={(e) => setRemoveConfig(e.target.checked)} disabled={deleting} className="rounded" />
+          <input type="checkbox" checked={removeConfig} onChange={(e) => setRemoveConfig(e.target.checked)} disabled={scopeLocked} className="rounded" />
           Delete this stack's config directory
         </label>
         <label className="flex items-center gap-2 text-sm text-[var(--warning)]">
-          <input type="checkbox" checked={removeData} onChange={(e) => setRemoveData(e.target.checked)} disabled={deleting} className="rounded" />
+          <input type="checkbox" checked={removeData} onChange={(e) => setRemoveData(e.target.checked)} disabled={scopeLocked} className="rounded" />
           Delete this stack's data directory
         </label>
         {removeData && (
@@ -121,6 +131,17 @@ export function DeleteStackDialog({ stackId, stackName, onClose }: DeleteStackDi
         </div>
       )}
 
+      {failedJobId && loadError && (
+        <button type="button" onClick={reloadJob}>Retry loading recovery options</button>
+      )}
+      {failedJobId && recovery && (
+        <RemovalRecovery jobId={failedJobId} recovery={recovery} onStarted={(id) => {
+          setDeleting(true)
+          setFailedJobId(null)
+          setJobId(id)
+        }} />
+      )}
+
       <div className="mt-6 flex justify-end gap-2">
         <button
           ref={cancelRef}
@@ -128,12 +149,12 @@ export function DeleteStackDialog({ stackId, stackName, onClose }: DeleteStackDi
           disabled={deleting}
           className="rounded-md border border-[var(--panel-border)] px-4 py-2 text-sm text-[var(--muted)] hover:text-[var(--text)] disabled:opacity-40"
         >
-          Cancel
+          {jobId && !deleting ? 'Close' : 'Cancel'}
         </button>
         <button
           data-testid="delete-confirm"
           onClick={handleDelete}
-          disabled={deleting || (!removeRuntime && !removeDefinition && !removeConfig && !removeData)}
+          disabled={scopeLocked || (!removeRuntime && !removeDefinition && !removeConfig && !removeData)}
           className="rounded-md border border-[var(--danger)]/30 bg-[var(--danger)]/10 px-4 py-2 text-sm text-[var(--danger)] transition hover:bg-[var(--danger)]/20 disabled:opacity-40"
         >
           {deleting ? 'Removing...' : 'Remove selected'}

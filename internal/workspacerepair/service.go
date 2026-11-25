@@ -172,6 +172,19 @@ func (s *Service) Repair(ctx context.Context, targetPath string, recursive bool)
 	return result, nil
 }
 
+// RepairRemovalDirectories grants directory access needed to unlink children.
+func (s *Service) RepairRemovalDirectories(ctx context.Context, targetPath string) error {
+	if !s.Capability(ctx).Supported {
+		return ErrUnsupported
+	}
+	args := []string{"repair", "--path", targetPath, "--removal-directories", "--strategy", s.repairStrategy}
+	output, err := s.runHelperCommand(ctx, args...)
+	if err != nil {
+		return fmt.Errorf("repair directory access: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
 func (s *Service) runHelperCommand(ctx context.Context, args ...string) ([]byte, error) {
 	if s.useSudo {
 		sudoArgs := append([]string{"-n", "--", s.helperPath}, args...)

@@ -2896,6 +2896,29 @@ paths:
           $ref: '#/components/responses/ErrorUnauthorized'
         '404':
           $ref: '#/components/responses/ErrorNotFound'
+  /jobs/{jobId}/retry-removal:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    post:
+      tags: [Jobs]
+      operationId: retryRemoval
+      responses:
+        '202':
+          description: Resume the remaining approved removal steps with directory access repair.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobEnvelopeResponse'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorInvalidState'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorInvalidState'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
   /jobs/{jobId}/cancel:
     parameters:
       - $ref: '#/components/parameters/JobId'
@@ -6261,6 +6284,15 @@ components:
     JobDetailResponse:
       type: object
       properties:
+        removal_recovery:
+          type: object
+          properties:
+            targets:
+              type: array
+              items: {type: string}
+            capability:
+              $ref: '#/components/schemas/WorkspaceRepairCapability'
+          required: [targets, capability]
         job:
           $ref: '#/components/schemas/Job'
       required: [job]

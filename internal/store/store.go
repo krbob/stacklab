@@ -895,6 +895,13 @@ func (s *Store) JobByID(ctx context.Context, id string) (Job, error) {
 	return job, nil
 }
 
+// IsLatestStackJob excludes the retry itself when checking under its stack reservation.
+func (s *Store) IsLatestStackJob(ctx context.Context, job Job, exceptID string) (bool, error) {
+	var latest bool
+	err := s.db.QueryRowContext(ctx, `SELECT COALESCE((SELECT id FROM jobs WHERE stack_id = ? AND id != ? ORDER BY rowid DESC LIMIT 1), '') = ?`, job.StackID, exceptID, job.ID).Scan(&latest)
+	return latest, err
+}
+
 func (s *Store) ListActiveJobs(ctx context.Context) ([]Job, error) {
 	rows, err := s.db.QueryContext(
 		ctx,

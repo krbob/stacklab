@@ -8,8 +8,10 @@ import { useJobDrawer } from '@/hooks/use-job-drawer'
 const mockGetJob = vi.fn()
 const mockGetJobEvents = vi.fn()
 const mockCancelJob = vi.fn()
+const mockRetryRemoval = vi.fn()
 
 vi.mock('@/lib/api-client', () => ({
+  retryRemoval: (...args: unknown[]) => mockRetryRemoval(...args),
   cancelJob: (...args: unknown[]) => mockCancelJob(...args),
   getJob: (...args: unknown[]) => mockGetJob(...args),
   getJobEvents: (...args: unknown[]) => mockGetJobEvents(...args),
@@ -47,6 +49,21 @@ describe('JobDetailDrawer', () => {
     mockGetJob.mockReset()
     mockGetJobEvents.mockReset()
     mockCancelJob.mockReset()
+  })
+
+  it('can resume removal from a failed historical job after the stack disappears', async () => {
+    mockGetJob.mockImplementation(async (id: string) => ({
+      job: { id, action: 'remove_stack_definition', stack_id: 'backrest', state: id === 'old' ? 'failed' : 'succeeded' },
+      ...(id === 'old' ? { removal_recovery: { targets: ['data/backrest'], capability: { supported: true } } } : {}),
+    }))
+    mockGetJobEvents.mockResolvedValue({ retained: true, items: [] })
+    mockRetryRemoval.mockResolvedValue({ job: { id: 'retry' } })
+    renderDrawer('old')
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }))
+    expect(await screen.findByText('data/backrest')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Repair access and retry removal' }))
+    await waitFor(() => expect(mockGetJob).toHaveBeenCalledWith('retry'))
+    expect(mockRetryRemoval).toHaveBeenCalledWith('old')
   })
 
   it('focuses the safe close action, closes on Escape, restores focus, and unlocks scrolling', () => {

@@ -41,7 +41,18 @@ func (h *operationsController) handleGetJob(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"job": job})
+	response := map[string]any{"job": job}
+	if _, targets := remainingRemoval(job); len(targets) > 0 {
+		latest, err := h.jobs.IsLatestStackJob(r.Context(), job, "")
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "Failed to check removal history.", nil)
+			return
+		}
+		if latest {
+			response["removal_recovery"] = map[string]any{"targets": targets, "capability": h.removalRepair.Capability(r.Context())}
+		}
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (h *operationsController) handleListActiveJobs(w http.ResponseWriter, r *http.Request) {

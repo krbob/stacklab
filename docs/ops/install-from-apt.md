@@ -153,6 +153,11 @@ flow instead:
   - the ACL strategy grants `rw` to regular files, retains `x` only for files
     whose current mode is executable, and grants access plus inheritable `rwx`
     permissions to directories
+  - after a stack removal fails on directory permissions, open the failed job
+    in **Audit log**. **Repair access and retry removal** shows the remaining
+    targets and uses the same helper and repair strategy. This operation grants
+    access to directories inside the selected stack's config or data tree.
+    Upgrade the helper together with the service and frontend.
   - when invoked through `sudo`, the helper grants access to the authenticated
     caller recorded by sudo in `SUDO_UID`/`SUDO_GID`; it does not infer the
     Stacklab identity from a stack or config directory owner

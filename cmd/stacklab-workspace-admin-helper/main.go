@@ -101,12 +101,14 @@ func runProbe(args []string) error {
 
 func runRepair(args []string) error {
 	var targetPath string
+	var removalDirectories bool
 	var recursive bool
 	var strategy string
 
 	flags := flag.NewFlagSet("repair", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	flags.StringVar(&targetPath, "path", "", "absolute target path within managed roots")
+	flags.BoolVar(&removalDirectories, "removal-directories", false, "repair directories for stack removal")
 	flags.BoolVar(&recursive, "recursive", false, "repair recursively when target is a directory")
 	flags.StringVar(&strategy, "strategy", repairStrategyOwnership, "repair strategy: ownership or acl")
 	if err := flags.Parse(args); err != nil {
@@ -127,16 +129,29 @@ func runRepair(args []string) error {
 	if err != nil {
 		return err
 	}
-	resolvedTarget, _, err := resolveManagedTarget(stacklabRoot, targetPath)
-	if err != nil {
-		return err
-	}
-
 	uid, gid, err := repairIdentity()
 	if err != nil {
 		return err
 	}
 
+	if removalDirectories {
+		if recursive {
+			return errors.New("unexpected recursive option for removal")
+		}
+		result := repairResult{}
+		err := repairRemovalDirectories(stacklabRoot, targetPath, strategy, uid, gid, &result)
+		if err != nil {
+			result.Warnings = []string{err.Error()}
+			emitResult(result)
+			return &emittedError{err}
+		}
+		emitResult(result)
+		return nil
+	}
+	resolvedTarget, _, err := resolveManagedTarget(stacklabRoot, targetPath)
+	if err != nil {
+		return err
+	}
 	var changed int
 	switch strategy {
 	case repairStrategyOwnership:

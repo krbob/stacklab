@@ -35,10 +35,16 @@ import (
 	"stacklab/internal/stackworkspace"
 	"stacklab/internal/store"
 	"stacklab/internal/terminal"
+	"stacklab/internal/workspacerepair"
 	"strings"
 	"sync"
 	"time"
 )
+
+type removalAccessRepairer interface {
+	Capability(context.Context) workspacerepair.Capability
+	RepairRemovalDirectories(context.Context, string) error
+}
 
 type Handler struct {
 	backups          *backup.Service
@@ -53,6 +59,7 @@ type Handler struct {
 	audit            *audit.Service
 	jobs             *jobs.Service
 	terminals        *terminal.Service
+	removalRepair    removalAccessRepairer
 	stackReader      *stacks.ServiceReader
 	imageUpdates     *imageupdates.Service
 	hostInfo         HostInfoReader
@@ -203,6 +210,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, dependencies Dependencie
 		appCtx:          dependencies.RuntimeContext,
 		workers:         dependencies.Workers,
 		cfg:             cfg,
+		removalRepair:   workspacerepair.NewService(cfg),
 		logger:          logger,
 		mux:             http.NewServeMux(),
 		auth:            dependencies.Auth,

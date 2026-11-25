@@ -248,6 +248,14 @@ export interface paths {
       };
     };
   };
+  "/jobs/{jobId}/retry-removal": {
+    post: operations["retryRemoval"];
+    parameters: {
+      path: {
+        jobId: components["parameters"]["JobId"];
+      };
+    };
+  };
   "/jobs/active": {
     get: operations["listActiveJobs"];
   };
@@ -1877,6 +1885,10 @@ export interface components {
     };
     JobDetailResponse: {
       job: components["schemas"]["Job"];
+      removal_recovery?: {
+        capability: components["schemas"]["WorkspaceRepairCapability"];
+        targets: string[];
+      };
     };
     JobEnvelopeResponse: {
       job: components["schemas"]["Job"];
@@ -4655,6 +4667,26 @@ export interface operations {
       };
       401: components["responses"]["ErrorUnauthorized"];
       404: components["responses"]["ErrorNotFound"];
+    };
+  };
+  retryRemoval: {
+    parameters: {
+      path: {
+        jobId: components["parameters"]["JobId"];
+      };
+    };
+    responses: {
+      /** @description Resume the remaining approved removal steps with directory access repair. */
+      202: {
+        content: {
+          "application/json": components["schemas"]["JobEnvelopeResponse"];
+        };
+      };
+      401: components["responses"]["ErrorUnauthorized"];
+      403: components["responses"]["ErrorInvalidState"];
+      404: components["responses"]["ErrorNotFound"];
+      409: components["responses"]["ErrorInvalidState"];
+      500: components["responses"]["ErrorInternal"];
     };
   };
   listActiveJobs: {

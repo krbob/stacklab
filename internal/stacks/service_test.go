@@ -744,6 +744,25 @@ func TestDeployBaselineDrivesConfigState(t *testing.T) {
 	}
 }
 
+func TestRemoveDataRejectsSymlinkedParent(t *testing.T) {
+	root := t.TempDir()
+	other := t.TempDir()
+	dir := filepath.Join(other, "demo")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(other, filepath.Join(root, "data")); err != nil {
+		t.Fatal(err)
+	}
+	reader := NewServiceReader(config.Config{RootDir: root}, nil)
+	if err := reader.RemoveDataDir("demo"); !errors.Is(err, ErrInvalidState) {
+		t.Fatalf("unexpected removal result: %v", err)
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRemoveDefinitionRejectsSymlinkedStackRoot(t *testing.T) {
 	t.Parallel()
 
