@@ -3,7 +3,7 @@ import { Eye, EyeOff } from 'lucide-react'
 import type { HostMetricsResponse, HostOverviewResponse } from '@/lib/api-types'
 import { AsyncState } from '@/components/async-state'
 import { formatBytes } from '@/pages/host-page-utils'
-import { formatLoadAverage, formatRate, formatTemperature, maskPublicIP } from '@/pages/host/host-metric-format'
+import { formatLoadAverage, formatRate, maskPublicIP } from '@/pages/host/host-metric-format'
 import {
   DiskIORow,
   FilesystemRow,
@@ -108,7 +108,6 @@ function HostMetricsContent({
   const topInterface = current.network.interfaces[0]
   const sampledAt = new Date(current.sampled_at).toLocaleTimeString()
   const cpuTone = utilizationTone(current.cpu.usage_percent)
-  const cpuTemperature = current.temperatures.cpu_celsius
   const memoryTone = utilizationTone(current.memory.usage_percent, 'bg-[#E8C07A]', '#E8C07A')
   const storageTone = utilizationTone(storage.usage_percent, 'bg-[var(--warning)]', '#D66F3F')
 
@@ -123,7 +122,7 @@ function HostMetricsContent({
         <MetricCard
           title="CPU"
           value={`${current.cpu.usage_percent.toFixed(1)}%`}
-          detail={`${current.cpu.core_count} cores · load avg 1/5/15m ${formatLoadAverage(current.cpu.load_average)}${cpuTemperature !== null ? ` · ${formatTemperature(cpuTemperature)}` : ''}`}
+          detail={`${current.cpu.core_count} cores`}
           color={cpuTone.line}
           values={history.map((sample) => sample.cpu.usage_percent)}
           sparklineMax={100}
@@ -131,6 +130,10 @@ function HostMetricsContent({
           valueClassName={cpuTone.text}
         >
           <PercentBar value={current.cpu.usage_percent} color={cpuTone.bar} label="CPU usage" />
+          <dl className="mt-2 flex flex-wrap justify-between gap-x-2 gap-y-1 text-xs">
+            <dt className="text-[var(--muted)]">Load avg (1/5/15m)</dt>
+            <dd className="tabular-nums text-[var(--text)]">{formatLoadAverage(current.cpu.load_average)}</dd>
+          </dl>
           <TemperatureRow temperatures={current.temperatures} />
         </MetricCard>
 
