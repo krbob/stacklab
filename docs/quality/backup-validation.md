@@ -16,6 +16,22 @@ database. `TestNativeCaptureRestorePreservesFileMetadata` runs on Linux and
 checks contents, modes, modification time, hard-link identity, symbolic links,
 supported user xattrs, and rejection when the staging byte budget is exceeded.
 
+`TestNativeArchiveIgnoresAccessAndChangeTimes` captures directories and individual
+files before/after atime/ctime changes and requires byte-identical GNU tar output,
+including under `POSIXLY_CORRECT`. It preserves nanosecond mtime and ownership.
+With restic installed, forced reads of both archives add zero new data blobs for
+unchanged contents, while a real payload change adds blobs and still passes a full
+repository check. Linux restore and inherited-ACL tests separately verify recovery
+of modes, ACLs, xattrs and hard/symbolic links.
+
+The 2026-11-27 Jellyfin investigation compared two real captures with no added or
+removed source paths. Eleven files changed content, but 1,055 PAX access-time
+records changed. An isolated restic experiment on those archives reduced the
+second capture's packed additions from 78.73 MB to 12.89 MB by omitting atime/ctime
+while checking all content hashes and other recorded metadata. Those figures are
+diagnostic measurements, not a guaranteed compression ratio or a production
+deployment result.
+
 Coordination tests cover shared sources, unmanaged writers, changed Compose
 mounts, compensation after capture failure, durable interruption journals,
 previously stopped services, descendant process cancellation, and keeping

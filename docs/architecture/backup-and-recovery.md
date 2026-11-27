@@ -62,6 +62,15 @@ source mapping, aliases, writer relationships, capture mode, Stacklab version,
 image prerequisites and warnings travel inside every repository copy. A
 repository can be restored without the live Stacklab database.
 
+The shared unprivileged/helper archive generator omits PAX `atime` and `ctime`
+and uses stable extended-header names. Reading source files or traversing
+directories must not make otherwise unchanged archives consume new restic data
+blocks. Content, nanosecond modification times, numeric ownership, modes, links,
+ACLs, xattrs and sparse-file handling remain intact. Access/status-change times
+are not recovery metadata guarantees. Existing snapshots remain readable; the
+first capture after this format correction may upload new blocks before later
+captures benefit from stable headers. Retention continues to manage older copies.
+
 Stacklab state uses SQLite `VACUUM INTO`, including committed WAL data in a
 standalone consistent database. Other state files and effective layout metadata
 are captured separately; live database files, staging, caches and restore work

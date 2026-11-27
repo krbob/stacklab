@@ -437,7 +437,11 @@ func archiveArgs(source string, excludes []string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	args := []string{"--create", "--file=-", "--format=pax", "--acls", "--xattrs", "--numeric-owner", "--sparse", "--one-file-system"}
+	// Reads alone change atime (including directory traversal by a previous
+	// capture). Recording it in every PAX header defeats restic's block reuse.
+	// Keep recovery metadata, including nanosecond mtime, ACLs and xattrs, but
+	// omit access/status-change times and any process ID in PAX header names.
+	args := []string{"--create", "--file=-", "--format=pax", "--pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime", "--acls", "--xattrs", "--numeric-owner", "--sparse", "--one-file-system"}
 	for _, exclude := range excludes {
 		if strings.ContainsRune(exclude, 0) || filepath.IsAbs(exclude) || strings.Contains(exclude, "../") {
 			return nil, errors.New("exclusions must be relative patterns")
