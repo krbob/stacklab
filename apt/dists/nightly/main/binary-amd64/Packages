@@ -1,22 +1,4 @@
 Package: stacklab
-Version: 2026.11.0~nightly20261031+r219.g5147d60
-Architecture: amd64
-Maintainer: Krzysztof Bobiński <krzysztof@bobinski.net>
-Depends: restic (>= 0.14), rclone (>= 1.60), tar, openssh-client, acl, adduser, systemd, docker.io | docker-ce | moby-engine, docker-cli | docker-ce-cli | moby-cli | docker.io (<< 26.0), docker-compose | docker-compose-plugin, git
-Recommends: ca-certificates, python3 (>= 3.9), python3-yaml
-Filename: pool/nightly/main/s/stacklab/stacklab_2026.11.0~nightly20261031+r219.g5147d60_amd64.deb
-Size: 15190346
-MD5sum: b8e7da1fa519a3bf03d7ef8e46170c2b
-SHA1: caf1e957dfd3324b894fb0b2d023c48134898ea6
-SHA256: 996c52747ebc4f011f78d805c19b8f9417afc90f3208d7b0caf435e6859b1d98
-Section: admin
-Priority: optional
-Homepage: https://github.com/krbob/stacklab
-Description: Host-native web control panel for Docker Compose stacks
- Stacklab is a host-native web control panel for managing Docker Compose stacks
- on a single Linux server.
-
-Package: stacklab
 Version: 2026.12.0~nightly20261111+r230.g8dfda16
 Architecture: amd64
 Maintainer: Krzysztof Bobiński <krzysztof@bobinski.net>
@@ -117,6 +99,24 @@ Size: 15496586
 MD5sum: ae9abdb883b8a36bde6a3ad8bcdc807e
 SHA1: 3a95bb7161ca1b7817b3a0e09061a9acf6de59cb
 SHA256: 0d44b7cd9aa1947a182039202d2a7f6a4cb34d714c5a6be10d4fbd1a6cca1767
+Section: admin
+Priority: optional
+Homepage: https://github.com/krbob/stacklab
+Description: Host-native web control panel for Docker Compose stacks
+ Stacklab is a host-native web control panel for managing Docker Compose stacks
+ on a single Linux server.
+
+Package: stacklab
+Version: 2026.12.0~nightly20261127+r246.gea8de6e
+Architecture: amd64
+Maintainer: Krzysztof Bobiński <krzysztof@bobinski.net>
+Depends: restic (>= 0.14), rclone (>= 1.60), tar, openssh-client, acl, adduser, systemd, docker.io | docker-ce | moby-engine, docker-cli | docker-ce-cli | moby-cli | docker.io (<< 26.0), docker-compose | docker-compose-plugin, git
+Recommends: ca-certificates, python3 (>= 3.9), python3-yaml
+Filename: pool/nightly/main/s/stacklab/stacklab_2026.12.0~nightly20261127+r246.gea8de6e_amd64.deb
+Size: 15496696
+MD5sum: fa9f5a96d7cf3b17a0e1625ac3cf9492
+SHA1: 9922afc65dc10818d22241280a589258e48dbafb
+SHA256: 33ea808cad7dd2670c08d9a9517ba98d24c2bbec7c8b70d15da4059f27cba8d5
 Section: admin
 Priority: optional
 Homepage: https://github.com/krbob/stacklab
